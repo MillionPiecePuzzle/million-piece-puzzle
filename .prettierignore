@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+.vite
+*.tsbuildinfo
+package-lock.json
+CLAUDE.md
+ROADMAP.md
+README.md
