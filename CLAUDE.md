@@ -60,61 +60,10 @@ Locked pieces are permanent (no undo, no griefing).
 - The server filters drag messages by `heldBy` ownership: only the winner's drag stream is broadcast to neighbors. From the outside it looks like only one person ever dragged the cluster.
 - The loser receives a small rollback animation.
 
-### Redis (live state, per active puzzle)
+### Persistence
 
-```
-puzzle:{puzzleId}:meta              hash    totalPieces, gridRows, gridCols, status, startedAt, generationSeed
-puzzle:{puzzleId}:piece:{pieceId}   hash    groupId, rotation
-puzzle:{puzzleId}:group:{groupId}   hash    worldX, worldY, locked, size, heldBy
-puzzle:{puzzleId}:group-pieces:{gid} set    pieceIds in the group
-puzzle:{puzzleId}:locked-count      string  integer, atomic counter of locked pieces (broadcast for live progress)
-puzzle:{puzzleId}:presence          hash    userId -> viewportX, viewportY, zoom, lastSeenAt
-```
-
-A piece's absolute position is derived: `group.worldX + canonicalOffset(pieceId, group)`. It is never stored per piece.
-
-### Mongo (persistent)
-
-Types live in `packages/shared/src/db.ts`.
-
-```ts
-type Puzzle = {
-  _id: string                    // slug, e.g. "alpha-2026"
-  name: string
-  totalPieces: number
-  gridRows: number
-  gridCols: number
-  generationSeed: string         // deterministic piece geometry
-  imageManifestUrl: string       // R2 url
-  status: "draft" | "active" | "completed"
-  createdAt: Date
-  startedAt: Date | null
-  completedAt: Date | null
-}
-
-type User = {
-  _id: string                    // Auth.js user id
-  pseudo: string                 // unique across all users
-  createdAt: Date
-  lastSeenAt: Date
-}
-
-type ClusterMerge = {
-  _id: ObjectId
-  puzzleId: string
-  userId: string                 // who triggered the merge
-  addedPieceIds: number[]        // pieces newly joined into the target cluster
-  targetAnchorPieceId: number    // representative piece of the target cluster
-  anchored: boolean              // true if this merge locked the resulting cluster
-  at: Date
-}
-```
-
-Indexes:
-- `users.pseudo` unique
-- `cluster_merges (puzzleId, at)` for timelapse replay
-- `cluster_merges (puzzleId, addedPieceIds)` for per-piece attribution
-- Auth.js adapter manages its own collections (accounts, sessions) with their own indexes.
+- Mongo schemas (TS source of truth): [packages/shared/src/db.ts](packages/shared/src/db.ts).
+- Redis key patterns (TS source of truth): [packages/server/src/redis/keys.ts](packages/server/src/redis/keys.ts).
 
 ### What is intentionally not stored
 

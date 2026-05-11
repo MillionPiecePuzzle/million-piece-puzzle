@@ -131,7 +131,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `frontend-shell`
 - [ ] Final landing copy, contributor onboarding flow (login + pseudo creation)
-- [ ] Auth modal wires Firebase Auth providers
+- [ ] Auth modal wires Auth.js providers
 
 ### `frontend-canvas`
 - [ ] Zoom-out LOD uses aggregated tiles instead of per-piece sprites
