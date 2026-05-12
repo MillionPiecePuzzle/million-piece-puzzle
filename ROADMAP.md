@@ -32,8 +32,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Piece schema and anonymous user schema defined in `shared`
 
 ### `piece-generation`
-- [ ] Generator produces N unique pieces on a grid, with continuous Bezier edge parameters and matching tabs/blanks between neighbors
-- [ ] Snap geometry (anchor points, tolerance) computed per piece
+- [x] Generator produces N unique pieces on a grid, with continuous Bezier edge parameters and matching tabs/blanks between neighbors
+- [x] Snap geometry (anchor points, tolerance) computed per piece
 
 ### `image-pipeline`
 - [ ] Local script slices a test image into N AVIF pieces and emits a manifest consumable by the frontend

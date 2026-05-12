@@ -32,6 +32,7 @@ pnpm-debug.log*
 *.key
 
 # Editor / OS
+.claude/settings.local.json
 .vscode/
 !.vscode/extensions.json
 !.vscode/settings.json.example
