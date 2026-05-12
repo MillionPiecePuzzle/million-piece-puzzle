@@ -8,10 +8,15 @@
  * The bezier silhouette mask is intentionally NOT applied here. The frontend
  * applies the mask at render time using the piece geometry from `@mpp/shared`.
  *
+ * `pieceSize` defaults to the largest integer that lets `cols * pieceSize` and
+ * `rows * pieceSize` fit inside the source image. The puzzle area is
+ * center-cropped from the source; any leftover band on the longer axis is
+ * discarded.
+ *
  * Usage:
  *   npm run slice -- --input samples/source/puzzle.png \
  *                    --seed test123 --rows 7 --cols 7 \
- *                    --piece-size 200 --output generated/test
+ *                    --output generated/test
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -26,7 +31,7 @@ type Args = {
   seed: string;
   rows: number;
   cols: number;
-  pieceSize: number;
+  pieceSize?: number;
   margin?: number;
   quality: number;
 };
@@ -44,7 +49,7 @@ function parseArgs(argv: string[]): Args {
     args[key] = value;
     i++;
   }
-  const required = ["input", "output", "seed", "rows", "cols", "piece-size"];
+  const required = ["input", "output", "seed", "rows", "cols"];
   for (const k of required) {
     if (!(k in args)) throw new Error(`missing required flag --${k}`);
   }
@@ -54,7 +59,9 @@ function parseArgs(argv: string[]): Args {
     seed: args["seed"],
     rows: parseInt(args["rows"], 10),
     cols: parseInt(args["cols"], 10),
-    pieceSize: parseInt(args["piece-size"], 10),
+    pieceSize: args["piece-size"]
+      ? parseInt(args["piece-size"], 10)
+      : undefined,
     margin: args["margin"] ? parseInt(args["margin"], 10) : undefined,
     quality: args["quality"] ? parseInt(args["quality"], 10) : 60,
   };
@@ -66,42 +73,64 @@ function pad(n: number, width: number): string {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const margin = args.margin ?? Math.round(0.35 * args.pieceSize);
-  const tileSize = args.pieceSize + 2 * margin;
 
   const sourceMeta = await sharp(args.input).metadata();
   if (!sourceMeta.width || !sourceMeta.height) {
     throw new Error("could not read source image dimensions");
   }
-  const expectedWidth = args.cols * args.pieceSize;
-  const expectedHeight = args.rows * args.pieceSize;
+
+  const pieceSize =
+    args.pieceSize ??
+    Math.floor(
+      Math.min(sourceMeta.width / args.cols, sourceMeta.height / args.rows),
+    );
+  if (pieceSize < 1) {
+    throw new Error("derived pieceSize is below 1, image too small for grid");
+  }
+
+  const margin = args.margin ?? Math.round(0.35 * pieceSize);
+  const tileSize = pieceSize + 2 * margin;
+
+  const puzzleWidth = args.cols * pieceSize;
+  const puzzleHeight = args.rows * pieceSize;
   if (
-    sourceMeta.width !== expectedWidth ||
-    sourceMeta.height !== expectedHeight
+    puzzleWidth > sourceMeta.width ||
+    puzzleHeight > sourceMeta.height
   ) {
     throw new Error(
-      `source image is ${sourceMeta.width}x${sourceMeta.height}, expected ${expectedWidth}x${expectedHeight} (${args.cols} cols * ${args.rows} rows * ${args.pieceSize}px)`,
+      `puzzle area ${puzzleWidth}x${puzzleHeight} does not fit in source ${sourceMeta.width}x${sourceMeta.height}`,
     );
   }
+  const cropLeft = Math.floor((sourceMeta.width - puzzleWidth) / 2);
+  const cropTop = Math.floor((sourceMeta.height - puzzleHeight) / 2);
 
   const puzzleId = path.basename(args.output);
   const piecesDir = path.join(args.output, "pieces");
   await mkdir(piecesDir, { recursive: true });
 
   const idWidth = Math.max(4, String(args.rows * args.cols - 1).length);
-  const sourceBuffer = await sharp(args.input).toBuffer();
+  const sourceBuffer = await sharp(args.input)
+    .extract({
+      left: cropLeft,
+      top: cropTop,
+      width: puzzleWidth,
+      height: puzzleHeight,
+    })
+    .toBuffer();
+  const croppedWidth = puzzleWidth;
+  const croppedHeight = puzzleHeight;
   const pieces: ImageManifest["pieces"] = [];
 
   for (let row = 0; row < args.rows; row++) {
     for (let col = 0; col < args.cols; col++) {
       const id = row * args.cols + col;
-      const tileLeft = col * args.pieceSize - margin;
-      const tileTop = row * args.pieceSize - margin;
+      const tileLeft = col * pieceSize - margin;
+      const tileTop = row * pieceSize - margin;
 
       const left = Math.max(0, tileLeft);
       const top = Math.max(0, tileTop);
-      const right = Math.min(sourceMeta.width, tileLeft + tileSize);
-      const bottom = Math.min(sourceMeta.height, tileTop + tileSize);
+      const right = Math.min(croppedWidth, tileLeft + tileSize);
+      const bottom = Math.min(croppedHeight, tileTop + tileSize);
       const extractWidth = right - left;
       const extractHeight = bottom - top;
       const padLeft = left - tileLeft;
@@ -139,7 +168,7 @@ async function main() {
     seed: args.seed,
     rows: args.rows,
     cols: args.cols,
-    pieceSize: args.pieceSize,
+    pieceSize,
     margin,
     tileSize,
     source: {

@@ -26,7 +26,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Default `pieceSize = 100` in generator output](#2026-05-12-piece-generation-piecesize-default) -> image pipeline will pin the real pixel size; consumer should pass it explicitly once known.
 - [Image pipeline emits rectangular tiles without silhouette mask](#2026-05-12-image-pipeline-rectangular-tiles) -> revisit if client-side masking shows up in render profiling at Phase 1+ scale.
 - [Piece tiles flat in `pieces/`, no folder bucketing](#2026-05-12-image-pipeline-flat-tile-layout) -> add bucketing in Phase 1+ when N exceeds a few thousand.
-- [Source image must match `cols * pieceSize` by `rows * pieceSize` exactly](#2026-05-12-image-pipeline-exact-source-dimensions) -> add resizing or aspect-fitting only if a real workflow demands it.
+- [Image pipeline derives `pieceSize` from image dimensions and center-crops](#2026-05-12-image-pipeline-adaptive-piecesize) -> revisit if non-centered crops or aspect-fitting become useful.
 
 ---
 
@@ -87,10 +87,13 @@ Choice: piece tiles are written flat in `<output>/pieces/NNNN.avif`, zero-padded
 Why: trivial at Phase 0 scale (49 pieces). The bucketed `pieces/0000/0000.avif` layout described in CLAUDE.md is overkill until N grows.
 Revisit when: Phase 1 (10k pieces) or Phase 2 (1M). Introduce per-100 or per-10000 bucket folders to keep filesystem listings sane.
 
-### 2026-05-12, image-pipeline, exact source dimensions
-Choice: the slicer errors out if the source image is not exactly `cols * pieceSize` by `rows * pieceSize` pixels. No resizing, no cropping, no aspect-fit.
-Why: explicit contract beats silent magic. The user knows what they fed in; mismatches are almost always bugs.
-Revisit when: a real authoring workflow needs to accept arbitrary input dimensions. Add a preprocessing step (resize / center-crop) gated behind an explicit flag.
+### 2026-05-12, image-pipeline, exact source dimensions [SUPERSEDED]
+Superseded by [adaptive pieceSize](#2026-05-12-image-pipeline-adaptive-piecesize). Original rationale (explicit contract over silent magic) traded for a friendlier workflow where any image can be dropped in.
+
+### 2026-05-12, image-pipeline, adaptive pieceSize
+Choice: `--piece-size` is optional. When omitted, the script derives `pieceSize = floor(min(width/cols, height/rows))` from the source image and center-crops the puzzle area to `cols*pieceSize` by `rows*pieceSize`. Any leftover band on the longer axis is discarded.
+Why: the user wants to drop any image and have the pipeline adapt, not the other way around. Center-crop keeps the visually important center of the image.
+Revisit when: a workflow needs to preserve the full image (no crop), align the puzzle to a non-center anchor, or use non-square pieces.
 
 ### 2026-05-12, shared-protocol, piece geometry not on the wire
 Choice: piece silhouettes and canonical offsets are recomputed from `generationSeed` on both sides, never serialized.
