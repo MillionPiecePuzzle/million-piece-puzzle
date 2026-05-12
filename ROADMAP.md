@@ -48,7 +48,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Play page shows mode toggle (spectator vs contributor), auth modal stub present but inactive
 
 ### `frontend-canvas`
-- [ ] PixiJS canvas renders the generated pieces from the manifest
+- [x] PixiJS canvas renders the generated pieces from the manifest
 - [ ] Contributor mode supports drag, drop, and snap with visual feedback
 - [ ] Cascade entrance animation plays when the puzzle session opens (pieces fall into the canvas)
 - [ ] Snap animation plays when a piece locks (scale bump, flash, easing)

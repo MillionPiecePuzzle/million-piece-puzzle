@@ -30,6 +30,8 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Server bootstrap reads puzzle config from a manifest file path](#2026-05-12-backend-realtime-manifest-bootstrap) -> replace with Mongo-backed puzzle catalog once Phase 1 manages multiple puzzles.
 - [Snap detection compares group origins for equality within tolerance](#2026-05-12-backend-realtime-snap-by-origin) -> stable assumption; revisit only if canonical offsets stop being puzzle-global (e.g., rotation enabled).
 - [Server Docker image installs all workspace runtime deps](#2026-05-12-backend-realtime-docker-all-workspace-deps) -> trim once image size matters.
+- [Piece outline approximated by 4 cubic Beziers per curved edge](#2026-05-12-frontend-canvas-piece-path-segments) -> revisit if silhouettes look degenerate or if a tighter approximation is needed for snap visuals.
+- [Vite dev middleware serves `generated/<id>/` at `/puzzle/`](#2026-05-12-frontend-canvas-vite-puzzle-middleware) -> drop once Phase 1 points the frontend at R2 and the slice output no longer needs a local HTTP face.
 
 ---
 
@@ -140,3 +142,15 @@ Revisit when: image size or cold-start time matters (Phase 1+ deploys). Switch t
 Choice: piece silhouettes and canonical offsets are recomputed from `generationSeed` on both sides, never serialized.
 Why: at 1M pieces, geometry would dominate payload size. Seed-based determinism keeps state minimal and timelapse replay tractable.
 Revisit when: never expected. If the generator becomes non-deterministic across platforms (FP drift), pin to a fixed integer-math implementation rather than start shipping geometry.
+
+### 2026-05-12, frontend-canvas, piece path segments
+
+Choice: each curved edge of a piece silhouette is approximated by 4 cubic Bezier segments (shoulder-up, head-left, head-right, shoulder-down). Flat edges are single line segments. The closed loop is walked clockwise; the two edges traversed against canonical direction (bottom, left) emit reversed segments with cp1/cp2 swapped so the physical curve drawn on a shared edge is identical from both pieces.
+Why: a 4-segment approximation gives a recognizably jigsaw-shaped silhouette without overfitting to the current edge param ranges. Reversing emit order (rather than mirroring continuous params) keeps the canonical edge params as the single source of truth.
+Revisit when: silhouettes look degenerate (self-intersection, asymmetric necks), or when snap visuals demand a tighter fit between neighbors. Widening edge param ranges should be checked against this approximation first.
+
+### 2026-05-12, frontend-canvas, Vite puzzle middleware
+
+Choice: in dev, a small Vite middleware in `packages/frontend/vite.config.ts` serves `<repo>/generated/<MPP_PUZZLE_ID:default test>/` at `/puzzle/*`. The slice script keeps writing to `generated/<id>/`, the server keeps reading the manifest via its existing volume mount, and the frontend fetches `/puzzle/manifest.json` plus tiles relative to it.
+Why: avoids copying artifacts into `packages/frontend/public/`, keeps `generated/` as the single source of truth, and matches the URL convention encoded in `MPP_IMAGE_MANIFEST_URL` (`http://localhost:5173/puzzle/manifest.json`).
+Revisit when: production deployment points the frontend at R2 (Phase 1). The middleware is dev-only and can be removed once tiles live on a CDN.

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@mpp/shared": "*",
+    "pixi.js": "^8.18.1",
     "vue": "^3.5.13",
     "vue-router": "^4.6.4"
   },

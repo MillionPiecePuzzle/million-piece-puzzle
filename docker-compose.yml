@@ -30,7 +30,7 @@ services:
       MPP_MONGO_URL: "mongodb://mongo:27017"
       MPP_MONGO_DB: "mpp"
       MPP_MANIFEST: "${MPP_MANIFEST:-/work/generated/test/manifest.json}"
-      MPP_IMAGE_MANIFEST_URL: "${MPP_IMAGE_MANIFEST_URL:-http://localhost:5173/manifest.json}"
+      MPP_IMAGE_MANIFEST_URL: "${MPP_IMAGE_MANIFEST_URL:-http://localhost:5173/puzzle/manifest.json}"
     ports:
       - "8080:8080"
     volumes:
