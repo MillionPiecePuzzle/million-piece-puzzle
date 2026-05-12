@@ -50,10 +50,9 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 ### `frontend-canvas`
 - [x] PixiJS canvas renders the generated pieces from the manifest
 - [x] Contributor mode supports drag, drop, and snap with visual feedback
-- [ ] Cascade entrance animation plays when the puzzle session opens (pieces fall into the canvas)
-- [ ] Snap animation plays when a piece locks (scale bump, flash, easing)
-- [ ] End-of-puzzle animation plays when the last piece snaps
-- [ ] Completion is detected and signaled
+- [x] Snap animation plays when a piece locks (scale bump, flash, easing)
+- [x] End-of-puzzle animation plays when the last piece snaps
+- [x] Completion is detected and signaled
 
 ### `auth-and-accounts`
 - [ ] Anonymous contributor mode: client connects to WS without auth, server assigns ephemeral id
@@ -122,6 +121,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `shared-protocol`
 - [ ] Protocol frozen at v1, breaking changes go through version bump
+- [ ] `eventStartsAt` (unix ms) included in `welcome` so clients can sync the cascade trigger
 
 ### `piece-generation`
 - [ ] Generation pipeline produces and validates 1 000 000 unique pieces
@@ -131,11 +131,13 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `frontend-shell`
 - [ ] Final landing copy, contributor onboarding flow (login + pseudo creation)
+- [ ] Countdown timer on landing while waiting for `eventStartsAt`
 - [ ] Auth modal wires Auth.js providers
 
 ### `frontend-canvas`
 - [ ] Zoom-out LOD uses aggregated tiles instead of per-piece sprites
 - [ ] Rendering stays smooth on commodity hardware at 1M pieces
+- [ ] Event-start cascade entrance: synchronized across clients at `eventStartsAt`, pieces fall into their shuffled positions, late joiners skip it
 
 ### `backend-realtime`
 - [ ] Viewport sharding for broadcasts at scale

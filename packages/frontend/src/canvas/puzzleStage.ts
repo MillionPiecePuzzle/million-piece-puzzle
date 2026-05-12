@@ -18,12 +18,15 @@ import {
   type PuzzleGeometry,
 } from "@mpp/shared";
 import { applyPath } from "./applyPath";
+import { Tweener, peak, easeOutCubic } from "./tween";
 
 export type Mode = "spectator" | "contributor";
 
 type PieceNode = {
   id: number;
   container: Container;
+  inner: Container;
+  flash: Graphics;
   geometry: PieceGeometry;
 };
 
@@ -53,6 +56,16 @@ export type StageCallbacks = {
 
 const DEFAULT_MANIFEST_URL = "/puzzle/manifest.json";
 const HELD_SCALE = 1.02;
+const SNAP_BUMP_SCALE = 1.08;
+const SNAP_BUMP_MS = 240;
+const SNAP_FLASH_ALPHA = 0.55;
+const SNAP_FLASH_MS = 260;
+
+const END_PULSE_SCALE = 1.06;
+const END_PULSE_MS = 280;
+const END_PULSE_SPREAD_MS = 700;
+const END_FLASH_MS = 900;
+const END_FLASH_ALPHA = 0.35;
 
 export class PuzzleStage {
   private app: Application | null = null;
@@ -70,6 +83,7 @@ export class PuzzleStage {
     lastX: 0,
     lastY: 0,
   };
+  private tweener: Tweener | null = null;
 
   setMode(mode: Mode): void {
     this.mode = mode;
@@ -110,6 +124,7 @@ export class PuzzleStage {
 
     this.app = app;
     this.world = world;
+    this.tweener = new Tweener(app.ticker);
     this.attachWheelZoom(app.canvas);
   }
 
@@ -171,6 +186,8 @@ export class PuzzleStage {
   }
 
   destroy(): void {
+    this.tweener?.destroy();
+    this.tweener = null;
     this.app?.destroy(true, { children: true, texture: true });
     this.app = null;
     this.world = null;
@@ -280,6 +297,100 @@ export class PuzzleStage {
     if (this.held && (this.held.groupId === newGroupId || sourceGroupIds.has(this.held.groupId))) {
       this.held = null;
     }
+
+    for (const pieceId of addedPieceIds) {
+      const piece = host.pieces.find((p) => p.id === pieceId);
+      if (piece) this.playSnapAnimation(piece);
+    }
+  }
+
+  playEndOfPuzzle(): void {
+    if (!this.tweener || !this.app) return;
+
+    // Per-piece staggered pulse radiating from the puzzle center.
+    const allPieces: { piece: PieceNode; worldCx: number; worldCy: number }[] = [];
+    for (const group of this.groups.values()) {
+      for (const p of group.pieces) {
+        const cx = group.worldX + p.container.x + p.inner.position.x;
+        const cy = group.worldY + p.container.y + p.inner.position.y;
+        allPieces.push({ piece: p, worldCx: cx, worldCy: cy });
+      }
+    }
+    if (allPieces.length === 0) return;
+
+    let cxAvg = 0;
+    let cyAvg = 0;
+    for (const e of allPieces) {
+      cxAvg += e.worldCx;
+      cyAvg += e.worldCy;
+    }
+    cxAvg /= allPieces.length;
+    cyAvg /= allPieces.length;
+
+    let maxDist = 0;
+    const distances = allPieces.map((e) => {
+      const dx = e.worldCx - cxAvg;
+      const dy = e.worldCy - cyAvg;
+      const d = Math.hypot(dx, dy);
+      if (d > maxDist) maxDist = d;
+      return d;
+    });
+
+    for (let i = 0; i < allPieces.length; i++) {
+      const piece = allPieces[i]!.piece;
+      const delay = maxDist > 0 ? (distances[i]! / maxDist) * END_PULSE_SPREAD_MS : 0;
+      this.tweener.add({
+        duration: END_PULSE_MS,
+        delay,
+        easing: peak,
+        onUpdate: (v) => {
+          const s = 1 + (END_PULSE_SCALE - 1) * v;
+          piece.inner.scale.set(s);
+        },
+        onDone: () => piece.inner.scale.set(1),
+      });
+    }
+
+    // Full-screen flash sitting above the world but below any HTML overlay.
+    const flash = new Graphics();
+    const s = this.app.renderer.screen;
+    flash.rect(0, 0, s.width, s.height).fill({ color: 0xffffff });
+    flash.alpha = 0;
+    this.app.stage.addChild(flash);
+    this.tweener.add({
+      duration: END_FLASH_MS,
+      easing: peak,
+      onUpdate: (v) => {
+        flash.alpha = END_FLASH_ALPHA * v;
+      },
+      onDone: () => {
+        flash.destroy();
+      },
+    });
+  }
+
+  private playSnapAnimation(piece: PieceNode): void {
+    if (!this.tweener) return;
+    const { inner, flash } = piece;
+    this.tweener.add({
+      duration: SNAP_BUMP_MS,
+      easing: peak,
+      onUpdate: (v) => {
+        const s = 1 + (SNAP_BUMP_SCALE - 1) * v;
+        inner.scale.set(s);
+      },
+      onDone: () => inner.scale.set(1),
+    });
+    this.tweener.add({
+      duration: SNAP_FLASH_MS,
+      easing: easeOutCubic,
+      onUpdate: (v) => {
+        flash.alpha = SNAP_FLASH_ALPHA * (1 - v);
+      },
+      onDone: () => {
+        flash.alpha = 0;
+      },
+    });
   }
 
   // ----- internals -----
@@ -424,21 +535,39 @@ function buildPieceNode(
   container.x = geometry.canonicalOffset.x;
   container.y = geometry.canonicalOffset.y;
 
+  // Inner container holds the visuals and pivots around the piece visual
+  // center so scale animations (held bump, snap bump) feel centered on the
+  // piece rather than skewed toward the top-left.
+  const half = manifest.pieceSize / 2;
+  const inner = new Container();
+  inner.pivot.set(half, half);
+  inner.position.set(half, half);
+
   const sprite = new Sprite(texture);
   sprite.width = manifest.tileSize;
   sprite.height = manifest.tileSize;
   sprite.x = -manifest.margin;
   sprite.y = -manifest.margin;
 
+  const path = piecePath(geometry, manifest.pieceSize);
+
   const mask = new Graphics();
-  applyPath(mask, piecePath(geometry, manifest.pieceSize));
+  applyPath(mask, path);
   mask.fill({ color: 0xffffff });
 
-  container.addChild(sprite);
-  container.addChild(mask);
+  const flash = new Graphics();
+  applyPath(flash, path);
+  flash.fill({ color: 0xffffff });
+  flash.alpha = 0;
+
+  inner.addChild(sprite);
+  inner.addChild(mask);
+  inner.addChild(flash);
   sprite.mask = mask;
 
-  return { id: geometry.id, container, geometry };
+  container.addChild(inner);
+
+  return { id: geometry.id, container, inner, flash, geometry };
 }
 
 async function loadTextures(

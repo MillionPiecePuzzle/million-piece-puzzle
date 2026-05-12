@@ -12,6 +12,7 @@ const { mode } = useMode();
 let stage: PuzzleStage | null = null;
 let built = false;
 let unsubscribe: (() => void) | null = null;
+const completed = ref(false);
 
 const statusLabel = computed(() => {
   switch (state.value.kind) {
@@ -36,6 +37,12 @@ const errorMessage = computed(() =>
 
 const showStatus = computed(() => state.value.kind !== "ready");
 
+const totalPieces = computed(() =>
+  state.value.kind === "ready" || state.value.kind === "syncing"
+    ? state.value.welcome.totalPieces
+    : 0,
+);
+
 function routeMessage(msg: ServerMessage): void {
   if (!stage) return;
   switch (msg.t) {
@@ -53,6 +60,10 @@ function routeMessage(msg: ServerMessage): void {
       break;
     case "snap":
       stage.applySnap(msg.newGroupId, msg.addedPieceIds, msg.worldX, msg.worldY, msg.anchored);
+      if (totalPieces.value > 0 && msg.lockedCount >= totalPieces.value && !completed.value) {
+        completed.value = true;
+        stage.playEndOfPuzzle();
+      }
       break;
     case "rollback":
       stage.applyRollback(msg.groupId, msg.worldX, msg.worldY);
@@ -82,6 +93,9 @@ watch(state, async (s) => {
   stage.setLocalUserId(userId.value);
   await stage.build(s.manifest, s.pieces, s.groups);
   stage.setMode(mode.value);
+  if (s.welcome.lockedCount >= s.welcome.totalPieces) {
+    completed.value = true;
+  }
 });
 
 watch(mode, (m) => {
@@ -103,6 +117,13 @@ onBeforeUnmount(() => {
       <p class="value">{{ statusLabel }}</p>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
+    <Transition name="completion">
+      <div v-if="completed" class="completion-banner" role="status">
+        <p class="kicker">Complete</p>
+        <p class="value">Puzzle assembled.</p>
+        <p class="meta">{{ totalPieces.toLocaleString() }} pieces placed.</p>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -146,5 +167,50 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: oklch(0.55 0.18 30);
   max-width: 480px;
+}
+.completion-banner {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 18px 28px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+.completion-banner .kicker {
+  margin: 0 0 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.completion-banner .value {
+  margin: 0 0 4px;
+  font-family: var(--serif);
+  font-size: 22px;
+  color: var(--ink);
+}
+.completion-banner .meta {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.completion-enter-active {
+  transition: opacity 600ms ease 600ms, transform 600ms ease 600ms;
+}
+.completion-leave-active {
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+.completion-enter-from,
+.completion-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -12px);
 }
 </style>

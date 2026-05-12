@@ -34,6 +34,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Vite dev middleware serves `generated/<id>/` at `/puzzle/`](#2026-05-12-frontend-canvas-vite-puzzle-middleware) -> drop once Phase 1 points the frontend at R2 and the slice output no longer needs a local HTTP face.
 - [Piece hit testing uses the sprite bounding rect, not the mask silhouette](#2026-05-12-frontend-canvas-bounding-rect-hits) -> revisit once overlap zones between adjacent unmerged pieces produce confusing pickups.
 - [Drag broadcasts sent on every pointermove without throttling](#2026-05-12-frontend-canvas-drag-no-throttle) -> coalesce with requestAnimationFrame once the WS shows backpressure or high-rate mice flood the server.
+- [Cascade entrance animation descoped from Phase 0 to Phase 2](#2026-05-12-frontend-canvas-cascade-deferred) -> requires event scheduling (`eventStartsAt`) and a landing countdown to be meaningful; building it now would mean rebuilding it twice.
 
 ---
 
@@ -168,3 +169,9 @@ Revisit when: overlap zones produce confusing pickups in practice, or once piece
 Choice: every `pointermove` while a piece is held emits a `drag` WS message. No coalescing.
 Why: simplest correct behavior. At Phase 0 (one client, low-rate mice) bandwidth is irrelevant, and the server already serializes messages.
 Revisit when: high-rate mice (240Hz+) or many concurrent draggers create WS backpressure. Coalesce to one message per `requestAnimationFrame` tick and send the last point.
+
+### 2026-05-12, frontend-canvas, cascade deferred
+
+Choice: the cascade entrance animation is removed from Phase 0 and moved to Phase 2. The Phase 2 frontend-canvas entry describes it as a synchronized event-start cinematic, with pre-reqs in shared-protocol (`eventStartsAt` in welcome) and frontend-shell (landing countdown).
+Why: the product vision is an event with a countdown on the landing page: at t=0 the canvas opens and every client plays the same cascade simultaneously, conveying scale and hype. Late joiners skip it. None of that is testable in Phase 0 (no event scheduling, no countdown, no synchronized trigger), and a local "play on /play open" cascade would be rewritten when the real trigger lands. Phase 0 ships without cascade; the other animations (snap, end-of-puzzle) still carry the "feel alive" pillar.
+Revisit when: starting Phase 2, or earlier if the Phase 1 alpha would benefit from a dry-run of the event-start ritual. Implementation will be a one-shot Pixi ticker animation triggered when `Date.now() >= eventStartsAt - bufferMs` and the client has just connected.
