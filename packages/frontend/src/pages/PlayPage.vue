@@ -12,9 +12,7 @@ const { mode } = useMode();
       <div class="stage-placeholder">
         <p class="label">Mode</p>
         <p class="value">{{ mode }}</p>
-        <p class="hint">
-          Canvas rendering will mount here (track frontend-canvas).
-        </p>
+        <p class="hint">Canvas rendering will mount here (track frontend-canvas).</p>
       </div>
     </main>
   </div>
@@ -28,8 +26,7 @@ const { mode } = useMode();
   position: fixed;
   inset: 52px 0 0 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 40%, #faf7f0 0%, #efeadd 70%, #e7e1d1 100%);
+  background: radial-gradient(circle at 50% 40%, #faf7f0 0%, #efeadd 70%, #e7e1d1 100%);
   display: grid;
   place-items: center;
 }
@@ -38,8 +35,7 @@ const { mode } = useMode();
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background-image:
-    radial-gradient(rgba(21, 20, 15, 0.035) 1px, transparent 1.2px);
+  background-image: radial-gradient(rgba(21, 20, 15, 0.035) 1px, transparent 1.2px);
   background-size: 6px 6px;
   mix-blend-mode: multiply;
   opacity: 0.6;

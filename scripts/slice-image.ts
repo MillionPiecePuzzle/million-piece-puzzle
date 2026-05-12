@@ -59,9 +59,7 @@ function parseArgs(argv: string[]): Args {
     seed: args["seed"],
     rows: parseInt(args["rows"], 10),
     cols: parseInt(args["cols"], 10),
-    pieceSize: args["piece-size"]
-      ? parseInt(args["piece-size"], 10)
-      : undefined,
+    pieceSize: args["piece-size"] ? parseInt(args["piece-size"], 10) : undefined,
     margin: args["margin"] ? parseInt(args["margin"], 10) : undefined,
     quality: args["quality"] ? parseInt(args["quality"], 10) : 60,
   };
@@ -81,9 +79,7 @@ async function main() {
 
   const pieceSize =
     args.pieceSize ??
-    Math.floor(
-      Math.min(sourceMeta.width / args.cols, sourceMeta.height / args.rows),
-    );
+    Math.floor(Math.min(sourceMeta.width / args.cols, sourceMeta.height / args.rows));
   if (pieceSize < 1) {
     throw new Error("derived pieceSize is below 1, image too small for grid");
   }
@@ -93,10 +89,7 @@ async function main() {
 
   const puzzleWidth = args.cols * pieceSize;
   const puzzleHeight = args.rows * pieceSize;
-  if (
-    puzzleWidth > sourceMeta.width ||
-    puzzleHeight > sourceMeta.height
-  ) {
+  if (puzzleWidth > sourceMeta.width || puzzleHeight > sourceMeta.height) {
     throw new Error(
       `puzzle area ${puzzleWidth}x${puzzleHeight} does not fit in source ${sourceMeta.width}x${sourceMeta.height}`,
     );
@@ -178,19 +171,13 @@ async function main() {
     },
     pieces,
   };
-  await writeFile(
-    path.join(args.output, "manifest.json"),
-    JSON.stringify(manifest, null, 2),
-  );
+  await writeFile(path.join(args.output, "manifest.json"), JSON.stringify(manifest, null, 2));
 
-  console.log(
-    `sliced ${pieces.length} pieces (${tileSize}x${tileSize} each) to ${args.output}`,
-  );
+  console.log(`sliced ${pieces.length} pieces (${tileSize}x${tileSize} each) to ${args.output}`);
 }
 
 const isMain =
-  process.argv[1] === fileURLToPath(import.meta.url) ||
-  process.argv[1]?.endsWith("slice-image.ts");
+  process.argv[1] === fileURLToPath(import.meta.url) || process.argv[1]?.endsWith("slice-image.ts");
 if (isMain) {
   main().catch((err) => {
     console.error(err.message ?? err);

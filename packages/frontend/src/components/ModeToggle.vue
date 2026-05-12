@@ -40,7 +40,9 @@ const options: { value: Mode; label: string }[] = [
   font-size: 13px;
   color: var(--ink-3);
   letter-spacing: -0.005em;
-  transition: background 160ms ease, color 160ms ease;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
 }
 .mode-toggle button.active {
   background: var(--ink);

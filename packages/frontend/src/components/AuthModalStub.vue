@@ -13,29 +13,19 @@ const providers = [
 <template>
   <Teleport to="body">
     <div v-if="open" class="auth-backdrop" @click.self="hide">
-      <div
-        class="auth-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="auth-title"
-      >
+      <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
         <header>
           <h2 id="auth-title">Become a contributor</h2>
           <button class="close" aria-label="Close" @click="hide">×</button>
         </header>
 
         <p class="lede">
-          Sign in to drop pieces on the canvas under your pseudo. Spectator
-          mode stays open to everyone.
+          Sign in to drop pieces on the canvas under your pseudo. Spectator mode stays open to
+          everyone.
         </p>
 
         <div class="providers">
-          <button
-            v-for="p in providers"
-            :key="p.id"
-            class="provider"
-            disabled
-          >
+          <button v-for="p in providers" :key="p.id" class="provider" disabled>
             {{ p.label }}
           </button>
         </div>

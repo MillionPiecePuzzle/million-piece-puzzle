@@ -34,17 +34,13 @@ function becomeContributor() {
         Leave a mark.
       </h1>
       <p class="lede">
-        Open a shared canvas with thousands of contributors. No timer, no end
-        date until the last piece snaps.
+        Open a shared canvas with thousands of contributors. No timer, no end date until the last
+        piece snaps.
       </p>
 
       <div class="ctas">
-        <button class="cta primary" @click="enterAsSpectator">
-          Enter the canvas
-        </button>
-        <button class="cta ghost" @click="becomeContributor">
-          Become a contributor
-        </button>
+        <button class="cta primary" @click="enterAsSpectator">Enter the canvas</button>
+        <button class="cta ghost" @click="becomeContributor">Become a contributor</button>
       </div>
     </main>
 
@@ -59,8 +55,7 @@ function becomeContributor() {
   min-height: 100%;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  background:
-    radial-gradient(circle at 50% 35%, #faf7f0 0%, #efeadd 70%, #e7e1d1 100%);
+  background: radial-gradient(circle at 50% 35%, #faf7f0 0%, #efeadd 70%, #e7e1d1 100%);
 }
 .landing-top {
   padding: 20px 24px;
@@ -122,7 +117,9 @@ h1 {
   font-size: 14px;
   letter-spacing: -0.005em;
   border: 1px solid var(--line);
-  transition: background 160ms ease, color 160ms ease;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
 }
 .cta.primary {
   background: var(--ink);

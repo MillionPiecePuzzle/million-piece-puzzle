@@ -7,11 +7,7 @@
  * canonical sign, the piece whose `top` or `left` uses it takes the opposite.
  */
 
-import {
-  type Edge,
-  type PieceGeometry,
-  type PuzzleGeometry,
-} from "./edge.js";
+import { type Edge, type PieceGeometry, type PuzzleGeometry } from "./edge.js";
 import { mulberry32, seedFromString, subseed } from "./prng.js";
 
 export type GenerateOptions = {
@@ -25,8 +21,7 @@ export type GenerateOptions = {
 const HORIZONTAL_DOMAIN = 0;
 const VERTICAL_DOMAIN = 1;
 
-const lerp = (rng: () => number, lo: number, hi: number) =>
-  lo + (hi - lo) * rng();
+const lerp = (rng: () => number, lo: number, hi: number) => lo + (hi - lo) * rng();
 
 function curvedEdge(edgeSeed: number, flipped: boolean): Edge {
   const rng = mulberry32(edgeSeed);
@@ -63,21 +58,13 @@ export function generatePuzzle(options: GenerateOptions): PuzzleGeometry {
     for (let col = 0; col < cols; col++) {
       const id = row * cols + col;
       const top: Edge =
-        row === 0
-          ? { type: "flat" }
-          : curvedEdge(horizontalEdgeSeed(row - 1, col), true);
+        row === 0 ? { type: "flat" } : curvedEdge(horizontalEdgeSeed(row - 1, col), true);
       const bottom: Edge =
-        row === rows - 1
-          ? { type: "flat" }
-          : curvedEdge(horizontalEdgeSeed(row, col), false);
+        row === rows - 1 ? { type: "flat" } : curvedEdge(horizontalEdgeSeed(row, col), false);
       const left: Edge =
-        col === 0
-          ? { type: "flat" }
-          : curvedEdge(verticalEdgeSeed(row, col - 1), true);
+        col === 0 ? { type: "flat" } : curvedEdge(verticalEdgeSeed(row, col - 1), true);
       const right: Edge =
-        col === cols - 1
-          ? { type: "flat" }
-          : curvedEdge(verticalEdgeSeed(row, col), false);
+        col === cols - 1 ? { type: "flat" } : curvedEdge(verticalEdgeSeed(row, col), false);
       pieces.push({
         id,
         row,

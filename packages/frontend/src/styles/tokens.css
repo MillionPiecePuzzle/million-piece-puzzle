@@ -21,6 +21,5 @@
   --radius-row: 8px;
   --radius-btn: 6px;
 
-  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.6) inset,
-    0 12px 30px -18px rgba(21, 20, 15, 0.25);
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 12px 30px -18px rgba(21, 20, 15, 0.25);
 }
