@@ -32,6 +32,8 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Server Docker image installs all workspace runtime deps](#2026-05-12-backend-realtime-docker-all-workspace-deps) -> trim once image size matters.
 - [Piece outline approximated by 4 cubic Beziers per curved edge](#2026-05-12-frontend-canvas-piece-path-segments) -> revisit if silhouettes look degenerate or if a tighter approximation is needed for snap visuals.
 - [Vite dev middleware serves `generated/<id>/` at `/puzzle/`](#2026-05-12-frontend-canvas-vite-puzzle-middleware) -> drop once Phase 1 points the frontend at R2 and the slice output no longer needs a local HTTP face.
+- [Piece hit testing uses the sprite bounding rect, not the mask silhouette](#2026-05-12-frontend-canvas-bounding-rect-hits) -> revisit once overlap zones between adjacent unmerged pieces produce confusing pickups.
+- [Drag broadcasts sent on every pointermove without throttling](#2026-05-12-frontend-canvas-drag-no-throttle) -> coalesce with requestAnimationFrame once the WS shows backpressure or high-rate mice flood the server.
 
 ---
 
@@ -154,3 +156,15 @@ Revisit when: silhouettes look degenerate (self-intersection, asymmetric necks),
 Choice: in dev, a small Vite middleware in `packages/frontend/vite.config.ts` serves `<repo>/generated/<MPP_PUZZLE_ID:default test>/` at `/puzzle/*`. The slice script keeps writing to `generated/<id>/`, the server keeps reading the manifest via its existing volume mount, and the frontend fetches `/puzzle/manifest.json` plus tiles relative to it.
 Why: avoids copying artifacts into `packages/frontend/public/`, keeps `generated/` as the single source of truth, and matches the URL convention encoded in `MPP_IMAGE_MANIFEST_URL` (`http://localhost:5173/puzzle/manifest.json`).
 Revisit when: production deployment points the frontend at R2 (Phase 1). The middleware is dev-only and can be removed once tiles live on a CDN.
+
+### 2026-05-12, frontend-canvas, bounding rect hits
+
+Choice: each piece's interactive area is the Pixi container default (children bounds), which for a masked Sprite is the sprite's full bounding rect (tileSize square), not the visible silhouette. In overlap zones between adjacent unmerged pieces, clicks may pick either piece; topmost (z-order) wins.
+Why: silhouette-shaped hit testing requires a custom `hitArea.contains` walking the cubic Bezier polygon. The bounding-rect default ships immediately and is good enough on a freshly shuffled board where pieces rarely overlap visibly.
+Revisit when: overlap zones produce confusing pickups in practice, or once pieces start clustering. A `Polygon` hitArea sampled from the silhouette path is the natural follow-up.
+
+### 2026-05-12, frontend-canvas, drag no throttle
+
+Choice: every `pointermove` while a piece is held emits a `drag` WS message. No coalescing.
+Why: simplest correct behavior. At Phase 0 (one client, low-rate mice) bandwidth is irrelevant, and the server already serializes messages.
+Revisit when: high-rate mice (240Hz+) or many concurrent draggers create WS backpressure. Coalesce to one message per `requestAnimationFrame` tick and send the last point.

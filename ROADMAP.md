@@ -49,7 +49,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `frontend-canvas`
 - [x] PixiJS canvas renders the generated pieces from the manifest
-- [ ] Contributor mode supports drag, drop, and snap with visual feedback
+- [x] Contributor mode supports drag, drop, and snap with visual feedback
 - [ ] Cascade entrance animation plays when the puzzle session opens (pieces fall into the canvas)
 - [ ] Snap animation plays when a piece locks (scale bump, flash, easing)
 - [ ] End-of-puzzle animation plays when the last piece snaps

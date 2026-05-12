@@ -25,11 +25,13 @@ export type PuzzleSessionState =
     }
   | { kind: "error"; message: string };
 
+export type MessageHandler = (msg: ServerMessage) => void;
+
 export function usePuzzleSession() {
   const state = shallowRef<PuzzleSessionState>({ kind: "idle" });
-  const pieces = ref<PieceRuntime[]>([]);
-  const groups = ref<GroupRuntime[]>([]);
+  const userId = ref<string | null>(null);
   let client: PuzzleWsClient | null = null;
+  const handlers = new Set<MessageHandler>();
 
   async function start(): Promise<void> {
     state.value = { kind: "loading-manifest" };
@@ -55,11 +57,10 @@ export function usePuzzleSession() {
     client.on((msg: ServerMessage) => {
       if (msg.t === "welcome") {
         welcome = msg;
+        userId.value = msg.userId;
         state.value = { kind: "syncing", manifest, welcome };
       } else if (msg.t === "state") {
         if (!welcome) return;
-        pieces.value = msg.pieces;
-        groups.value = msg.groups;
         state.value = {
           kind: "ready",
           manifest,
@@ -70,14 +71,33 @@ export function usePuzzleSession() {
       } else if (msg.t === "error") {
         state.value = { kind: "error", message: `${msg.code}: ${msg.message}` };
       }
+      for (const h of handlers) h(msg);
     });
     client.connect();
+  }
+
+  function onMessage(handler: MessageHandler): () => void {
+    handlers.add(handler);
+    return () => handlers.delete(handler);
+  }
+
+  function sendGrab(groupId: number): void {
+    client?.send({ t: "grab", groupId });
+  }
+
+  function sendDrag(groupId: number, worldX: number, worldY: number): void {
+    client?.send({ t: "drag", groupId, worldX, worldY });
+  }
+
+  function sendDrop(groupId: number, worldX: number, worldY: number): void {
+    client?.send({ t: "drop", groupId, worldX, worldY });
   }
 
   onBeforeUnmount(() => {
     client?.close();
     client = null;
+    handlers.clear();
   });
 
-  return { state, pieces, groups, start };
+  return { state, userId, start, onMessage, sendGrab, sendDrag, sendDrop };
 }

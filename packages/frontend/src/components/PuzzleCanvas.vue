@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { useMode } from "../composables/useMode";
 import { PuzzleStage } from "../canvas/puzzleStage";
 
 const host = ref<HTMLDivElement | null>(null);
-const { state, start } = usePuzzleSession();
+const { state, userId, start, onMessage, sendGrab, sendDrag, sendDrop } = usePuzzleSession();
+const { mode } = useMode();
+
 let stage: PuzzleStage | null = null;
 let built = false;
+let unsubscribe: (() => void) | null = null;
 
 const statusLabel = computed(() => {
   switch (state.value.kind) {
@@ -31,20 +36,61 @@ const errorMessage = computed(() =>
 
 const showStatus = computed(() => state.value.kind !== "ready");
 
+function routeMessage(msg: ServerMessage): void {
+  if (!stage) return;
+  switch (msg.t) {
+    case "grab_ok":
+      stage.applyGrabOk(msg.groupId, msg.userId);
+      break;
+    case "grab_denied":
+      stage.applyGrabDenied(msg.groupId);
+      break;
+    case "drag":
+      stage.applyRemoteDrag(msg.groupId, msg.userId, msg.worldX, msg.worldY);
+      break;
+    case "drop":
+      stage.applyRemoteDrop(msg.groupId, msg.userId, msg.worldX, msg.worldY);
+      break;
+    case "snap":
+      stage.applySnap(msg.newGroupId, msg.addedPieceIds, msg.worldX, msg.worldY, msg.anchored);
+      break;
+    case "rollback":
+      stage.applyRollback(msg.groupId, msg.worldX, msg.worldY);
+      break;
+    default:
+      break;
+  }
+}
+
 onMounted(async () => {
   if (!host.value) return;
   stage = new PuzzleStage();
+  stage.setMode(mode.value);
+  stage.setCallbacks({
+    onGrab: (groupId) => sendGrab(groupId),
+    onDrag: (groupId, x, y) => sendDrag(groupId, x, y),
+    onDrop: (groupId, x, y) => sendDrop(groupId, x, y),
+  });
   await stage.mount(host.value);
+  unsubscribe = onMessage(routeMessage);
   await start();
 });
 
 watch(state, async (s) => {
   if (s.kind !== "ready" || built || !stage) return;
   built = true;
+  stage.setLocalUserId(userId.value);
   await stage.build(s.manifest, s.pieces, s.groups);
+  stage.setMode(mode.value);
+});
+
+watch(mode, (m) => {
+  stage?.setMode(m);
 });
 
 onBeforeUnmount(() => {
+  unsubscribe?.();
+  unsubscribe = null;
   stage?.destroy();
   stage = null;
 });
