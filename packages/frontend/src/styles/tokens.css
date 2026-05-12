@@ -1,0 +1,26 @@
+:root {
+  --ground: #f4f1ea;
+  --ground-2: #ebe7dc;
+  --paper: #ffffff;
+  --paper-2: #fbf9f4;
+  --ink: #15140f;
+  --ink-2: #3b3a33;
+  --ink-3: #6b6962;
+  --ink-4: #a3a098;
+  --line: rgba(21, 20, 15, 0.1);
+  --line-2: rgba(21, 20, 15, 0.06);
+  --accent: oklch(0.62 0.13 45);
+  --accent-soft: oklch(0.92 0.04 55);
+
+  --sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  --serif: "Newsreader", Georgia, serif;
+
+  --radius-pill: 999px;
+  --radius-panel: 14px;
+  --radius-row: 8px;
+  --radius-btn: 6px;
+
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 12px 30px -18px rgba(21, 20, 15, 0.25);
+}

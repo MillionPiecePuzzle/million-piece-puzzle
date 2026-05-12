@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { PROTOCOL_VERSION } from "@mpp/shared";
+import { RouterView } from "vue-router";
+import AuthModalStub from "./components/AuthModalStub.vue";
 </script>
 
 <template>
-  <main>
-    <h1>Million Piece Puzzle</h1>
-    <p>Frontend shell ready. Protocol v{{ PROTOCOL_VERSION }}.</p>
-  </main>
+  <RouterView />
+  <AuthModalStub />
 </template>

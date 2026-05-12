@@ -44,8 +44,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] Server starts via docker-compose with Redis and Mongo
 
 ### `frontend-shell`
-- [ ] Two routes: landing and play
-- [ ] Play page shows mode toggle (spectator vs contributor), auth modal stub present but inactive
+- [x] Two routes: landing and play
+- [x] Play page shows mode toggle (spectator vs contributor), auth modal stub present but inactive
 
 ### `frontend-canvas`
 - [ ] PixiJS canvas renders the generated pieces from the manifest
