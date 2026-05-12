@@ -28,8 +28,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Monorepo bootstrapped with `packages/shared`, `packages/frontend`, `packages/server`, shared tsconfig, lint, format, build scripts working end to end
 
 ### `shared-protocol`
-- [ ] WS message types defined (drag, drop, snap, state sync) and importable from both frontend and server
-- [ ] Piece schema and anonymous user schema defined in `shared`
+- [x] WS message types defined (drag, drop, snap, state sync) and importable from both frontend and server
+- [x] Piece schema and anonymous user schema defined in `shared`
 
 ### `piece-generation`
 - [ ] Generator produces N unique pieces on a grid, with continuous Bezier edge parameters and matching tabs/blanks between neighbors

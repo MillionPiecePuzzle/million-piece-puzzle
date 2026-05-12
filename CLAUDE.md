@@ -2,6 +2,8 @@
 
 **Current work and progress are tracked in [ROADMAP.md](ROADMAP.md). Always consult it before starting a task and update it in the same commit.**
 
+**Non-obvious development choices, especially ones known not to scale, are logged in [DECISIONS.md](DECISIONS.md). Append an entry whenever you make a trade-off worth revisiting later.**
+
 ## Development Guidelines (MUST FOLLOW)
 
 - **English only.** All code, comments, commit messages, docs, identifiers, branch names, issue and PR titles and bodies are written in English. User-facing UI strings are also English by default (i18n comes later).
