@@ -36,7 +36,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Snap geometry (anchor points, tolerance) computed per piece
 
 ### `image-pipeline`
-- [ ] Local script slices a test image into N AVIF pieces and emits a manifest consumable by the frontend
+- [x] Local script slices a test image into N AVIF pieces and emits a manifest consumable by the frontend
 
 ### `backend-realtime`
 - [ ] WS server accepts connections, holds authoritative piece state, applies drag/drop/snap, broadcasts updates

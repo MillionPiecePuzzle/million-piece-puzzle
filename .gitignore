@@ -63,6 +63,10 @@ tiles/
 generated/
 *.dzi
 
+# Source images (user-provided, not tracked)
+samples/source/*
+!samples/source/.gitkeep
+
 # Local data
 data/
 dump.rdb

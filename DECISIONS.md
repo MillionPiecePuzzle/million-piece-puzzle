@@ -24,6 +24,9 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Drop implicitly releases the held cluster, no explicit release message](#2026-05-12-shared-protocol-drop-implies-release) -> may need an explicit release if disconnect handling diverges from drop semantics.
 - [Edge param ranges hand-tuned, not validated against self-intersection](#2026-05-12-piece-generation-edge-param-ranges) -> revisit once we render Bezier paths and can eyeball degenerate cases.
 - [Default `pieceSize = 100` in generator output](#2026-05-12-piece-generation-piecesize-default) -> image pipeline will pin the real pixel size; consumer should pass it explicitly once known.
+- [Image pipeline emits rectangular tiles without silhouette mask](#2026-05-12-image-pipeline-rectangular-tiles) -> revisit if client-side masking shows up in render profiling at Phase 1+ scale.
+- [Piece tiles flat in `pieces/`, no folder bucketing](#2026-05-12-image-pipeline-flat-tile-layout) -> add bucketing in Phase 1+ when N exceeds a few thousand.
+- [Source image must match `cols * pieceSize` by `rows * pieceSize` exactly](#2026-05-12-image-pipeline-exact-source-dimensions) -> add resizing or aspect-fitting only if a real workflow demands it.
 
 ---
 
@@ -68,6 +71,26 @@ Revisit when: image pipeline produces the per-piece AVIF set. Pass the actual pi
 Choice: the generator emits only raw edge parameters. The conversion from parameters to cubic Bezier segments (handles, control points) is not implemented here.
 Why: that conversion is needed only for rendering. It belongs naturally with the PixiJS canvas work in track `frontend-canvas`.
 Revisit when: starting `frontend-canvas`. Add a function `edgeToCubicSegments(edge, length): CubicSegment[]` either in this generator module or alongside the renderer, whichever is cleaner.
+
+### 2026-05-12, image-pipeline, rectangular tiles
+Choice: the slicer emits square AVIF tiles of `pieceSize + 2 * margin` pixels centered on each grid cell, without applying a bezier silhouette mask. The frontend will mask client-side at render time during track `frontend-canvas`.
+Why: keeps the param-to-Bezier-path work in one place (the renderer), avoids tuning silhouettes before we have a visual feedback loop, and makes silhouette changes free to iterate without re-running the pipeline.
+Revisit when: client-side masking shows up in profiling at Phase 1 (10k pieces) or Phase 2 (1M). Pre-mask on the server side and upload alpha-cut AVIFs to R2.
+
+### 2026-05-12, image-pipeline, tile margin
+Choice: tile margin defaults to `round(0.35 * pieceSize)`, just above the max `depth` param (0.30) of the generator.
+Why: ensures tabs always fit inside the tile with a small safety buffer.
+Revisit when: edge param ranges widen, or rotation is enabled (tabs may then point in unexpected directions and the margin assumption changes).
+
+### 2026-05-12, image-pipeline, flat tile layout
+Choice: piece tiles are written flat in `<output>/pieces/NNNN.avif`, zero-padded to at least 4 digits.
+Why: trivial at Phase 0 scale (49 pieces). The bucketed `pieces/0000/0000.avif` layout described in CLAUDE.md is overkill until N grows.
+Revisit when: Phase 1 (10k pieces) or Phase 2 (1M). Introduce per-100 or per-10000 bucket folders to keep filesystem listings sane.
+
+### 2026-05-12, image-pipeline, exact source dimensions
+Choice: the slicer errors out if the source image is not exactly `cols * pieceSize` by `rows * pieceSize` pixels. No resizing, no cropping, no aspect-fit.
+Why: explicit contract beats silent magic. The user knows what they fed in; mismatches are almost always bugs.
+Revisit when: a real authoring workflow needs to accept arbitrary input dimensions. Add a preprocessing step (resize / center-crop) gated behind an explicit flag.
 
 ### 2026-05-12, shared-protocol, piece geometry not on the wire
 Choice: piece silhouettes and canonical offsets are recomputed from `generationSeed` on both sides, never serialized.
