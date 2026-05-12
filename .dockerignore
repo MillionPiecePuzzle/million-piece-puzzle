@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+**/tsconfig.tsbuildinfo
+generated
+samples
+.git
+.github
+.vscode
+*.log

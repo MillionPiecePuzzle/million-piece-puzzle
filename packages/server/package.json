@@ -12,9 +12,13 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
-    "@mpp/shared": "*"
+    "@mpp/shared": "*",
+    "ioredis": "^5.4.1",
+    "mongodb": "^6.12.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/ws": "^8.5.13",
     "rimraf": "^6.0.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

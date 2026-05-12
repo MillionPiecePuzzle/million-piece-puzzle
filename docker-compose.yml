@@ -1,0 +1,41 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  server:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - mongo
+    environment:
+      MPP_PORT: "8080"
+      MPP_REDIS_URL: "redis://redis:6379"
+      MPP_MONGO_URL: "mongodb://mongo:27017"
+      MPP_MONGO_DB: "mpp"
+      MPP_MANIFEST: "${MPP_MANIFEST:-/work/generated/test/manifest.json}"
+      MPP_IMAGE_MANIFEST_URL: "${MPP_IMAGE_MANIFEST_URL:-http://localhost:5173/manifest.json}"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./generated:/work/generated:ro
+
+volumes:
+  redis-data:
+  mongo-data:

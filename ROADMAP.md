@@ -39,9 +39,9 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Local script slices a test image into N AVIF pieces and emits a manifest consumable by the frontend
 
 ### `backend-realtime`
-- [ ] WS server accepts connections, holds authoritative piece state, applies drag/drop/snap, broadcasts updates
-- [ ] State persisted in Redis, snap events logged to Mongo
-- [ ] Server starts via docker-compose with Redis and Mongo
+- [x] WS server accepts connections, holds authoritative piece state, applies drag/drop/snap, broadcasts updates
+- [x] State persisted in Redis, snap events logged to Mongo
+- [x] Server starts via docker-compose with Redis and Mongo
 
 ### `frontend-shell`
 - [x] Two routes: landing and play
