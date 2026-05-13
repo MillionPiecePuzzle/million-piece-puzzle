@@ -66,6 +66,13 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 ### `legal`
 - (not in Phase 0)
 
+### `complementary`
+Polish and bugs surfaced while testing the closed Phase 0. Not gating the phase exit criterion (already met), but to land before moving on to Phase 1.
+- [ ] `backend-realtime` + `frontend-canvas`: Frame-based anchoring. No special piece 0. The puzzle frame (rectangle `(0,0)` to `(cols*S, rows*S)`) is the anchor and is rendered on the canvas. Init scatters all groups freely, including positions inside the frame, so a million-piece board does not require traversing the outside. A cluster locks only on a human drop when its origin reaches `(0,0)` within `snapTolerance`; a piece that happens to scatter at its canonical position is not auto-locked. Completion = all pieces locked.
+- [ ] `frontend-canvas`: Persistent confetti loop after completion, centered congrats modal with show/hide puzzle toggle (leaderboard deferred to Phase 1, requires auth + multi-user)
+- [ ] `piece-generation`: Knob/blank shapes tuned closer to classical jigsaw silhouettes (revisits [edge param ranges](DECISIONS.md#2026-05-12-piece-generation-edge-param-ranges))
+- [ ] `frontend-shell`: Remaining floating windows from the design implemented on the play page
+
 ---
 
 ## Phase 1, Closed Alpha
@@ -112,6 +119,10 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `legal`
 - (not in Phase 1, closed alpha by invitation only)
+
+### `complementary`
+- [ ] `frontend-shell`: Replace header spectator/contributor toggle with a floating "Contribute" CTA at bottom-right on the spectator view (supersedes the toggle task above)
+- [ ] `frontend-canvas`: Leaderboard rendered in the completion modal (per-user snap counts derived on demand from `ClusterMerge`)
 
 ---
 
@@ -160,3 +171,15 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] Terms of use published
 - [ ] GDPR notes added (data collected, retention, contact)
 - [ ] License attributions page generated from dependencies
+
+### `complementary`
+- (none yet)
+
+---
+
+## Backlog
+
+Ideas worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.
+
+- **Anti-programmatic-solving via randomized piece ids on the wire.** Goal: a client cannot reconstruct adjacency from indices. Dependency: today the client also reconstructs geometry deterministically from `generationSeed` (see [piece geometry not on the wire](DECISIONS.md#2026-05-12-shared-protocol-piece-geometry-not-on-the-wire)), so the seed would have to stop being shared with clients, and piece silhouettes would have to be served pre-baked (image-pipeline already revisits this in [rectangular tiles](DECISIONS.md#2026-05-12-image-pipeline-rectangular-tiles)). Treat as a pair: id randomization + server-only seed + pre-masked tiles.
+- **Dynamic max-zoom that grows with progress.** Cap zoom-out level early in the puzzle and relax it as more pieces are placed, to bound the visible piece count in any viewport. Lighter alternative or complement to the Phase 2 LOD aggregated tiles.

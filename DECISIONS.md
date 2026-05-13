@@ -106,10 +106,6 @@ Choice: piece tiles are written flat in `<output>/pieces/NNNN.avif`, zero-padded
 Why: trivial at Phase 0 scale (49 pieces). The bucketed `pieces/0000/0000.avif` layout described in CLAUDE.md is overkill until N grows.
 Revisit when: Phase 1 (10k pieces) or Phase 2 (1M). Introduce per-100 or per-10000 bucket folders to keep filesystem listings sane.
 
-### 2026-05-12, image-pipeline, exact source dimensions [SUPERSEDED]
-
-Superseded by [adaptive pieceSize](#2026-05-12-image-pipeline-adaptive-piecesize). Original rationale (explicit contract over silent magic) traded for a friendlier workflow where any image can be dropped in.
-
 ### 2026-05-12, image-pipeline, adaptive pieceSize
 
 Choice: `--piece-size` is optional. When omitted, the script derives `pieceSize = floor(min(width/cols, height/rows))` from the source image and center-crops the puzzle area to `cols*pieceSize` by `rows*pieceSize`. Any leftover band on the longer axis is discarded.
@@ -121,12 +117,6 @@ Revisit when: a workflow needs to preserve the full image (no crop), align the p
 Choice: the server reads `MPP_MANIFEST` (path to the slicer's `manifest.json`) at boot to obtain `puzzleId`, `seed`, `rows`, `cols`, `pieceSize`. If Redis has no meta for that puzzle, it runs `generatePuzzle` to derive geometry and writes initial state (one group per piece, anchor group `0` locked at world origin, others scattered deterministically). If meta already exists, it is reused.
 Why: keeps the single-puzzle Phase 0 loop trivial and aligned with the slicer's existing output. No catalog, no admin UI, no extra service.
 Revisit when: multiple puzzles or admin tooling appear. Move the catalog to Mongo and let the server load by `puzzleId` from there.
-
-### 2026-05-12, backend-realtime, anchor cluster at world origin
-
-Choice: group `0` (the cluster containing piece `0`) is initialized with `locked = true` and `worldX = worldY = 0`. All other groups scatter to random positions outside the assembled rectangle.
-Why: this makes the world coordinate system coincide with the puzzle's canonical coordinate system, so a piece's absolute position is exactly its canonical offset once its cluster merges into the anchor. No translation math at snap time, and "anchored" trivially means `group.id === 0` plus its inherited size.
-Revisit when: never expected. Removing the anchor at origin would require carrying a puzzle-wide translation across all cluster positions.
 
 ### 2026-05-12, backend-realtime, snap by origin equality
 
