@@ -36,6 +36,21 @@ services:
     volumes:
       - ./generated:/work/generated:ro
 
+  frontend:
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./generated:/repo/generated:ro
+      - ./packages/frontend/src:/repo/packages/frontend/src:ro
+      - ./packages/frontend/index.html:/repo/packages/frontend/index.html:ro
+      - ./packages/frontend/vite.config.ts:/repo/packages/frontend/vite.config.ts:ro
+
 volumes:
   redis-data:
   mongo-data:

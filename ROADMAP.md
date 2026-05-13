@@ -55,10 +55,10 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Completion is detected and signaled
 
 ### `auth-and-accounts`
-- [ ] Anonymous contributor mode: client connects to WS without auth, server assigns ephemeral id
+- [x] Anonymous contributor mode: client connects to WS without auth, server assigns ephemeral id
 
 ### `infra-deploy`
-- [ ] docker-compose up runs server + Redis + Mongo + frontend dev server, ready to play locally
+- [x] docker-compose up runs server + Redis + Mongo + frontend dev server, ready to play locally
 
 ### `qa-and-load`
 - (not in Phase 0)
