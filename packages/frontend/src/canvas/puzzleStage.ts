@@ -67,6 +67,23 @@ const END_PULSE_SPREAD_MS = 700;
 const END_FLASH_MS = 900;
 const END_FLASH_ALPHA = 0.35;
 
+const CONFETTI_COLORS = [0xff5d73, 0xffd166, 0x06d6a0, 0x118ab2, 0xef476f, 0x8338ec, 0xfb5607];
+const CONFETTI_SPAWN_PER_SEC = 60;
+const CONFETTI_MAX = 240;
+const CONFETTI_GRAVITY = 420;
+const CONFETTI_SIZE_MIN = 6;
+const CONFETTI_SIZE_MAX = 12;
+
+type ConfettiParticle = {
+  gfx: Graphics;
+  vx: number;
+  vy: number;
+  rot: number;
+  rotSpeed: number;
+  wobble: number;
+  wobbleSpeed: number;
+};
+
 export class PuzzleStage {
   private app: Application | null = null;
   private world: Container | null = null;
@@ -84,6 +101,12 @@ export class PuzzleStage {
     lastY: 0,
   };
   private tweener: Tweener | null = null;
+  private confetti: {
+    layer: Container;
+    particles: ConfettiParticle[];
+    spawnAcc: number;
+    tick: (ticker: { deltaMS: number }) => void;
+  } | null = null;
 
   setMode(mode: Mode): void {
     this.mode = mode;
@@ -192,6 +215,7 @@ export class PuzzleStage {
   }
 
   destroy(): void {
+    this.stopConfetti();
     this.tweener?.destroy();
     this.tweener = null;
     this.app?.destroy(true, { children: true, texture: true });
@@ -381,6 +405,82 @@ export class PuzzleStage {
         flash.destroy();
       },
     });
+  }
+
+  setPuzzleVisible(visible: boolean): void {
+    if (this.world) this.world.visible = visible;
+  }
+
+  startConfetti(): void {
+    if (!this.app || this.confetti) return;
+    const layer = new Container();
+    layer.eventMode = "none";
+    this.app.stage.addChild(layer);
+    const state = {
+      layer,
+      particles: [] as ConfettiParticle[],
+      spawnAcc: 0,
+      tick: (ticker: { deltaMS: number }) => this.tickConfetti(ticker.deltaMS),
+    };
+    this.confetti = state;
+    this.app.ticker.add(state.tick);
+  }
+
+  stopConfetti(): void {
+    if (!this.confetti || !this.app) return;
+    this.app.ticker.remove(this.confetti.tick);
+    this.confetti.layer.destroy({ children: true });
+    this.confetti = null;
+  }
+
+  private tickConfetti(dtMs: number): void {
+    if (!this.confetti || !this.app) return;
+    const dt = dtMs / 1000;
+    const screen = this.app.renderer.screen;
+    const c = this.confetti;
+
+    c.spawnAcc += CONFETTI_SPAWN_PER_SEC * dt;
+    while (c.spawnAcc >= 1 && c.particles.length < CONFETTI_MAX) {
+      c.spawnAcc -= 1;
+      c.particles.push(this.spawnConfettiParticle(screen.width));
+    }
+    if (c.spawnAcc > 1) c.spawnAcc = 1;
+
+    const next: ConfettiParticle[] = [];
+    for (const p of c.particles) {
+      p.vy += CONFETTI_GRAVITY * dt;
+      p.wobble += p.wobbleSpeed * dt;
+      const x = p.gfx.x + (p.vx + Math.sin(p.wobble) * 40) * dt;
+      const y = p.gfx.y + p.vy * dt;
+      p.rot += p.rotSpeed * dt;
+      p.gfx.position.set(x, y);
+      p.gfx.rotation = p.rot;
+      if (y > screen.height + 40) {
+        p.gfx.destroy();
+        continue;
+      }
+      next.push(p);
+    }
+    c.particles = next;
+  }
+
+  private spawnConfettiParticle(screenWidth: number): ConfettiParticle {
+    const w = CONFETTI_SIZE_MIN + Math.random() * (CONFETTI_SIZE_MAX - CONFETTI_SIZE_MIN);
+    const h = w * (0.45 + Math.random() * 0.55);
+    const color = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)]!;
+    const gfx = new Graphics();
+    gfx.rect(-w / 2, -h / 2, w, h).fill({ color });
+    gfx.position.set(Math.random() * screenWidth, -20 - Math.random() * 60);
+    this.confetti!.layer.addChild(gfx);
+    return {
+      gfx,
+      vx: -60 + Math.random() * 120,
+      vy: 60 + Math.random() * 140,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: -4 + Math.random() * 8,
+      wobble: Math.random() * Math.PI * 2,
+      wobbleSpeed: 2 + Math.random() * 3,
+    };
   }
 
   private playSnapAnimation(piece: PieceNode): void {

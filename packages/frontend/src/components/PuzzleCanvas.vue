@@ -13,6 +13,19 @@ let stage: PuzzleStage | null = null;
 let built = false;
 let unsubscribe: (() => void) | null = null;
 const completed = ref(false);
+const puzzleVisible = ref(true);
+
+function triggerCompletion(playSpectacle: boolean): void {
+  if (completed.value || !stage) return;
+  completed.value = true;
+  if (playSpectacle) stage.playEndOfPuzzle();
+  stage.startConfetti();
+}
+
+function togglePuzzleVisible(): void {
+  puzzleVisible.value = !puzzleVisible.value;
+  stage?.setPuzzleVisible(puzzleVisible.value);
+}
 
 const statusLabel = computed(() => {
   switch (state.value.kind) {
@@ -60,9 +73,8 @@ function routeMessage(msg: ServerMessage): void {
       break;
     case "snap":
       stage.applySnap(msg.newGroupId, msg.addedPieceIds, msg.worldX, msg.worldY, msg.anchored);
-      if (totalPieces.value > 0 && msg.lockedCount >= totalPieces.value && !completed.value) {
-        completed.value = true;
-        stage.playEndOfPuzzle();
+      if (totalPieces.value > 0 && msg.lockedCount >= totalPieces.value) {
+        triggerCompletion(true);
       }
       break;
     case "rollback":
@@ -94,7 +106,7 @@ watch(state, async (s) => {
   await stage.build(s.manifest, s.pieces, s.groups);
   stage.setMode(mode.value);
   if (s.welcome.lockedCount >= s.welcome.totalPieces) {
-    completed.value = true;
+    triggerCompletion(false);
   }
 });
 
@@ -118,10 +130,13 @@ onBeforeUnmount(() => {
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
     <Transition name="completion">
-      <div v-if="completed" class="completion-banner" role="status">
+      <div v-if="completed" class="completion-modal" role="dialog" aria-live="polite">
         <p class="kicker">Complete</p>
         <p class="value">Puzzle assembled.</p>
         <p class="meta">{{ totalPieces.toLocaleString() }} pieces placed.</p>
+        <button type="button" class="toggle" @click="togglePuzzleVisible">
+          {{ puzzleVisible ? "Hide puzzle" : "Show puzzle" }}
+        </button>
       </div>
     </Transition>
   </div>
@@ -168,39 +183,56 @@ onBeforeUnmount(() => {
   color: oklch(0.55 0.18 30);
   max-width: 480px;
 }
-.completion-banner {
+.completion-modal {
   position: absolute;
-  top: 32px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  padding: 18px 28px;
+  transform: translate(-50%, -50%);
+  min-width: 320px;
+  padding: 32px 40px;
   text-align: center;
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(10px);
-  pointer-events: none;
+  backdrop-filter: blur(12px);
 }
-.completion-banner .kicker {
-  margin: 0 0 4px;
+.completion-modal .kicker {
+  margin: 0 0 8px;
   font-family: var(--mono);
   font-size: 11px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--accent);
 }
-.completion-banner .value {
-  margin: 0 0 4px;
+.completion-modal .value {
+  margin: 0 0 6px;
   font-family: var(--serif);
-  font-size: 22px;
+  font-size: 28px;
   color: var(--ink);
 }
-.completion-banner .meta {
-  margin: 0;
+.completion-modal .meta {
+  margin: 0 0 20px;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--ink-3);
+}
+.completion-modal .toggle {
+  appearance: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 10px 18px;
+  background: var(--ink);
+  color: var(--paper);
+  border: none;
+  border-radius: var(--radius-panel);
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+.completion-modal .toggle:hover {
+  opacity: 0.85;
 }
 .completion-enter-active {
   transition: opacity 600ms ease 600ms, transform 600ms ease 600ms;
@@ -211,6 +243,6 @@ onBeforeUnmount(() => {
 .completion-enter-from,
 .completion-leave-to {
   opacity: 0;
-  transform: translate(-50%, -12px);
+  transform: translate(-50%, calc(-50% - 12px));
 }
 </style>
