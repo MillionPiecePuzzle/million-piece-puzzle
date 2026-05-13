@@ -13,18 +13,13 @@ let stage: PuzzleStage | null = null;
 let built = false;
 let unsubscribe: (() => void) | null = null;
 const completed = ref(false);
-const puzzleVisible = ref(true);
+const modalVisible = ref(true);
 
 function triggerCompletion(playSpectacle: boolean): void {
   if (completed.value || !stage) return;
   completed.value = true;
   if (playSpectacle) stage.playEndOfPuzzle();
   stage.startConfetti();
-}
-
-function togglePuzzleVisible(): void {
-  puzzleVisible.value = !puzzleVisible.value;
-  stage?.setPuzzleVisible(puzzleVisible.value);
 }
 
 const statusLabel = computed(() => {
@@ -130,14 +125,35 @@ onBeforeUnmount(() => {
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
     <Transition name="completion">
-      <div v-if="completed" class="completion-modal" role="dialog" aria-live="polite">
+      <div
+        v-if="completed && modalVisible"
+        class="completion-modal"
+        role="dialog"
+        aria-live="polite"
+      >
+        <button
+          type="button"
+          class="modal-close"
+          aria-label="Hide summary"
+          @click="modalVisible = false"
+        >
+          ×
+        </button>
         <p class="kicker">Complete</p>
         <p class="value">Puzzle assembled.</p>
         <p class="meta">{{ totalPieces.toLocaleString() }} pieces placed.</p>
-        <button type="button" class="toggle" @click="togglePuzzleVisible">
-          {{ puzzleVisible ? "Hide puzzle" : "Show puzzle" }}
-        </button>
       </div>
+    </Transition>
+    <Transition name="reopen">
+      <button
+        v-if="completed && !modalVisible"
+        type="button"
+        class="modal-reopen"
+        aria-label="Show summary"
+        @click="modalVisible = true"
+      >
+        Summary
+      </button>
     </Transition>
   </div>
 </template>
@@ -197,6 +213,46 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(12px);
 }
+.modal-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-4);
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.modal-close:hover {
+  color: var(--ink);
+}
+.modal-reopen {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  appearance: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 150ms ease, background 150ms ease;
+}
+.modal-reopen:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.98);
+}
 .completion-modal .kicker {
   margin: 0 0 8px;
   font-family: var(--mono);
@@ -212,30 +268,13 @@ onBeforeUnmount(() => {
   color: var(--ink);
 }
 .completion-modal .meta {
-  margin: 0 0 20px;
+  margin: 0;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--ink-3);
 }
-.completion-modal .toggle {
-  appearance: none;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 10px 18px;
-  background: var(--ink);
-  color: var(--paper);
-  border: none;
-  border-radius: var(--radius-panel);
-  cursor: pointer;
-  transition: opacity 150ms ease;
-}
-.completion-modal .toggle:hover {
-  opacity: 0.85;
-}
 .completion-enter-active {
-  transition: opacity 600ms ease 600ms, transform 600ms ease 600ms;
+  transition: opacity 400ms ease, transform 400ms ease;
 }
 .completion-leave-active {
   transition: opacity 200ms ease, transform 200ms ease;
@@ -244,5 +283,16 @@ onBeforeUnmount(() => {
 .completion-leave-to {
   opacity: 0;
   transform: translate(-50%, calc(-50% - 12px));
+}
+.reopen-enter-active {
+  transition: opacity 300ms ease 150ms, transform 300ms ease 150ms;
+}
+.reopen-leave-active {
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+.reopen-enter-from,
+.reopen-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -8px);
 }
 </style>

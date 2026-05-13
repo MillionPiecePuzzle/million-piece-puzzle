@@ -407,10 +407,6 @@ export class PuzzleStage {
     });
   }
 
-  setPuzzleVisible(visible: boolean): void {
-    if (this.world) this.world.visible = visible;
-  }
-
   startConfetti(): void {
     if (!this.app || this.confetti) return;
     const layer = new Container();
