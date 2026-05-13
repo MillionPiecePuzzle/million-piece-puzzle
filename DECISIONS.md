@@ -22,7 +22,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [State sync sends full pieces + groups arrays on join](#2026-05-12-shared-protocol-full-state-on-join) -> shard by viewport in Phase 1+.
 - [Absolute world coordinates on every drag frame](#2026-05-12-shared-protocol-absolute-coords-on-drag) -> consider deltas or quantization if bandwidth becomes a constraint.
 - [Drop implicitly releases the held cluster, no explicit release message](#2026-05-12-shared-protocol-drop-implies-release) -> may need an explicit release if disconnect handling diverges from drop semantics.
-- [Edge param ranges hand-tuned, not validated against self-intersection](#2026-05-12-piece-generation-edge-param-ranges) -> revisit once we render Bezier paths and can eyeball degenerate cases.
+- [Edge params now 8 floats with circular bulb head](#2026-05-13-piece-generation-circular-bulb-head) -> revisit if silhouettes degenerate or if more variety is wanted.
 - [Default `pieceSize = 100` in generator output](#2026-05-12-piece-generation-piecesize-default) -> image pipeline will pin the real pixel size; consumer should pass it explicitly once known.
 - [Image pipeline emits rectangular tiles without silhouette mask](#2026-05-12-image-pipeline-rectangular-tiles) -> revisit if client-side masking shows up in render profiling at Phase 1+ scale.
 - [Piece tiles flat in `pieces/`, no folder bucketing](#2026-05-12-image-pipeline-flat-tile-layout) -> add bucketing in Phase 1+ when N exceeds a few thousand.
@@ -30,7 +30,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Server bootstrap reads puzzle config from a manifest file path](#2026-05-12-backend-realtime-manifest-bootstrap) -> replace with Mongo-backed puzzle catalog once Phase 1 manages multiple puzzles.
 - [Snap detection compares group origins for equality within tolerance](#2026-05-12-backend-realtime-snap-by-origin) -> stable assumption; revisit only if canonical offsets stop being puzzle-global (e.g., rotation enabled).
 - [Server Docker image installs all workspace runtime deps](#2026-05-12-backend-realtime-docker-all-workspace-deps) -> trim once image size matters.
-- [Piece outline approximated by 4 cubic Beziers per curved edge](#2026-05-12-frontend-canvas-piece-path-segments) -> revisit if silhouettes look degenerate or if a tighter approximation is needed for snap visuals.
+- [Piece outline approximated by 8 cubic Beziers per curved edge](#2026-05-13-piece-generation-edge-path-topology) -> revisit if silhouettes look degenerate or if a tighter approximation is needed for snap visuals.
 - [Vite dev middleware serves `generated/<id>/` at `/puzzle/`](#2026-05-12-frontend-canvas-vite-puzzle-middleware) -> drop once Phase 1 points the frontend at R2 and the slice output no longer needs a local HTTP face.
 - [Piece hit testing uses the sprite bounding rect, not the mask silhouette](#2026-05-12-frontend-canvas-bounding-rect-hits) -> revisit once overlap zones between adjacent unmerged pieces produce confusing pickups.
 - [Drag broadcasts sent on every pointermove without throttling](#2026-05-12-frontend-canvas-drag-no-throttle) -> coalesce with requestAnimationFrame once the WS shows backpressure or high-rate mice flood the server.
@@ -70,11 +70,17 @@ Choice: each shared edge derives `sign` once from a canonical subseed. The piece
 Why: all edges are traversed start-to-end in the same world direction by both neighbors (top/bottom left-to-right, left/right top-to-bottom). With identical traversal, only the sign needs to flip to express "bump out of A" vs "bump into B". Avoids mirroring continuous params.
 Revisit when: never expected. If we change the traversal convention (e.g., for clockwise outline assembly in the renderer), this assumption must be re-derived.
 
-### 2026-05-12, piece-generation, edge param ranges
+### 2026-05-13, piece-generation, circular bulb head
 
-Choice: hand-tuned uniform ranges for the 6 continuous edge params (center 0.42-0.58, neck 0.16-0.22, depth 0.22-0.30, shoulder +-0.06, tension 0.35-0.55, tilt +-0.08 rad).
-Why: deliver a working generator before we have a renderer to validate against. Ranges are conservative to avoid obviously degenerate shapes.
-Revisit when: Bezier rendering lands in `frontend-canvas`. Inspect a sample of pieces, widen ranges for variety, tighten where self-intersection appears.
+Choice: edges carry 8 continuous params (was 6). Two new params added (`shoulderRun`, `headRoundness`) and existing params reinterpreted. The head is now a true circular bulb whose radius `r = headRoundness * depth` is strictly larger than the neck half-width by construction of the ranges, giving the classical lightbulb silhouette. Ranges: `center 0.46-0.54` (tab x position), `neck 0.055-0.085` (half-width of the neck pinch), `depth 0.24-0.30` (apex outward extent), `shoulder -0.025 to -0.005` (small undercut at the neck), `tension 0.25-0.40` (rise tangent scale), `tilt +-0.03` (bulb x asymmetry), `shoulderRun 0.10-0.16` (flat baseline length each side), `headRoundness 0.45-0.55` (bulb radius / depth ratio).
+Why: earlier attempts that simply tweaked control-point offsets produced bulb widths comparable to the neck, which reads as a rectangular tab. The only robust fix is to parameterize the head as an actual circle whose radius is decoupled from the neck width, and enforce `r > neckHalfWidth` through the ranges (`r_min = 0.45 * 0.24 = 0.108 > 0.085 = neck_max`). Adding two floats keeps per-edge entropy comparable; the continuous space across ~2M edges remains non-degenerate.
+Revisit when: silhouettes look degenerate, neighbors visibly misalign at snap, or we want more visual variety (widen ranges, vary bulb verticality, add a separate neck-height param). Validate against self-intersection once a large-N visual sample exists.
+
+### 2026-05-13, piece-generation, edge path topology
+
+Choice: the renderer (path.ts) walks each curved edge as 8 cubic Bezier segments: flat shoulder, rise-lower (baseline to neck pinch with undercut), rise-upper (neck pinch outward to bulb equator), bulb top-left quarter arc, bulb top-right quarter arc, fall-upper, fall-lower, flat shoulder. The two bulb arcs approximate a true circle using the canonical cubic Bezier handle length `0.5523 * r`.
+Why: the bulb being a circle is what makes the silhouette read as a jigsaw piece rather than a generic curve. Separating the rise into "lower" (under the baseline, undercut) and "upper" (outward swing from neck to bulb equator) lets the neck pinch be an actual sharp narrowing rather than a smooth bulge. 4 or 6 segments do not have enough endpoints to encode a flat baseline + undercut + neck pinch + circular bulb.
+Revisit when: GPU cost of triangulating ~8 cubics per curved edge at 1M pieces shows up in profiling. Drop the two flat-shoulder cubics in favor of `L` line commands first; further compaction would mean sacrificing the circular bulb.
 
 ### 2026-05-12, piece-generation, pieceSize default
 
@@ -135,12 +141,6 @@ Revisit when: image size or cold-start time matters (Phase 1+ deploys). Switch t
 Choice: piece silhouettes and canonical offsets are recomputed from `generationSeed` on both sides, never serialized.
 Why: at 1M pieces, geometry would dominate payload size. Seed-based determinism keeps state minimal and timelapse replay tractable.
 Revisit when: never expected. If the generator becomes non-deterministic across platforms (FP drift), pin to a fixed integer-math implementation rather than start shipping geometry.
-
-### 2026-05-12, frontend-canvas, piece path segments
-
-Choice: each curved edge of a piece silhouette is approximated by 4 cubic Bezier segments (shoulder-up, head-left, head-right, shoulder-down). Flat edges are single line segments. The closed loop is walked clockwise; the two edges traversed against canonical direction (bottom, left) emit reversed segments with cp1/cp2 swapped so the physical curve drawn on a shared edge is identical from both pieces.
-Why: a 4-segment approximation gives a recognizably jigsaw-shaped silhouette without overfitting to the current edge param ranges. Reversing emit order (rather than mirroring continuous params) keeps the canonical edge params as the single source of truth.
-Revisit when: silhouettes look degenerate (self-intersection, asymmetric necks), or when snap visuals demand a tighter fit between neighbors. Widening edge param ranges should be checked against this approximation first.
 
 ### 2026-05-12, frontend-canvas, Vite puzzle middleware
 

@@ -30,12 +30,14 @@ function curvedEdge(edgeSeed: number, flipped: boolean): Edge {
   return {
     type: "curved",
     sign,
-    center: lerp(rng, 0.42, 0.58),
-    neck: lerp(rng, 0.16, 0.22),
-    depth: lerp(rng, 0.22, 0.3),
-    shoulder: lerp(rng, -0.06, 0.06),
-    tension: lerp(rng, 0.35, 0.55),
-    tilt: lerp(rng, -0.08, 0.08),
+    center: lerp(rng, 0.46, 0.54),
+    neck: lerp(rng, 0.055, 0.085),
+    depth: lerp(rng, 0.24, 0.3),
+    shoulder: lerp(rng, -0.025, -0.005),
+    tension: lerp(rng, 0.25, 0.4),
+    tilt: lerp(rng, -0.03, 0.03),
+    shoulderRun: lerp(rng, 0.1, 0.16),
+    headRoundness: lerp(rng, 0.45, 0.55),
   };
 }
 

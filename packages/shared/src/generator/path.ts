@@ -2,8 +2,11 @@
  * Convert a piece geometry into a flat 2D outline as path commands.
  *
  * The outline is a closed loop walking clockwise around the piece. Each curved
- * edge is approximated by 4 cubic Bezier segments. Flat edges are single
- * straight lines.
+ * edge is approximated by 8 cubic Bezier segments: two flat shoulders bracket
+ * a six-segment tab (rise-lower, rise-upper, two head quarter-arcs, fall-upper,
+ * fall-lower). The bulb is a true circular arc whose radius is strictly larger
+ * than the neck pinch, giving a classical lightbulb silhouette. Flat edges are
+ * single straight lines.
  *
  * Edge params are defined in canonical direction (see edge.ts). Two edges of
  * the loop (bottom and left) are traversed against canonical direction; for
@@ -33,6 +36,8 @@ type CubicSeg = { cp1: Vec; cp2: Vec; end: Vec };
  * (sign -1) has y < 0. The first segment starts at (0,0); the last segment
  * ends at (L,0).
  */
+const CIRCLE_CUBIC = 0.5522847498; // cubic Bezier handle length for a quarter circle of radius 1
+
 function curvedSegments(edge: CurvedEdge, length: number): CubicSeg[] {
   const L = length;
   const s = edge.sign;
@@ -42,34 +47,74 @@ function curvedSegments(edge: CurvedEdge, length: number): CubicSeg[] {
   const sh = edge.shoulder;
   const tn = edge.tension;
   const tl = edge.tilt;
+  const sr = edge.shoulderRun;
+  const hr = edge.headRoundness;
 
+  const bulbR = hr * dp * L;
+  const bulbCx = (cx + tl) * L;
+  const bulbCy = (dp - hr * dp) * L * s;
+  const apexY = dp * L * s;
+  const eqLeftX = bulbCx - bulbR;
+  const eqRightX = bulbCx + bulbR;
+
+  const leftFlatEndX = sr * L;
+  const rightFlatStartX = (1 - sr) * L;
   const leftNeckX = (cx - nk) * L;
   const rightNeckX = (cx + nk) * L;
   const shoulderY = sh * L * s;
-  const headY = dp * L * s;
-  const headLeftX = (cx - nk * 0.4 + tl) * L;
-  const headRightX = (cx + nk * 0.4 + tl) * L;
-  const tensionLen = tn * 0.5 * L;
+
+  const flatTan = tn * (leftNeckX - leftFlatEndX) * 0.5;
+  const riseHeight = bulbCy - shoulderY;
+  const magic = CIRCLE_CUBIC * bulbR;
+  const magicS = magic * s;
 
   return [
+    // 1. flat shoulder left
     {
-      cp1: { x: tensionLen, y: 0 },
-      cp2: { x: leftNeckX - nk * L * 0.5, y: shoulderY },
+      cp1: { x: leftFlatEndX / 3, y: 0 },
+      cp2: { x: (2 * leftFlatEndX) / 3, y: 0 },
+      end: { x: leftFlatEndX, y: 0 },
+    },
+    // 2. rise lower: baseline curves down to the neck undercut, tangent vertical at the pinch
+    {
+      cp1: { x: leftFlatEndX + flatTan, y: 0 },
+      cp2: { x: leftNeckX, y: shoulderY - riseHeight * 0.25 },
       end: { x: leftNeckX, y: shoulderY },
     },
+    // 3. rise upper: neck pinch swings outward and up to the bulb's left equator
     {
-      cp1: { x: leftNeckX + tl * L, y: shoulderY + (headY - shoulderY) * 0.4 },
-      cp2: { x: headLeftX, y: headY },
-      end: { x: cx * L, y: headY },
+      cp1: { x: leftNeckX, y: shoulderY + riseHeight * 0.5 },
+      cp2: { x: eqLeftX, y: bulbCy - magicS },
+      end: { x: eqLeftX, y: bulbCy },
     },
+    // 4. bulb top-left quarter arc: equator-left up to apex
     {
-      cp1: { x: headRightX, y: headY },
-      cp2: { x: rightNeckX + tl * L, y: shoulderY + (headY - shoulderY) * 0.4 },
+      cp1: { x: eqLeftX, y: bulbCy + magicS },
+      cp2: { x: bulbCx - magic, y: apexY },
+      end: { x: bulbCx, y: apexY },
+    },
+    // 5. bulb top-right quarter arc: apex down to equator-right
+    {
+      cp1: { x: bulbCx + magic, y: apexY },
+      cp2: { x: eqRightX, y: bulbCy + magicS },
+      end: { x: eqRightX, y: bulbCy },
+    },
+    // 6. fall upper: bulb's right equator back inward to the neck pinch
+    {
+      cp1: { x: eqRightX, y: bulbCy - magicS },
+      cp2: { x: rightNeckX, y: shoulderY + riseHeight * 0.5 },
       end: { x: rightNeckX, y: shoulderY },
     },
+    // 7. fall lower: neck pinch back to the baseline
     {
-      cp1: { x: rightNeckX + nk * L * 0.5, y: shoulderY },
-      cp2: { x: L - tensionLen, y: 0 },
+      cp1: { x: rightNeckX, y: shoulderY - riseHeight * 0.25 },
+      cp2: { x: rightFlatStartX - flatTan, y: 0 },
+      end: { x: rightFlatStartX, y: 0 },
+    },
+    // 8. flat shoulder right
+    {
+      cp1: { x: rightFlatStartX + (L - rightFlatStartX) / 3, y: 0 },
+      cp2: { x: rightFlatStartX + (2 * (L - rightFlatStartX)) / 3, y: 0 },
       end: { x: L, y: 0 },
     },
   ];

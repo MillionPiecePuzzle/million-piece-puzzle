@@ -13,8 +13,16 @@
  * `sign = +1` means the bump points outward from this piece. Two neighbors
  * sharing an edge therefore carry opposite signs.
  *
- * `center, neck, depth, shoulder, tension, tilt` are continuous in fixed
- * ranges chosen to keep silhouettes plausible without self-intersection.
+ * Continuous params, each in a fixed range chosen to keep silhouettes
+ * plausible and jigsaw-shaped without self-intersection:
+ *   center        x of tab center, fraction of edge length
+ *   neck          half-width of the neck pinch (where the tab joins the body)
+ *   depth         outward depth of the head (tab apex)
+ *   shoulder      small undercut at the neck (signed: negative dips into body)
+ *   tension       tangent length controlling the rise from baseline to neck
+ *   tilt          left/right asymmetry of the head apex
+ *   shoulderRun   length of the flat baseline at each end before the tab
+ *   headRoundness tangent factor at the head apex; larger = rounder bulb
  */
 
 export type FlatEdge = { type: "flat" };
@@ -28,6 +36,8 @@ export type CurvedEdge = {
   shoulder: number;
   tension: number;
   tilt: number;
+  shoulderRun: number;
+  headRoundness: number;
 };
 
 export type Edge = FlatEdge | CurvedEdge;
