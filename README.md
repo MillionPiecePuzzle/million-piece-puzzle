@@ -10,7 +10,7 @@ Early development. Architecture and stack defined, implementation in progress.
 
 - **Frontend** — Vue 3 + TypeScript + Vite, PixiJS (WebGL canvas), OpenSeadragon
 - **Backend** — Node.js + TypeScript, WebSocket, Redis (live state), MongoDB (logs)
-- **Auth** — Firebase Auth (Google, Discord, email magic link)
+- **Auth** — Auth.js (Google, Apple, Reddit)
 - **Infra** — Docker + Coolify on Hetzner, Cloudflare (Pages, R2, CDN, Turnstile)
 
 ## Repo layout
