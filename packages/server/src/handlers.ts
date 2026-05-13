@@ -122,16 +122,18 @@ export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Prom
   g.worldY = msg.worldY;
 
   const droppedPieces = await ctx.state.getGroupPieces(msg.groupId);
+  const tol = ctx.meta.snapTolerance;
+  const frameAnchor = Math.abs(g.worldX) <= tol && Math.abs(g.worldY) <= tol;
   const match = await detectSnap(
     ctx.state,
     ctx.meta.gridRows,
     ctx.meta.gridCols,
-    ctx.meta.snapTolerance,
+    tol,
     g,
     droppedPieces,
   );
 
-  if (!match) {
+  if (!frameAnchor && !match) {
     await ctx.state.releaseGroup(msg.groupId);
     ctx.hub.broadcast({
       t: "drop",
@@ -143,14 +145,19 @@ export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Prom
     return;
   }
 
+  const matchedGroupIds = match?.matchedGroupIds ?? [];
+  const targetWorldX = frameAnchor ? 0 : match!.targetWorldX;
+  const targetWorldY = frameAnchor ? 0 : match!.targetWorldY;
+
   await applyMerge(
     ctx,
     client,
     msg.groupId,
     droppedPieces,
-    match.matchedGroupIds,
-    match.targetWorldX,
-    match.targetWorldY,
+    matchedGroupIds,
+    targetWorldX,
+    targetWorldY,
+    frameAnchor,
   );
 }
 
@@ -162,6 +169,7 @@ async function applyMerge(
   matchedGroupIds: number[],
   targetWorldX: number,
   targetWorldY: number,
+  frameAnchor: boolean,
 ): Promise<void> {
   const allIds = [droppedGroupId, ...matchedGroupIds];
   const newId = Math.min(...allIds);
@@ -178,7 +186,7 @@ async function applyMerge(
   const lockedSizeBefore = groupSnapshots
     .filter((s) => s.group?.locked)
     .reduce((acc, s) => acc + (s.group?.size ?? 0), 0);
-  const willBeLocked = lockedSizeBefore > 0;
+  const willBeLocked = frameAnchor || lockedSizeBefore > 0;
 
   const allPieces = allIds.flatMap((id) => piecesByGroup.get(id) ?? []);
   const addedPieceIds = allIds

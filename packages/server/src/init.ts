@@ -44,22 +44,19 @@ export async function initPuzzleIfEmpty(
   for (const piece of geom.pieces) {
     await state.writePiece(piece.id, piece.id, 0);
 
-    const isAnchor = piece.id === 0;
-    const worldX = isAnchor ? 0 : -worldW * 0.5 + scatterRng() * worldW * 2;
-    const worldY = isAnchor ? 0 : -worldH * 0.5 + scatterRng() * worldH * 2;
+    const worldX = (scatterRng() - 0.5) * worldW * 2;
+    const worldY = (scatterRng() - 0.5) * worldH * 2;
 
     await state.writeGroup({
       id: piece.id,
       worldX,
       worldY,
       size: 1,
-      locked: isAnchor,
+      locked: false,
       heldBy: null,
     });
     await state.addGroupPieces(piece.id, [piece.id]);
   }
-
-  await state.addLockedCount(1);
 
   return meta;
 }

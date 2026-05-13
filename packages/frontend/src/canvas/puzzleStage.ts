@@ -151,6 +151,12 @@ export class PuzzleStage {
     const base = manifestBaseUrl(manifestUrl);
     const textures = await loadTextures(manifest, base);
 
+    const frame = new Graphics();
+    frame
+      .rect(0, 0, geom.cols * geom.pieceSize, geom.rows * geom.pieceSize)
+      .stroke({ color: 0x1a1a1a, width: 4 });
+    this.world.addChildAt(frame, 0);
+
     for (const group of initialGroups) {
       const gc = new Container();
       gc.x = group.worldX;
@@ -261,6 +267,14 @@ export class PuzzleStage {
       if (gid !== undefined && gid !== newGroupId) sourceGroupIds.add(gid);
     }
 
+    const preLockedPieceIds = new Set<number>();
+    if (host.locked) for (const p of host.pieces) preLockedPieceIds.add(p.id);
+    for (const gid of sourceGroupIds) {
+      const src = this.groups.get(gid);
+      if (src?.locked) for (const p of src.pieces) preLockedPieceIds.add(p.id);
+    }
+    const addedSet = new Set(addedPieceIds);
+
     // Reparent each added piece into the host container, preserving its world
     // position. Canonical offsets are globally consistent so we just set the
     // piece container's local position to its canonical offset; the host will
@@ -298,9 +312,9 @@ export class PuzzleStage {
       this.held = null;
     }
 
-    for (const pieceId of addedPieceIds) {
-      const piece = host.pieces.find((p) => p.id === pieceId);
-      if (piece) this.playSnapAnimation(piece);
+    for (const piece of host.pieces) {
+      if (preLockedPieceIds.has(piece.id)) continue;
+      if (addedSet.has(piece.id) || host.locked) this.playSnapAnimation(piece);
     }
   }
 
