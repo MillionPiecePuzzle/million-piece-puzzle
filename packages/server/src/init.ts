@@ -41,22 +41,18 @@ export async function initPuzzleIfEmpty(
   const worldW = geom.cols * geom.pieceSize;
   const worldH = geom.rows * geom.pieceSize;
 
-  for (const piece of geom.pieces) {
-    await state.writePiece(piece.id, piece.id, 0);
-
-    const worldX = (scatterRng() - 0.5) * worldW * 2;
-    const worldY = (scatterRng() - 0.5) * worldH * 2;
-
-    await state.writeGroup({
+  const entries = geom.pieces.map((piece) => ({
+    pieceId: piece.id,
+    group: {
       id: piece.id,
-      worldX,
-      worldY,
+      worldX: (scatterRng() - 0.5) * worldW * 2,
+      worldY: (scatterRng() - 0.5) * worldH * 2,
       size: 1,
       locked: false,
       heldBy: null,
-    });
-    await state.addGroupPieces(piece.id, [piece.id]);
-  }
+    },
+  }));
+  await state.writeInitialPieces(entries);
 
   return meta;
 }

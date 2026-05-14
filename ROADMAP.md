@@ -85,7 +85,7 @@ Findings from the Phase 0 code audit. Same gating rule as the rest of `complemen
 - [x] `frontend-canvas`: `PuzzleWsClient` surfaces connection errors to the session state instead of freezing silently.
 - [x] `frontend-canvas`: Duplication removed. Shared `LeaderboardRow` component for the panel and modal, shared manifest-URL resolution, shared Redis hash parsing in `RedisState`.
 - [x] `qa-and-load`: Unit tests cover the deterministic core (`prng`, `generatePuzzle`, `piecePath`, `detectSnap`).
-- [ ] `backend-realtime`: Initial puzzle write in `initPuzzleIfEmpty` is pipelined instead of three sequential Redis round trips per piece.
+- [x] `backend-realtime`: Initial puzzle write in `initPuzzleIfEmpty` is pipelined instead of three sequential Redis round trips per piece.
 
 ---
 

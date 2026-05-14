@@ -70,13 +70,6 @@ export class RedisState {
     };
   }
 
-  async writePiece(id: number, groupId: number, rotation: number): Promise<void> {
-    await this.r.hset(keys.piece(this.puzzleId, id), {
-      groupId,
-      rotation,
-    });
-  }
-
   async setPieceGroup(id: number, groupId: number): Promise<void> {
     await this.r.hset(keys.piece(this.puzzleId, id), "groupId", groupId);
   }
@@ -125,6 +118,30 @@ export class RedisState {
 
   async releaseGroup(id: number): Promise<void> {
     await this.r.hset(keys.group(this.puzzleId, id), "heldBy", "");
+  }
+
+  async writeInitialPieces(
+    entries: { pieceId: number; group: GroupRuntime }[],
+  ): Promise<void> {
+    const CHUNK = 1000;
+    for (let start = 0; start < entries.length; start += CHUNK) {
+      const pipe = this.r.pipeline();
+      for (const { pieceId, group } of entries.slice(start, start + CHUNK)) {
+        pipe.hset(keys.piece(this.puzzleId, pieceId), {
+          groupId: group.id,
+          rotation: 0,
+        });
+        pipe.hset(keys.group(this.puzzleId, group.id), {
+          worldX: group.worldX,
+          worldY: group.worldY,
+          locked: group.locked ? 1 : 0,
+          size: group.size,
+          heldBy: group.heldBy ?? "",
+        });
+        pipe.sadd(keys.groupPieces(this.puzzleId, group.id), String(pieceId));
+      }
+      await pipe.exec();
+    }
   }
 
   async addGroupPieces(id: number, pieceIds: number[]): Promise<void> {
