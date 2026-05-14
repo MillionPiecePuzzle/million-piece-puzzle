@@ -127,7 +127,7 @@ export class PuzzleStage {
     const app = new Application();
     await app.init({
       resizeTo: host,
-      background: 0xefeadd,
+      backgroundAlpha: 0,
       antialias: true,
       autoDensity: true,
       resolution: window.devicePixelRatio,

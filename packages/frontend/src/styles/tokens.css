@@ -12,6 +12,12 @@
   --accent: oklch(0.62 0.13 45);
   --accent-soft: oklch(0.92 0.04 55);
 
+  --c1: oklch(0.62 0.1 230);
+  --c2: oklch(0.62 0.13 145);
+  --c3: oklch(0.62 0.13 320);
+  --c4: oklch(0.65 0.13 80);
+  --c5: oklch(0.55 0.1 280);
+
   --sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, Menlo, monospace;
   --serif: "Newsreader", Georgia, serif;

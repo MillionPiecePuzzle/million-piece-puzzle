@@ -71,7 +71,7 @@ Polish and bugs surfaced while testing the closed Phase 0. Not gating the phase 
 - [x] `backend-realtime` + `frontend-canvas`: Frame-based anchoring. No special piece 0. The puzzle frame (rectangle `(0,0)` to `(cols*S, rows*S)`) is the anchor and is rendered on the canvas. Init scatters all groups freely, including positions inside the frame, so a million-piece board does not require traversing the outside. A cluster locks only on a human drop when its origin reaches `(0,0)` within `snapTolerance`; a piece that happens to scatter at its canonical position is not auto-locked. Completion = all pieces locked.
 - [x] `frontend-canvas`: Persistent confetti loop after completion, centered congrats modal with show/hide puzzle toggle (leaderboard deferred to Phase 1, requires auth + multi-user)
 - [x] `piece-generation`: Knob/blank shapes tuned closer to classical jigsaw silhouettes (see [circular bulb head](DECISIONS.md#2026-05-13-piece-generation-circular-bulb-head))
-- [ ] `frontend-shell`: Remaining floating windows from the design implemented on the play page
+- [~] `frontend-shell` + `frontend-canvas`: Play-page chrome from the design handoff rendered on `/play`, faithful to the handoff colors, spacing and panel chrome. In scope: topbar caption (`CANVAS · TIDEPOOLS #003`), progress pill, floating Leaderboard panel (mocked data), zoom controls rail, floating Activity ticker panel (mocked data), stage backdrop (radial gradient + paper texture + grid hairlines)
 
 ---
 
@@ -98,6 +98,7 @@ Polish and bugs surfaced while testing the closed Phase 0. Not gating the phase 
 - [ ] OpenSeadragon reference panel shows the source image
 - [ ] Frustum culling and LOD active, rendering stays smooth at 10 000 pieces
 - [ ] Mini-map shows global progress
+- [ ] Collaborator cursors rendered from presence messages (colored pointer, pseudo tag, held-piece preview, idle-bob)
 
 ### `backend-realtime`
 - [ ] Viewport-neighbor broadcast scoping for drag and drop events
@@ -123,6 +124,11 @@ Polish and bugs surfaced while testing the closed Phase 0. Not gating the phase 
 ### `complementary`
 - [ ] `frontend-shell`: Replace header spectator/contributor toggle with a floating "Contribute" CTA at bottom-right on the spectator view (supersedes the toggle task above)
 - [ ] `frontend-canvas`: Leaderboard rendered in the completion modal (per-user snap counts derived on demand from `ClusterMerge`)
+- [ ] `frontend-shell`: Decide whether to add the live builders indicator (green dot + count) to the topbar
+- [ ] `frontend-canvas`: Decide whether to add the Coord HUD overlay (sector / XY / zoom)
+- [ ] `frontend-canvas`: Decide whether to add the search bar (jump to coordinates / sector / piece ID, with `⌘K`)
+- [ ] `frontend-canvas`: Decide whether to add the minimap / overview panel
+- [ ] `frontend-canvas`: Decide whether to add the piece tray (slots + shuffle / auto-sort / draw actions)
 
 ---
 

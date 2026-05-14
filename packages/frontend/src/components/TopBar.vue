@@ -12,11 +12,16 @@ const { show } = useAuthModal();
     <RouterLink to="/" class="brand">
       <BrandMark />
       <span class="brand-name">Million Piece <em>Puzzle</em></span>
+      <span class="brand-caption">CANVAS&nbsp;·&nbsp;TIDEPOOLS #003</span>
     </RouterLink>
 
     <ModeToggle />
 
     <div class="top-right">
+      <div class="progress-pill" title="Puzzle progress">
+        <div class="bar"></div>
+        <span class="num">724,318<span> / 1M</span></span>
+      </div>
       <button class="signin" @click="show">Sign in</button>
     </div>
   </header>
@@ -52,11 +57,51 @@ const { show } = useAuthModal();
   font-weight: 400;
   color: var(--ink-3);
 }
+.brand-caption {
+  margin-left: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+}
 .top-right {
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 14px;
+}
+.progress-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+}
+.progress-pill .bar {
+  width: 140px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--ground-2);
+  position: relative;
+  overflow: hidden;
+}
+.progress-pill .bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 72.4%;
+  background: var(--ink);
+  border-radius: 99px;
+}
+.progress-pill .num {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+.progress-pill .num span {
+  color: var(--ink-3);
 }
 .signin {
   padding: 6px 14px;
