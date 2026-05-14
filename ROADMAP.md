@@ -20,9 +20,9 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ---
 
-## Phase 0, Local MVP
+## Phase 0, Local MVP, CLOSED
 
-**Exit criterion**: a single user completes a puzzle of N configurable pieces in a browser, with the full architecture running locally (WS server + Redis + Mongo via docker-compose), in anonymous mode.
+**Exit criterion (met)**: a single user completes a puzzle of N configurable pieces in a browser, with the full architecture running locally (WS server + Redis + Mongo via docker-compose), in anonymous mode.
 
 ### `tooling-foundations`
 - [x] Monorepo bootstrapped with `packages/shared`, `packages/frontend`, `packages/server`, shared tsconfig, lint, format, build scripts working end to end
@@ -67,32 +67,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - (not in Phase 0)
 
 ### `complementary`
-Polish and bugs surfaced while testing the closed Phase 0. Not gating the phase exit criterion (already met), but to land before moving on to Phase 1.
-- [x] `backend-realtime` + `frontend-canvas`: Frame-based anchoring. No special piece 0. The puzzle frame (rectangle `(0,0)` to `(cols*S, rows*S)`) is the anchor and is rendered on the canvas. Init scatters all groups freely, including positions inside the frame, so a million-piece board does not require traversing the outside. A cluster locks only on a human drop when its origin reaches `(0,0)` within `snapTolerance`; a piece that happens to scatter at its canonical position is not auto-locked. Completion = all pieces locked.
-- [x] `frontend-canvas`: Persistent confetti loop after completion, centered congrats modal with show/hide puzzle toggle (leaderboard deferred to Phase 1, requires auth + multi-user)
-- [x] `piece-generation`: Knob/blank shapes tuned closer to classical jigsaw silhouettes (see [circular bulb head](DECISIONS.md#2026-05-13-piece-generation-circular-bulb-head))
-- [x] `frontend-shell` + `frontend-canvas`: Play-page chrome from the design handoff rendered on `/play`, faithful to the handoff colors, spacing and panel chrome: topbar caption (puzzle name from the manifest) and progress pill wired to live session state, working zoom controls rail, floating Leaderboard panel (mocked data) with a paginated full-board modal, floating Activity ticker panel (live snap events), stage backdrop with a zoom-adaptive hairline grid
-
-#### Post-audit punch list
-
-Findings from the Phase 0 code audit. Same gating rule as the rest of `complementary`: land before Phase 1.
-
-- [x] `tooling-foundations`: Repo back to green. `npm run lint`, `npm run format:check` and `npm run typecheck` all pass with no errors.
-- [x] `tooling-foundations` + `piece-generation`: Doc drift fixed. `CLAUDE.md` describes frame-based anchoring (not the removed piece-0 model), `edge.ts` documents `headRoundness` as the bulb radius ratio, ROADMAP wording matches the implemented snap geometry.
-- [x] `backend-realtime`: Incoming WebSocket messages are serialized through a global dispatch queue, so concurrent messages can no longer interleave on `await` points in `handleDrop`.
-- [x] `backend-realtime`: `detectSnap` no longer merges neighbour groups that are within tolerance of the dropped group but not mutually aligned.
-- [x] `shared-protocol` + `backend-realtime` + `frontend-canvas`: `SWelcome` trimmed to server-only fields. Fields derivable from the image manifest the client already fetched are removed from the wire.
-- [x] `frontend-canvas`: `PuzzleWsClient` surfaces connection errors to the session state instead of freezing silently.
-- [x] `frontend-canvas`: Duplication removed. Shared `LeaderboardRow` component for the panel and modal, shared manifest-URL resolution, shared Redis hash parsing in `RedisState`.
-- [x] `qa-and-load`: Unit tests cover the deterministic core (`prng`, `generatePuzzle`, `piecePath`, `detectSnap`).
-- [x] `backend-realtime`: Initial puzzle write in `initPuzzleIfEmpty` is pipelined instead of three sequential Redis round trips per piece.
-- [x] `backend-realtime`: Disconnect cleanup runs on the dispatch queue. `releaseHeldGroups` (triggered by `ws.on("close")`) currently runs off-chain, so its `await` points can still interleave with an in-flight handler mutating the same group. Route it through the same queue as incoming messages.
-
-#### Second audit punch list
-
-Findings from the second Phase 0 code audit. Same gating rule: land before Phase 1.
-
-- [x] `backend-realtime`: Doc drift fixed. `handleDrag` no longer persists the group position (drag is transient by design, per the `CLAUDE.md` three-tier model); the `DECISIONS.md` manifest-bootstrap entry describes the current scatter-all init instead of the removed locked-piece-0 model; `keys.ts` comments list the actual `puzzleMeta` hash fields and the correct `canonicalOffset` reference.
+- [x] Polish landed: frame-based anchoring, post-completion confetti loop and congrats modal, jigsaw silhouette tuning, design-handoff `/play` chrome (topbar, zoom rail, Leaderboard and Activity panels, adaptive grid).
+- [x] Two code audits cleared: repo green (lint/format/typecheck), doc drift fixed, global serial dispatch queue, disconnect cleanup on-queue, `detectSnap` alignment fix, `SWelcome` trimmed, WS error surfacing, duplication removed, deterministic-core unit tests, pipelined initial Redis write.
 
 ---
 
