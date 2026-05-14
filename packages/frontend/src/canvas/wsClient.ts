@@ -1,10 +1,13 @@
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from "@mpp/shared";
 
 export type WsListener = (msg: ServerMessage) => void;
+export type WsCloseListener = (info: { intentional: boolean }) => void;
 
 export class PuzzleWsClient {
   private ws: WebSocket | null = null;
   private listeners = new Set<WsListener>();
+  private closeListeners = new Set<WsCloseListener>();
+  private intentionalClose = false;
 
   constructor(
     private readonly url: string,
@@ -13,6 +16,7 @@ export class PuzzleWsClient {
 
   connect(): void {
     if (this.ws) return;
+    this.intentionalClose = false;
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.addEventListener("open", () => {
@@ -29,6 +33,8 @@ export class PuzzleWsClient {
     });
     ws.addEventListener("close", () => {
       this.ws = null;
+      const intentional = this.intentionalClose;
+      for (const l of this.closeListeners) l({ intentional });
     });
   }
 
@@ -42,7 +48,13 @@ export class PuzzleWsClient {
     return () => this.listeners.delete(listener);
   }
 
+  onClose(listener: WsCloseListener): () => void {
+    this.closeListeners.add(listener);
+    return () => this.closeListeners.delete(listener);
+  }
+
   close(): void {
+    this.intentionalClose = true;
     this.ws?.close();
     this.ws = null;
   }

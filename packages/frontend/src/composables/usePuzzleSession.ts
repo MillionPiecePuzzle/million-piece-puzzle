@@ -108,6 +108,18 @@ async function start(): Promise<void> {
     }
     for (const h of handlers) h(msg);
   });
+
+  client.onClose(({ intentional }) => {
+    if (intentional) return;
+    welcome = null;
+    started = false;
+    if (state.value.kind === "error") return;
+    state.value = {
+      kind: "error",
+      message: `connection lost to ${wsUrl}`,
+    };
+  });
+
   client.connect();
 }
 
