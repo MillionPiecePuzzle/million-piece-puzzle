@@ -80,7 +80,7 @@ Findings from the Phase 0 code audit. Same gating rule as the rest of `complemen
 - [x] `tooling-foundations`: Repo back to green. `npm run lint`, `npm run format:check` and `npm run typecheck` all pass with no errors.
 - [x] `tooling-foundations` + `piece-generation`: Doc drift fixed. `CLAUDE.md` describes frame-based anchoring (not the removed piece-0 model), `edge.ts` documents `headRoundness` as the bulb radius ratio, ROADMAP wording matches the implemented snap geometry.
 - [ ] `backend-realtime`: WebSocket message dispatch is serialized so the "server processes messages sequentially" invariant holds. Concurrent messages can no longer interleave on `await` points in `handleDrop`.
-- [ ] `backend-realtime`: `detectSnap` no longer merges neighbour groups that are within tolerance of the dropped group but not mutually aligned.
+- [x] `backend-realtime`: `detectSnap` no longer merges neighbour groups that are within tolerance of the dropped group but not mutually aligned.
 - [x] `shared-protocol` + `backend-realtime` + `frontend-canvas`: `SWelcome` trimmed to server-only fields. Fields derivable from the image manifest the client already fetched are removed from the wire.
 - [ ] `frontend-canvas`: `PuzzleWsClient` surfaces connection errors to the session state instead of freezing silently.
 - [ ] `frontend-canvas`: Duplication removed. Shared `LeaderboardRow` component for the panel and modal, shared manifest-URL resolution, shared Redis hash parsing in `RedisState`.

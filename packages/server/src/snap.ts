@@ -16,7 +16,7 @@ export async function detectSnap(
   droppedPieceIds: number[],
 ): Promise<SnapMatch | null> {
   const droppedPieceSet = new Set(droppedPieceIds);
-  const matched = new Map<number, GroupRuntime>();
+  const candidates = new Map<number, GroupRuntime>();
 
   for (const pieceId of droppedPieceIds) {
     const row = Math.floor(pieceId / cols);
@@ -31,31 +31,36 @@ export async function detectSnap(
       if (droppedPieceSet.has(nId)) continue;
       const nGroupId = await state.readPieceGroup(nId);
       if (nGroupId === null || nGroupId === droppedGroup.id) continue;
-      if (matched.has(nGroupId)) continue;
+      if (candidates.has(nGroupId)) continue;
       const nGroup = await state.readGroup(nGroupId);
       if (!nGroup) continue;
       if (
         Math.abs(nGroup.worldX - droppedGroup.worldX) <= snapTolerance &&
         Math.abs(nGroup.worldY - droppedGroup.worldY) <= snapTolerance
       ) {
-        matched.set(nGroupId, nGroup);
+        candidates.set(nGroupId, nGroup);
       }
     }
   }
 
-  if (matched.size === 0) return null;
+  if (candidates.size === 0) return null;
 
-  const values = [...matched.values()];
-  let target = values[0]!;
-  for (const g of values) {
-    if (g.locked) {
-      target = g;
-      break;
-    }
-  }
+  const values = [...candidates.values()];
+  const target = values.find((g) => g.locked) ?? values[0]!;
+
+  // Each candidate is within tolerance of the dropped group, but two candidates
+  // can each clear that bar while being up to 2 * snapTolerance apart from each
+  // other (and from the target the merge snaps everything onto). Keep only the
+  // candidates actually aligned with the target so the merged cluster stays
+  // coherent instead of force-aligning groups that never matched.
+  const matched = values.filter(
+    (g) =>
+      Math.abs(g.worldX - target.worldX) <= snapTolerance &&
+      Math.abs(g.worldY - target.worldY) <= snapTolerance,
+  );
 
   return {
-    matchedGroupIds: [...matched.keys()],
+    matchedGroupIds: matched.map((g) => g.id),
     targetWorldX: target.worldX,
     targetWorldY: target.worldY,
   };

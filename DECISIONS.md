@@ -126,8 +126,8 @@ Revisit when: multiple puzzles or admin tooling appear. Move the catalog to Mong
 
 ### 2026-05-12, backend-realtime, snap by origin equality
 
-Choice: at drop time, the server tests snap by comparing the dropped group's `worldX, worldY` to each grid-neighbor's group `worldX, worldY` within `snapTolerance`. No per-piece offset math.
-Why: canonical offsets are puzzle-global (`col*pieceSize, row*pieceSize`), so two clusters can only be aligned when their group origins are equal. This collapses snap detection to a single coordinate comparison per candidate neighbor.
+Choice: at drop time, the server collects grid-neighbor groups whose `worldX, worldY` is within `snapTolerance` of the dropped group's, picks the target origin (a locked candidate when present, otherwise the first), then merges only the candidates also within `snapTolerance` of that target. No per-piece offset math.
+Why: canonical offsets are puzzle-global (`col*pieceSize, row*pieceSize`), so two clusters are aligned exactly when their group origins are equal, which keeps snap detection to coordinate comparisons. The target-filter pass is required because two candidates can each be within tolerance of the dropped group while being up to `2 * snapTolerance` apart from each other and from the target the merge snaps everything onto.
 Revisit when: rotation is enabled (origins no longer suffice; will need per-edge alignment) or canonical offsets stop being puzzle-global.
 
 ### 2026-05-12, backend-realtime, docker all workspace deps
