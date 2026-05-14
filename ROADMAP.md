@@ -88,6 +88,12 @@ Findings from the Phase 0 code audit. Same gating rule as the rest of `complemen
 - [x] `backend-realtime`: Initial puzzle write in `initPuzzleIfEmpty` is pipelined instead of three sequential Redis round trips per piece.
 - [x] `backend-realtime`: Disconnect cleanup runs on the dispatch queue. `releaseHeldGroups` (triggered by `ws.on("close")`) currently runs off-chain, so its `await` points can still interleave with an in-flight handler mutating the same group. Route it through the same queue as incoming messages.
 
+#### Second audit punch list
+
+Findings from the second Phase 0 code audit. Same gating rule: land before Phase 1.
+
+- [x] `backend-realtime`: Doc drift fixed. `handleDrag` no longer persists the group position (drag is transient by design, per the `CLAUDE.md` three-tier model); the `DECISIONS.md` manifest-bootstrap entry describes the current scatter-all init instead of the removed locked-piece-0 model; `keys.ts` comments list the actual `puzzleMeta` hash fields and the correct `canonicalOffset` reference.
+
 ---
 
 ## Phase 1, Closed Alpha
@@ -205,3 +211,4 @@ Ideas worth keeping but not yet committed to a phase. Promote into a phase track
 
 - **Anti-programmatic-solving via randomized piece ids on the wire.** Goal: a client cannot reconstruct adjacency from indices. Dependency: today the client also reconstructs geometry deterministically from `generationSeed` (see [piece geometry not on the wire](DECISIONS.md#2026-05-12-shared-protocol-piece-geometry-not-on-the-wire)), so the seed would have to stop being shared with clients, and piece silhouettes would have to be served pre-baked (image-pipeline already revisits this in [rectangular tiles](DECISIONS.md#2026-05-12-image-pipeline-rectangular-tiles)). Treat as a pair: id randomization + server-only seed + pre-masked tiles.
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out level early in the puzzle and relax it as more pieces are placed, to bound the visible piece count in any viewport. Lighter alternative or complement to the Phase 2 LOD aggregated tiles.
+- **WebSocket input validation.** `dispatch` parses client messages with no field validation, and `tryAcquireGroup`'s Lua script writes a `heldBy`-only hash for a `groupId` that has no group. A client can spray `grab` with arbitrary group ids and create unbounded junk Redis keys (memory DoS). Validate `groupId` (integer in `[0, totalPieces)`) and `worldX/worldY` (finite numbers) at the dispatch boundary, and make the Lua script fail when the group key does not exist. Pairs naturally with the Phase 2 rate-limiting work.

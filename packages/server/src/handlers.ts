@@ -86,7 +86,8 @@ export async function handleDrag(ctx: Context, client: Client, msg: CDrag): Prom
     err(ctx, client, "not_held", `group ${msg.groupId} not held by you`);
     return;
   }
-  await ctx.state.setGroupPosition(msg.groupId, msg.worldX, msg.worldY);
+  // Drag is transient: broadcast only, never persisted. The authoritative
+  // position is written on drop.
   ctx.hub.broadcast(
     {
       t: "drag",

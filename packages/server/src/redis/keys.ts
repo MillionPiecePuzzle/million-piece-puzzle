@@ -1,11 +1,11 @@
 /**
  * Redis key patterns for live puzzle state.
  *
- * A piece's absolute position is derived: group.worldX + canonicalOffset(pieceId, group).
- * It is never stored per piece.
+ * A piece's absolute position is derived: group.worldX + canonicalOffset(pieceId).x
+ * (and .y). It is never stored per piece.
  */
 
-/** Hash: totalPieces, gridRows, gridCols, status, startedAt, generationSeed. */
+/** Hash: totalPieces, gridRows, gridCols, pieceSize, snapTolerance, generationSeed, status, startedAt. */
 export const puzzleMeta = (puzzleId: string) => `puzzle:${puzzleId}:meta`;
 
 /** Hash: groupId, rotation. */

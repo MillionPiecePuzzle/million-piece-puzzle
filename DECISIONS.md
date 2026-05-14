@@ -121,7 +121,7 @@ Revisit when: a workflow needs to preserve the full image (no crop), align the p
 
 ### 2026-05-12, backend-realtime, manifest bootstrap
 
-Choice: the server reads `MPP_MANIFEST` (path to the slicer's `manifest.json`) at boot to obtain `puzzleId`, `seed`, `rows`, `cols`, `pieceSize`. If Redis has no meta for that puzzle, it runs `generatePuzzle` to derive geometry and writes initial state (one group per piece, anchor group `0` locked at world origin, others scattered deterministically). If meta already exists, it is reused.
+Choice: the server reads `MPP_MANIFEST` (path to the slicer's `manifest.json`) at boot to obtain `puzzleId`, `seed`, `rows`, `cols`, `pieceSize`. If Redis has no meta for that puzzle, it runs `generatePuzzle` to derive geometry and writes initial state (one group per piece, every group scattered deterministically including positions inside the puzzle frame, nothing locked at init). If meta already exists, it is reused.
 Why: keeps the single-puzzle Phase 0 loop trivial and aligned with the slicer's existing output. No catalog, no admin UI, no extra service.
 Revisit when: multiple puzzles or admin tooling appear. Move the catalog to Mongo and let the server load by `puzzleId` from there.
 
