@@ -11,7 +11,6 @@ export type Context = {
   state: RedisState;
   meta: PuzzleMeta;
   puzzleId: string;
-  imageManifestUrl: string;
   mongo: MongoLogger;
 };
 
@@ -50,12 +49,6 @@ export async function handleHello(ctx: Context, client: Client, msg: CHello): Pr
     t: "welcome",
     userId: client.userId,
     protocolVersion: PROTOCOL_VERSION,
-    puzzleId: ctx.puzzleId,
-    totalPieces: ctx.meta.totalPieces,
-    gridRows: ctx.meta.gridRows,
-    gridCols: ctx.meta.gridCols,
-    generationSeed: ctx.meta.generationSeed,
-    imageManifestUrl: ctx.imageManifestUrl,
     lockedCount,
   });
 

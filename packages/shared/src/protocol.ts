@@ -46,16 +46,12 @@ export type ClientMessage = CHello | CGrab | CDrag | CDrop;
 
 // Server -> Client
 
+// Fields derivable from the image manifest the client already fetched
+// (puzzleId, grid size, piece count, seed, manifest URL) are not repeated here.
 export type SWelcome = {
   t: "welcome";
   userId: string;
   protocolVersion: number;
-  puzzleId: string;
-  totalPieces: number;
-  gridRows: number;
-  gridCols: number;
-  generationSeed: string;
-  imageManifestUrl: string;
   lockedCount: number;
 };
 

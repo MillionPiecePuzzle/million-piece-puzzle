@@ -31,7 +31,6 @@ async function main(): Promise<void> {
     state,
     meta,
     puzzleId,
-    imageManifestUrl: config.imageManifestUrl,
     mongo,
   };
 

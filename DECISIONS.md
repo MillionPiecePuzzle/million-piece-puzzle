@@ -145,7 +145,7 @@ Revisit when: never expected. If the generator becomes non-deterministic across 
 ### 2026-05-12, frontend-canvas, Vite puzzle middleware
 
 Choice: in dev, a small Vite middleware in `packages/frontend/vite.config.ts` serves `<repo>/generated/<MPP_PUZZLE_ID:default test>/` at `/puzzle/*`. The slice script keeps writing to `generated/<id>/`, the server keeps reading the manifest via its existing volume mount, and the frontend fetches `/puzzle/manifest.json` plus tiles relative to it.
-Why: avoids copying artifacts into `packages/frontend/public/`, keeps `generated/` as the single source of truth, and matches the URL convention encoded in `MPP_IMAGE_MANIFEST_URL` (`http://localhost:5173/puzzle/manifest.json`).
+Why: avoids copying artifacts into `packages/frontend/public/`, keeps `generated/` as the single source of truth, and serves the manifest at the stable dev URL `http://localhost:5173/puzzle/manifest.json`.
 Revisit when: production deployment points the frontend at R2 (Phase 1). The middleware is dev-only and can be removed once tiles live on a CDN.
 
 ### 2026-05-12, frontend-canvas, bounding rect hits

@@ -41,7 +41,7 @@ const showStatus = computed(() => state.value.kind !== "ready");
 
 const totalPieces = computed(() =>
   state.value.kind === "ready" || state.value.kind === "syncing"
-    ? state.value.welcome.totalPieces
+    ? state.value.manifest.pieces.length
     : 0,
 );
 
@@ -101,7 +101,7 @@ watch(state, async (s) => {
   stage.setLocalUserId(userId.value);
   await stage.build(s.manifest, s.pieces, s.groups);
   stage.setMode(mode.value);
-  if (s.welcome.lockedCount >= s.welcome.totalPieces) {
+  if (s.welcome.lockedCount >= s.manifest.pieces.length) {
     triggerCompletion(false);
   }
 });

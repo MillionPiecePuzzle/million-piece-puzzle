@@ -80,6 +80,7 @@ async function start(): Promise<void> {
   }
 
   puzzleName.value = manifest.name;
+  totalPieces.value = manifest.pieces.length;
   state.value = { kind: "connecting", manifest };
   const wsUrl = import.meta.env.VITE_WS_URL ?? DEFAULT_WS_URL;
   client = new PuzzleWsClient(wsUrl, manifest.puzzleId);
@@ -89,7 +90,6 @@ async function start(): Promise<void> {
     if (msg.t === "welcome") {
       welcome = msg;
       userId.value = msg.userId;
-      totalPieces.value = msg.totalPieces;
       lockedCount.value = msg.lockedCount;
       state.value = { kind: "syncing", manifest, welcome };
     } else if (msg.t === "state") {

@@ -9,7 +9,6 @@ export type ServerConfig = {
   mongoDb: string;
   manifestPath: string;
   manifest: ImageManifest;
-  imageManifestUrl: string;
 };
 
 function int(name: string, fallback: number): number {
@@ -37,6 +36,5 @@ export async function loadConfig(): Promise<ServerConfig> {
     mongoDb: str("MPP_MONGO_DB", "mpp"),
     manifestPath,
     manifest,
-    imageManifestUrl: str("MPP_IMAGE_MANIFEST_URL", `file://${manifestPath.replace(/\\/g, "/")}`),
   };
 }
