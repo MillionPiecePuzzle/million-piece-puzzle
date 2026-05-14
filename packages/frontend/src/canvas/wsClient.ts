@@ -1,8 +1,4 @@
-import {
-  PROTOCOL_VERSION,
-  type ClientMessage,
-  type ServerMessage,
-} from "@mpp/shared";
+import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from "@mpp/shared";
 
 export type WsListener = (msg: ServerMessage) => void;
 

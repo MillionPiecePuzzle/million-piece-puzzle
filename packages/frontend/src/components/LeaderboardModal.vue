@@ -34,7 +34,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <div class="panel modal" role="dialog" aria-modal="true" aria-label="Full leaderboard">
       <div class="modal-head">
         <h3>Leaderboard &middot; full board</h3>
-        <button type="button" class="close" aria-label="Close" @click="emit('close')">&times;</button>
+        <button type="button" class="close" aria-label="Close" @click="emit('close')">
+          &times;
+        </button>
       </div>
       <ol class="lb-list">
         <li v-for="row in pageRows" :key="row.rank" :class="{ you: row.you }">

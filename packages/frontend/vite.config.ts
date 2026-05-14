@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type ViteDevServer } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { existsSync, statSync, createReadStream } from "node:fs";
 import path from "node:path";
@@ -18,7 +18,7 @@ function servePuzzleAssets() {
   };
   return {
     name: "mpp:serve-puzzle",
-    configureServer(server: import("vite").ViteDevServer) {
+    configureServer(server: ViteDevServer) {
       server.middlewares.use("/puzzle", (req, res, next) => {
         if (!req.url) return next();
         const rel = decodeURIComponent(req.url.split("?")[0] ?? "");

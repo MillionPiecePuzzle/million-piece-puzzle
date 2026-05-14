@@ -184,13 +184,7 @@ export function piecePath(piece: PieceGeometry, pieceSize: number): PathCommand[
   cmds.push({ t: "M", x: 0, y: 0 });
 
   // Top edge: canonical (left -> right), forward.
-  emitEdge(
-    cmds,
-    piece.edges.top,
-    { start: { x: 0, y: 0 }, fx: 1, fy: 0, nx: 0, ny: -1 },
-    L,
-    false,
-  );
+  emitEdge(cmds, piece.edges.top, { start: { x: 0, y: 0 }, fx: 1, fy: 0, nx: 0, ny: -1 }, L, false);
   // Right edge: canonical (top -> bottom), forward.
   emitEdge(
     cmds,
@@ -208,13 +202,7 @@ export function piecePath(piece: PieceGeometry, pieceSize: number): PathCommand[
     true,
   );
   // Left edge: canonical (top -> bottom). We walk bottom -> top, reversed.
-  emitEdge(
-    cmds,
-    piece.edges.left,
-    { start: { x: 0, y: 0 }, fx: 0, fy: 1, nx: -1, ny: 0 },
-    L,
-    true,
-  );
+  emitEdge(cmds, piece.edges.left, { start: { x: 0, y: 0 }, fx: 0, fy: 1, nx: -1, ny: 0 }, L, true);
 
   cmds.push({ t: "Z" });
   return cmds;

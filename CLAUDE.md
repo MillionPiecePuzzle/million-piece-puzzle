@@ -50,8 +50,8 @@ Locked pieces are permanent (no undo, no griefing).
 ### Gameplay model
 
 - **Clusters.** Each piece belongs to a group. Initially every piece is its own group. When two pieces of compatible neighboring positions touch with the correct relative offset (within tolerance), their groups merge: all pieces of both groups share the resulting `groupId` and their relative positions are frozen.
-- **Cluster drag.** Grabbing any piece grabs its whole cluster. All pieces of the cluster move together. Wire format broadcasts a single delta + `groupId`, not N piece positions.
-- **Anchoring.** A cluster is considered anchored (permanently locked) when it merges with the anchor cluster, which by convention is the cluster containing piece 0. Once anchored, the cluster cannot be moved.
+- **Cluster drag.** Grabbing any piece grabs its whole cluster. All pieces of the cluster move together. Wire format broadcasts a single absolute position + `groupId`, not N piece positions.
+- **Anchoring.** The puzzle frame (the rectangle from `(0,0)` to `(cols*pieceSize, rows*pieceSize)`) is the anchor. A cluster is anchored (permanently locked) when a human drop brings its origin within `snapTolerance` of `(0,0)`, or when it merges with an already-locked cluster. There is no special anchor piece. Once anchored, the cluster cannot be moved.
 - **Rotation.** Reserved in the schema (`rotation` field, default 0) but disabled in Phase 0. May be enabled later based on user feedback without schema migration.
 
 ### Concurrency model

@@ -33,7 +33,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `piece-generation`
 - [x] Generator produces N unique pieces on a grid, with continuous Bezier edge parameters and matching tabs/blanks between neighbors
-- [x] Snap geometry (anchor points, tolerance) computed per piece
+- [x] Snap geometry (per-piece canonical offsets, puzzle-global snap tolerance) computed by the generator
 
 ### `image-pipeline`
 - [x] Local script slices a test image into N AVIF pieces and emits a manifest consumable by the frontend
@@ -72,6 +72,20 @@ Polish and bugs surfaced while testing the closed Phase 0. Not gating the phase 
 - [x] `frontend-canvas`: Persistent confetti loop after completion, centered congrats modal with show/hide puzzle toggle (leaderboard deferred to Phase 1, requires auth + multi-user)
 - [x] `piece-generation`: Knob/blank shapes tuned closer to classical jigsaw silhouettes (see [circular bulb head](DECISIONS.md#2026-05-13-piece-generation-circular-bulb-head))
 - [x] `frontend-shell` + `frontend-canvas`: Play-page chrome from the design handoff rendered on `/play`, faithful to the handoff colors, spacing and panel chrome: topbar caption (puzzle name from the manifest) and progress pill wired to live session state, working zoom controls rail, floating Leaderboard panel (mocked data) with a paginated full-board modal, floating Activity ticker panel (live snap events), stage backdrop with a zoom-adaptive hairline grid
+
+#### Post-audit punch list
+
+Findings from the Phase 0 code audit. Same gating rule as the rest of `complementary`: land before Phase 1.
+
+- [x] `tooling-foundations`: Repo back to green. `npm run lint`, `npm run format:check` and `npm run typecheck` all pass with no errors.
+- [x] `tooling-foundations` + `piece-generation`: Doc drift fixed. `CLAUDE.md` describes frame-based anchoring (not the removed piece-0 model), `edge.ts` documents `headRoundness` as the bulb radius ratio, ROADMAP wording matches the implemented snap geometry.
+- [ ] `backend-realtime`: WebSocket message dispatch is serialized so the "server processes messages sequentially" invariant holds. Concurrent messages can no longer interleave on `await` points in `handleDrop`.
+- [ ] `backend-realtime`: `detectSnap` no longer merges neighbour groups that are within tolerance of the dropped group but not mutually aligned.
+- [ ] `shared-protocol` + `backend-realtime` + `frontend-canvas`: `SWelcome` trimmed to server-only fields. Fields derivable from the image manifest the client already fetched are removed from the wire.
+- [ ] `frontend-canvas`: `PuzzleWsClient` surfaces connection errors to the session state instead of freezing silently.
+- [ ] `frontend-canvas`: Duplication removed. Shared `LeaderboardRow` component for the panel and modal, shared manifest-URL resolution, shared Redis hash parsing in `RedisState`.
+- [ ] `qa-and-load`: Unit tests cover the deterministic core (`prng`, `generatePuzzle`, `piecePath`, `detectSnap`).
+- [ ] `backend-realtime`: Initial puzzle write in `initPuzzleIfEmpty` is pipelined instead of three sequential Redis round trips per piece.
 
 ---
 

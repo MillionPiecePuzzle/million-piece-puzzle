@@ -22,7 +22,7 @@
  *   tension       tangent length controlling the rise from baseline to neck
  *   tilt          left/right asymmetry of the head apex
  *   shoulderRun   length of the flat baseline at each end before the tab
- *   headRoundness tangent factor at the head apex; larger = rounder bulb
+ *   headRoundness bulb radius as a fraction of depth (`r = headRoundness * depth`)
  */
 
 export type FlatEdge = { type: "flat" };

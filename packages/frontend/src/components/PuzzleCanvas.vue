@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ServerMessage } from "@mpp/shared";
-import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useMode } from "../composables/useMode";
 import { PuzzleStage } from "../canvas/puzzleStage";
@@ -24,26 +24,18 @@ function triggerCompletion(playSpectacle: boolean): void {
   stage.startConfetti();
 }
 
-const statusLabel = computed(() => {
-  switch (state.value.kind) {
-    case "idle":
-      return "Idle";
-    case "loading-manifest":
-      return "Loading manifest";
-    case "connecting":
-      return "Connecting to server";
-    case "syncing":
-      return "Syncing state";
-    case "ready":
-      return "Ready";
-    case "error":
-      return "Error";
-  }
-});
+const STATUS_LABELS: Record<PuzzleSessionState["kind"], string> = {
+  idle: "Idle",
+  "loading-manifest": "Loading manifest",
+  connecting: "Connecting to server",
+  syncing: "Syncing state",
+  ready: "Ready",
+  error: "Error",
+};
 
-const errorMessage = computed(() =>
-  state.value.kind === "error" ? state.value.message : null,
-);
+const statusLabel = computed(() => STATUS_LABELS[state.value.kind]);
+
+const errorMessage = computed(() => (state.value.kind === "error" ? state.value.message : null));
 
 const showStatus = computed(() => state.value.kind !== "ready");
 
@@ -129,7 +121,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="canvas-host" ref="host">
+  <div ref="host" class="canvas-host">
     <div v-if="showStatus" class="status" role="status">
       <p class="kicker">Status</p>
       <p class="value">{{ statusLabel }}</p>
@@ -261,7 +253,9 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-panel);
   cursor: pointer;
   backdrop-filter: blur(8px);
-  transition: color 150ms ease, background 150ms ease;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
 }
 .modal-reopen:hover {
   color: var(--ink);
@@ -288,10 +282,14 @@ onBeforeUnmount(() => {
   color: var(--ink-3);
 }
 .completion-enter-active {
-  transition: opacity 400ms ease, transform 400ms ease;
+  transition:
+    opacity 400ms ease,
+    transform 400ms ease;
 }
 .completion-leave-active {
-  transition: opacity 200ms ease, transform 200ms ease;
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease;
 }
 .completion-enter-from,
 .completion-leave-to {
@@ -299,10 +297,14 @@ onBeforeUnmount(() => {
   transform: translate(-50%, calc(-50% - 12px));
 }
 .reopen-enter-active {
-  transition: opacity 300ms ease 150ms, transform 300ms ease 150ms;
+  transition:
+    opacity 300ms ease 150ms,
+    transform 300ms ease 150ms;
 }
 .reopen-leave-active {
-  transition: opacity 150ms ease, transform 150ms ease;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
 }
 .reopen-enter-from,
 .reopen-leave-to {

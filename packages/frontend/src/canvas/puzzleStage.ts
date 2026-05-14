@@ -718,10 +718,7 @@ function buildPieceNode(
   return { id: geometry.id, container, inner, flash, geometry };
 }
 
-async function loadTextures(
-  manifest: ImageManifest,
-  base: string,
-): Promise<Map<number, Texture>> {
+async function loadTextures(manifest: ImageManifest, base: string): Promise<Map<number, Texture>> {
   const out = new Map<number, Texture>();
   const entries = await Promise.all(
     manifest.pieces.map(async (p) => {
