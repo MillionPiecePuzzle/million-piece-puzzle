@@ -165,3 +165,9 @@ Revisit when: high-rate mice (240Hz+) or many concurrent draggers create WS back
 Choice: the cascade entrance animation is removed from Phase 0 and moved to Phase 2. The Phase 2 frontend-canvas entry describes it as a synchronized event-start cinematic, with pre-reqs in shared-protocol (`eventStartsAt` in welcome) and frontend-shell (landing countdown).
 Why: the product vision is an event with a countdown on the landing page: at t=0 the canvas opens and every client plays the same cascade simultaneously, conveying scale and hype. Late joiners skip it. None of that is testable in Phase 0 (no event scheduling, no countdown, no synchronized trigger), and a local "play on /play open" cascade would be rewritten when the real trigger lands. Phase 0 ships without cascade; the other animations (snap, end-of-puzzle) still carry the "feel alive" pillar.
 Revisit when: starting Phase 2, or earlier if the Phase 1 alpha would benefit from a dry-run of the event-start ritual. Implementation will be a one-shot Pixi ticker animation triggered when `Date.now() >= eventStartsAt - bufferMs` and the client has just connected.
+
+### 2026-05-14, backend-realtime, global serial dispatch queue
+
+Choice: every incoming WS message, across all clients, is appended to a single process-wide promise chain and runs to completion before the next starts.
+Why: handlers `await` Redis between reads and writes; without serialization two messages can interleave on those points and corrupt group state. A global chain makes the "server processes messages sequentially" invariant literally true with one line and no locking logic.
+Revisit when: throughput matters (Phase 1+). A global queue serializes unrelated clients needlessly; the natural follow-up is per-group (or per-shard) queues so independent groups progress in parallel while still ordering messages that touch the same group.

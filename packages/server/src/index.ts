@@ -39,15 +39,21 @@ async function main(): Promise<void> {
     console.log(`[ws] listening on ${config.port}`);
   });
 
+  // Global dispatch queue: every message runs to completion before the next
+  // starts, so handler `await` points cannot interleave across clients.
+  let dispatchChain: Promise<void> = Promise.resolve();
+
   wss.on("connection", (ws: WebSocket) => {
     const client: Client = { userId: randomUUID(), ws };
     hub.add(client);
 
     ws.on("message", (data) => {
       const raw = typeof data === "string" ? data : data.toString("utf8");
-      dispatch(ctx, client, raw).catch((e: unknown) => {
-        console.error("[dispatch]", e);
-      });
+      dispatchChain = dispatchChain.then(() =>
+        dispatch(ctx, client, raw).catch((e: unknown) => {
+          console.error("[dispatch]", e);
+        }),
+      );
     });
 
     ws.on("close", () => {
