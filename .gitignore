@@ -68,5 +68,5 @@ samples/source/*
 !samples/source/.gitkeep
 
 # Local data
-data/
+/data/
 dump.rdb

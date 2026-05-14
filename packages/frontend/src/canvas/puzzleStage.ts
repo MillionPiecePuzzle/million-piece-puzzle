@@ -15,7 +15,6 @@ import {
   type ImageManifest,
   type PieceGeometry,
   type PieceRuntime,
-  type PuzzleGeometry,
 } from "@mpp/shared";
 import { applyPath } from "./applyPath";
 import { Tweener, peak, easeOutCubic } from "./tween";
@@ -55,6 +54,8 @@ export type StageCallbacks = {
 };
 
 const DEFAULT_MANIFEST_URL = "/puzzle/manifest.json";
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
 const SNAP_BUMP_SCALE = 1.08;
 const SNAP_BUMP_MS = 240;
@@ -90,9 +91,11 @@ export class PuzzleStage {
   private groups = new Map<number, GroupNode>();
   private pieceToGroup = new Map<number, number>();
   private camera = { x: 0, y: 0, zoom: 1 };
+  private worldSize: { w: number; h: number } | null = null;
   private mode: Mode = "spectator";
   private localUserId: string | null = null;
   private callbacks: StageCallbacks | null = null;
+  onCameraChange: ((camera: { x: number; y: number; zoom: number }) => void) | null = null;
 
   private held: HeldState | null = null;
   private pan: { active: boolean; lastX: number; lastY: number } = {
@@ -174,10 +177,13 @@ export class PuzzleStage {
     const base = manifestBaseUrl(manifestUrl);
     const textures = await loadTextures(manifest, base);
 
+    this.worldSize = {
+      w: geom.cols * geom.pieceSize,
+      h: geom.rows * geom.pieceSize,
+    };
+
     const frame = new Graphics();
-    frame
-      .rect(0, 0, geom.cols * geom.pieceSize, geom.rows * geom.pieceSize)
-      .stroke({ color: 0x1a1a1a, width: 4 });
+    frame.rect(0, 0, this.worldSize.w, this.worldSize.h).stroke({ color: 0x1a1a1a, width: 4 });
     this.world.addChildAt(frame, 0);
 
     for (const group of initialGroups) {
@@ -211,7 +217,7 @@ export class PuzzleStage {
       this.applyGroupInteractivity(node);
     }
 
-    this.fitTo(geom);
+    this.fitView();
   }
 
   destroy(): void {
@@ -593,19 +599,50 @@ export class PuzzleStage {
     };
   }
 
-  private fitTo(geom: PuzzleGeometry): void {
-    if (!this.app || !this.world) return;
-    const worldW = geom.cols * geom.pieceSize;
-    const worldH = geom.rows * geom.pieceSize;
-    const fitW = worldW * 3;
-    const fitH = worldH * 3;
+  // Zoom out far enough that the puzzle area fills a third of the viewport,
+  // leaving room around it for the scattered groups.
+  fitView(): void {
+    if (!this.app || !this.worldSize) return;
     const screen = this.app.renderer.screen;
-    const zoom = Math.min(screen.width / fitW, screen.height / fitH);
-    const cx = worldW * 0.5;
-    const cy = worldH * 0.5;
+    const zoom = Math.min(
+      screen.width / (this.worldSize.w * 3),
+      screen.height / (this.worldSize.h * 3),
+    );
     this.camera.zoom = zoom;
-    this.camera.x = screen.width * 0.5 - cx * zoom;
-    this.camera.y = screen.height * 0.5 - cy * zoom;
+    this.centerCamera();
+  }
+
+  centerView(): void {
+    if (!this.worldSize) return;
+    this.centerCamera();
+  }
+
+  zoomIn(): void {
+    this.zoomBy(1.25);
+  }
+
+  zoomOut(): void {
+    this.zoomBy(1 / 1.25);
+  }
+
+  private centerCamera(): void {
+    if (!this.app || !this.worldSize) return;
+    const screen = this.app.renderer.screen;
+    this.camera.x = screen.width * 0.5 - this.worldSize.w * 0.5 * this.camera.zoom;
+    this.camera.y = screen.height * 0.5 - this.worldSize.h * 0.5 * this.camera.zoom;
+    this.applyCamera();
+  }
+
+  private zoomBy(factor: number): void {
+    if (!this.app) return;
+    const screen = this.app.renderer.screen;
+    const px = screen.width * 0.5;
+    const py = screen.height * 0.5;
+    const next = clamp(this.camera.zoom * factor, MIN_ZOOM, MAX_ZOOM);
+    const k = next / this.camera.zoom;
+    this.camera.x = px - (px - this.camera.x) * k;
+    this.camera.y = py - (py - this.camera.y) * k;
+    this.camera.zoom = next;
     this.applyCamera();
   }
 
@@ -613,6 +650,7 @@ export class PuzzleStage {
     if (!this.world) return;
     this.world.scale.set(this.camera.zoom);
     this.world.position.set(this.camera.x, this.camera.y);
+    this.onCameraChange?.({ ...this.camera });
   }
 
   private attachWheelZoom(canvas: HTMLCanvasElement): void {
@@ -624,7 +662,7 @@ export class PuzzleStage {
         const px = ev.clientX - rect.left;
         const py = ev.clientY - rect.top;
         const factor = Math.exp(-ev.deltaY * 0.0015);
-        const next = clamp(this.camera.zoom * factor, 0.05, 8);
+        const next = clamp(this.camera.zoom * factor, MIN_ZOOM, MAX_ZOOM);
         const k = next / this.camera.zoom;
         this.camera.x = px - (px - this.camera.x) * k;
         this.camera.y = py - (py - this.camera.y) * k;

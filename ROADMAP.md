@@ -71,7 +71,7 @@ Polish and bugs surfaced while testing the closed Phase 0. Not gating the phase 
 - [x] `backend-realtime` + `frontend-canvas`: Frame-based anchoring. No special piece 0. The puzzle frame (rectangle `(0,0)` to `(cols*S, rows*S)`) is the anchor and is rendered on the canvas. Init scatters all groups freely, including positions inside the frame, so a million-piece board does not require traversing the outside. A cluster locks only on a human drop when its origin reaches `(0,0)` within `snapTolerance`; a piece that happens to scatter at its canonical position is not auto-locked. Completion = all pieces locked.
 - [x] `frontend-canvas`: Persistent confetti loop after completion, centered congrats modal with show/hide puzzle toggle (leaderboard deferred to Phase 1, requires auth + multi-user)
 - [x] `piece-generation`: Knob/blank shapes tuned closer to classical jigsaw silhouettes (see [circular bulb head](DECISIONS.md#2026-05-13-piece-generation-circular-bulb-head))
-- [~] `frontend-shell` + `frontend-canvas`: Play-page chrome from the design handoff rendered on `/play`, faithful to the handoff colors, spacing and panel chrome. In scope: topbar caption (`CANVAS · TIDEPOOLS #003`), progress pill, floating Leaderboard panel (mocked data), zoom controls rail, floating Activity ticker panel (mocked data), stage backdrop (radial gradient + paper texture + grid hairlines)
+- [x] `frontend-shell` + `frontend-canvas`: Play-page chrome from the design handoff rendered on `/play`, faithful to the handoff colors, spacing and panel chrome: topbar caption (puzzle name from the manifest) and progress pill wired to live session state, working zoom controls rail, floating Leaderboard panel (mocked data) with a paginated full-board modal, floating Activity ticker panel (live snap events), stage backdrop with a zoom-adaptive hairline grid
 
 ---
 
@@ -129,6 +129,7 @@ Polish and bugs surfaced while testing the closed Phase 0. Not gating the phase 
 - [ ] `frontend-canvas`: Decide whether to add the search bar (jump to coordinates / sector / piece ID, with `⌘K`)
 - [ ] `frontend-canvas`: Decide whether to add the minimap / overview panel
 - [ ] `frontend-canvas`: Decide whether to add the piece tray (slots + shuffle / auto-sort / draw actions)
+- [ ] `backend-realtime` + `shared-protocol`: Activity ticker backfilled with recent `ClusterMerge` history on connect, so the feed is populated even for events that happened before the client joined (currently the ticker only shows snaps received live)
 
 ---
 

@@ -1,29 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { leaderboardPanelRows } from "../data/leaderboardMock";
+import LeaderboardModal from "./LeaderboardModal.vue";
 
-type Row = {
-  rank: number;
-  name: string;
-  initials: string;
-  color: string;
-  pieces: number;
-  online: boolean;
-  you?: boolean;
-};
-
-const scopes = ["session", "today", "all"] as const;
-const scope = ref<(typeof scopes)[number]>("today");
-
-const rows: Row[] = [
-  { rank: 1, name: "jin_k", initials: "JK", color: "var(--c2)", pieces: 3184, online: true },
-  { rank: 2, name: "fern.06", initials: "FN", color: "var(--c3)", pieces: 2901, online: true },
-  { rank: 3, name: "marisol_r", initials: "MR", color: "var(--c1)", pieces: 2477, online: true },
-  { rank: 4, name: "tev", initials: "TV", color: "var(--c5)", pieces: 2103, online: true },
-  { rank: 5, name: "quietfox", initials: "QU", color: "#7d7468", pieces: 1962, online: false },
-  { rank: 6, name: "samo_o", initials: "SO", color: "var(--c4)", pieces: 1748, online: true },
-  { rank: 14, name: "you", initials: "YO", color: "var(--accent)", pieces: 912, online: true, you: true },
-  { rank: 15, name: "petrichor", initials: "PT", color: "#9a8f7e", pieces: 874, online: false },
-];
+const showModal = ref(false);
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US");
@@ -34,19 +14,9 @@ function fmt(n: number): string {
   <aside class="panel leaderboard">
     <div class="lb-head">
       <h3>Leaderboard</h3>
-      <div class="scope">
-        <button
-          v-for="s in scopes"
-          :key="s"
-          :class="{ on: scope === s }"
-          @click="scope = s"
-        >
-          {{ s }}
-        </button>
-      </div>
     </div>
     <ol class="lb-list">
-      <li v-for="row in rows" :key="row.rank" :class="{ you: row.you }">
+      <li v-for="row in leaderboardPanelRows" :key="row.rank" :class="{ you: row.you }">
         <span class="rk" :class="{ top: row.rank <= 3 }">{{ row.rank }}</span>
         <span class="av" :style="{ background: row.color }">{{ row.initials }}</span>
         <span class="nm">
@@ -58,10 +28,11 @@ function fmt(n: number): string {
       </li>
     </ol>
     <div class="lb-foot">
-      <span>&uarr; 22 places this hour</span>
-      <a href="#">full board</a>
+      <button type="button" class="full-board" @click="showModal = true">full board</button>
     </div>
   </aside>
+
+  <LeaderboardModal v-if="showModal" @close="showModal = false" />
 </template>
 
 <style scoped>
@@ -76,25 +47,6 @@ function fmt(n: number): string {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
-}
-.scope {
-  display: flex;
-  gap: 2px;
-  background: var(--ground-2);
-  padding: 2px;
-  border-radius: var(--radius-pill);
-}
-.scope button {
-  padding: 4px 9px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  color: var(--ink-3);
-  font-family: var(--mono);
-}
-.scope button.on {
-  background: var(--paper);
-  color: var(--ink);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
 }
 .lb-list {
   list-style: none;
@@ -174,13 +126,18 @@ function fmt(n: number): string {
   border-top: 1px dashed var(--line);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--ink-3);
 }
-.lb-foot a {
+.full-board {
   color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
   border-bottom: 1px solid var(--line);
+  padding: 0 0 1px;
+}
+.full-board:hover {
+  border-bottom-color: var(--ink);
 }
 </style>

@@ -1,15 +1,29 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import TopBar from "../components/TopBar.vue";
 import PuzzleCanvas from "../components/PuzzleCanvas.vue";
 import ZoomControls from "../components/ZoomControls.vue";
 import LeaderboardPanel from "../components/LeaderboardPanel.vue";
 import ActivityTicker from "../components/ActivityTicker.vue";
+import { useStageControls } from "../composables/useStageControls";
+
+// Anchor the hairline grid to world space: one cell is a fixed world distance,
+// so it scales and pans with the canvas and reads as a measuring scale.
+const GRID_WORLD_CELL = 80;
+
+const { camera } = useStageControls();
+
+const backdropVars = computed(() => ({
+  "--grid-cell": `${GRID_WORLD_CELL * camera.value.zoom}px`,
+  "--grid-x": `${camera.value.x}px`,
+  "--grid-y": `${camera.value.y}px`,
+}));
 </script>
 
 <template>
   <div class="play">
     <TopBar />
-    <main class="stage" aria-label="Puzzle stage">
+    <main class="stage" aria-label="Puzzle stage" :style="backdropVars">
       <PuzzleCanvas />
       <ZoomControls />
       <LeaderboardPanel />
@@ -46,7 +60,7 @@ import ActivityTicker from "../components/ActivityTicker.vue";
   background-image:
     linear-gradient(to right, rgba(21, 20, 15, 0.04) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(21, 20, 15, 0.04) 1px, transparent 1px);
-  background-size: 48px 48px;
-  background-position: -1px -1px;
+  background-size: var(--grid-cell, 80px) var(--grid-cell, 80px);
+  background-position: var(--grid-x, 0) var(--grid-y, 0);
 }
 </style>

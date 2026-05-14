@@ -1,10 +1,17 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import BrandMark from "./BrandMark.vue";
 import ModeToggle from "./ModeToggle.vue";
 import { useAuthModal } from "../composables/useAuthModal";
+import { usePuzzleSession } from "../composables/usePuzzleSession";
 
 const { show } = useAuthModal();
+const { puzzleName, totalPieces, lockedCount } = usePuzzleSession();
+
+const progressPct = computed(() =>
+  totalPieces.value > 0 ? (lockedCount.value / totalPieces.value) * 100 : 0,
+);
 </script>
 
 <template>
@@ -12,16 +19,21 @@ const { show } = useAuthModal();
     <RouterLink to="/" class="brand">
       <BrandMark />
       <span class="brand-name">Million Piece <em>Puzzle</em></span>
-      <span class="brand-caption">CANVAS&nbsp;·&nbsp;TIDEPOOLS #003</span>
+      <span v-if="puzzleName" class="brand-caption">{{ puzzleName }}</span>
     </RouterLink>
 
-    <ModeToggle />
+    <div v-if="totalPieces > 0" class="progress-pill" title="Puzzle progress">
+      <div class="bar">
+        <div class="fill" :style="{ width: `${progressPct}%` }"></div>
+      </div>
+      <span class="num">
+        {{ lockedCount.toLocaleString() }}<span> / {{ totalPieces.toLocaleString() }}</span>
+      </span>
+    </div>
+    <span v-else></span>
 
     <div class="top-right">
-      <div class="progress-pill" title="Puzzle progress">
-        <div class="bar"></div>
-        <span class="num">724,318<span> / 1M</span></span>
-      </div>
+      <ModeToggle />
       <button class="signin" @click="show">Sign in</button>
     </div>
   </header>
@@ -64,12 +76,6 @@ const { show } = useAuthModal();
   letter-spacing: 0.04em;
   color: var(--ink-4);
 }
-.top-right {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 14px;
-}
 .progress-pill {
   display: flex;
   align-items: center;
@@ -84,24 +90,28 @@ const { show } = useAuthModal();
   height: 5px;
   border-radius: 99px;
   background: var(--ground-2);
-  position: relative;
   overflow: hidden;
 }
-.progress-pill .bar::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: 72.4%;
+.progress-pill .fill {
+  height: 100%;
   background: var(--ink);
   border-radius: 99px;
+  transition: width 400ms ease-out;
 }
 .progress-pill .num {
   font-family: var(--mono);
   font-size: 12px;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 .progress-pill .num span {
   color: var(--ink-3);
+}
+.top-right {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 14px;
 }
 .signin {
   padding: 6px 14px;

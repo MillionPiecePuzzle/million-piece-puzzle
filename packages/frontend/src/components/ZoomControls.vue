@@ -1,21 +1,41 @@
 <script setup lang="ts">
-// Chrome only: the canvas zoom pipeline is not wired in Phase 0.
+import { useStageControls } from "../composables/useStageControls";
+
+const { controls, zoomPercent } = useStageControls();
 </script>
 
 <template>
   <div class="zoom">
-    <div class="lvl">62%</div>
-    <button type="button" title="Zoom in">
+    <div class="lvl">{{ zoomPercent }}%</div>
+    <button
+      type="button"
+      aria-label="Zoom in"
+      data-tip="Zoom in"
+      :disabled="!controls"
+      @click="controls?.zoomIn()"
+    >
       <svg class="ic" viewBox="0 0 16 16" fill="none">
         <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
       </svg>
     </button>
-    <button type="button" title="Zoom out">
+    <button
+      type="button"
+      aria-label="Zoom out"
+      data-tip="Zoom out"
+      :disabled="!controls"
+      @click="controls?.zoomOut()"
+    >
       <svg class="ic" viewBox="0 0 16 16" fill="none">
         <path d="M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
       </svg>
     </button>
-    <button type="button" title="Center">
+    <button
+      type="button"
+      aria-label="Center on puzzle"
+      data-tip="Center on puzzle"
+      :disabled="!controls"
+      @click="controls?.center()"
+    >
       <svg class="ic" viewBox="0 0 16 16" fill="none">
         <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.4" />
         <path
@@ -26,7 +46,13 @@
         />
       </svg>
     </button>
-    <button type="button" title="Fit to view">
+    <button
+      type="button"
+      aria-label="Fit puzzle to view"
+      data-tip="Fit puzzle to view"
+      :disabled="!controls"
+      @click="controls?.fit()"
+    >
       <svg class="ic" viewBox="0 0 16 16" fill="none">
         <path
           d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
@@ -52,7 +78,6 @@
   backdrop-filter: blur(10px);
   border: 1px solid var(--line);
   border-radius: 12px;
-  overflow: hidden;
 }
 .lvl {
   font-family: var(--mono);
@@ -61,8 +86,10 @@
   padding: 6px 0;
   text-align: center;
   border-bottom: 1px solid var(--line-2);
+  border-radius: 12px 12px 0 0;
 }
 .zoom button {
+  position: relative;
   width: 36px;
   height: 36px;
   display: grid;
@@ -72,9 +99,34 @@
 }
 .zoom button:last-child {
   border-bottom: none;
+  border-radius: 0 0 12px 12px;
 }
-.zoom button:hover {
+.zoom button:hover:not(:disabled) {
   background: var(--paper-2);
+}
+.zoom button:disabled {
+  color: var(--ink-4);
+  cursor: default;
+}
+.zoom button::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-panel);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.zoom button:hover:not(:disabled)::after {
+  opacity: 1;
 }
 .ic {
   width: 16px;

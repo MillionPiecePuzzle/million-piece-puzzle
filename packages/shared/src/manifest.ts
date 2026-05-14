@@ -13,6 +13,7 @@
 
 export type ImageManifest = {
   puzzleId: string;
+  name: string;
   seed: string;
   rows: number;
   cols: number;

@@ -16,7 +16,10 @@
  * Usage:
  *   npm run slice -- --input samples/source/puzzle.png \
  *                    --seed test123 --rows 7 --cols 7 \
- *                    --output generated/test
+ *                    --name "Tidepools #003" --output generated/test
+ *
+ * `--name` is the human-readable puzzle name; it defaults to the output
+ * directory basename when omitted.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -29,6 +32,7 @@ type Args = {
   input: string;
   output: string;
   seed: string;
+  name?: string;
   rows: number;
   cols: number;
   pieceSize?: number;
@@ -57,6 +61,7 @@ function parseArgs(argv: string[]): Args {
     input: args["input"],
     output: args["output"],
     seed: args["seed"],
+    name: args["name"],
     rows: parseInt(args["rows"], 10),
     cols: parseInt(args["cols"], 10),
     pieceSize: args["piece-size"] ? parseInt(args["piece-size"], 10) : undefined,
@@ -158,6 +163,7 @@ async function main() {
 
   const manifest: ImageManifest = {
     puzzleId,
+    name: args.name ?? puzzleId,
     seed: args.seed,
     rows: args.rows,
     cols: args.cols,

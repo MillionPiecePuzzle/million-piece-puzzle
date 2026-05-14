@@ -2,11 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { useStageControls } from "../composables/useStageControls";
 import { useMode } from "../composables/useMode";
 import { PuzzleStage } from "../canvas/puzzleStage";
 
 const host = ref<HTMLDivElement | null>(null);
-const { state, userId, start, onMessage, sendGrab, sendDrag, sendDrop } = usePuzzleSession();
+const { state, userId, start, close, onMessage, sendGrab, sendDrag, sendDrop } = usePuzzleSession();
+const { setControls, setCamera } = useStageControls();
 const { mode } = useMode();
 
 let stage: PuzzleStage | null = null;
@@ -89,7 +91,14 @@ onMounted(async () => {
     onDrag: (groupId, x, y) => sendDrag(groupId, x, y),
     onDrop: (groupId, x, y) => sendDrop(groupId, x, y),
   });
+  stage.onCameraChange = (camera) => setCamera(camera);
   await stage.mount(host.value);
+  setControls({
+    zoomIn: () => stage?.zoomIn(),
+    zoomOut: () => stage?.zoomOut(),
+    center: () => stage?.centerView(),
+    fit: () => stage?.fitView(),
+  });
   unsubscribe = onMessage(routeMessage);
   await start();
 });
@@ -112,6 +121,8 @@ watch(mode, (m) => {
 onBeforeUnmount(() => {
   unsubscribe?.();
   unsubscribe = null;
+  setControls(null);
+  close();
   stage?.destroy();
   stage = null;
 });
@@ -163,6 +174,9 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  /* Lift the (transparent) canvas above the stage backdrop pseudo-elements so
+     pieces render over the hairline grid instead of under it. */
+  z-index: 1;
 }
 .canvas-host :deep(canvas) {
   display: block;

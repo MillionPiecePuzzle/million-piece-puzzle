@@ -1,30 +1,41 @@
 <script setup lang="ts">
-type Event = {
-  id: number;
-  name: string;
-  action: string;
-  emphasis?: string;
-  trailing?: string;
-  ts: string;
-};
+import { onBeforeUnmount, onMounted, ref } from "vue";
+import { usePuzzleSession } from "../composables/usePuzzleSession";
 
-const events: Event[] = [
-  { id: 1, name: "jin_k", action: "placed", emphasis: "4 pieces", trailing: "in G-14", ts: "just now" },
-  { id: 2, name: "fern.06", action: "completed cluster", emphasis: "“lighthouse west”", ts: "12s" },
-  { id: 3, name: "marisol_r", action: "picked up a piece", ts: "38s" },
-  { id: 4, name: "you", action: "placed", emphasis: "1 piece", trailing: "· streak 14", ts: "1m" },
-];
+const { activity } = usePuzzleSession();
+
+const now = ref(Date.now());
+let timer: ReturnType<typeof setInterval> | null = null;
+
+onMounted(() => {
+  timer = setInterval(() => {
+    now.value = Date.now();
+  }, 10000);
+});
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer);
+});
+
+function relativeTime(at: number): string {
+  const seconds = Math.max(0, Math.round((now.value - at) / 1000));
+  if (seconds < 10) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.floor(minutes / 60)}h ago`;
+}
 </script>
 
 <template>
   <aside class="panel ticker">
     <h3>Activity</h3>
-    <ul>
-      <li v-for="ev in events" :key="ev.id">
-        <span class="msg"><b>{{ ev.name }}</b> <em>{{ ev.action }}</em><span v-if="ev.emphasis">&nbsp;{{ ev.emphasis }}</span><em v-if="ev.trailing">&nbsp;{{ ev.trailing }}</em></span>
-        <span class="ts">{{ ev.ts }}</span>
+    <ul v-if="activity.length > 0">
+      <li v-for="entry in activity" :key="entry.id">
+        <span class="msg"><b>{{ entry.actor }}</b> <em>placed piece number</em> {{ entry.pieceNumber }}</span>
+        <span class="ts">{{ relativeTime(entry.at) }}</span>
       </li>
     </ul>
+    <p v-else class="empty">No pieces placed yet.</p>
   </aside>
 </template>
 
@@ -65,6 +76,13 @@ const events: Event[] = [
 .ts {
   font-family: var(--mono);
   font-size: 10px;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+.empty {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
   color: var(--ink-4);
 }
 </style>
