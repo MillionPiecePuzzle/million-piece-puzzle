@@ -120,9 +120,7 @@ export class RedisState {
     await this.r.hset(keys.group(this.puzzleId, id), "heldBy", "");
   }
 
-  async writeInitialPieces(
-    entries: { pieceId: number; group: GroupRuntime }[],
-  ): Promise<void> {
+  async writeInitialPieces(entries: { pieceId: number; group: GroupRuntime }[]): Promise<void> {
     const CHUNK = 1000;
     for (let start = 0; start < entries.length; start += CHUNK) {
       const pipe = this.r.pipeline();
