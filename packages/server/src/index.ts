@@ -39,8 +39,8 @@ async function main(): Promise<void> {
     console.log(`[ws] listening on ${config.port}`);
   });
 
-  // Global dispatch queue: every message runs to completion before the next
-  // starts, so handler `await` points cannot interleave across clients.
+  // Global dispatch queue: every message and disconnect cleanup runs to
+  // completion before the next starts, so `await` points cannot interleave.
   let dispatchChain: Promise<void> = Promise.resolve();
 
   wss.on("connection", (ws: WebSocket) => {
@@ -58,8 +58,10 @@ async function main(): Promise<void> {
 
     ws.on("close", () => {
       hub.remove(client);
-      releaseHeldGroups(state, meta.totalPieces, client.userId, hub).catch((e: unknown) =>
-        console.error("[release]", e),
+      dispatchChain = dispatchChain.then(() =>
+        releaseHeldGroups(state, meta.totalPieces, client.userId, hub).catch((e: unknown) =>
+          console.error("[release]", e),
+        ),
       );
     });
   });
