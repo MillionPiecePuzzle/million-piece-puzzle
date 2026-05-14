@@ -8,8 +8,8 @@ import type {
   ServerMessage,
 } from "@mpp/shared";
 import { PuzzleWsClient } from "../canvas/wsClient";
+import { resolveManifestUrl } from "../data/manifestUrl";
 
-const DEFAULT_MANIFEST_URL = "/puzzle/manifest.json";
 const DEFAULT_WS_URL = "ws://localhost:8080/";
 const ACTIVITY_LIMIT = 6;
 
@@ -64,7 +64,7 @@ async function start(): Promise<void> {
   if (started) return;
   started = true;
   state.value = { kind: "loading-manifest" };
-  const manifestUrl = import.meta.env.VITE_MANIFEST_URL ?? DEFAULT_MANIFEST_URL;
+  const manifestUrl = resolveManifestUrl();
   let manifest: ImageManifest;
   try {
     const res = await fetch(manifestUrl, { cache: "no-store" });

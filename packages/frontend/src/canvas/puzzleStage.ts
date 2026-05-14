@@ -18,6 +18,7 @@ import {
 } from "@mpp/shared";
 import { applyPath } from "./applyPath";
 import { Tweener, peak, easeOutCubic } from "./tween";
+import { manifestBaseUrl, resolveManifestUrl } from "../data/manifestUrl";
 
 export type Mode = "spectator" | "contributor";
 
@@ -53,7 +54,6 @@ export type StageCallbacks = {
   onDrop: (groupId: number, worldX: number, worldY: number) => void;
 };
 
-const DEFAULT_MANIFEST_URL = "/puzzle/manifest.json";
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
@@ -173,8 +173,7 @@ export class PuzzleStage {
     });
     const geomById = new Map<number, PieceGeometry>(geom.pieces.map((p) => [p.id, p]));
 
-    const manifestUrl = import.meta.env.VITE_MANIFEST_URL ?? DEFAULT_MANIFEST_URL;
-    const base = manifestBaseUrl(manifestUrl);
+    const base = manifestBaseUrl(resolveManifestUrl());
     const textures = await loadTextures(manifest, base);
 
     this.worldSize = {
@@ -734,11 +733,6 @@ async function loadTextures(manifest: ImageManifest, base: string): Promise<Map<
   );
   for (const e of entries) if (e) out.set(e[0], e[1]);
   return out;
-}
-
-function manifestBaseUrl(url: string): string {
-  const i = url.lastIndexOf("/");
-  return i >= 0 ? url.slice(0, i + 1) : "/";
 }
 
 function joinUrl(base: string, rel: string): string {

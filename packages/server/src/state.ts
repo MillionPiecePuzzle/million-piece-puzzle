@@ -13,6 +13,26 @@ export type PuzzleMeta = {
   startedAt: number;
 };
 
+function parseGroup(id: number, h: Record<string, string>): GroupRuntime | null {
+  if (!h.size) return null;
+  return {
+    id,
+    worldX: Number(h.worldX),
+    worldY: Number(h.worldY),
+    locked: h.locked === "1",
+    size: Number(h.size),
+    heldBy: h.heldBy === "" || h.heldBy === undefined ? null : h.heldBy,
+  };
+}
+
+function parsePiece(id: number, h: Record<string, string>): PieceRuntime {
+  return {
+    id,
+    groupId: Number(h.groupId),
+    rotation: Number(h.rotation),
+  };
+}
+
 export class RedisState {
   constructor(
     private readonly r: Redis,
@@ -78,15 +98,7 @@ export class RedisState {
 
   async readGroup(id: number): Promise<GroupRuntime | null> {
     const h = await this.r.hgetall(keys.group(this.puzzleId, id));
-    if (!h.size) return null;
-    return {
-      id,
-      worldX: Number(h.worldX),
-      worldY: Number(h.worldY),
-      locked: h.locked === "1",
-      size: Number(h.size),
-      heldBy: h.heldBy === "" || h.heldBy === undefined ? null : h.heldBy,
-    };
+    return parseGroup(id, h);
   }
 
   async deleteGroup(id: number): Promise<void> {
@@ -137,15 +149,9 @@ export class RedisState {
       const entry = results[i];
       if (!entry) continue;
       const h = entry[1] as Record<string, string>;
-      if (!h || !h.size) continue;
-      groups.push({
-        id: i,
-        worldX: Number(h.worldX),
-        worldY: Number(h.worldY),
-        locked: h.locked === "1",
-        size: Number(h.size),
-        heldBy: h.heldBy === "" || h.heldBy === undefined ? null : h.heldBy,
-      });
+      if (!h) continue;
+      const g = parseGroup(i, h);
+      if (g) groups.push(g);
     }
     return groups;
   }
@@ -162,11 +168,7 @@ export class RedisState {
       const entry = results[i];
       if (!entry) continue;
       const h = entry[1] as Record<string, string>;
-      pieces.push({
-        id: i,
-        groupId: Number(h.groupId),
-        rotation: Number(h.rotation),
-      });
+      pieces.push(parsePiece(i, h));
     }
     return pieces;
   }

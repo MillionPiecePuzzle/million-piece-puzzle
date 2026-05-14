@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { leaderboardBoard } from "../data/leaderboardMock";
+import LeaderboardRow from "./LeaderboardRow.vue";
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -17,9 +18,6 @@ function prev(): void {
 }
 function next(): void {
   if (page.value < pageCount - 1) page.value++;
-}
-function fmt(n: number): string {
-  return n.toLocaleString("en-US");
 }
 function onKey(e: KeyboardEvent): void {
   if (e.key === "Escape") emit("close");
@@ -39,16 +37,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
         </button>
       </div>
       <ol class="lb-list">
-        <li v-for="row in pageRows" :key="row.rank" :class="{ you: row.you }">
-          <span class="rk" :class="{ top: row.rank <= 3 }">{{ row.rank }}</span>
-          <span class="av" :style="{ background: row.color }">{{ row.initials }}</span>
-          <span class="nm">
-            {{ row.name }}
-            <span v-if="row.you" class="you-tag">you</span>
-            <span v-else-if="row.online" class="live-dot" title="online"></span>
-          </span>
-          <span class="pc">{{ fmt(row.pieces) }}<small> pcs</small></span>
-        </li>
+        <LeaderboardRow v-for="row in pageRows" :key="row.rank" :row="row" />
       </ol>
       <div class="modal-foot">
         <button type="button" :disabled="page === 0" @click="prev">&larr; prev</button>
@@ -97,70 +86,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-.lb-list li {
-  display: grid;
-  grid-template-columns: 22px 22px 1fr auto;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 6px;
-  border-radius: var(--radius-row);
-}
-.lb-list li.you {
-  background: rgba(213, 135, 90, 0.1);
-  outline: 1px solid rgba(213, 135, 90, 0.25);
-}
-.rk {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-4);
-  text-align: right;
-}
-.rk.top {
-  color: var(--ink);
-}
-.av {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
-  color: #fff;
-}
-.nm {
-  font-size: 13px;
-  letter-spacing: -0.005em;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.you-tag {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  background: var(--accent);
-  color: #fff;
-  padding: 1px 5px;
-  border-radius: 3px;
-}
-.live-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #34a853;
-}
-.pc {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-.pc small {
-  color: var(--ink-4);
 }
 .modal-foot {
   margin-top: 12px;
