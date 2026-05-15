@@ -27,6 +27,14 @@ function err(
   send(ctx, client, { t: "error", code, message });
 }
 
+function isValidGroupId(value: unknown, totalPieces: number): boolean {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value < totalPieces;
+}
+
+function isFiniteCoord(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 export async function handleHello(ctx: Context, client: Client, msg: CHello): Promise<void> {
   if (msg.protocolVersion !== PROTOCOL_VERSION) {
     err(
@@ -67,6 +75,10 @@ export async function handleGrab(ctx: Context, client: Client, msg: CGrab): Prom
       groupId: msg.groupId,
       userId: client.userId,
     });
+    return;
+  }
+  if (owner === "MISSING") {
+    err(ctx, client, "unknown_group", `group ${msg.groupId}`);
     return;
   }
   send(ctx, client, {
@@ -257,13 +269,24 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
       await handleHello(ctx, client, msg);
       return;
     case "grab":
+      if (!isValidGroupId(msg.groupId, ctx.meta.totalPieces)) {
+        err(ctx, client, "bad_message", "invalid groupId");
+        return;
+      }
       await handleGrab(ctx, client, msg);
       return;
     case "drag":
-      await handleDrag(ctx, client, msg);
-      return;
     case "drop":
-      await handleDrop(ctx, client, msg);
+      if (!isValidGroupId(msg.groupId, ctx.meta.totalPieces)) {
+        err(ctx, client, "bad_message", "invalid groupId");
+        return;
+      }
+      if (!isFiniteCoord(msg.worldX) || !isFiniteCoord(msg.worldY)) {
+        err(ctx, client, "bad_message", "invalid coordinates");
+        return;
+      }
+      if (msg.t === "drag") await handleDrag(ctx, client, msg);
+      else await handleDrop(ctx, client, msg);
       return;
     default:
       err(ctx, client, "bad_message", `unknown message type`);

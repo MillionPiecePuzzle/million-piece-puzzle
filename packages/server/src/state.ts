@@ -104,10 +104,13 @@ export class RedisState {
 
   async tryAcquireGroup(id: number, userId: string): Promise<string | null> {
     const key = keys.group(this.puzzleId, id);
+    // 'size' marks a fully written group (see parseGroup); reject acquiring a
+    // group id that has no group instead of creating a bare heldBy hash.
     const lua = `
-      local current = redis.call('HGET', KEYS[1], 'heldBy')
+      if redis.call('HEXISTS', KEYS[1], 'size') == 0 then return 'MISSING' end
       local locked = redis.call('HGET', KEYS[1], 'locked')
       if locked == '1' then return 'LOCKED' end
+      local current = redis.call('HGET', KEYS[1], 'heldBy')
       if current and current ~= '' then return current end
       redis.call('HSET', KEYS[1], 'heldBy', ARGV[1])
       return ''

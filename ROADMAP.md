@@ -100,6 +100,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 ### `backend-realtime`
 - [ ] Viewport-neighbor broadcast scoping for drag and drop events
 - [ ] Periodic snapshot generation published to CDN for spectator mode
+- [x] WebSocket messages validated at the dispatch boundary: malformed or out-of-range groupId and non-finite coordinates are rejected as bad_message before any Redis access, and grab on a non-existent group fails instead of creating a junk key
 
 ### `auth-and-accounts`
 - [ ] Anonymous pseudo entry (name, no verification) attached to the session
@@ -187,4 +188,3 @@ Ideas worth keeping but not yet committed to a phase. Promote into a phase track
 
 - **Anti-programmatic-solving via randomized piece ids on the wire.** Goal: a client cannot reconstruct adjacency from indices. Dependency: today the client also reconstructs geometry deterministically from `generationSeed` (see [piece geometry not on the wire](DECISIONS.md#2026-05-12-shared-protocol-piece-geometry-not-on-the-wire)), so the seed would have to stop being shared with clients, and piece silhouettes would have to be served pre-baked (image-pipeline already revisits this in [rectangular tiles](DECISIONS.md#2026-05-12-image-pipeline-rectangular-tiles)). Treat as a pair: id randomization + server-only seed + pre-masked tiles.
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out level early in the puzzle and relax it as more pieces are placed, to bound the visible piece count in any viewport. Lighter alternative or complement to the Phase 2 LOD aggregated tiles.
-- **WebSocket input validation.** `dispatch` parses client messages with no field validation, and `tryAcquireGroup`'s Lua script writes a `heldBy`-only hash for a `groupId` that has no group. A client can spray `grab` with arbitrary group ids and create unbounded junk Redis keys (memory DoS). Validate `groupId` (integer in `[0, totalPieces)`) and `worldX/worldY` (finite numbers) at the dispatch boundary, and make the Lua script fail when the group key does not exist. Pairs naturally with the Phase 2 rate-limiting work.
