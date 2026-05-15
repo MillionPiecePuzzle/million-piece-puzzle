@@ -8,6 +8,7 @@ import { initPuzzleIfEmpty } from "./init.js";
 import { RedisState } from "./state.js";
 import { MongoLogger } from "./mongo.js";
 import { dispatch, type Context } from "./handlers.js";
+import { SerialQueue } from "./queue.js";
 
 async function main(): Promise<void> {
   const config = await loadConfig();
@@ -39,9 +40,9 @@ async function main(): Promise<void> {
     console.log(`[ws] listening on ${config.port}`);
   });
 
-  // Global dispatch queue: every message and disconnect cleanup runs to
-  // completion before the next starts, so `await` points cannot interleave.
-  let dispatchChain: Promise<void> = Promise.resolve();
+  // Every message and disconnect cleanup runs through one queue, so handlers'
+  // `await` points cannot interleave (see DECISIONS: global serial dispatch queue).
+  const queue = new SerialQueue();
 
   wss.on("connection", (ws: WebSocket) => {
     const client: Client = { userId: randomUUID(), ws };
@@ -49,19 +50,13 @@ async function main(): Promise<void> {
 
     ws.on("message", (data) => {
       const raw = typeof data === "string" ? data : data.toString("utf8");
-      dispatchChain = dispatchChain.then(() =>
-        dispatch(ctx, client, raw).catch((e: unknown) => {
-          console.error("[dispatch]", e);
-        }),
-      );
+      queue.enqueue("dispatch", () => dispatch(ctx, client, raw));
     });
 
     ws.on("close", () => {
       hub.remove(client);
-      dispatchChain = dispatchChain.then(() =>
-        releaseHeldGroups(state, meta.totalPieces, client.userId, hub).catch((e: unknown) =>
-          console.error("[release]", e),
-        ),
+      queue.enqueue("release", () =>
+        releaseHeldGroups(state, meta.totalPieces, client.userId, hub),
       );
     });
   });

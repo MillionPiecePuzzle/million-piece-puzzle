@@ -34,7 +34,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Vite dev middleware serves `generated/<id>/` at `/puzzle/`](#2026-05-12-frontend-canvas-vite-puzzle-middleware) -> drop once Phase 1 points the frontend at R2 and the slice output no longer needs a local HTTP face.
 - [Piece hit testing uses the sprite bounding rect, not the mask silhouette](#2026-05-12-frontend-canvas-bounding-rect-hits) -> revisit once overlap zones between adjacent unmerged pieces produce confusing pickups.
 - [Drag broadcasts sent on every pointermove without throttling](#2026-05-12-frontend-canvas-drag-no-throttle) -> coalesce with requestAnimationFrame once the WS shows backpressure or high-rate mice flood the server.
-- [Global serial dispatch queue for all WS messages](#2026-05-14-backend-realtime-global-serial-dispatch-queue) -> move to per-group (or per-shard) queues in Phase 1+ so independent groups progress in parallel.
+- [Global serial dispatch queue for all WS messages](#2026-05-14-backend-realtime-global-serial-dispatch-queue) -> per-process total order; scaling the writer past one instance needs an atomic Lua merge, a regional lock, or write sharding.
 - [Cascade entrance animation descoped from Phase 0 to Phase 2](#2026-05-12-frontend-canvas-cascade-deferred) -> requires event scheduling (`eventStartsAt`) and a landing countdown to be meaningful; building it now would mean rebuilding it twice.
 
 ---
@@ -169,6 +169,6 @@ Revisit when: starting Phase 2, or earlier if the Phase 1 alpha would benefit fr
 
 ### 2026-05-14, backend-realtime, global serial dispatch queue
 
-Choice: every incoming WS message, across all clients, is appended to a single process-wide promise chain and runs to completion before the next starts.
-Why: handlers `await` Redis between reads and writes; without serialization two messages can interleave on those points and corrupt group state. A global chain makes the "server processes messages sequentially" invariant literally true with one line and no locking logic.
-Revisit when: throughput matters (Phase 1+). A global queue serializes unrelated clients needlessly; the natural follow-up is per-group (or per-shard) queues so independent groups progress in parallel while still ordering messages that touch the same group.
+Choice: every incoming WS message and disconnect cleanup, across all clients, goes through one process-wide `SerialQueue` (`queue.ts`): tasks run to completion in FIFO order, one at a time.
+Why: handlers `await` Redis between reads and writes; without serialization two messages can interleave on those points and corrupt group state. A single chain makes the "server processes messages sequentially" invariant literally true with no locking logic.
+Revisit when: the writer path needs more than one instance. The guarantee is per process, so horizontally scaling the WS writer breaks it. Only the drop/merge path (`handleDrop` -> `applyMerge`, a non-atomic read-modify-write across many Redis calls) depends on it: `grab` is already atomic Lua, `drag` and `hello` do not mutate. The architecture assumes a single writer instance (reads and broadcasts scale separately, per the CLAUDE.md read/write split); when that no longer holds, the options are an atomic Lua merge, a distributed lock per canvas region, or write sharding by region. Within one process, the finer follow-up is per-group queues.
