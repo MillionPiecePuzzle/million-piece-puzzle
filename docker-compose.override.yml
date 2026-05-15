@@ -1,0 +1,23 @@
+services:
+  redis:
+    ports:
+      - "6379:6379"
+
+  mongo:
+    ports:
+      - "27017:27017"
+
+  server:
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./generated:/app/generated:ro
+
+  frontend:
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./generated:/repo/generated:ro
+      - ./packages/frontend/src:/repo/packages/frontend/src:ro
+      - ./packages/frontend/index.html:/repo/packages/frontend/index.html:ro
+      - ./packages/frontend/vite.config.ts:/repo/packages/frontend/vite.config.ts:ro

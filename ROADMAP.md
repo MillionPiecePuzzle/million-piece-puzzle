@@ -106,8 +106,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] Anonymous pseudo entry (name, no verification) attached to the session
 
 ### `infra-deploy`
-- [ ] Server deployed on Hetzner via Coolify
-- [ ] Cloudflare in front (Pages for frontend, CDN for snapshots, DNS, SSL)
+- [~] Server deployed on Hetzner via Coolify
+- [~] Cloudflare in front (Pages for frontend, CDN for snapshots, DNS, SSL)
 - [ ] R2 buckets configured for tiles and piece textures
 
 ### `tooling-foundations`

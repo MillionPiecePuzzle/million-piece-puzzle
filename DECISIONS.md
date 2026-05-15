@@ -36,6 +36,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Drag broadcasts sent on every pointermove without throttling](#2026-05-12-frontend-canvas-drag-no-throttle) -> coalesce with requestAnimationFrame once the WS shows backpressure or high-rate mice flood the server.
 - [Global serial dispatch queue for all WS messages](#2026-05-14-backend-realtime-global-serial-dispatch-queue) -> per-process total order; scaling the writer past one instance needs an atomic Lua merge, a regional lock, or write sharding.
 - [Cascade entrance animation descoped from Phase 0 to Phase 2](#2026-05-12-frontend-canvas-cascade-deferred) -> requires event scheduling (`eventStartsAt`) and a landing countdown to be meaningful; building it now would mean rebuilding it twice.
+- [Alpha puzzle fixture `generated/test/` committed and baked into images](#2026-05-15-infra-deploy-alpha-fixture-committed) -> drop the commit and the Dockerfile `COPY` once the image pipeline serves the same artifacts from R2.
 
 ---
 
@@ -143,11 +144,11 @@ Choice: piece silhouettes and canonical offsets are recomputed from `generationS
 Why: at 1M pieces, geometry would dominate payload size. Seed-based determinism keeps state minimal and timelapse replay tractable.
 Revisit when: never expected. If the generator becomes non-deterministic across platforms (FP drift), pin to a fixed integer-math implementation rather than start shipping geometry.
 
-### 2026-05-12, frontend-canvas, Vite puzzle middleware
+### 2026-05-12, frontend-canvas, Vite puzzle assets
 
-Choice: in dev, a small Vite middleware in `packages/frontend/vite.config.ts` serves `<repo>/generated/<MPP_PUZZLE_ID:default test>/` at `/puzzle/*`. The slice script keeps writing to `generated/<id>/`, the server keeps reading the manifest via its existing volume mount, and the frontend fetches `/puzzle/manifest.json` plus tiles relative to it.
-Why: avoids copying artifacts into `packages/frontend/public/`, keeps `generated/` as the single source of truth, and serves the manifest at the stable dev URL `http://localhost:5173/puzzle/manifest.json`.
-Revisit when: production deployment points the frontend at R2 (Phase 1). The middleware is dev-only and can be removed once tiles live on a CDN.
+Choice: in dev, a Vite middleware in `packages/frontend/vite.config.ts` serves `<repo>/generated/<MPP_PUZZLE_ID:default test>/` at `/puzzle/*`. In `vite build`, a companion plugin (`mpp:bundle-puzzle`) copies the same directory into `dist/puzzle/` so Cloudflare Pages ships the manifest and tiles as static assets. The frontend always fetches `/puzzle/manifest.json` and tiles relative to it.
+Why: keeps `generated/` as the single source of truth on disk, avoids checking copied artifacts into `packages/frontend/public/`, and gives both the dev server and the Pages build the same URL contract.
+Revisit when: production points the frontend at R2 (Phase 1). Both the middleware and the build-time copy can be removed once tiles live on a CDN.
 
 ### 2026-05-12, frontend-canvas, bounding rect hits
 
@@ -172,3 +173,9 @@ Revisit when: starting Phase 2, or earlier if the Phase 1 alpha would benefit fr
 Choice: every incoming WS message and disconnect cleanup, across all clients, goes through one process-wide `SerialQueue` (`queue.ts`): tasks run to completion in FIFO order, one at a time.
 Why: handlers `await` Redis between reads and writes; without serialization two messages can interleave on those points and corrupt group state. A single chain makes the "server processes messages sequentially" invariant literally true with no locking logic.
 Revisit when: the writer path needs more than one instance. The guarantee is per process, so horizontally scaling the WS writer breaks it. Only the drop/merge path (`handleDrop` -> `applyMerge`, a non-atomic read-modify-write across many Redis calls) depends on it: `grab` is already atomic Lua, `drag` and `hello` do not mutate. The architecture assumes a single writer instance (reads and broadcasts scale separately, per the CLAUDE.md read/write split); when that no longer holds, the options are an atomic Lua merge, a distributed lock per canvas region, or write sharding by region. Within one process, the finer follow-up is per-group queues.
+
+### 2026-05-15, infra-deploy, alpha fixture committed
+
+Choice: the 49-piece puzzle output (`generated/test/`, ~830 KB) is committed to the repo and copied into the server Docker image (and into the Pages build via the Vite build plugin). The slice source image stays out of git; the deterministic output is what ships.
+Why: Coolify clones the repo as the build context, with no host volumes or pre-build hooks. Baking the fixture in is the simplest way to give the server a manifest at boot and to give the Pages build the same tiles, without requiring a registry, an R2 bucket, or sharp inside the runtime image.
+Revisit when: the image pipeline produces and uploads the real puzzle to R2 (Phase 1 `image-pipeline` track). At that point, drop the `generated/test/` commit and the `COPY generated/test` line in both Dockerfiles, and switch the server and Pages build to fetch the manifest from R2.

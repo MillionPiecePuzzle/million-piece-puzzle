@@ -14,6 +14,7 @@ RUN npm run build -w @mpp/shared \
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+ENV MPP_MANIFEST=/app/generated/test/manifest.json
 
 COPY --from=builder /repo/package.json /repo/package-lock.json ./
 COPY --from=builder /repo/packages/shared/package.json packages/shared/package.json
@@ -23,6 +24,8 @@ COPY --from=builder /repo/packages/server/dist packages/server/dist
 COPY --from=builder /repo/packages/frontend/package.json packages/frontend/package.json
 
 RUN npm ci --omit=dev --ignore-scripts
+
+COPY generated/test generated/test
 
 EXPOSE 8080
 CMD ["node", "packages/server/dist/index.js"]

@@ -2,8 +2,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     volumes:
       - redis-data:/data
     command: ["redis-server", "--appendonly", "yes"]
@@ -11,8 +11,8 @@ services:
   mongo:
     image: mongo:7
     restart: unless-stopped
-    ports:
-      - "27017:27017"
+    expose:
+      - "27017"
     volumes:
       - mongo-data:/data/db
 
@@ -29,11 +29,8 @@ services:
       MPP_REDIS_URL: "redis://redis:6379"
       MPP_MONGO_URL: "mongodb://mongo:27017"
       MPP_MONGO_DB: "mpp"
-      MPP_MANIFEST: "${MPP_MANIFEST:-/work/generated/test/manifest.json}"
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./generated:/work/generated:ro
+    expose:
+      - "8080"
 
   frontend:
     build:
@@ -42,13 +39,11 @@ services:
     restart: unless-stopped
     depends_on:
       - server
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./generated:/repo/generated:ro
-      - ./packages/frontend/src:/repo/packages/frontend/src:ro
-      - ./packages/frontend/index.html:/repo/packages/frontend/index.html:ro
-      - ./packages/frontend/vite.config.ts:/repo/packages/frontend/vite.config.ts:ro
+    environment:
+      VITE_WS_URL: "${VITE_WS_URL:-}"
+      MPP_ALLOWED_HOSTS: "${MPP_ALLOWED_HOSTS:-}"
+    expose:
+      - "5173"
 
 volumes:
   redis-data:

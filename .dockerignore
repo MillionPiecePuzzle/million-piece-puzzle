@@ -2,7 +2,8 @@ node_modules
 **/node_modules
 **/dist
 **/tsconfig.tsbuildinfo
-generated
+generated/*
+!generated/test
 samples
 .git
 .github

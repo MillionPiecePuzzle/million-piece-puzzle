@@ -22,6 +22,10 @@ packages/
   server/    # Node + WebSocket + Redis/Mongo
 ```
 
+## Deployment
+
+See [DEPLOY.md](DEPLOY.md) for the Hetzner + Coolify + Cloudflare Pages runbook.
+
 ## License
 
 See [LICENSE](LICENSE).

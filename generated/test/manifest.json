@@ -1,0 +1,213 @@
+{
+  "puzzleId": "test",
+  "name": "Tidepools #003",
+  "seed": "test123",
+  "rows": 7,
+  "cols": 7,
+  "pieceSize": 146,
+  "margin": 51,
+  "tileSize": 248,
+  "source": {
+    "file": "puzzle.png",
+    "width": 1024,
+    "height": 1024
+  },
+  "pieces": [
+    {
+      "id": 0,
+      "file": "pieces/0000.avif"
+    },
+    {
+      "id": 1,
+      "file": "pieces/0001.avif"
+    },
+    {
+      "id": 2,
+      "file": "pieces/0002.avif"
+    },
+    {
+      "id": 3,
+      "file": "pieces/0003.avif"
+    },
+    {
+      "id": 4,
+      "file": "pieces/0004.avif"
+    },
+    {
+      "id": 5,
+      "file": "pieces/0005.avif"
+    },
+    {
+      "id": 6,
+      "file": "pieces/0006.avif"
+    },
+    {
+      "id": 7,
+      "file": "pieces/0007.avif"
+    },
+    {
+      "id": 8,
+      "file": "pieces/0008.avif"
+    },
+    {
+      "id": 9,
+      "file": "pieces/0009.avif"
+    },
+    {
+      "id": 10,
+      "file": "pieces/0010.avif"
+    },
+    {
+      "id": 11,
+      "file": "pieces/0011.avif"
+    },
+    {
+      "id": 12,
+      "file": "pieces/0012.avif"
+    },
+    {
+      "id": 13,
+      "file": "pieces/0013.avif"
+    },
+    {
+      "id": 14,
+      "file": "pieces/0014.avif"
+    },
+    {
+      "id": 15,
+      "file": "pieces/0015.avif"
+    },
+    {
+      "id": 16,
+      "file": "pieces/0016.avif"
+    },
+    {
+      "id": 17,
+      "file": "pieces/0017.avif"
+    },
+    {
+      "id": 18,
+      "file": "pieces/0018.avif"
+    },
+    {
+      "id": 19,
+      "file": "pieces/0019.avif"
+    },
+    {
+      "id": 20,
+      "file": "pieces/0020.avif"
+    },
+    {
+      "id": 21,
+      "file": "pieces/0021.avif"
+    },
+    {
+      "id": 22,
+      "file": "pieces/0022.avif"
+    },
+    {
+      "id": 23,
+      "file": "pieces/0023.avif"
+    },
+    {
+      "id": 24,
+      "file": "pieces/0024.avif"
+    },
+    {
+      "id": 25,
+      "file": "pieces/0025.avif"
+    },
+    {
+      "id": 26,
+      "file": "pieces/0026.avif"
+    },
+    {
+      "id": 27,
+      "file": "pieces/0027.avif"
+    },
+    {
+      "id": 28,
+      "file": "pieces/0028.avif"
+    },
+    {
+      "id": 29,
+      "file": "pieces/0029.avif"
+    },
+    {
+      "id": 30,
+      "file": "pieces/0030.avif"
+    },
+    {
+      "id": 31,
+      "file": "pieces/0031.avif"
+    },
+    {
+      "id": 32,
+      "file": "pieces/0032.avif"
+    },
+    {
+      "id": 33,
+      "file": "pieces/0033.avif"
+    },
+    {
+      "id": 34,
+      "file": "pieces/0034.avif"
+    },
+    {
+      "id": 35,
+      "file": "pieces/0035.avif"
+    },
+    {
+      "id": 36,
+      "file": "pieces/0036.avif"
+    },
+    {
+      "id": 37,
+      "file": "pieces/0037.avif"
+    },
+    {
+      "id": 38,
+      "file": "pieces/0038.avif"
+    },
+    {
+      "id": 39,
+      "file": "pieces/0039.avif"
+    },
+    {
+      "id": 40,
+      "file": "pieces/0040.avif"
+    },
+    {
+      "id": 41,
+      "file": "pieces/0041.avif"
+    },
+    {
+      "id": 42,
+      "file": "pieces/0042.avif"
+    },
+    {
+      "id": 43,
+      "file": "pieces/0043.avif"
+    },
+    {
+      "id": 44,
+      "file": "pieces/0044.avif"
+    },
+    {
+      "id": 45,
+      "file": "pieces/0045.avif"
+    },
+    {
+      "id": 46,
+      "file": "pieces/0046.avif"
+    },
+    {
+      "id": 47,
+      "file": "pieces/0047.avif"
+    },
+    {
+      "id": 48,
+      "file": "pieces/0048.avif"
+    }
+  ]
+}

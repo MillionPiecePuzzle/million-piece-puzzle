@@ -58,9 +58,10 @@ coverage/
 *.sqlite
 
 # Image pipeline artifacts (large, generated)
-pieces/
-tiles/
-generated/
+/pieces/
+/tiles/
+generated/*
+!generated/test/
 *.dzi
 
 # Source images (user-provided, not tracked)
