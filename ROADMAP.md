@@ -45,7 +45,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `frontend-shell`
 - [x] Two routes: landing and play
-- [x] Play page shows mode toggle (spectator vs contributor), auth modal stub present but inactive
+- [x] Play page exposes a spectator-to-contributor entry point (floating Contribute CTA opens the auth modal stub)
 
 ### `frontend-canvas`
 - [x] PixiJS canvas renders the generated pieces from the manifest
