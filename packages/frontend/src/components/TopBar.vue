@@ -2,11 +2,11 @@
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import BrandMark from "./BrandMark.vue";
-import { useAuthModal } from "../composables/useAuthModal";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { useAuth } from "../composables/useAuth";
 
-const { show } = useAuthModal();
 const { puzzleName, totalPieces, lockedCount } = usePuzzleSession();
+const { user } = useAuth();
 
 const progressPct = computed(() =>
   totalPieces.value > 0 ? (lockedCount.value / totalPieces.value) * 100 : 0,
@@ -32,7 +32,11 @@ const progressPct = computed(() =>
     <span v-else></span>
 
     <div class="top-right">
-      <button class="signin" @click="show">Sign in</button>
+      <div v-if="user" class="presence" :title="`Signed in as ${user.name}`">
+        <span class="dot" aria-label="Connected"></span>
+        <span class="pseudo">{{ user.name }}</span>
+        <span class="status">connected</span>
+      </div>
     </div>
   </header>
 </template>
@@ -111,15 +115,32 @@ const progressPct = computed(() =>
   align-items: center;
   gap: 14px;
 }
-.signin {
-  padding: 6px 14px;
+.presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   background: var(--paper);
+}
+.presence .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: #2ecc71;
+  box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.2);
+}
+.presence .pseudo {
   font-size: 13px;
   letter-spacing: -0.005em;
+  color: var(--ink);
 }
-.signin:hover {
-  background: var(--paper-2);
+.presence .status {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-4);
 }
 </style>

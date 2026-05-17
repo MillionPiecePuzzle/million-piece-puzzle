@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { useAuthModal } from "../composables/useAuthModal";
+import { useAuth } from "../composables/useAuth";
 
 const { open, hide } = useAuthModal();
+const { signInWithGoogle } = useAuth();
 
-const providers = [
-  { id: "google", label: "Continue with Google" },
-  { id: "apple", label: "Continue with Apple" },
-  { id: "reddit", label: "Continue with Reddit" },
-];
+function continueWithGoogle() {
+  signInWithGoogle();
+  hide();
+}
 </script>
 
 <template>
@@ -25,12 +26,13 @@ const providers = [
         </p>
 
         <div class="providers">
-          <button v-for="p in providers" :key="p.id" class="provider" disabled>
-            {{ p.label }}
+          <button class="provider google" @click="continueWithGoogle">
+            <span class="g-mark" aria-hidden="true">G</span>
+            Continue with Google
           </button>
         </div>
 
-        <p class="note">Authentication is not wired up yet.</p>
+        <p class="note">Mock sign-in. Auth providers come later.</p>
       </div>
     </div>
   </Teleport>
@@ -91,16 +93,32 @@ h2 {
   gap: 8px;
 }
 .provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-btn);
   background: var(--paper);
   font-size: 14px;
   text-align: left;
+  transition: background 160ms ease;
 }
-.provider:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.provider:hover {
+  background: var(--paper-2);
+}
+.provider .g-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 99px;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 13px;
+  color: #4285f4;
 }
 .note {
   margin: 14px 0 0;
