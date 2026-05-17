@@ -2,19 +2,13 @@
 import { useRouter } from "vue-router";
 import BrandMark from "../components/BrandMark.vue";
 import { useMode } from "../composables/useMode";
-import { useAuthModal } from "../composables/useAuthModal";
 
 const router = useRouter();
 const { setMode } = useMode();
-const { show } = useAuthModal();
 
 function enterAsSpectator() {
   setMode("spectator");
   router.push("/play");
-}
-
-function becomeContributor() {
-  show();
 }
 </script>
 
@@ -28,19 +22,11 @@ function becomeContributor() {
     </header>
 
     <main class="hero">
-      <p class="kicker">A community jigsaw, one million pieces, one canvas.</p>
-      <h1>
-        Place a piece.<br />
-        Leave a mark.
-      </h1>
-      <p class="lede">
-        Open a shared canvas with thousands of contributors. No timer, no end date until the last
-        piece snaps.
-      </p>
+      <h1>Million Piece Puzzle</h1>
+      <p class="tagline">A community puzzle, one million pieces, one canvas.</p>
 
       <div class="ctas">
         <button class="cta primary" @click="enterAsSpectator">Enter the canvas</button>
-        <button class="cta ghost" @click="becomeContributor">Become a contributor</button>
       </div>
     </main>
 
@@ -83,27 +69,19 @@ function becomeContributor() {
   padding: 0 24px;
   text-align: center;
 }
-.kicker {
-  margin: 0 0 16px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
 h1 {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   font-family: var(--serif);
   font-weight: 500;
   font-size: clamp(40px, 6vw, 64px);
   line-height: 1.05;
   letter-spacing: -0.02em;
 }
-.lede {
+.tagline {
   margin: 0 0 32px;
   color: var(--ink-3);
-  font-size: 16px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.5;
 }
 .ctas {
   display: inline-flex;

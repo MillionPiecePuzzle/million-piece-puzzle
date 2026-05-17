@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import BrandMark from "./BrandMark.vue";
-import ModeToggle from "./ModeToggle.vue";
 import { useAuthModal } from "../composables/useAuthModal";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 
@@ -33,7 +32,6 @@ const progressPct = computed(() =>
     <span v-else></span>
 
     <div class="top-right">
-      <ModeToggle />
       <button class="signin" @click="show">Sign in</button>
     </div>
   </header>

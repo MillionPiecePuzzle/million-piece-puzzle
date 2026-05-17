@@ -88,8 +88,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] Per-piece AVIF set uploaded to R2 with manifest
 
 ### `frontend-shell`
-- [ ] Landing page presents the project and a single CTA to enter the canvas
-- [ ] Spectator/contributor mode toggle works, no auth required
+- [x] Landing page presents the project and a single CTA to enter the canvas
+- [x] Spectator/contributor mode toggle works, no auth required
 
 ### `frontend-canvas`
 - [ ] OpenSeadragon reference panel shows the source image
@@ -121,7 +121,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - (not in Phase 1, closed alpha by invitation only)
 
 ### `complementary`
-- [ ] `frontend-shell`: Replace header spectator/contributor toggle with a floating "Contribute" CTA at bottom-right on the spectator view (supersedes the toggle task above)
+- [x] `frontend-shell`: Replace header spectator/contributor toggle with a floating "Contribute" CTA at bottom-right on the spectator view (supersedes the toggle task above)
 - [ ] `frontend-canvas`: Leaderboard rendered in the completion modal (per-user snap counts derived on demand from `ClusterMerge`)
 - [ ] `frontend-shell`: Decide whether to add the live builders indicator (green dot + count) to the topbar
 - [ ] `frontend-canvas`: Decide whether to add the Coord HUD overlay (sector / XY / zoom)

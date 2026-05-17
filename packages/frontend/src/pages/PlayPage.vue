@@ -5,6 +5,7 @@ import PuzzleCanvas from "../components/PuzzleCanvas.vue";
 import ZoomControls from "../components/ZoomControls.vue";
 import LeaderboardPanel from "../components/LeaderboardPanel.vue";
 import ActivityTicker from "../components/ActivityTicker.vue";
+import ContributeFab from "../components/ContributeFab.vue";
 import { useStageControls } from "../composables/useStageControls";
 
 // Anchor the hairline grid to world space: one cell is a fixed world distance,
@@ -28,6 +29,7 @@ const backdropVars = computed(() => ({
       <ZoomControls />
       <LeaderboardPanel />
       <ActivityTicker />
+      <ContributeFab />
     </main>
   </div>
 </template>
