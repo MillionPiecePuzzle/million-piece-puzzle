@@ -101,6 +101,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] Viewport-neighbor broadcast scoping for drag and drop events
 - [ ] Periodic snapshot generation published to CDN for spectator mode
 - [x] WebSocket messages validated at the dispatch boundary: malformed or out-of-range groupId and non-finite coordinates are rejected as bad_message before any Redis access, and grab on a non-existent group fails instead of creating a junk key
+- [x] WebSocket boundary hardened: Origin allowlist (`MPP_ALLOWED_ORIGINS`), per-frame size cap (`maxPayload`), per-connection token-bucket rate limit, and outbound backpressure close on slow consumers
 
 ### `auth-and-accounts`
 - [ ] Anonymous pseudo entry (name, no verification) attached to the session

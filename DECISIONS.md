@@ -40,6 +40,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Closed-alpha gate is a frontend-only passcode](#2026-05-18-frontend-shell-alpha-passcode) -> replace with a server-validated invite token (or full auth) before opening the alpha beyond known testers.
 - [Dev controls (reset/complete) exposed on /play, server-gated by env var](#2026-05-18-frontend-shell-dev-controls) -> set `MPP_DEV_ENABLED=0` and `VITE_DEV_BUTTONS=0` before the first non-tester users land.
 - [Alpha topology: single VPS, Coolify on the workload host, Cloudflare DNS-only for `ws.*`](#2026-05-18-infra-deploy-alpha-topology) -> split Coolify control plane from workload, and consider Cloudflare-proxied origin or R2 fronting, before Phase 2 public traffic.
+- [WS hardening: Origin allowlist, per-connection token bucket, frame size cap, backpressure close](#2026-05-18-backend-realtime-ws-hardening) -> tune limits once load tests run; replace per-process bucket if the writer is sharded.
 
 ---
 
@@ -194,6 +195,12 @@ Revisit when: the alpha opens beyond the known testers, the passcode leaks publi
 Choice: `/play` exposes two buttons (Reset puzzle, Complete & cycle) wired to new `dev_reset` and `dev_complete` WebSocket messages. Visibility is controlled by `VITE_DEV_BUTTONS` (default visible during the alpha). Server-side both messages are rejected with `dev_disabled` unless `MPP_DEV_ENABLED=1`. Both buttons are protected by a `confirm()` prompt because they affect every connected tester at once.
 Why: testers need to skip between puzzles and reset a stuck board without operator intervention. Putting the controls on `/play` (rather than a hidden URL) keeps feedback loops short. The env gate exists so we can pull them in one redeploy when the alpha ends.
 Revisit when: the alpha ends. Flip `MPP_DEV_ENABLED=0` on the server and `VITE_DEV_BUTTONS=0` on the frontend before any non-tester traffic lands.
+
+### 2026-05-18, backend-realtime, WS hardening
+
+Choice: the WebSocket server enforces four limits at the network boundary. (1) `verifyClient` rejects upgrades whose `Origin` header is not in `MPP_ALLOWED_ORIGINS` (comma-separated; default `*` with a boot warning). (2) `maxPayload` caps a single frame at `MPP_WS_MAX_PAYLOAD_BYTES` (default 64 KB), so `ws` rejects oversize frames before they reach `JSON.parse`. (3) A per-connection `TokenBucket` (capacity `MPP_WS_RATE_BURST`, refill `MPP_WS_RATE_TOKENS_PER_SEC`, defaults 400 / 200 per sec) is consumed once per inbound message; over-budget messages are dropped silently before the serial dispatch queue sees them. (4) `Hub.send` and `Hub.broadcast` close the connection with code 1013 ("Try Again Later") when `ws.bufferedAmount` exceeds `MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES` (default 4 MB), so a slow consumer cannot grow the writer's memory without bound.
+Why: without these, a single client can CSRF-connect from any origin, send a 100 MB frame, flood drag messages at arbitrary rate, or stall on socket reads while the writer queues snap broadcasts forever. None of these are theoretical: a few lines of JS from any tab were enough before. Putting the four checks at the boundary keeps the handler code unchanged and the budgets all live in `config.ts`. Silent drop on rate overflow (no error frame) avoids amplifying a hostile client's traffic.
+Revisit when: the load tests in `qa-and-load` run. Tune the burst/rate against measured legitimate drag bursts (240Hz mice during a multi-piece cluster drag). When the WS writer is sharded past one process, the per-connection bucket still works but a per-IP outer limit will become necessary (today there is none, and many connections from one IP can still saturate). When real auth lands, the Origin allowlist remains useful (it costs nothing) but is subsumed by token validation on the upgrade.
 
 ### 2026-05-18, infra-deploy, alpha topology
 

@@ -15,7 +15,7 @@
     "@mpp/shared": "*",
     "ioredis": "^5.4.1",
     "mongodb": "^6.12.0",
-    "ws": "^8.18.0"
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@types/ws": "^8.5.13",

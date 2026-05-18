@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { ImageManifest } from "@mpp/shared";
+import { parseAllowedOrigins } from "./limits.js";
 
 export type ServerConfig = {
   port: number;
@@ -11,6 +12,11 @@ export type ServerConfig = {
   manifests: ImageManifest[];
   devEnabled: boolean;
   cycleDelayMs: number;
+  allowedOrigins: string[];
+  wsMaxPayloadBytes: number;
+  wsRateTokensPerSec: number;
+  wsRateBurst: number;
+  wsBufferedAmountLimitBytes: number;
 };
 
 function int(name: string, fallback: number): number {
@@ -69,5 +75,10 @@ export async function loadConfig(): Promise<ServerConfig> {
     manifests,
     devEnabled: bool("MPP_DEV_ENABLED", false),
     cycleDelayMs: int("MPP_CYCLE_DELAY_MS", 6000),
+    allowedOrigins: parseAllowedOrigins(process.env.MPP_ALLOWED_ORIGINS),
+    wsMaxPayloadBytes: int("MPP_WS_MAX_PAYLOAD_BYTES", 64 * 1024),
+    wsRateTokensPerSec: int("MPP_WS_RATE_TOKENS_PER_SEC", 200),
+    wsRateBurst: int("MPP_WS_RATE_BURST", 400),
+    wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
   };
 }

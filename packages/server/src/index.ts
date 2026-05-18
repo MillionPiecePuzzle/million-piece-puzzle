@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Redis as IORedis } from "ioredis";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, type WebSocket, type VerifyClientCallbackSync } from "ws";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import { loadConfig } from "./config.js";
 import { Hub, type Client } from "./hub.js";
@@ -9,6 +9,7 @@ import { MongoLogger } from "./mongo.js";
 import { dispatch, type Context } from "./handlers.js";
 import { SerialQueue } from "./queue.js";
 import { PuzzleCycle } from "./cycle.js";
+import { TokenBucket, isAllowedOrigin } from "./limits.js";
 
 async function main(): Promise<void> {
   const config = await loadConfig();
@@ -25,7 +26,7 @@ async function main(): Promise<void> {
   if (!firstManifest) throw new Error("config.manifests is empty");
   const state = new RedisState(redis, firstManifest.puzzleId);
 
-  const hub = new Hub();
+  const hub = new Hub(config.wsBufferedAmountLimitBytes);
   const ctx: Context = {
     hub,
     state,
@@ -51,7 +52,19 @@ async function main(): Promise<void> {
     `[boot] puzzles=${config.manifests.map((m) => m.puzzleId).join(",")} active=${ctx.puzzleId} pieces=${ctx.meta.totalPieces} (${ctx.meta.gridCols}x${ctx.meta.gridRows}) protocol=v${PROTOCOL_VERSION} dev=${config.devEnabled}`,
   );
 
-  const wss = new WebSocketServer({ port: config.port });
+  if (config.allowedOrigins.length === 1 && config.allowedOrigins[0] === "*") {
+    console.warn(
+      "[ws] MPP_ALLOWED_ORIGINS unset, accepting any Origin. Set it to your frontend origin(s) for production.",
+    );
+  }
+
+  const verifyClient: VerifyClientCallbackSync = (info) =>
+    isAllowedOrigin(info.origin, config.allowedOrigins);
+  const wss = new WebSocketServer({
+    port: config.port,
+    maxPayload: config.wsMaxPayloadBytes,
+    verifyClient,
+  });
   wss.on("listening", () => {
     console.log(`[ws] listening on ${config.port}`);
   });
@@ -61,10 +74,14 @@ async function main(): Promise<void> {
   const queue = new SerialQueue();
 
   wss.on("connection", (ws: WebSocket) => {
-    const client: Client = { userId: randomUUID(), ws };
+    const bucket = new TokenBucket(config.wsRateBurst, config.wsRateTokensPerSec);
+    const client: Client = { userId: randomUUID(), ws, bucket };
     hub.add(client);
 
     ws.on("message", (data) => {
+      // Hostile clients that exceed the per-connection rate are dropped
+      // silently to avoid amplifying their traffic with error frames.
+      if (!bucket.consume()) return;
       const raw = typeof data === "string" ? data : data.toString("utf8");
       queue.enqueue("dispatch", () => dispatch(ctx, client, raw));
     });

@@ -29,6 +29,9 @@ services:
       MPP_REDIS_URL: "redis://redis:6379"
       MPP_MONGO_URL: "mongodb://mongo:27017"
       MPP_MONGO_DB: "mpp"
+      # Comma-separated list of allowed Origin headers. Unset = wildcard (dev
+      # only, with a boot warning). Set to your frontend origin(s) in prod.
+      MPP_ALLOWED_ORIGINS: "${MPP_ALLOWED_ORIGINS:-}"
     expose:
       - "8080"
 

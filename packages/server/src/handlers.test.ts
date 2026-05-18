@@ -16,7 +16,7 @@ const meta: PuzzleMeta = {
   startedAt: 0,
 };
 
-const client = { userId: "u1" } as unknown as Client;
+const client = { userId: "u1", bucket: { consume: () => true } } as unknown as Client;
 
 const badMessage = () => expect.objectContaining({ t: "error", code: "bad_message" });
 
