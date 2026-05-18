@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { useMode } from "../composables/useMode";
 
 const { sendDevReset, sendDevComplete } = usePuzzleSession();
+const { mode } = useMode();
 
 function onReset(): void {
   if (!confirm("Reset the current puzzle for everyone?")) return;
@@ -15,7 +17,7 @@ function onComplete(): void {
 </script>
 
 <template>
-  <div class="dev-controls" role="group" aria-label="Dev controls">
+  <div v-if="mode === 'contributor'" class="dev-controls" role="group" aria-label="Dev controls">
     <span class="kicker">Dev</span>
     <button type="button" class="dev-btn" @click="onReset">Reset puzzle</button>
     <button type="button" class="dev-btn warn" @click="onComplete">Complete &amp; cycle</button>
@@ -25,9 +27,8 @@ function onComplete(): void {
 <style scoped>
 .dev-controls {
   position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 20px;
+  bottom: 20px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
