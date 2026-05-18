@@ -37,6 +37,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Global serial dispatch queue for all WS messages](#2026-05-14-backend-realtime-global-serial-dispatch-queue) -> per-process total order; scaling the writer past one instance needs an atomic Lua merge, a regional lock, or write sharding.
 - [Cascade entrance animation descoped from Phase 0 to Phase 2](#2026-05-12-frontend-canvas-cascade-deferred) -> requires event scheduling (`eventStartsAt`) and a landing countdown to be meaningful; building it now would mean rebuilding it twice.
 - [Alpha puzzle fixture `generated/test/` committed and baked into images](#2026-05-15-infra-deploy-alpha-fixture-committed) -> drop the commit and the Dockerfile `COPY` once the image pipeline serves the same artifacts from R2.
+- [Alpha topology: single VPS, Coolify on the workload host, Cloudflare DNS-only for `ws.*`](#2026-05-18-infra-deploy-alpha-topology) -> split Coolify control plane from workload, and consider Cloudflare-proxied origin or R2 fronting, before Phase 2 public traffic.
 
 ---
 
@@ -179,3 +180,9 @@ Revisit when: the writer path needs more than one instance. The guarantee is per
 Choice: the 49-piece puzzle output (`generated/test/`, ~830 KB) is committed to the repo and copied into the server Docker image (and into the Pages build via the Vite build plugin). The slice source image stays out of git; the deterministic output is what ships.
 Why: Coolify clones the repo as the build context, with no host volumes or pre-build hooks. Baking the fixture in is the simplest way to give the server a manifest at boot and to give the Pages build the same tiles, without requiring a registry, an R2 bucket, or sharp inside the runtime image.
 Revisit when: the image pipeline produces and uploads the real puzzle to R2 (Phase 1 `image-pipeline` track). At that point, drop the `generated/test/` commit and the `COPY generated/test` line in both Dockerfiles, and switch the server and Pages build to fetch the manifest from R2.
+
+### 2026-05-18, infra-deploy, alpha topology
+
+Choice: the alpha runs on a single Hetzner CX22 VPS (Ubuntu 22.04 LTS) with Coolify installed on the same host it deploys to ("This Machine" target). Coolify embeds Traefik, which issues Let's Encrypt certs over HTTP-01 for `coolify.millionpiecepuzzle.com` and `ws.millionpiecepuzzle.com`. The two A records are kept Cloudflare-proxy-off (grey cloud) so the HTTP-01 challenge reaches the VPS directly. The frontend is on Cloudflare Pages at `app.millionpiecepuzzle.com`; it connects to the WS server over `wss://ws.millionpiecepuzzle.com/`.
+Why: simplest topology that satisfies the Phase 1 exit criterion (5 to 20 invited users, anonymous, 10k pieces target). One VPS, one orchestrator, one frontend host. No control-plane separation, no R2 yet, no Cloudflare-managed origin shielding on the WS path.
+Revisit when: Phase 2 (public 1M). Two concrete moves are likely: move Coolify to its own small VPS so the workload host can be rebuilt without losing the control plane, and flip `ws.*` to Cloudflare-proxied with an Origin CA cert so the WS endpoint gains DDoS protection. Both are mechanical, but each adds moving parts that are not justified for the closed alpha.
