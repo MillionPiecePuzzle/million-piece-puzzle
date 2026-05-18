@@ -3,9 +3,9 @@ import { computed } from "vue";
 import TopBar from "../components/TopBar.vue";
 import PuzzleCanvas from "../components/PuzzleCanvas.vue";
 import ZoomControls from "../components/ZoomControls.vue";
-import LeaderboardPanel from "../components/LeaderboardPanel.vue";
 import ActivityTicker from "../components/ActivityTicker.vue";
 import ContributeFab from "../components/ContributeFab.vue";
+import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
 
 // Anchor the hairline grid to world space: one cell is a fixed world distance,
@@ -19,6 +19,8 @@ const backdropVars = computed(() => ({
   "--grid-x": `${camera.value.x}px`,
   "--grid-y": `${camera.value.y}px`,
 }));
+
+const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 </script>
 
 <template>
@@ -27,9 +29,9 @@ const backdropVars = computed(() => ({
     <main class="stage" aria-label="Puzzle stage" :style="backdropVars">
       <PuzzleCanvas />
       <ZoomControls />
-      <LeaderboardPanel />
       <ActivityTicker />
       <ContributeFab />
+      <DevControls v-if="devButtonsEnabled" />
     </main>
   </div>
 </template>

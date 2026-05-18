@@ -36,11 +36,42 @@ function parsePiece(id: number, h: Record<string, string>): PieceRuntime {
 export class RedisState {
   constructor(
     private readonly r: Redis,
-    private readonly puzzleId: string,
+    private puzzleId: string,
   ) {}
+
+  get currentPuzzleId(): string {
+    return this.puzzleId;
+  }
+
+  setPuzzleId(id: string): void {
+    this.puzzleId = id;
+  }
 
   async hasMeta(): Promise<boolean> {
     return (await this.r.exists(keys.puzzleMeta(this.puzzleId))) === 1;
+  }
+
+  async readActivePuzzleId(): Promise<string | null> {
+    return await this.r.get(keys.activePuzzleId());
+  }
+
+  async writeActivePuzzleId(id: string): Promise<void> {
+    await this.r.set(keys.activePuzzleId(), id);
+  }
+
+  async wipePuzzle(totalPieces: number): Promise<void> {
+    const pipe = this.r.pipeline();
+    pipe.del(keys.puzzleMeta(this.puzzleId));
+    pipe.del(keys.lockedCount(this.puzzleId));
+    pipe.del(keys.presence(this.puzzleId));
+    for (let i = 0; i < totalPieces; i++) {
+      pipe.del(
+        keys.piece(this.puzzleId, i),
+        keys.group(this.puzzleId, i),
+        keys.groupPieces(this.puzzleId, i),
+      );
+    }
+    await pipe.exec();
   }
 
   async writeMeta(meta: PuzzleMeta): Promise<void> {

@@ -12,6 +12,15 @@ export type Context = {
   meta: PuzzleMeta;
   puzzleId: string;
   mongo: MongoLogger;
+  devEnabled: boolean;
+  // Optional during construction (Context is created before PuzzleCycle to
+  // avoid a circular import). The runtime always wires it before any client
+  // message is dispatched.
+  cycle?: {
+    sendWelcomeAndState: (client: Client) => Promise<void>;
+    resetCurrent: () => Promise<void>;
+    scheduleNextCycle: () => void;
+  };
 };
 
 function send(ctx: Context, client: Client, msg: ServerMessage): void {
@@ -21,7 +30,7 @@ function send(ctx: Context, client: Client, msg: ServerMessage): void {
 function err(
   ctx: Context,
   client: Client,
-  code: "bad_message" | "unknown_group" | "protocol_mismatch" | "not_held",
+  code: "bad_message" | "unknown_group" | "protocol_mismatch" | "not_held" | "dev_disabled",
   message: string,
 ): void {
   send(ctx, client, { t: "error", code, message });
@@ -46,25 +55,36 @@ export async function handleHello(ctx: Context, client: Client, msg: CHello): Pr
     client.ws.close();
     return;
   }
-  if (msg.puzzleId !== ctx.puzzleId) {
-    err(ctx, client, "protocol_mismatch", `unknown puzzleId ${msg.puzzleId}`);
-    client.ws.close();
+  // The server picks the active puzzle in sequential rotation. The hello's
+  // puzzleId is informational only and ignored: the welcome carries the
+  // authoritative current puzzleId.
+  if (!ctx.cycle) {
+    err(ctx, client, "bad_message", "server not ready");
     return;
   }
+  await ctx.cycle.sendWelcomeAndState(client);
+}
 
-  const lockedCount = await ctx.state.getLockedCount();
-  send(ctx, client, {
-    t: "welcome",
-    userId: client.userId,
-    protocolVersion: PROTOCOL_VERSION,
-    lockedCount,
-  });
+export async function handleDevReset(ctx: Context, client: Client): Promise<void> {
+  if (!ctx.devEnabled) {
+    err(ctx, client, "dev_disabled", "dev controls disabled");
+    return;
+  }
+  if (!ctx.cycle) return;
+  await ctx.cycle.resetCurrent();
+}
 
-  const [pieces, groups] = await Promise.all([
-    ctx.state.readAllPieces(ctx.meta.totalPieces),
-    ctx.state.readAllGroups(ctx.meta.totalPieces),
-  ]);
-  send(ctx, client, { t: "state", pieces, groups });
+export async function handleDevComplete(ctx: Context, client: Client): Promise<void> {
+  if (!ctx.devEnabled) {
+    err(ctx, client, "dev_disabled", "dev controls disabled");
+    return;
+  }
+  if (!ctx.cycle) return;
+  // Trigger an immediate cycle to the next puzzle. We skip the per-piece snap
+  // animation: rebuilding 2000 sprites on the fly is heavier than the visual
+  // payoff here, and a tester pressing this button wants to move on, not
+  // watch confetti.
+  ctx.cycle.scheduleNextCycle();
 }
 
 export async function handleGrab(ctx: Context, client: Client, msg: CGrab): Promise<void> {
@@ -250,6 +270,10 @@ async function applyMerge(
     at: at.getTime(),
     lockedCount,
   });
+
+  if (willBeLocked && lockedCount >= ctx.meta.totalPieces) {
+    ctx.cycle?.scheduleNextCycle();
+  }
 }
 
 export async function dispatch(ctx: Context, client: Client, raw: string): Promise<void> {
@@ -287,6 +311,12 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
       }
       if (msg.t === "drag") await handleDrag(ctx, client, msg);
       else await handleDrop(ctx, client, msg);
+      return;
+    case "dev_reset":
+      await handleDevReset(ctx, client);
+      return;
+    case "dev_complete":
+      await handleDevComplete(ctx, client);
       return;
     default:
       err(ctx, client, "bad_message", `unknown message type`);

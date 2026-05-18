@@ -12,7 +12,7 @@ const { setControls, setCamera } = useStageControls();
 const { mode } = useMode();
 
 let stage: PuzzleStage | null = null;
-let built = false;
+let builtEpoch = 0;
 let unsubscribe: (() => void) | null = null;
 const completed = ref(false);
 const modalVisible = ref(true);
@@ -26,8 +26,8 @@ function triggerCompletion(playSpectacle: boolean): void {
 
 const STATUS_LABELS: Record<PuzzleSessionState["kind"], string> = {
   idle: "Idle",
-  "loading-manifest": "Loading manifest",
   connecting: "Connecting to server",
+  "loading-manifest": "Loading manifest",
   syncing: "Syncing state",
   ready: "Ready",
   error: "Error",
@@ -96,8 +96,14 @@ onMounted(async () => {
 });
 
 watch(state, async (s) => {
-  if (s.kind !== "ready" || built || !stage) return;
-  built = true;
+  if (s.kind !== "ready" || !stage) return;
+  if (s.epoch === builtEpoch) return;
+  if (builtEpoch > 0) {
+    stage.clearWorld();
+    completed.value = false;
+    modalVisible.value = true;
+  }
+  builtEpoch = s.epoch;
   stage.setLocalUserId(userId.value);
   await stage.build(s.manifest, s.pieces, s.groups);
   stage.setMode(mode.value);

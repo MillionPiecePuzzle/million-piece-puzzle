@@ -9,10 +9,7 @@ export class PuzzleWsClient {
   private closeListeners = new Set<WsCloseListener>();
   private intentionalClose = false;
 
-  constructor(
-    private readonly url: string,
-    private readonly puzzleId: string,
-  ) {}
+  constructor(private readonly url: string) {}
 
   connect(): void {
     if (this.ws) return;
@@ -20,7 +17,9 @@ export class PuzzleWsClient {
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.addEventListener("open", () => {
-      this.send({ t: "hello", protocolVersion: PROTOCOL_VERSION, puzzleId: this.puzzleId });
+      // The server picks the active puzzle in its sequential rotation. The
+      // puzzleId in hello is informational only.
+      this.send({ t: "hello", protocolVersion: PROTOCOL_VERSION, puzzleId: "*" });
     });
     ws.addEventListener("message", (ev) => {
       let msg: ServerMessage;

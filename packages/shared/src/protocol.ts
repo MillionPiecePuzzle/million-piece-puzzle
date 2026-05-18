@@ -42,16 +42,25 @@ export type CDrop = {
   worldY: number;
 };
 
-export type ClientMessage = CHello | CGrab | CDrag | CDrop;
+// Dev-only messages, gated server-side by MPP_DEV_ENABLED.
+// dev_reset: wipe and re-init the current puzzle (stays on the same puzzle).
+// dev_complete: force-complete the current puzzle so the server cycles to the next.
+export type CDevReset = { t: "dev_reset" };
+export type CDevComplete = { t: "dev_complete" };
+
+export type ClientMessage = CHello | CGrab | CDrag | CDrop | CDevReset | CDevComplete;
 
 // Server -> Client
 
-// Fields derivable from the image manifest the client already fetched
-// (puzzleId, grid size, piece count, seed, manifest URL) are not repeated here.
+// Server picks the active puzzle (sequential rotation). Client fetches the
+// matching manifest at `/puzzles/<puzzleId>/manifest.json` after welcome.
+// A second welcome on the same connection signals a puzzle cycle and the
+// client must reset and reload.
 export type SWelcome = {
   t: "welcome";
   userId: string;
   protocolVersion: number;
+  puzzleId: string;
   lockedCount: number;
 };
 
@@ -111,7 +120,7 @@ export type SRollback = {
 
 export type SError = {
   t: "error";
-  code: "bad_message" | "unknown_group" | "protocol_mismatch" | "not_held";
+  code: "bad_message" | "unknown_group" | "protocol_mismatch" | "not_held" | "dev_disabled";
   message: string;
 };
 

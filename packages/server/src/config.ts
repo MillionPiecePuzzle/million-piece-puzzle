@@ -7,8 +7,10 @@ export type ServerConfig = {
   redisUrl: string;
   mongoUrl: string;
   mongoDb: string;
-  manifestPath: string;
-  manifest: ImageManifest;
+  manifestPaths: string[];
+  manifests: ImageManifest[];
+  devEnabled: boolean;
+  cycleDelayMs: number;
 };
 
 function int(name: string, fallback: number): number {
@@ -25,16 +27,47 @@ function str(name: string, fallback?: string): string {
   return v;
 }
 
+function bool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  return raw === "1" || raw.toLowerCase() === "true";
+}
+
+function resolveManifestList(): string[] {
+  const list = process.env.MPP_MANIFESTS;
+  if (list) {
+    const paths = list
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (paths.length === 0) throw new Error("MPP_MANIFESTS is empty");
+    return paths.map((p) => path.resolve(p));
+  }
+  const single = process.env.MPP_MANIFEST;
+  if (single) return [path.resolve(single)];
+  throw new Error("missing required env MPP_MANIFESTS (or MPP_MANIFEST for single puzzle)");
+}
+
 export async function loadConfig(): Promise<ServerConfig> {
-  const manifestPath = path.resolve(str("MPP_MANIFEST"));
-  const raw = await readFile(manifestPath, "utf8");
-  const manifest = JSON.parse(raw) as ImageManifest;
+  const manifestPaths = resolveManifestList();
+  const manifests: ImageManifest[] = [];
+  for (const p of manifestPaths) {
+    const raw = await readFile(p, "utf8");
+    manifests.push(JSON.parse(raw) as ImageManifest);
+  }
+  const ids = new Set<string>();
+  for (const m of manifests) {
+    if (ids.has(m.puzzleId)) throw new Error(`duplicate puzzleId across manifests: ${m.puzzleId}`);
+    ids.add(m.puzzleId);
+  }
   return {
     port: int("MPP_PORT", 8080),
     redisUrl: str("MPP_REDIS_URL", "redis://127.0.0.1:6379"),
     mongoUrl: str("MPP_MONGO_URL", "mongodb://127.0.0.1:27017"),
     mongoDb: str("MPP_MONGO_DB", "mpp"),
-    manifestPath,
-    manifest,
+    manifestPaths,
+    manifests,
+    devEnabled: bool("MPP_DEV_ENABLED", false),
+    cycleDelayMs: int("MPP_CYCLE_DELAY_MS", 6000),
   };
 }

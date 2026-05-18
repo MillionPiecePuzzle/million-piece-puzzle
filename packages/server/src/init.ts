@@ -16,7 +16,13 @@ export async function initPuzzleIfEmpty(
   if (await state.hasMeta()) {
     return state.readMeta();
   }
+  return forceInitPuzzle(state, manifest);
+}
 
+export async function forceInitPuzzle(
+  state: RedisState,
+  manifest: ImageManifest,
+): Promise<PuzzleMeta> {
   const geom = generatePuzzle({
     seed: manifest.seed,
     rows: manifest.rows,

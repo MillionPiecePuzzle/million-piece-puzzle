@@ -1,7 +1,9 @@
-const DEFAULT_MANIFEST_URL = "/puzzle/manifest.json";
+const PUZZLES_BASE = "/puzzles";
 
-export function resolveManifestUrl(): string {
-  return import.meta.env.VITE_MANIFEST_URL ?? DEFAULT_MANIFEST_URL;
+export function manifestUrlFor(puzzleId: string): string {
+  const override = import.meta.env.VITE_MANIFEST_BASE;
+  const base = typeof override === "string" && override.length > 0 ? override : PUZZLES_BASE;
+  return `${base}/${puzzleId}/manifest.json`;
 }
 
 export function manifestBaseUrl(url: string): string {

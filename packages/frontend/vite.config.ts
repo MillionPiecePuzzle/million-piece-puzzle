@@ -1,13 +1,12 @@
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import vue from "@vitejs/plugin-vue";
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, readdir } from "node:fs/promises";
 import { existsSync, statSync, createReadStream } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
-const puzzleId = process.env.MPP_PUZZLE_ID ?? "test";
-const puzzleSource = path.resolve(repoRoot, "generated", puzzleId);
+const puzzlesRoot = path.resolve(repoRoot, "generated");
 
 function servePuzzleAssets(): Plugin {
   const mime: Record<string, string> = {
@@ -18,14 +17,14 @@ function servePuzzleAssets(): Plugin {
     ".jpeg": "image/jpeg",
   };
   return {
-    name: "mpp:serve-puzzle",
+    name: "mpp:serve-puzzles",
     apply: "serve",
     configureServer(server: ViteDevServer) {
-      server.middlewares.use("/puzzle", (req, res, next) => {
+      server.middlewares.use("/puzzles", (req, res, next) => {
         if (!req.url) return next();
         const rel = decodeURIComponent(req.url.split("?")[0] ?? "");
-        const full = path.join(puzzleSource, rel);
-        if (!full.startsWith(puzzleSource) || !existsSync(full) || !statSync(full).isFile()) {
+        const full = path.join(puzzlesRoot, rel);
+        if (!full.startsWith(puzzlesRoot) || !existsSync(full) || !statSync(full).isFile()) {
           return next();
         }
         const ext = path.extname(full).toLowerCase();
@@ -39,17 +38,22 @@ function servePuzzleAssets(): Plugin {
 
 function bundlePuzzleAssets(): Plugin {
   return {
-    name: "mpp:bundle-puzzle",
+    name: "mpp:bundle-puzzles",
     apply: "build",
     async closeBundle() {
-      if (!existsSync(puzzleSource)) {
-        throw new Error(
-          `[mpp:bundle-puzzle] missing puzzle assets at ${puzzleSource}. Run \`npm run slice\` or set MPP_PUZZLE_ID.`,
-        );
+      if (!existsSync(puzzlesRoot)) {
+        throw new Error(`[mpp:bundle-puzzles] missing puzzles dir at ${puzzlesRoot}`);
       }
-      const outDir = path.resolve(repoRoot, "packages/frontend/dist/puzzle");
-      await mkdir(outDir, { recursive: true });
-      await cp(puzzleSource, outDir, { recursive: true });
+      const entries = await readdir(puzzlesRoot, { withFileTypes: true });
+      const ids = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+      if (ids.length === 0) {
+        throw new Error(`[mpp:bundle-puzzles] no puzzle directories under ${puzzlesRoot}`);
+      }
+      const outRoot = path.resolve(repoRoot, "packages/frontend/dist/puzzles");
+      await mkdir(outRoot, { recursive: true });
+      for (const id of ids) {
+        await cp(path.join(puzzlesRoot, id), path.join(outRoot, id), { recursive: true });
+      }
     },
   };
 }

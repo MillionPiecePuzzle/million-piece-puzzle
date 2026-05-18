@@ -18,7 +18,7 @@ import {
 } from "@mpp/shared";
 import { applyPath } from "./applyPath";
 import { Tweener, peak, easeOutCubic } from "./tween";
-import { manifestBaseUrl, resolveManifestUrl } from "../data/manifestUrl";
+import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 
 export type Mode = "spectator" | "contributor";
 
@@ -173,7 +173,7 @@ export class PuzzleStage {
     });
     const geomById = new Map<number, PieceGeometry>(geom.pieces.map((p) => [p.id, p]));
 
-    const base = manifestBaseUrl(resolveManifestUrl());
+    const base = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
     const textures = await loadTextures(manifest, base);
 
     this.worldSize = {
@@ -229,6 +229,24 @@ export class PuzzleStage {
     this.groups.clear();
     this.pieceToGroup.clear();
     this.held = null;
+  }
+
+  // Wipe all piece/group state without tearing down the Pixi app, so a fresh
+  // build() can run on the same stage (puzzle cycling).
+  clearWorld(): void {
+    this.stopConfetti();
+    if (this.world) {
+      this.world.removeChildren();
+      this.world.x = 0;
+      this.world.y = 0;
+      this.world.scale.set(1);
+    }
+    this.groups.clear();
+    this.pieceToGroup.clear();
+    this.held = null;
+    this.worldSize = null;
+    this.camera = { x: 0, y: 0, zoom: 1 };
+    this.onCameraChange?.(this.camera);
   }
 
   // ----- incoming server messages -----

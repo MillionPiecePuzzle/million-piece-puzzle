@@ -32,4 +32,8 @@ export class Hub {
       }
     }
   }
+
+  allClients(): Client[] {
+    return [...this.clients];
+  }
 }

@@ -27,7 +27,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Image pipeline emits rectangular tiles without silhouette mask](#2026-05-12-image-pipeline-rectangular-tiles) -> revisit if client-side masking shows up in render profiling at Phase 1+ scale.
 - [Piece tiles flat in `pieces/`, no folder bucketing](#2026-05-12-image-pipeline-flat-tile-layout) -> add bucketing in Phase 1+ when N exceeds a few thousand.
 - [Image pipeline derives `pieceSize` from image dimensions and center-crops](#2026-05-12-image-pipeline-adaptive-piecesize) -> revisit if non-centered crops or aspect-fitting become useful.
-- [Server bootstrap reads puzzle config from a manifest file path](#2026-05-12-backend-realtime-manifest-bootstrap) -> replace with Mongo-backed puzzle catalog once Phase 1 manages multiple puzzles.
+- [Server boots with an ordered list of manifests and cycles sequentially](#2026-05-18-backend-realtime-manifest-list-and-cycle) -> replace with a Mongo-backed puzzle catalog and explicit lifecycle when the alpha ends.
 - [Snap detection compares group origins for equality within tolerance](#2026-05-12-backend-realtime-snap-by-origin) -> stable assumption; revisit only if canonical offsets stop being puzzle-global (e.g., rotation enabled).
 - [Server Docker image installs all workspace runtime deps](#2026-05-12-backend-realtime-docker-all-workspace-deps) -> trim once image size matters.
 - [Piece outline approximated by 8 cubic Beziers per curved edge](#2026-05-13-piece-generation-edge-path-topology) -> revisit if silhouettes look degenerate or if a tighter approximation is needed for snap visuals.
@@ -36,7 +36,9 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Drag broadcasts sent on every pointermove without throttling](#2026-05-12-frontend-canvas-drag-no-throttle) -> coalesce with requestAnimationFrame once the WS shows backpressure or high-rate mice flood the server.
 - [Global serial dispatch queue for all WS messages](#2026-05-14-backend-realtime-global-serial-dispatch-queue) -> per-process total order; scaling the writer past one instance needs an atomic Lua merge, a regional lock, or write sharding.
 - [Cascade entrance animation descoped from Phase 0 to Phase 2](#2026-05-12-frontend-canvas-cascade-deferred) -> requires event scheduling (`eventStartsAt`) and a landing countdown to be meaningful; building it now would mean rebuilding it twice.
-- [Alpha puzzle fixture `generated/test/` committed and baked into images](#2026-05-15-infra-deploy-alpha-fixture-committed) -> drop the commit and the Dockerfile `COPY` once the image pipeline serves the same artifacts from R2.
+- [Alpha puzzle fixtures `generated/alpha-{1,2,3}/` committed and baked into images](#2026-05-15-infra-deploy-alpha-fixtures-committed) -> drop the commits and the Dockerfile `COPY` lines once the image pipeline serves the same artifacts from R2.
+- [Closed-alpha gate is a frontend-only passcode](#2026-05-18-frontend-shell-alpha-passcode) -> replace with a server-validated invite token (or full auth) before opening the alpha beyond known testers.
+- [Dev controls (reset/complete) exposed on /play, server-gated by env var](#2026-05-18-frontend-shell-dev-controls) -> set `MPP_DEV_ENABLED=0` and `VITE_DEV_BUTTONS=0` before the first non-tester users land.
 - [Alpha topology: single VPS, Coolify on the workload host, Cloudflare DNS-only for `ws.*`](#2026-05-18-infra-deploy-alpha-topology) -> split Coolify control plane from workload, and consider Cloudflare-proxied origin or R2 fronting, before Phase 2 public traffic.
 
 ---
@@ -121,11 +123,11 @@ Choice: `--piece-size` is optional. When omitted, the script derives `pieceSize 
 Why: the user wants to drop any image and have the pipeline adapt, not the other way around. Center-crop keeps the visually important center of the image.
 Revisit when: a workflow needs to preserve the full image (no crop), align the puzzle to a non-center anchor, or use non-square pieces.
 
-### 2026-05-12, backend-realtime, manifest bootstrap
+### 2026-05-18, backend-realtime, manifest list and cycle
 
-Choice: the server reads `MPP_MANIFEST` (path to the slicer's `manifest.json`) at boot to obtain `puzzleId`, `seed`, `rows`, `cols`, `pieceSize`. If Redis has no meta for that puzzle, it runs `generatePuzzle` to derive geometry and writes initial state (one group per piece, every group scattered deterministically including positions inside the puzzle frame, nothing locked at init). If meta already exists, it is reused.
-Why: keeps the single-puzzle Phase 0 loop trivial and aligned with the slicer's existing output. No catalog, no admin UI, no extra service.
-Revisit when: multiple puzzles or admin tooling appear. Move the catalog to Mongo and let the server load by `puzzleId` from there.
+Choice: the server reads `MPP_MANIFESTS` (comma-separated paths to slicer manifests) at boot. It tracks the currently active `puzzleId` in Redis under `puzzles:active`. On boot it resumes the last-active one (or the first manifest if none was stored). Every WebSocket `welcome` carries the active `puzzleId`, and the frontend fetches `/puzzles/<puzzleId>/manifest.json` after receiving it. When the active puzzle completes (locked count reaches total) or a `dev_complete` is received, the server wipes that puzzle's Redis state, advances to the next manifest (wrapping), re-initializes it, persists the new active id, and re-sends `welcome`+`state` to every connected client.
+Why: testers want to feel "the puzzle changes" without the heavier multi-puzzle-routing refactor. Sequential rotation keeps the server mono-puzzle at any instant: handlers, snap, and merge logic stay unchanged, only the lifecycle around init/teardown is new. `MPP_MANIFEST` (single path) remains a fallback so local one-puzzle workflows still boot.
+Revisit when: the alpha ends. Once the catalog needs to live in Mongo (multiple concurrent puzzles, per-puzzle scheduling, admin tooling), drop sequential cycling and route each WebSocket connection to a chosen puzzle.
 
 ### 2026-05-12, backend-realtime, snap by origin equality
 
@@ -175,11 +177,23 @@ Choice: every incoming WS message and disconnect cleanup, across all clients, go
 Why: handlers `await` Redis between reads and writes; without serialization two messages can interleave on those points and corrupt group state. A single chain makes the "server processes messages sequentially" invariant literally true with no locking logic.
 Revisit when: the writer path needs more than one instance. The guarantee is per process, so horizontally scaling the WS writer breaks it. Only the drop/merge path (`handleDrop` -> `applyMerge`, a non-atomic read-modify-write across many Redis calls) depends on it: `grab` is already atomic Lua, `drag` and `hello` do not mutate. The architecture assumes a single writer instance (reads and broadcasts scale separately, per the CLAUDE.md read/write split); when that no longer holds, the options are an atomic Lua merge, a distributed lock per canvas region, or write sharding by region. Within one process, the finer follow-up is per-group queues.
 
-### 2026-05-15, infra-deploy, alpha fixture committed
+### 2026-05-15, infra-deploy, alpha fixtures committed
 
-Choice: the 49-piece puzzle output (`generated/test/`, ~830 KB) is committed to the repo and copied into the server Docker image (and into the Pages build via the Vite build plugin). The slice source image stays out of git; the deterministic output is what ships.
-Why: Coolify clones the repo as the build context, with no host volumes or pre-build hooks. Baking the fixture in is the simplest way to give the server a manifest at boot and to give the Pages build the same tiles, without requiring a registry, an R2 bucket, or sharp inside the runtime image.
-Revisit when: the image pipeline produces and uploads the real puzzle to R2 (Phase 1 `image-pipeline` track). At that point, drop the `generated/test/` commit and the `COPY generated/test` line in both Dockerfiles, and switch the server and Pages build to fetch the manifest from R2.
+Choice: three puzzle outputs are committed under `generated/alpha-1/` (45 pieces), `generated/alpha-2/` (510 pieces), and `generated/alpha-3/` (2040 pieces). The server Docker image copies all three; the Vite build copies each into `dist/puzzles/<id>/`. Source images stay out of git; the deterministic AVIF outputs are what ships.
+Why: Coolify clones the repo as the build context, with no host volumes or pre-build hooks. Baking the fixtures in is the simplest way to give the server its manifest list at boot and to give the Pages build the matching tiles, without requiring a registry, an R2 bucket, or sharp inside the runtime image. Three sizes give testers a quick warmup, a real session, and a stress puzzle.
+Revisit when: the image pipeline produces and uploads the real puzzle to R2 (Phase 1 `image-pipeline` track). At that point, drop the `generated/alpha-*/` commits and the `COPY` lines, and switch the server and Pages build to fetch manifests from R2.
+
+### 2026-05-18, frontend-shell, alpha passcode
+
+Choice: the landing page asks for a passcode before navigating to `/play`. The expected value comes from `VITE_ALPHA_PASSCODE` (default `alpha`); a match writes a flag to `localStorage` and the router's `beforeEnter` on `/play` reads it. The WebSocket server does not validate the passcode.
+Why: the alpha is "closed" in the sense of "not advertised", not "cryptographically gated". The goal is to keep stray search-engine traffic and random link-followers out, while invited testers paste the passcode once and never see it again. A frontend-only check is one composable plus a route guard; a server-validated invite token would be a new auth surface that we throw away when real auth lands in Phase 2.
+Revisit when: the alpha opens beyond the known testers, the passcode leaks publicly, or auth-and-accounts begins. Validate an invite token on the server `hello` and reject WS connections without one.
+
+### 2026-05-18, frontend-shell, dev controls
+
+Choice: `/play` exposes two buttons (Reset puzzle, Complete & cycle) wired to new `dev_reset` and `dev_complete` WebSocket messages. Visibility is controlled by `VITE_DEV_BUTTONS` (default visible during the alpha). Server-side both messages are rejected with `dev_disabled` unless `MPP_DEV_ENABLED=1`. Both buttons are protected by a `confirm()` prompt because they affect every connected tester at once.
+Why: testers need to skip between puzzles and reset a stuck board without operator intervention. Putting the controls on `/play` (rather than a hidden URL) keeps feedback loops short. The env gate exists so we can pull them in one redeploy when the alpha ends.
+Revisit when: the alpha ends. Flip `MPP_DEV_ENABLED=0` on the server and `VITE_DEV_BUTTONS=0` on the frontend before any non-tester traffic lands.
 
 ### 2026-05-18, infra-deploy, alpha topology
 

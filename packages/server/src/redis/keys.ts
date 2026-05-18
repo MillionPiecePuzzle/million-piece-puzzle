@@ -23,3 +23,6 @@ export const lockedCount = (puzzleId: string) => `puzzle:${puzzleId}:locked-coun
 
 /** Hash: userId -> viewportX, viewportY, zoom, lastSeenAt. */
 export const presence = (puzzleId: string) => `puzzle:${puzzleId}:presence`;
+
+/** String: id of the currently active puzzle in the sequential rotation. */
+export const activePuzzleId = () => `puzzles:active`;
