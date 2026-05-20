@@ -23,16 +23,17 @@ const badMessage = () => expect.objectContaining({ t: "error", code: "bad_messag
 function makeCtx() {
   const send = vi.fn();
   const broadcast = vi.fn();
+  const broadcastNear = vi.fn();
   const tryAcquireGroup = vi.fn();
   const readGroup = vi.fn();
   const ctx = {
-    hub: { send, broadcast },
+    hub: { send, broadcast, broadcastNear },
     state: { tryAcquireGroup, readGroup },
     meta,
     puzzleId: "test",
     mongo: { logMerge: vi.fn() },
   } as unknown as Context;
-  return { ctx, send, broadcast, tryAcquireGroup, readGroup };
+  return { ctx, send, broadcast, broadcastNear, tryAcquireGroup, readGroup };
 }
 
 describe("dispatch validation", () => {
@@ -111,6 +112,41 @@ describe("dispatch validation", () => {
     });
     await dispatch(ctx, client, JSON.stringify({ t: "drag", groupId: 5, worldX: 10, worldY: 20 }));
     expect(readGroup).toHaveBeenCalledWith(5);
+  });
+
+  it("rejects a viewport with non-finite coordinates", async () => {
+    const { ctx, send } = makeCtx();
+    await dispatch(
+      ctx,
+      client,
+      '{"t":"viewport","worldX":1e999,"worldY":0,"worldW":100,"worldH":100}',
+    );
+    expect(send).toHaveBeenCalledWith(client, badMessage());
+  });
+
+  it("rejects a viewport with negative dimensions", async () => {
+    const { ctx, send } = makeCtx();
+    await dispatch(
+      ctx,
+      client,
+      JSON.stringify({ t: "viewport", worldX: 0, worldY: 0, worldW: -1, worldH: 100 }),
+    );
+    expect(send).toHaveBeenCalledWith(client, badMessage());
+  });
+
+  it("stores a valid viewport on the client", async () => {
+    const { ctx } = makeCtx();
+    const c = {
+      userId: "u1",
+      bucket: { consume: () => true },
+      viewport: null,
+    } as unknown as Client;
+    await dispatch(
+      ctx,
+      c,
+      JSON.stringify({ t: "viewport", worldX: 10, worldY: 20, worldW: 100, worldH: 200 }),
+    );
+    expect(c.viewport).toEqual({ worldX: 10, worldY: 20, worldW: 100, worldH: 200 });
   });
 
   it("rejects invalid JSON", async () => {
@@ -251,16 +287,17 @@ const dropMeta: PuzzleMeta = {
 function makeDropCtx() {
   const send = vi.fn();
   const broadcast = vi.fn();
+  const broadcastNear = vi.fn();
   const logMerge = vi.fn();
   const state = new FakeState();
   const ctx = {
-    hub: { send, broadcast },
+    hub: { send, broadcast, broadcastNear },
     state,
     meta: dropMeta,
     puzzleId: "test",
     mongo: { logMerge },
   } as unknown as Context;
-  return { ctx, send, broadcast, logMerge, state };
+  return { ctx, send, broadcast, broadcastNear, logMerge, state };
 }
 
 const dropped = (id: number, worldX: number, worldY: number): GroupRuntime => ({
@@ -293,11 +330,15 @@ describe("handleDrop", () => {
   });
 
   it("releases the group and broadcasts a drop when nothing snaps", async () => {
-    const { ctx, broadcast, state } = makeDropCtx();
+    const { ctx, broadcastNear, state } = makeDropCtx();
     state.place(dropped(4, 500, 500), [4]);
     await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
     expect(state.groups.get(4)?.heldBy).toBeNull();
-    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ t: "drop", groupId: 4 }));
+    expect(broadcastNear).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "drop", groupId: 4 }),
+      500,
+      500,
+    );
   });
 
   it("anchors the group to the frame when dropped near the origin", async () => {

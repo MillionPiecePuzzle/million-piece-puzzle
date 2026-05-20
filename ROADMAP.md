@@ -98,7 +98,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] Collaborator cursors rendered from presence messages (colored pointer, pseudo tag, held-piece preview, idle-bob)
 
 ### `backend-realtime`
-- [ ] Viewport-neighbor broadcast scoping for drag and drop events
+- [x] Viewport-neighbor broadcast scoping for drag and drop: the `viewport` client message is wired server-side; drag and drop reach only clients whose reported viewport contains the event point, snap stays a global broadcast, and clients with no viewport yet receive everything
 - [ ] Periodic snapshot generation published to CDN for spectator mode
 - [x] WebSocket messages validated at the dispatch boundary: malformed or out-of-range groupId and non-finite coordinates are rejected as bad_message before any Redis access, and grab on a non-existent group fails instead of creating a junk key
 - [x] WebSocket boundary hardened: Origin allowlist (`MPP_ALLOWED_ORIGINS`), per-frame size cap (`maxPayload`), per-connection token-bucket rate limit, and outbound backpressure close on slow consumers

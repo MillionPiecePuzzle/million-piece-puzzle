@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { CDrag, CDrop, CGrab, CHello, ClientMessage, ServerMessage } from "@mpp/shared";
+import type {
+  CDrag,
+  CDrop,
+  CGrab,
+  CHello,
+  CViewport,
+  ClientMessage,
+  ServerMessage,
+} from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
@@ -119,8 +127,9 @@ export async function handleDrag(ctx: Context, client: Client, msg: CDrag): Prom
     return;
   }
   // Drag is transient: broadcast only, never persisted. The authoritative
-  // position is written on drop.
-  ctx.hub.broadcast(
+  // position is written on drop. Scoped to clients whose viewport covers the
+  // event point so a drag does not fan out to the whole canvas.
+  ctx.hub.broadcastNear(
     {
       t: "drag",
       groupId: msg.groupId,
@@ -128,8 +137,19 @@ export async function handleDrag(ctx: Context, client: Client, msg: CDrag): Prom
       worldY: msg.worldY,
       userId: client.userId,
     },
+    msg.worldX,
+    msg.worldY,
     client,
   );
+}
+
+export function handleViewport(client: Client, msg: CViewport): void {
+  client.viewport = {
+    worldX: msg.worldX,
+    worldY: msg.worldY,
+    worldW: msg.worldW,
+    worldH: msg.worldH,
+  };
 }
 
 export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Promise<void> {
@@ -161,13 +181,17 @@ export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Prom
 
   if (!frameAnchor && !match) {
     await ctx.state.releaseGroup(msg.groupId);
-    ctx.hub.broadcast({
-      t: "drop",
-      groupId: msg.groupId,
-      worldX: msg.worldX,
-      worldY: msg.worldY,
-      userId: client.userId,
-    });
+    ctx.hub.broadcastNear(
+      {
+        t: "drop",
+        groupId: msg.groupId,
+        worldX: msg.worldX,
+        worldY: msg.worldY,
+        userId: client.userId,
+      },
+      msg.worldX,
+      msg.worldY,
+    );
     return;
   }
 
@@ -311,6 +335,20 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
       }
       if (msg.t === "drag") await handleDrag(ctx, client, msg);
       else await handleDrop(ctx, client, msg);
+      return;
+    case "viewport":
+      if (
+        !isFiniteCoord(msg.worldX) ||
+        !isFiniteCoord(msg.worldY) ||
+        !isFiniteCoord(msg.worldW) ||
+        !isFiniteCoord(msg.worldH) ||
+        msg.worldW < 0 ||
+        msg.worldH < 0
+      ) {
+        err(ctx, client, "bad_message", "invalid viewport");
+        return;
+      }
+      handleViewport(client, msg);
       return;
     case "dev_reset":
       await handleDevReset(ctx, client);

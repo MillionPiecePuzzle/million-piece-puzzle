@@ -75,7 +75,7 @@ async function main(): Promise<void> {
 
   wss.on("connection", (ws: WebSocket) => {
     const bucket = new TokenBucket(config.wsRateBurst, config.wsRateTokensPerSec);
-    const client: Client = { userId: randomUUID(), ws, bucket };
+    const client: Client = { userId: randomUUID(), ws, bucket, viewport: null };
     hub.add(client);
 
     ws.on("message", (data) => {
@@ -115,13 +115,17 @@ async function releaseHeldGroups(
   for (const g of groups) {
     if (g.heldBy === userId) {
       await state.releaseGroup(g.id);
-      hub.broadcast({
-        t: "drop",
-        groupId: g.id,
-        worldX: g.worldX,
-        worldY: g.worldY,
-        userId,
-      });
+      hub.broadcastNear(
+        {
+          t: "drop",
+          groupId: g.id,
+          worldX: g.worldX,
+          worldY: g.worldY,
+          userId,
+        },
+        g.worldX,
+        g.worldY,
+      );
     }
   }
 }
