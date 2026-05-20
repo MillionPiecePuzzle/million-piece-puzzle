@@ -262,10 +262,8 @@ async function applyMerge(
   });
 
   let lockedCount = await ctx.state.getLockedCount();
-  if (willBeLocked) {
-    const delta = allPieces.length - lockedSizeBefore;
-    if (delta > 0) lockedCount = await ctx.state.addLockedCount(delta);
-  }
+  const lockedDelta = willBeLocked ? Math.max(0, allPieces.length - lockedSizeBefore) : 0;
+  if (lockedDelta > 0) lockedCount = await ctx.state.addLockedCount(lockedDelta);
 
   const mergeId = randomUUID();
   const at = new Date();
@@ -279,6 +277,7 @@ async function applyMerge(
     addedPieceIds,
     targetAnchorPieceId,
     anchored: willBeLocked,
+    lockedDelta,
     at,
   });
 

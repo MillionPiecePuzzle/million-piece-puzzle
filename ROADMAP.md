@@ -132,7 +132,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] `frontend-canvas`: Decide whether to add the search bar (jump to coordinates / sector / piece ID, with `⌘K`)
 - [ ] `frontend-canvas`: Decide whether to add the minimap / overview panel
 - [ ] `frontend-canvas`: Decide whether to add the piece tray (slots + shuffle / auto-sort / draw actions)
-- [ ] `backend-realtime` + `shared-protocol`: Activity ticker backfilled with recent `ClusterMerge` history on connect, so the feed is populated even for events that happened before the client joined (currently the ticker only shows snaps received live)
+- [x] `backend-realtime` + `shared-protocol`: Activity ticker backfilled with recent `ClusterMerge` history on connect, so the feed is populated even for events that happened before the client joined (currently the ticker only shows snaps received live)
 
 ---
 

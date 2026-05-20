@@ -3,6 +3,7 @@ import type {
   GroupRuntime,
   ImageManifest,
   PieceRuntime,
+  SActivity,
   SSnap,
   SState,
   SWelcome,
@@ -32,9 +33,9 @@ export type PuzzleSessionState =
 export type MessageHandler = (msg: ServerMessage) => void;
 
 export type ActivityEntry = {
-  id: number;
+  id: string;
   actor: string;
-  pieceNumber: number;
+  pieceCount: number;
   at: number;
 };
 
@@ -56,16 +57,36 @@ let started = false;
 let buildEpoch = 0;
 const handlers = new Set<MessageHandler>();
 
+function actorLabel(id: string): string {
+  return id === userId.value ? "you" : id;
+}
+
 function recordSnap(msg: SSnap): void {
   const prev = lockedCount.value;
   lockedCount.value = msg.lockedCount;
-  if (msg.lockedCount <= prev) return;
-  const actor = msg.userId === userId.value ? "you" : msg.userId;
-  const fresh: ActivityEntry[] = [];
-  for (let n = msg.lockedCount; n > prev; n--) {
-    fresh.push({ id: n, actor, pieceNumber: n, at: msg.at });
-  }
-  activity.value = [...fresh, ...activity.value].slice(0, ACTIVITY_LIMIT);
+  // The feed tracks anchoring merges only: each entry is one snap that locked
+  // pieces to the frame, counted by how much the locked total advanced.
+  if (!msg.anchored) return;
+  const pieceCount = msg.lockedCount - prev;
+  if (pieceCount <= 0) return;
+  const entry: ActivityEntry = {
+    id: msg.mergeId,
+    actor: actorLabel(msg.userId),
+    pieceCount,
+    at: msg.at,
+  };
+  activity.value = [entry, ...activity.value].slice(0, ACTIVITY_LIMIT);
+}
+
+function applyActivity(msg: SActivity): void {
+  activity.value = msg.items
+    .map((item) => ({
+      id: item.id,
+      actor: actorLabel(item.userId),
+      pieceCount: item.lockedDelta,
+      at: item.at,
+    }))
+    .slice(0, ACTIVITY_LIMIT);
 }
 
 function applyState(msg: SState): void {
@@ -149,6 +170,8 @@ async function start(): Promise<void> {
       applyState(msg);
     } else if (msg.t === "snap") {
       recordSnap(msg);
+    } else if (msg.t === "activity") {
+      applyActivity(msg);
     } else if (msg.t === "error") {
       state.value = { kind: "error", message: `${msg.code}: ${msg.message}` };
     }

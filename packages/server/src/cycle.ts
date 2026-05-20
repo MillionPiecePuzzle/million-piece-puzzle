@@ -4,6 +4,10 @@ import type { Hub, Client } from "./hub.js";
 import type { Context } from "./handlers.js";
 import { forceInitPuzzle, initPuzzleIfEmpty } from "./init.js";
 
+// Anchoring entries sent to seed a connecting client's activity ticker. Matches
+// the ticker's display capacity on the frontend.
+const ACTIVITY_BACKFILL_LIMIT = 6;
+
 export class PuzzleCycle {
   private cycleScheduled = false;
   private cycling = false;
@@ -47,6 +51,11 @@ export class PuzzleCycle {
       this.ctx.state.readAllGroups(this.ctx.meta.totalPieces),
     ]);
     this.ctx.hub.send(client, { t: "state", pieces, groups });
+    const items = await this.ctx.mongo.recentAnchoredMerges(
+      this.ctx.puzzleId,
+      ACTIVITY_BACKFILL_LIMIT,
+    );
+    this.ctx.hub.send(client, { t: "activity", items });
   }
 
   async resetCurrent(): Promise<void> {

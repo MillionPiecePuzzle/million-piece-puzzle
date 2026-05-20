@@ -32,7 +32,8 @@ function relativeTime(at: number): string {
     <ul v-if="activity.length > 0">
       <li v-for="entry in activity" :key="entry.id">
         <span class="msg"
-          ><b>{{ entry.actor }}</b> <em>placed piece number</em> {{ entry.pieceNumber }}</span
+          ><b>{{ entry.actor }}</b> <em>placed</em> {{ entry.pieceCount }}
+          {{ entry.pieceCount === 1 ? "piece" : "pieces" }}</span
         >
         <span class="ts">{{ relativeTime(entry.at) }}</span>
       </li>

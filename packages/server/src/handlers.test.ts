@@ -342,7 +342,7 @@ describe("handleDrop", () => {
   });
 
   it("anchors the group to the frame when dropped near the origin", async () => {
-    const { ctx, broadcast, state } = makeDropCtx();
+    const { ctx, broadcast, logMerge, state } = makeDropCtx();
     state.place(dropped(4, 3, -4), [4]);
     await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 3, worldY: -4 });
     expect(state.groups.get(4)?.locked).toBe(true);
@@ -350,10 +350,13 @@ describe("handleDrop", () => {
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "snap", anchored: true, lockedCount: 1 }),
     );
+    expect(logMerge).toHaveBeenCalledWith(
+      expect.objectContaining({ anchored: true, lockedDelta: 1 }),
+    );
   });
 
   it("merges the dropped group into an aligned unlocked neighbour", async () => {
-    const { ctx, broadcast, state } = makeDropCtx();
+    const { ctx, broadcast, logMerge, state } = makeDropCtx();
     state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
     await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 200, worldY: 200 });
@@ -365,10 +368,13 @@ describe("handleDrop", () => {
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "snap", newGroupId: 1, anchored: false }),
     );
+    expect(logMerge).toHaveBeenCalledWith(
+      expect.objectContaining({ anchored: false, lockedDelta: 0 }),
+    );
   });
 
   it("anchors the merged cluster and counts pieces when snapping onto a locked neighbour", async () => {
-    const { ctx, broadcast, state } = makeDropCtx();
+    const { ctx, broadcast, logMerge, state } = makeDropCtx();
     state.place({ id: 1, worldX: 100, worldY: 100, size: 1, locked: true, heldBy: null }, [1]);
     state.place(dropped(4, 100, 100), [4]);
     expect(state.lockedCount).toBe(1);
@@ -378,6 +384,9 @@ describe("handleDrop", () => {
     expect(state.lockedCount).toBe(2);
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "snap", newGroupId: 1, anchored: true, lockedCount: 2 }),
+    );
+    expect(logMerge).toHaveBeenCalledWith(
+      expect.objectContaining({ anchored: true, lockedDelta: 1 }),
     );
   });
 });

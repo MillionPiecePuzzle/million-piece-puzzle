@@ -41,5 +41,9 @@ export type ClusterMerge = {
   addedPieceIds: number[];
   targetAnchorPieceId: number;
   anchored: boolean;
+  // Pieces this merge newly locked to the frame (0 for a non-anchoring merge).
+  // Stored because it cannot be recomputed from a saved doc: a frame-anchored
+  // cluster locks its pieces without listing any in addedPieceIds.
+  lockedDelta: number;
   at: Date;
 };

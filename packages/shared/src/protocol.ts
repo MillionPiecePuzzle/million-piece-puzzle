@@ -102,6 +102,21 @@ export type SState = {
   groups: GroupRuntime[];
 };
 
+// Recent anchoring history, sent once right after `state` on connect (and again
+// on a puzzle cycle). It seeds the activity feed so a joining client sees past
+// placements, not only snaps that arrive live. Items are ordered newest first.
+export type ActivityItem = {
+  id: string;
+  userId: string;
+  lockedDelta: number;
+  at: number;
+};
+
+export type SActivity = {
+  t: "activity";
+  items: ActivityItem[];
+};
+
 export type SGrabOk = {
   t: "grab_ok";
   groupId: number;
@@ -183,6 +198,7 @@ export type SError = {
 export type ServerMessage =
   | SWelcome
   | SState
+  | SActivity
   | SGrabOk
   | SGrabDenied
   | SDrag
