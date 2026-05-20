@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { useAuthModal } from "../composables/useAuthModal";
+import { usePseudoModal } from "../composables/usePseudoModal";
+import { usePseudo } from "../composables/usePseudo";
 import { useAuth } from "../composables/useAuth";
 
 const { open, hide } = useAuthModal();
-const { signInWithGoogle } = useAuth();
+const { show: showPseudoModal } = usePseudoModal();
+const { pseudo } = usePseudo();
+const { completeSignIn } = useAuth();
 
 function continueWithGoogle() {
-  signInWithGoogle();
   hide();
+  // A returning contributor already has a pseudo: go straight in. A first-time
+  // contributor must pick one through the forced pseudo modal.
+  if (pseudo.value) {
+    completeSignIn();
+  } else {
+    showPseudoModal("forced");
+  }
 }
 </script>
 

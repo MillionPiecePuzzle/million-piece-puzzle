@@ -19,6 +19,9 @@ export type Client = {
   // viewport receives every drag and drop broadcast, so scoping never silently
   // cuts off a client that has not yet reported one.
   viewport: Viewport | null;
+  // Anonymous pseudo set by the client, null until its first `setPseudo`.
+  // Lives on the connection only, never persisted.
+  pseudo: string | null;
 };
 
 // WebSocket close code 1013 ("Try Again Later") for slow consumers whose

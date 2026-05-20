@@ -4,11 +4,12 @@ import type {
   CDrop,
   CGrab,
   CHello,
+  CSetPseudo,
   CViewport,
   ClientMessage,
   ServerMessage,
 } from "@mpp/shared";
-import { PROTOCOL_VERSION } from "@mpp/shared";
+import { PROTOCOL_VERSION, normalizePseudo } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
@@ -152,6 +153,15 @@ export function handleViewport(client: Client, msg: CViewport): void {
   };
 }
 
+export function handleSetPseudo(ctx: Context, client: Client, msg: CSetPseudo): void {
+  const pseudo = normalizePseudo(msg.pseudo);
+  if (pseudo === null) {
+    err(ctx, client, "bad_message", "invalid pseudo");
+    return;
+  }
+  client.pseudo = pseudo;
+}
+
 export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Promise<void> {
   const g = await ctx.state.readGroup(msg.groupId);
   if (!g) {
@@ -290,6 +300,7 @@ async function applyMerge(
     worldY: targetWorldY,
     anchored: willBeLocked,
     userId: client.userId,
+    pseudo: client.pseudo,
     at: at.getTime(),
     lockedCount,
   });
@@ -348,6 +359,9 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
         return;
       }
       handleViewport(client, msg);
+      return;
+    case "setPseudo":
+      handleSetPseudo(ctx, client, msg);
       return;
     case "dev_reset":
       await handleDevReset(ctx, client);

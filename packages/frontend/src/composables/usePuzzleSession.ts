@@ -11,6 +11,7 @@ import type {
 } from "@mpp/shared";
 import { PuzzleWsClient } from "../canvas/wsClient";
 import { manifestUrlFor } from "../data/manifestUrl";
+import { usePseudo } from "./usePseudo";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/";
 const ACTIVITY_LIMIT = 6;
@@ -61,6 +62,13 @@ function actorLabel(id: string): string {
   return id === userId.value ? "you" : id;
 }
 
+// Live snaps carry the snapper's pseudo, so the feed shows real names. The
+// backfill (applyActivity) has only user ids: pseudos are not persisted.
+function snapActor(msg: SSnap): string {
+  if (msg.userId === userId.value) return "you";
+  return msg.pseudo ?? msg.userId;
+}
+
 function recordSnap(msg: SSnap): void {
   const prev = lockedCount.value;
   lockedCount.value = msg.lockedCount;
@@ -71,7 +79,7 @@ function recordSnap(msg: SSnap): void {
   if (pieceCount <= 0) return;
   const entry: ActivityEntry = {
     id: msg.mergeId,
-    actor: actorLabel(msg.userId),
+    actor: snapActor(msg),
     pieceCount,
     at: msg.at,
   };
@@ -135,6 +143,11 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   welcome = msg;
   userId.value = msg.userId;
   lockedCount.value = msg.lockedCount;
+  // Re-attach the stored pseudo to this connection. Covers reconnects and
+  // puzzle cycles, where a fresh welcome lands on a connection the server no
+  // longer (or never) knew the pseudo of.
+  const storedPseudo = usePseudo().pseudo.value;
+  if (storedPseudo) client?.send({ t: "setPseudo", pseudo: storedPseudo });
   activity.value = [];
   pendingState = null;
   const needsLoad = !manifest || manifest.puzzleId !== msg.puzzleId;
@@ -228,6 +241,10 @@ function sendViewport(worldX: number, worldY: number, worldW: number, worldH: nu
   client?.send({ t: "viewport", worldX, worldY, worldW, worldH });
 }
 
+function sendSetPseudo(pseudo: string): void {
+  client?.send({ t: "setPseudo", pseudo });
+}
+
 function sendDevReset(): void {
   client?.send({ t: "dev_reset" });
 }
@@ -251,6 +268,7 @@ export function usePuzzleSession() {
     sendDrag,
     sendDrop,
     sendViewport,
+    sendSetPseudo,
     sendDevReset,
     sendDevComplete,
   };

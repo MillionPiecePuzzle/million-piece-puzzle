@@ -42,6 +42,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Alpha topology: single VPS, Coolify on the workload host, Cloudflare DNS-only for `ws.*`](#2026-05-18-infra-deploy-alpha-topology) -> split Coolify control plane from workload, and consider Cloudflare-proxied origin or R2 fronting, before Phase 2 public traffic.
 - [WS hardening: Origin allowlist, per-connection token bucket, frame size cap, backpressure close](#2026-05-18-backend-realtime-ws-hardening) -> tune limits once load tests run; replace per-process bucket if the writer is sharded.
 - [Drag and drop broadcasts scoped to the receiver viewport](#2026-05-20-backend-realtime-viewport-scoped-drag-and-drop-broadcasts) -> Phase 2 viewport sharding plus incremental subscriptions.
+- [Anonymous pseudo lives on the session, not in Mongo](#2026-05-20-auth-and-accounts-anonymous-pseudo-on-the-session) -> Phase 2 moves it to a verified Mongo user profile with real auth.
 
 ---
 
@@ -220,6 +221,12 @@ Revisit when: Phase 2 (public 1M). Two concrete moves are likely: move Coolify t
 Choice: drag and drop are broadcast only to clients whose last reported `viewport` rectangle contains the event point (`worldX, worldY`); snap stays a global broadcast. Scoping is point-based: the event origin is tested against each receiver's viewport, the dragged cluster's full extent is not computed. A client that has not sent a `viewport` message yet receives every drag and drop (fail-open).
 Why: drag is high-frequency and never persisted, so a per-frame cluster bounding-box computation (read all group pieces, apply canonical offsets) is too heavy; the event origin is the only coordinate already on the wire. Fail-open keeps the server compatible with a frontend that does not yet send viewports and never silently starves a client of updates. Snap stays global because a lock is a puzzle-wide event (locked count, activity feed).
 Revisit when: Phase 2 viewport sharding. Two known gaps: a large unlocked cluster whose origin sits off a peer's screen while its body overlaps it is missed (drag self-corrects within a frame once the origin crosses in, a single drop does not), and a peer panning into a region holds stale positions for non-merging drops it never received. Both are resolved by the Phase 2 move to viewport-scoped initial state plus incremental subscriptions.
+
+### 2026-05-20, auth-and-accounts, anonymous pseudo on the session
+
+Choice: the pseudo is an anonymous, client-chosen name validated by `normalizePseudo` in `shared` (trim, collapse spaces, 2 to 16 chars, letters/digits/space/hyphen/underscore). It is kept in `localStorage` on the client and on the WS connection (`Client.pseudo`) on the server, sent via the `setPseudo` message and re-sent on every `welcome`. It is never written to Mongo, so there is no uniqueness check. Live `SSnap` carries the snapper's pseudo so the activity feed shows real names; the `SActivity` backfill rebuilt from Mongo `ClusterMerge` keeps user ids.
+Why: Phase 1 is anonymous by design, so a session-scoped pseudo is enough for activity attribution without a user store. Carrying the pseudo on each `SSnap`, rather than through a `join`/`leave` presence registry, makes a mid-session pseudo change take effect for free and keeps presence broadcasting (still unimplemented) out of this task. The backfill cannot recover past pseudos because they are not persisted; the resulting inconsistency (named live entries, user ids for backfilled ones) is accepted since backfilled entries scroll off within a few snaps.
+Revisit when: Phase 2 auth lands. The pseudo moves to a Mongo user profile tied to a verified identity, `setPseudo` is replaced by the authenticated identity, and the activity backfill can resolve names from the user store.
 
 ### 2026-05-20, shared-protocol, lockedDelta stored on ClusterMerge
 

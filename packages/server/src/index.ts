@@ -75,7 +75,7 @@ async function main(): Promise<void> {
 
   wss.on("connection", (ws: WebSocket) => {
     const bucket = new TokenBucket(config.wsRateBurst, config.wsRateTokensPerSec);
-    const client: Client = { userId: randomUUID(), ws, bucket, viewport: null };
+    const client: Client = { userId: randomUUID(), ws, bucket, viewport: null, pseudo: null };
     hub.add(client);
 
     ws.on("message", (data) => {

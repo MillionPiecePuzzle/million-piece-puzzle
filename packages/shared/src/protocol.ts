@@ -66,6 +66,14 @@ export type CCursor = {
   worldY: number;
 };
 
+// Anonymous pseudo chosen by the client, attached to the connection. Sent on
+// first contribution and on every change. Not persisted: it lives on the WS
+// connection only, so there is no uniqueness check.
+export type CSetPseudo = {
+  t: "setPseudo";
+  pseudo: string;
+};
+
 // Dev-only messages, gated server-side by MPP_DEV_ENABLED.
 // dev_reset: wipe and re-init the current puzzle (stays on the same puzzle).
 // dev_complete: force-complete the current puzzle so the server cycles to the next.
@@ -79,6 +87,7 @@ export type ClientMessage =
   | CDrop
   | CViewport
   | CCursor
+  | CSetPseudo
   | CDevReset
   | CDevComplete;
 
@@ -154,6 +163,10 @@ export type SSnap = {
   worldY: number;
   anchored: boolean;
   userId: string;
+  // Pseudo of the snapping client at snap time, null if they never set one.
+  // Carried per event because pseudos are not persisted: the activity backfill
+  // rebuilt from Mongo cannot recover them.
+  pseudo: string | null;
   at: number;
   lockedCount: number;
 };

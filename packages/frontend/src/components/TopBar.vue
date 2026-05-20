@@ -4,9 +4,11 @@ import { RouterLink } from "vue-router";
 import BrandMark from "./BrandMark.vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useAuth } from "../composables/useAuth";
+import { usePseudoModal } from "../composables/usePseudoModal";
 
 const { puzzleName, totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
+const { show: showPseudoModal } = usePseudoModal();
 
 const progressPct = computed(() =>
   totalPieces.value > 0 ? (lockedCount.value / totalPieces.value) * 100 : 0,
@@ -32,9 +34,16 @@ const progressPct = computed(() =>
     <span v-else></span>
 
     <div class="top-right">
-      <div v-if="user" class="presence" :title="`Signed in as ${user.name}`">
+      <div v-if="user" class="presence">
         <span class="dot" aria-label="Connected"></span>
-        <span class="pseudo">{{ user.name }}</span>
+        <button
+          type="button"
+          class="pseudo"
+          :title="`Signed in as ${user.name}. Click to change.`"
+          @click="showPseudoModal('edit')"
+        >
+          {{ user.name }}
+        </button>
         <span class="status">connected</span>
       </div>
     </div>
@@ -135,6 +144,14 @@ const progressPct = computed(() =>
   font-size: 13px;
   letter-spacing: -0.005em;
   color: var(--ink);
+  cursor: pointer;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: var(--radius-pill);
+  transition: background 160ms ease;
+}
+.presence .pseudo:hover {
+  background: var(--ground-2);
 }
 .presence .status {
   font-family: var(--mono);
