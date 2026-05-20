@@ -66,6 +66,14 @@ export type StageCallbacks = {
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
+
+// Group stacking order. Locked clusters form the solved base layer; loose
+// clusters always sit above them so they stay grabbable. Held clusters lift
+// further still.
+const Z_LOCKED = 0;
+const Z_UNLOCKED = 1;
+const Z_REMOTE_HELD = 10;
+const Z_LOCAL_HELD = 100;
 const SNAP_BUMP_SCALE = 1.08;
 const SNAP_BUMP_MS = 240;
 const SNAP_FLASH_ALPHA = 0.55;
@@ -202,6 +210,7 @@ export class PuzzleStage {
       const gc = new Container();
       gc.x = group.worldX;
       gc.y = group.worldY;
+      gc.zIndex = group.locked ? Z_LOCKED : Z_UNLOCKED;
       const node: GroupNode = {
         id: group.id,
         container: gc,
@@ -272,7 +281,7 @@ export class PuzzleStage {
       return;
     }
     // Remote grab: keep group visible on top while held by someone else.
-    node.container.zIndex = 10;
+    node.container.zIndex = Z_REMOTE_HELD;
   }
 
   applyGrabDenied(groupId: number): void {
@@ -297,7 +306,7 @@ export class PuzzleStage {
     if (!node) return;
     this.moveGroup(node, worldX, worldY);
     if (userId !== this.localUserId) {
-      node.container.zIndex = 0;
+      node.container.zIndex = this.restingZ(node);
     }
   }
 
@@ -612,8 +621,19 @@ export class PuzzleStage {
   }
 
   private setGroupHeldVisual(node: GroupNode, held: boolean): void {
-    node.container.scale.set(held ? HELD_SCALE : 1);
-    node.container.zIndex = held ? 100 : 0;
+    // Scale each piece around its own inner pivot, not the group container:
+    // the container origin sits at the puzzle's canonical origin, so scaling
+    // it shifts every piece by its canonical offset and makes the cluster
+    // jump away from the cursor on grab and drop.
+    const scale = held ? HELD_SCALE : 1;
+    for (const piece of node.pieces) piece.inner.scale.set(scale);
+    node.container.zIndex = held ? Z_LOCAL_HELD : this.restingZ(node);
+  }
+
+  // Stacking order a group returns to when it is not held: locked clusters
+  // drop to the base layer, loose clusters stay above them.
+  private restingZ(node: GroupNode): number {
+    return node.locked ? Z_LOCKED : Z_UNLOCKED;
   }
 
   private moveGroup(node: GroupNode, worldX: number, worldY: number): void {
