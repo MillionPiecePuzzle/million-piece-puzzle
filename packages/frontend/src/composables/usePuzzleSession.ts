@@ -241,6 +241,10 @@ function sendViewport(worldX: number, worldY: number, worldW: number, worldH: nu
   client?.send({ t: "viewport", worldX, worldY, worldW, worldH });
 }
 
+function sendCursor(worldX: number, worldY: number): void {
+  client?.send({ t: "cursor", worldX, worldY });
+}
+
 function sendSetPseudo(pseudo: string): void {
   client?.send({ t: "setPseudo", pseudo });
 }
@@ -268,6 +272,7 @@ export function usePuzzleSession() {
     sendDrag,
     sendDrop,
     sendViewport,
+    sendCursor,
     sendSetPseudo,
     sendDevReset,
     sendDevComplete,

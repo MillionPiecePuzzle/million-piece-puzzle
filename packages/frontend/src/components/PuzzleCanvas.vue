@@ -7,8 +7,18 @@ import { useMode } from "../composables/useMode";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 
 const host = ref<HTMLDivElement | null>(null);
-const { state, userId, start, close, onMessage, sendGrab, sendDrag, sendDrop, sendViewport } =
-  usePuzzleSession();
+const {
+  state,
+  userId,
+  start,
+  close,
+  onMessage,
+  sendGrab,
+  sendDrag,
+  sendDrop,
+  sendViewport,
+  sendCursor,
+} = usePuzzleSession();
 const { setControls, setCamera } = useStageControls();
 const { mode } = useMode();
 
@@ -51,6 +61,7 @@ function routeMessage(msg: ServerMessage): void {
   switch (msg.t) {
     case "grab_ok":
       stage.applyGrabOk(msg.groupId, msg.userId);
+      stage.setPeerHeld(msg.userId, true);
       break;
     case "grab_denied":
       stage.applyGrabDenied(msg.groupId);
@@ -60,15 +71,26 @@ function routeMessage(msg: ServerMessage): void {
       break;
     case "drop":
       stage.applyRemoteDrop(msg.groupId, msg.userId, msg.worldX, msg.worldY);
+      stage.setPeerHeld(msg.userId, false);
       break;
     case "snap":
       stage.applySnap(msg.newGroupId, msg.addedPieceIds, msg.worldX, msg.worldY, msg.anchored);
+      stage.setPeerHeld(msg.userId, false);
       if (totalPieces.value > 0 && msg.lockedCount >= totalPieces.value) {
         triggerCompletion(true);
       }
       break;
     case "rollback":
       stage.applyRollback(msg.groupId, msg.worldX, msg.worldY);
+      break;
+    case "join":
+      stage.addPeer(msg.userId, msg.pseudo);
+      break;
+    case "leave":
+      stage.removePeer(msg.userId);
+      break;
+    case "cursor":
+      stage.setPeerCursor(msg.userId, msg.worldX, msg.worldY);
       break;
     default:
       break;
@@ -104,6 +126,35 @@ function queueViewport(vp: ViewportRect): void {
   }
 }
 
+// The pointer moves continuously; throttle the cursor presence message so peers
+// get a recent position without a per-event flood.
+const CURSOR_THROTTLE_MS = 60;
+let cursorPending: { x: number; y: number } | null = null;
+let cursorLastSent = 0;
+let cursorTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushCursor(): void {
+  if (cursorTimer !== null) {
+    clearTimeout(cursorTimer);
+    cursorTimer = null;
+  }
+  if (!cursorPending) return;
+  cursorLastSent = performance.now();
+  const c = cursorPending;
+  cursorPending = null;
+  sendCursor(c.x, c.y);
+}
+
+function queueCursor(x: number, y: number): void {
+  cursorPending = { x, y };
+  const elapsed = performance.now() - cursorLastSent;
+  if (elapsed >= CURSOR_THROTTLE_MS) {
+    flushCursor();
+  } else if (cursorTimer === null) {
+    cursorTimer = setTimeout(flushCursor, CURSOR_THROTTLE_MS - elapsed);
+  }
+}
+
 onMounted(async () => {
   if (!host.value) return;
   stage = new PuzzleStage();
@@ -115,6 +166,7 @@ onMounted(async () => {
   });
   stage.onCameraChange = (camera) => setCamera(camera);
   stage.onViewportChange = (vp) => queueViewport(vp);
+  stage.onCursorMove = (x, y) => queueCursor(x, y);
   await stage.mount(host.value);
   setControls({
     zoomIn: () => stage?.zoomIn(),
@@ -153,6 +205,10 @@ onBeforeUnmount(() => {
   if (viewportTimer !== null) {
     clearTimeout(viewportTimer);
     viewportTimer = null;
+  }
+  if (cursorTimer !== null) {
+    clearTimeout(cursorTimer);
+    cursorTimer = null;
   }
   setControls(null);
   close();

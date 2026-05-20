@@ -18,6 +18,7 @@ import {
 } from "@mpp/shared";
 import { applyPath } from "./applyPath";
 import { Tweener, peak, easeOutCubic } from "./tween";
+import { PeerCursorLayer } from "./peerCursors";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 
 export type Mode = "spectator" | "contributor";
@@ -114,6 +115,12 @@ export class PuzzleStage {
   private callbacks: StageCallbacks | null = null;
   onCameraChange: ((camera: { x: number; y: number; zoom: number }) => void) | null = null;
   onViewportChange: ((viewport: ViewportRect) => void) | null = null;
+  onCursorMove: ((worldX: number, worldY: number) => void) | null = null;
+
+  private peerCursors: PeerCursorLayer | null = null;
+  private readonly tickPeerCursors = (ticker: { deltaMS: number }): void => {
+    this.peerCursors?.update(ticker.deltaMS, this.camera);
+  };
 
   private held: HeldState | null = null;
   private pan: { active: boolean; lastX: number; lastY: number } = {
@@ -158,6 +165,10 @@ export class PuzzleStage {
     world.sortableChildren = true;
     app.stage.addChild(world);
 
+    const peerCursors = new PeerCursorLayer();
+    app.stage.addChild(peerCursors.container);
+    this.peerCursors = peerCursors;
+
     app.stage.eventMode = "static";
     this.refreshStageHitArea(app);
     app.stage.on("pointerdown", (ev) => this.onStagePointerDown(ev));
@@ -172,6 +183,7 @@ export class PuzzleStage {
     this.app = app;
     this.world = world;
     this.tweener = new Tweener(app.ticker);
+    app.ticker.add(this.tickPeerCursors);
     this.attachWheelZoom(app.canvas);
   }
 
@@ -245,6 +257,9 @@ export class PuzzleStage {
     this.stopConfetti();
     this.tweener?.destroy();
     this.tweener = null;
+    this.app?.ticker.remove(this.tickPeerCursors);
+    this.peerCursors?.destroy();
+    this.peerCursors = null;
     this.app?.destroy(true, { children: true, texture: true });
     this.app = null;
     this.world = null;
@@ -266,6 +281,7 @@ export class PuzzleStage {
     this.groups.clear();
     this.pieceToGroup.clear();
     this.held = null;
+    this.peerCursors?.clearHeld();
     this.worldSize = null;
     this.camera = { x: 0, y: 0, zoom: 1 };
     this.onCameraChange?.(this.camera);
@@ -318,6 +334,24 @@ export class PuzzleStage {
       this.setGroupHeldVisual(node, false);
       this.held = null;
     }
+  }
+
+  // ----- collaborator cursors -----
+
+  addPeer(userId: string, pseudo: string | null): void {
+    this.peerCursors?.upsertPeer(userId, pseudo);
+  }
+
+  removePeer(userId: string): void {
+    this.peerCursors?.removePeer(userId);
+  }
+
+  setPeerCursor(userId: string, worldX: number, worldY: number): void {
+    this.peerCursors?.setCursor(userId, worldX, worldY);
+  }
+
+  setPeerHeld(userId: string, held: boolean): void {
+    this.peerCursors?.setHeld(userId, held);
   }
 
   applySnap(
@@ -585,6 +619,11 @@ export class PuzzleStage {
   }
 
   private onPointerMove(ev: FederatedPointerEvent): void {
+    // Only contributors broadcast a cursor; spectators stay invisible to peers.
+    if (this.mode === "contributor" && this.onCursorMove) {
+      const cursor = this.screenToWorld(ev.global.x, ev.global.y);
+      this.onCursorMove(cursor.x, cursor.y);
+    }
     if (this.held) {
       const node = this.groups.get(this.held.groupId);
       if (!node || !this.callbacks) return;

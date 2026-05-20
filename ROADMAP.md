@@ -95,7 +95,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] OpenSeadragon reference panel shows the source image
 - [ ] Frustum culling and LOD active, rendering stays smooth at 10 000 pieces
 - [ ] Mini-map shows global progress
-- [ ] Collaborator cursors rendered from presence messages (colored pointer, pseudo tag, held-piece preview, idle-bob)
+- [x] Collaborator cursors rendered from presence messages (colored pointer, pseudo tag, held-piece preview, idle-bob)
 
 ### `backend-realtime`
 - [x] Viewport-neighbor broadcast scoping for drag and drop: the `viewport` client message is wired server-side; drag and drop reach only clients whose reported viewport contains the event point, snap stays a global broadcast, and clients with no viewport yet receive everything
