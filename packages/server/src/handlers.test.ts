@@ -149,6 +149,33 @@ describe("dispatch validation", () => {
     expect(c.viewport).toEqual({ worldX: 10, worldY: 20, worldW: 100, worldH: 200 });
   });
 
+  it("rejects a cursor with non-finite coordinates", async () => {
+    const { ctx, send, broadcastNear } = makeCtx();
+    await dispatch(ctx, client, '{"t":"cursor","worldX":1e999,"worldY":0}');
+    expect(broadcastNear).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(client, badMessage());
+  });
+
+  it("relays a valid cursor to viewport-neighbor peers, excepting the sender", async () => {
+    const { ctx, broadcastNear } = makeCtx();
+    await dispatch(ctx, client, JSON.stringify({ t: "cursor", worldX: 30, worldY: 40 }));
+    expect(broadcastNear).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "cursor", userId: "u1", worldX: 30, worldY: 40 }),
+      30,
+      40,
+      client,
+    );
+  });
+
+  it("re-announces join with the new pseudo on setPseudo", async () => {
+    const { ctx, broadcast } = makeCtx();
+    await dispatch(ctx, client, JSON.stringify({ t: "setPseudo", pseudo: "Alice" }));
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "join", userId: "u1", pseudo: "Alice" }),
+      client,
+    );
+  });
+
   it("rejects invalid JSON", async () => {
     const { ctx, send } = makeCtx();
     await dispatch(ctx, client, "not json");

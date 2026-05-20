@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  CCursor,
   CDrag,
   CDrop,
   CGrab,
@@ -153,6 +154,17 @@ export function handleViewport(client: Client, msg: CViewport): void {
   };
 }
 
+export function handleCursor(ctx: Context, client: Client, msg: CCursor): void {
+  // Transient awareness: relayed only, never persisted. Scoped to viewport
+  // neighbors like drag so a pointer does not fan out to the whole canvas.
+  ctx.hub.broadcastNear(
+    { t: "cursor", userId: client.userId, worldX: msg.worldX, worldY: msg.worldY },
+    msg.worldX,
+    msg.worldY,
+    client,
+  );
+}
+
 export function handleSetPseudo(ctx: Context, client: Client, msg: CSetPseudo): void {
   const pseudo = normalizePseudo(msg.pseudo);
   if (pseudo === null) {
@@ -160,6 +172,8 @@ export function handleSetPseudo(ctx: Context, client: Client, msg: CSetPseudo): 
     return;
   }
   client.pseudo = pseudo;
+  // Re-announce so peers refresh the pseudo tag on their cursor for this client.
+  ctx.hub.broadcast({ t: "join", userId: client.userId, pseudo }, client);
 }
 
 export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Promise<void> {
@@ -359,6 +373,13 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
         return;
       }
       handleViewport(client, msg);
+      return;
+    case "cursor":
+      if (!isFiniteCoord(msg.worldX) || !isFiniteCoord(msg.worldY)) {
+        err(ctx, client, "bad_message", "invalid cursor");
+        return;
+      }
+      handleCursor(ctx, client, msg);
       return;
     case "setPseudo":
       handleSetPseudo(ctx, client, msg);

@@ -76,7 +76,13 @@ async function main(): Promise<void> {
   wss.on("connection", (ws: WebSocket) => {
     const bucket = new TokenBucket(config.wsRateBurst, config.wsRateTokensPerSec);
     const client: Client = { userId: randomUUID(), ws, bucket, viewport: null, pseudo: null };
+    // Presence: tell the newcomer about peers already present, then announce
+    // the newcomer to them. join and leave bracket a connection.
+    for (const peer of hub.allClients()) {
+      hub.send(client, { t: "join", userId: peer.userId, pseudo: peer.pseudo });
+    }
     hub.add(client);
+    hub.broadcast({ t: "join", userId: client.userId, pseudo: client.pseudo }, client);
 
     ws.on("message", (data) => {
       // Hostile clients that exceed the per-connection rate are dropped
@@ -88,6 +94,7 @@ async function main(): Promise<void> {
 
     ws.on("close", () => {
       hub.remove(client);
+      hub.broadcast({ t: "leave", userId: client.userId });
       queue.enqueue("release", () =>
         releaseHeldGroups(ctx.state, ctx.meta.totalPieces, client.userId, hub),
       );

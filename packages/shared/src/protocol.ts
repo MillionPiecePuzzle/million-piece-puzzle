@@ -179,10 +179,11 @@ export type SRollback = {
 };
 
 // Presence, server to client. join is sent to a connecting client once per peer
-// already present, and to existing peers when a new peer connects. leave is sent
-// when a peer disconnects. cursor relays a peer's pointer to its viewport-
-// neighbor peers. There is no server viewport relay: viewport is a server-side
-// broadcast-scoping input only.
+// already present, to existing peers when a new peer connects, and again to
+// peers when a peer changes its pseudo (so a stale pseudo tag refreshes). leave
+// is sent when a peer disconnects. cursor relays a peer's pointer to its
+// viewport-neighbor peers. There is no server viewport relay: viewport is a
+// server-side broadcast-scoping input only.
 
 export type SJoin = {
   t: "join";
