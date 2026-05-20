@@ -201,6 +201,10 @@ function sendDrop(groupId: number, worldX: number, worldY: number): void {
   client?.send({ t: "drop", groupId, worldX, worldY });
 }
 
+function sendViewport(worldX: number, worldY: number, worldW: number, worldH: number): void {
+  client?.send({ t: "viewport", worldX, worldY, worldW, worldH });
+}
+
 function sendDevReset(): void {
   client?.send({ t: "dev_reset" });
 }
@@ -223,6 +227,7 @@ export function usePuzzleSession() {
     sendGrab,
     sendDrag,
     sendDrop,
+    sendViewport,
     sendDevReset,
     sendDevComplete,
   };

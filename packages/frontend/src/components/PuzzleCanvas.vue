@@ -4,10 +4,11 @@ import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useMode } from "../composables/useMode";
-import { PuzzleStage } from "../canvas/puzzleStage";
+import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 
 const host = ref<HTMLDivElement | null>(null);
-const { state, userId, start, close, onMessage, sendGrab, sendDrag, sendDrop } = usePuzzleSession();
+const { state, userId, start, close, onMessage, sendGrab, sendDrag, sendDrop, sendViewport } =
+  usePuzzleSession();
 const { setControls, setCamera } = useStageControls();
 const { mode } = useMode();
 
@@ -74,6 +75,35 @@ function routeMessage(msg: ServerMessage): void {
   }
 }
 
+// The viewport changes on every pan and zoom tick; throttle the presence
+// message so the server gets a recent visible rect without a per-frame flood.
+const VIEWPORT_THROTTLE_MS = 120;
+let viewportPending: ViewportRect | null = null;
+let viewportLastSent = 0;
+let viewportTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushViewport(): void {
+  if (viewportTimer !== null) {
+    clearTimeout(viewportTimer);
+    viewportTimer = null;
+  }
+  if (!viewportPending) return;
+  viewportLastSent = performance.now();
+  const vp = viewportPending;
+  viewportPending = null;
+  sendViewport(vp.worldX, vp.worldY, vp.worldW, vp.worldH);
+}
+
+function queueViewport(vp: ViewportRect): void {
+  viewportPending = vp;
+  const elapsed = performance.now() - viewportLastSent;
+  if (elapsed >= VIEWPORT_THROTTLE_MS) {
+    flushViewport();
+  } else if (viewportTimer === null) {
+    viewportTimer = setTimeout(flushViewport, VIEWPORT_THROTTLE_MS - elapsed);
+  }
+}
+
 onMounted(async () => {
   if (!host.value) return;
   stage = new PuzzleStage();
@@ -84,6 +114,7 @@ onMounted(async () => {
     onDrop: (groupId, x, y) => sendDrop(groupId, x, y),
   });
   stage.onCameraChange = (camera) => setCamera(camera);
+  stage.onViewportChange = (vp) => queueViewport(vp);
   await stage.mount(host.value);
   setControls({
     zoomIn: () => stage?.zoomIn(),
@@ -119,6 +150,10 @@ watch(mode, (m) => {
 onBeforeUnmount(() => {
   unsubscribe?.();
   unsubscribe = null;
+  if (viewportTimer !== null) {
+    clearTimeout(viewportTimer);
+    viewportTimer = null;
+  }
   setControls(null);
   close();
   stage?.destroy();

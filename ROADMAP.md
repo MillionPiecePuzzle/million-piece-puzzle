@@ -125,6 +125,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 ### `complementary`
 - [x] `frontend-shell` + `backend-realtime`: Closed-alpha feedback prep on the `develop` branch: landing passcode gate, sequential rotation of three committed puzzles (`alpha-1` 45 pieces, `alpha-2` 510 pieces, `alpha-3` 2040 pieces) with server-side cycling on completion, dev controls on `/play` (Reset puzzle, Complete & cycle) gated by `MPP_DEV_ENABLED` and `VITE_DEV_BUTTONS`, leaderboard panel hidden for now
 - [x] `frontend-shell`: Replace header spectator/contributor toggle with a floating "Contribute" CTA at bottom-right on the spectator view (supersedes the toggle task above)
+- [x] `frontend-canvas`: Client emits throttled `viewport` presence messages on pan, zoom, and resize, which activates the server-side drag and drop broadcast scoping
 - [ ] `frontend-canvas`: Leaderboard rendered in the completion modal (per-user snap counts derived on demand from `ClusterMerge`)
 - [ ] `frontend-shell`: Decide whether to add the live builders indicator (green dot + count) to the topbar
 - [ ] `frontend-canvas`: Decide whether to add the Coord HUD overlay (sector / XY / zoom)

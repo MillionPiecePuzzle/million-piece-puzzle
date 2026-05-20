@@ -22,6 +22,15 @@ import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 
 export type Mode = "spectator" | "contributor";
 
+// Visible world rectangle, reported to the server so it can scope drag and
+// drop broadcasts to this client.
+export type ViewportRect = {
+  worldX: number;
+  worldY: number;
+  worldW: number;
+  worldH: number;
+};
+
 type PieceNode = {
   id: number;
   container: Container;
@@ -96,6 +105,7 @@ export class PuzzleStage {
   private localUserId: string | null = null;
   private callbacks: StageCallbacks | null = null;
   onCameraChange: ((camera: { x: number; y: number; zoom: number }) => void) | null = null;
+  onViewportChange: ((viewport: ViewportRect) => void) | null = null;
 
   private held: HeldState | null = null;
   private pan: { active: boolean; lastX: number; lastY: number } = {
@@ -146,7 +156,10 @@ export class PuzzleStage {
     app.stage.on("globalpointermove", (ev) => this.onPointerMove(ev));
     app.stage.on("pointerup", (ev) => this.onPointerUp(ev));
     app.stage.on("pointerupoutside", (ev) => this.onPointerUp(ev));
-    app.renderer.on("resize", () => this.refreshStageHitArea(app));
+    app.renderer.on("resize", () => {
+      this.refreshStageHitArea(app);
+      this.notifyViewport();
+    });
 
     this.app = app;
     this.world = world;
@@ -668,6 +681,22 @@ export class PuzzleStage {
     this.world.scale.set(this.camera.zoom);
     this.world.position.set(this.camera.x, this.camera.y);
     this.onCameraChange?.({ ...this.camera });
+    this.notifyViewport();
+  }
+
+  // Derives the visible world rectangle from the camera and screen size and
+  // hands it to the consumer, which reports it to the server for broadcast
+  // scoping. Fires on every pan, zoom, and resize.
+  private notifyViewport(): void {
+    if (!this.app || !this.onViewportChange) return;
+    const screen = this.app.renderer.screen;
+    const topLeft = this.screenToWorld(0, 0);
+    this.onViewportChange({
+      worldX: topLeft.x,
+      worldY: topLeft.y,
+      worldW: screen.width / this.camera.zoom,
+      worldH: screen.height / this.camera.zoom,
+    });
   }
 
   private attachWheelZoom(canvas: HTMLCanvasElement): void {
