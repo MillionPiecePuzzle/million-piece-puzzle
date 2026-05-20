@@ -77,8 +77,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 **Exit criterion**: 5 to 20 invited people, connected concurrently, complete a 10 000-piece puzzle on a deployed instance, in anonymous mode.
 
 ### `shared-protocol`
-- [ ] Protocol version field added to handshake
-- [ ] Presence messages (join, leave, viewport) defined
+- [x] Protocol version field added to handshake
+- [x] Presence messages (join, leave, viewport, cursor) defined
 
 ### `piece-generation`
 - [ ] Generation validated and stable at 10 000 pieces

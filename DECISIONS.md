@@ -70,6 +70,12 @@ Choice: bumped `PROTOCOL_VERSION` from 0 to 1.
 Why: first non-empty protocol surface. Version field is asserted in `welcome` so a mismatched client gets `protocol_mismatch` rather than malformed-message errors.
 Revisit when: any breaking wire change. Phase 1 freezes presence messages; Phase 2 freezes v1.
 
+### 2026-05-20, shared-protocol, presence messages
+
+Choice: presence is four message types. Client to server: `viewport` (visible world rect, for broadcast scoping) and `cursor` (pointer in world space). Server to client: `join` (userId, pseudo), `leave` (userId), and `cursor` (a peer's pointer, relayed to viewport-neighbor peers). There is no server `viewport` relay; cursor and viewport are split rather than carried in one combined presence message.
+Why: viewport and cursor both change on every zoom and pan, but from independent triggers (wheel/pan vs pointermove), so a combined message would resend one half's unchanged fields on every tick of the other. Separate messages let each be throttled on its own cadence. Viewport has no client-facing consumer yet (only the server scopes broadcasts with it), so relaying it would be speculative. Cursor carries finite coordinates only: a pointer leaving the canvas is expressed by the client pausing its cursor stream, the same way `drag` stops at drop.
+Revisit when: a minimap or overview wants to draw peer viewports (add a server `viewport` relay then), or the renderer needs to distinguish "pointer left the canvas" from "peer idle" (add an explicit off-canvas signal). The messages are defined but not yet wired: the server rejects them as `bad_message` until `backend-realtime` adds viewport-neighbor scoping.
+
 ### 2026-05-12, piece-generation, canonical sign convention
 
 Choice: each shared edge derives `sign` once from a canonical subseed. The piece whose `bottom` or `right` uses the edge takes the canonical sign, the piece whose `top` or `left` uses it takes the opposite. All other params (`center, neck, depth, shoulder, tension, tilt`) are shared as-is.
