@@ -72,12 +72,7 @@ function submitPasscode(): void {
         @keydown.esc="closeModal"
       >
         <div class="modal">
-          <button
-            type="button"
-            class="modal-close"
-            aria-label="Close"
-            @click="closeModal"
-          >
+          <button type="button" class="modal-close" aria-label="Close" @click="closeModal">
             ×
           </button>
           <p id="alpha-modal-title" class="modal-title">Alpha passcode</p>

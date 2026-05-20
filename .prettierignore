@@ -3,6 +3,7 @@ dist
 build
 coverage
 .vite
+generated
 *.tsbuildinfo
 package-lock.json
 CLAUDE.md

@@ -7,7 +7,12 @@ const { show } = useAuthModal();
 </script>
 
 <template>
-  <div v-if="mode === 'spectator'" class="contribute-card" role="region" aria-label="Spectator mode">
+  <div
+    v-if="mode === 'spectator'"
+    class="contribute-card"
+    role="region"
+    aria-label="Spectator mode"
+  >
     <p class="status">You are currently in spectator mode</p>
     <p class="prompt">Become a contributor</p>
     <button class="cta" @click="show">Contribute</button>
