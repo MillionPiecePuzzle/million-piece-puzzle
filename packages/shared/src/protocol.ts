@@ -127,12 +127,13 @@ export type SActivity = {
 };
 
 // Per-user contribution standings for the active puzzle, derived on demand from
-// the ClusterMerge log. Sent on completion (global broadcast) and to a client
-// joining an already-completed puzzle. Each piece is worth one point, credited
-// to the user of the first merge that dragged it; every piece is dragged at
-// least once on its way to its solved position, so the entries' pieces sum to
-// the puzzle's piece count. userId is the ephemeral connection id: pseudos are
-// not persisted, so no name is carried. Entries are ordered highest first.
+// the ClusterMerge log. Broadcast after every anchoring snap and sent to each
+// client on join, so the in-game leaderboard stays live. Each piece is worth
+// one point, credited to the user of the first merge that dragged it; every
+// piece is dragged at least once on its way to its solved position, so the
+// entries' pieces sum to the puzzle's piece count. userId is the ephemeral
+// connection id: pseudos are not persisted, so no name is carried. Entries are
+// ordered highest first.
 export type LeaderboardEntry = {
   userId: string;
   pieces: number;

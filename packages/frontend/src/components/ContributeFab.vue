@@ -21,10 +21,6 @@ const { show } = useAuthModal();
 
 <style scoped>
 .contribute-card {
-  position: absolute;
-  right: 20px;
-  bottom: 20px;
-  z-index: 30;
   display: flex;
   flex-direction: column;
   align-items: flex-start;

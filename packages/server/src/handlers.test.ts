@@ -316,15 +316,16 @@ function makeDropCtx() {
   const broadcast = vi.fn();
   const broadcastNear = vi.fn();
   const logMerge = vi.fn();
+  const leaderboard = vi.fn().mockResolvedValue([]);
   const state = new FakeState();
   const ctx = {
     hub: { send, broadcast, broadcastNear },
     state,
     meta: dropMeta,
     puzzleId: "test",
-    mongo: { logMerge },
+    mongo: { logMerge, leaderboard },
   } as unknown as Context;
-  return { ctx, send, broadcast, broadcastNear, logMerge, state };
+  return { ctx, send, broadcast, broadcastNear, logMerge, leaderboard, state };
 }
 
 const dropped = (id: number, worldX: number, worldY: number): GroupRuntime => ({
@@ -380,6 +381,8 @@ describe("handleDrop", () => {
     expect(logMerge).toHaveBeenCalledWith(
       expect.objectContaining({ anchored: true, lockedDelta: 1 }),
     );
+    // An anchoring snap rebroadcasts the live leaderboard, before completion.
+    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ t: "leaderboard" }));
   });
 
   it("merges the dropped group into an aligned unlocked neighbour", async () => {

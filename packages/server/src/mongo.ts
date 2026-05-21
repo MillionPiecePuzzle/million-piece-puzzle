@@ -54,7 +54,8 @@ export class MongoLogger {
   // piece is dragged at least once on its way to its solved position, so
   // per-user totals sum to the puzzle's piece count. The `puzzleId_at` index
   // serves the match-then-sort; the unwind and grouping that follow are a full
-  // scan, acceptable for a one-off completion event at alpha scale.
+  // scan, re-run on every anchoring snap to keep the in-game leaderboard live,
+  // acceptable at alpha scale.
   async leaderboard(puzzleId: string, limit: number): Promise<LeaderboardEntry[]> {
     const pipeline = [
       { $match: { puzzleId } },

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
+import { useMinimap } from "../composables/useMinimap";
 import { useMode } from "../composables/useMode";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 import { toLeaderboardRows } from "../data/leaderboard";
@@ -23,6 +24,7 @@ const {
   sendCursor,
 } = usePuzzleSession();
 const { setControls, setCamera } = useStageControls();
+const { setMinimapSource } = useMinimap();
 const { mode } = useMode();
 
 let stage: PuzzleStage | null = null;
@@ -179,6 +181,7 @@ onMounted(async () => {
     center: () => stage?.centerView(),
     fit: () => stage?.fitView(),
   });
+  setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
   unsubscribe = onMessage(routeMessage);
   await start();
 });
@@ -216,6 +219,7 @@ onBeforeUnmount(() => {
     cursorTimer = null;
   }
   setControls(null);
+  setMinimapSource(null);
   close();
   stage?.destroy();
   stage = null;

@@ -28,6 +28,18 @@ export type Mode = "spectator" | "contributor";
 // drop broadcasts to this client. Also drives client-side frustum culling.
 export type ViewportRect = Viewport;
 
+// One piece reduced to a point for the minimap: its world center and whether
+// its cluster is locked to the frame.
+export type MinimapPiece = { x: number; y: number; locked: boolean };
+
+// Everything the minimap needs to draw, pulled from the stage on demand.
+export type MinimapSnapshot = {
+  playZone: Aabb;
+  frame: { w: number; h: number };
+  pieces: MinimapPiece[];
+  viewport: Viewport | null;
+};
+
 type PieceNode = {
   id: number;
   container: Container;
@@ -62,13 +74,33 @@ export type StageCallbacks = {
   onDrop: (groupId: number, worldX: number, worldY: number) => void;
 };
 
-const MIN_ZOOM = 0.05;
+const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
 
+// World-space grid cell. The /play backdrop draws a hairline grid at this
+// pitch (PlayPage imports this constant), and the play zone bounds are snapped
+// to it so the backdrop boundary always falls on a grid line.
+export const GRID_WORLD_CELL = 80;
+
+// The play zone is the puzzle frame unioned with every scattered piece, then
+// widened by a margin so pieces scattered against the raw bound still have
+// room to be dragged outward. The camera may travel one padding ring past it;
+// pieces stay strictly inside it.
+const PLAY_ZONE_MARGIN_FRACTION = 0.5;
+const PLAY_ZONE_PADDING_FRACTION = 0.04;
+const BACKDROP_COLOR = 0x15140f;
+const BACKDROP_ALPHA = 0.3;
+// Coarse checkerboard painted over the out-of-bounds fill, a deliberately
+// different motif from the fine hairline grid inside the zone.
+const BACKDROP_CHECKER_CELLS = 8;
+const BACKDROP_CHECKER_ALPHA = 0.14;
+
 // Group stacking order. Locked clusters form the solved base layer; loose
 // clusters always sit above them so they stay grabbable. Held clusters lift
-// further still.
+// further still. The backdrop and frame sit below every cluster.
+const Z_BACKDROP = -2;
+const Z_FRAME = -1;
 const Z_LOCKED = 0;
 const Z_UNLOCKED = 1;
 const Z_REMOTE_HELD = 10;
@@ -108,6 +140,10 @@ export class PuzzleStage {
   private pieceToGroup = new Map<number, number>();
   private camera = { x: 0, y: 0, zoom: 1 };
   private worldSize: { w: number; h: number } | null = null;
+  // Hard-limit rectangle (frame plus all scattered pieces), set in build().
+  private playZone: Aabb | null = null;
+  // World-space dark fill covering everything outside the play zone.
+  private backdrop: Graphics | null = null;
   // Cached visible world rectangle, recomputed on every camera change and
   // resize; null until the first camera update. Drives frustum culling.
   private viewport: Viewport | null = null;
@@ -178,8 +214,8 @@ export class PuzzleStage {
     app.stage.on("pointerupoutside", (ev) => this.onPointerUp(ev));
     app.renderer.on("resize", () => {
       this.refreshStageHitArea(app);
-      this.cullAll();
-      this.notifyViewport();
+      this.redrawBackdrop();
+      this.applyCamera();
     });
 
     this.app = app;
@@ -218,7 +254,8 @@ export class PuzzleStage {
 
     const frame = new Graphics();
     frame.rect(0, 0, this.worldSize.w, this.worldSize.h).stroke({ color: 0x1a1a1a, width: 4 });
-    this.world.addChildAt(frame, 0);
+    frame.zIndex = Z_FRAME;
+    this.world.addChild(frame);
 
     for (const group of initialGroups) {
       const gc = new Container();
@@ -254,7 +291,110 @@ export class PuzzleStage {
       this.applyGroupInteractivity(node);
     }
 
+    this.playZone = this.computePlayZone();
+    this.createBackdrop();
     this.fitView();
+  }
+
+  // The play zone encloses the puzzle frame and every piece at its current
+  // position, widened by a margin, then mirrored around the frame center so the
+  // frame stays centered in the zone (and so in the minimap and the camera
+  // bounds). The symmetric half-extent is snapped outward to the world grid.
+  // Computed once after build: pieces only ever move inward of this padded
+  // bound (a drag is clamped, a merge lands within existing pieces), so it
+  // never needs to grow.
+  private computePlayZone(): Aabb {
+    const ws = this.worldSize ?? { w: 0, h: 0 };
+    const boxes: Aabb[] = [{ minX: 0, minY: 0, maxX: ws.w, maxY: ws.h }];
+    for (const group of this.groups.values()) {
+      for (const piece of group.pieces) {
+        boxes.push({
+          minX: group.worldX + piece.localBounds.minX,
+          minY: group.worldY + piece.localBounds.minY,
+          maxX: group.worldX + piece.localBounds.maxX,
+          maxY: group.worldY + piece.localBounds.maxY,
+        });
+      }
+    }
+    const raw = unionBounds(boxes);
+    const margin = Math.max(raw.maxX - raw.minX, raw.maxY - raw.minY) * PLAY_ZONE_MARGIN_FRACTION;
+    const cx = ws.w / 2;
+    const cy = ws.h / 2;
+    const snap = (half: number): number => Math.ceil(half / GRID_WORLD_CELL) * GRID_WORLD_CELL;
+    const halfX = snap(Math.max(cx - raw.minX, raw.maxX - cx) + margin);
+    const halfY = snap(Math.max(cy - raw.minY, raw.maxY - cy) + margin);
+    return {
+      minX: cx - halfX,
+      minY: cy - halfY,
+      maxX: cx + halfX,
+      maxY: cy + halfY,
+    };
+  }
+
+  private playZonePadding(): number {
+    if (!this.playZone) return 0;
+    const w = this.playZone.maxX - this.playZone.minX;
+    const h = this.playZone.maxY - this.playZone.minY;
+    return Math.max(w, h) * PLAY_ZONE_PADDING_FRACTION;
+  }
+
+  private createBackdrop(): void {
+    if (!this.world) return;
+    const g = new Graphics();
+    g.zIndex = Z_BACKDROP;
+    g.eventMode = "none";
+    this.world.addChild(g);
+    this.backdrop = g;
+    this.redrawBackdrop();
+  }
+
+  // Dark fill over everything outside the play zone, then a coarse checker on
+  // top so the out-of-bounds area reads as a distinct motif from the fine grid
+  // inside. The zone interior is left unpainted so the light stage backdrop
+  // shows through. The fill reaches far enough to cover the screen even fully
+  // zoomed out with the zone smaller than the viewport.
+  private redrawBackdrop(): void {
+    if (!this.backdrop || !this.playZone || !this.app) return;
+    const zone = this.playZone;
+    const screen = this.app.renderer.screen;
+    const reach = (screen.width + screen.height) / MIN_ZOOM;
+    const oMinX = zone.minX - reach;
+    const oMinY = zone.minY - reach;
+    const oMaxX = zone.maxX + reach;
+    const oMaxY = zone.maxY + reach;
+    const outer: Aabb[] = [
+      { minX: oMinX, minY: oMinY, maxX: oMaxX, maxY: zone.minY },
+      { minX: oMinX, minY: zone.maxY, maxX: oMaxX, maxY: oMaxY },
+      { minX: oMinX, minY: zone.minY, maxX: zone.minX, maxY: zone.maxY },
+      { minX: zone.maxX, minY: zone.minY, maxX: oMaxX, maxY: zone.maxY },
+    ];
+    const g = this.backdrop;
+    g.clear();
+    for (const r of outer) g.rect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY);
+    g.fill({ color: BACKDROP_COLOR, alpha: BACKDROP_ALPHA });
+    for (const r of outer) this.addBackdropChecker(g, r);
+    g.fill({ color: BACKDROP_COLOR, alpha: BACKDROP_CHECKER_ALPHA });
+  }
+
+  // Adds the dark checker cells of one outer rectangle to the backdrop path.
+  // Cells sit on a coarse multiple of the world grid and are clipped to the
+  // rectangle, so the checker tiles seamlessly across the four outer pieces.
+  private addBackdropChecker(g: Graphics, r: Aabb): void {
+    const cell = GRID_WORLD_CELL * BACKDROP_CHECKER_CELLS;
+    const cx0 = Math.floor(r.minX / cell);
+    const cx1 = Math.ceil(r.maxX / cell);
+    const cy0 = Math.floor(r.minY / cell);
+    const cy1 = Math.ceil(r.maxY / cell);
+    for (let cy = cy0; cy < cy1; cy++) {
+      for (let cx = cx0; cx < cx1; cx++) {
+        if (((cx + cy) & 1) === 0) continue;
+        const x = Math.max(cx * cell, r.minX);
+        const y = Math.max(cy * cell, r.minY);
+        const x2 = Math.min((cx + 1) * cell, r.maxX);
+        const y2 = Math.min((cy + 1) * cell, r.maxY);
+        if (x2 > x && y2 > y) g.rect(x, y, x2 - x, y2 - y);
+      }
+    }
   }
 
   destroy(): void {
@@ -287,6 +427,8 @@ export class PuzzleStage {
     this.held = null;
     this.peerCursors?.clearHeld();
     this.worldSize = null;
+    this.playZone = null;
+    this.backdrop = null;
     this.viewport = null;
     this.camera = { x: 0, y: 0, zoom: 1 };
     this.onCameraChange?.(this.camera);
@@ -634,8 +776,11 @@ export class PuzzleStage {
       const node = this.groups.get(this.held.groupId);
       if (!node || !this.callbacks) return;
       const world = this.screenToWorld(ev.global.x, ev.global.y);
-      const nx = world.x - this.held.pointerDx;
-      const ny = world.y - this.held.pointerDy;
+      const { x: nx, y: ny } = this.clampGroupOrigin(
+        node,
+        world.x - this.held.pointerDx,
+        world.y - this.held.pointerDy,
+      );
       this.moveGroup(node, nx, ny);
       this.callbacks.onDrag(node.id, nx, ny);
       return;
@@ -654,8 +799,11 @@ export class PuzzleStage {
       const node = this.groups.get(this.held.groupId);
       if (node && this.callbacks) {
         const world = this.screenToWorld(ev.global.x, ev.global.y);
-        const nx = world.x - this.held.pointerDx;
-        const ny = world.y - this.held.pointerDy;
+        const { x: nx, y: ny } = this.clampGroupOrigin(
+          node,
+          world.x - this.held.pointerDx,
+          world.y - this.held.pointerDy,
+        );
         this.moveGroup(node, nx, ny);
         this.setGroupHeldVisual(node, false);
         this.callbacks.onDrop(node.id, nx, ny);
@@ -688,6 +836,18 @@ export class PuzzleStage {
     this.cullGroup(node);
   }
 
+  // Constrains a group origin so none of its pieces leaves the play zone.
+  // Applied to local drag and drop input; remote positions arrive already
+  // clamped by their sender.
+  private clampGroupOrigin(node: GroupNode, x: number, y: number): { x: number; y: number } {
+    if (!this.playZone) return { x, y };
+    const b = node.localBounds;
+    return {
+      x: clamp(x, this.playZone.minX - b.minX, this.playZone.maxX - b.maxX),
+      y: clamp(y, this.playZone.minY - b.minY, this.playZone.maxY - b.maxY),
+    };
+  }
+
   private screenToWorld(sx: number, sy: number): { x: number; y: number } {
     return {
       x: (sx - this.camera.x) / this.camera.zoom,
@@ -695,22 +855,25 @@ export class PuzzleStage {
     };
   }
 
-  // Zoom out far enough that the puzzle area fills a third of the viewport,
-  // leaving room around it for the scattered groups.
+  // Fit the whole play zone, plus its padding ring, into the viewport and
+  // center on it. Zoom is clamped to MIN_ZOOM, so a large board stays partly
+  // off-screen rather than zooming out past the limit.
   fitView(): void {
-    if (!this.app || !this.worldSize) return;
+    if (!this.app || !this.playZone) return;
     const screen = this.app.renderer.screen;
-    const zoom = Math.min(
-      screen.width / (this.worldSize.w * 3),
-      screen.height / (this.worldSize.h * 3),
+    const pad = this.playZonePadding();
+    const w = this.playZone.maxX - this.playZone.minX + pad * 2;
+    const h = this.playZone.maxY - this.playZone.minY + pad * 2;
+    this.camera.zoom = clamp(Math.min(screen.width / w, screen.height / h), MIN_ZOOM, MAX_ZOOM);
+    this.centerOn(
+      (this.playZone.minX + this.playZone.maxX) / 2,
+      (this.playZone.minY + this.playZone.maxY) / 2,
     );
-    this.camera.zoom = zoom;
-    this.centerCamera();
   }
 
   centerView(): void {
     if (!this.worldSize) return;
-    this.centerCamera();
+    this.centerOn(this.worldSize.w / 2, this.worldSize.h / 2);
   }
 
   zoomIn(): void {
@@ -721,11 +884,33 @@ export class PuzzleStage {
     this.zoomBy(1 / 1.25);
   }
 
-  private centerCamera(): void {
-    if (!this.app || !this.worldSize) return;
+  getMinimapSnapshot(): MinimapSnapshot | null {
+    if (!this.playZone || !this.worldSize) return null;
+    const pieces: MinimapPiece[] = [];
+    for (const group of this.groups.values()) {
+      for (const piece of group.pieces) {
+        pieces.push({
+          x: group.worldX + (piece.localBounds.minX + piece.localBounds.maxX) / 2,
+          y: group.worldY + (piece.localBounds.minY + piece.localBounds.maxY) / 2,
+          locked: group.locked,
+        });
+      }
+    }
+    return {
+      playZone: this.playZone,
+      frame: { w: this.worldSize.w, h: this.worldSize.h },
+      pieces,
+      viewport: this.viewport,
+    };
+  }
+
+  // Places (worldCx, worldCy) at the screen center, then lets applyCamera's
+  // clamp pull it back inside the play-zone limit if that overshoots.
+  private centerOn(worldCx: number, worldCy: number): void {
+    if (!this.app) return;
     const screen = this.app.renderer.screen;
-    this.camera.x = screen.width * 0.5 - this.worldSize.w * 0.5 * this.camera.zoom;
-    this.camera.y = screen.height * 0.5 - this.worldSize.h * 0.5 * this.camera.zoom;
+    this.camera.x = screen.width * 0.5 - worldCx * this.camera.zoom;
+    this.camera.y = screen.height * 0.5 - worldCy * this.camera.zoom;
     this.applyCamera();
   }
 
@@ -742,8 +927,31 @@ export class PuzzleStage {
     this.applyCamera();
   }
 
+  // Keeps the camera within the play zone expanded by one padding ring. When
+  // the viewport is larger than that limit on an axis, it centers instead.
+  private clampCamera(): void {
+    if (!this.app || !this.playZone) return;
+    const screen = this.app.renderer.screen;
+    const pad = this.playZonePadding();
+    const wx = fitOrClamp(
+      -this.camera.x / this.camera.zoom,
+      this.playZone.minX - pad,
+      this.playZone.maxX + pad,
+      screen.width / this.camera.zoom,
+    );
+    const wy = fitOrClamp(
+      -this.camera.y / this.camera.zoom,
+      this.playZone.minY - pad,
+      this.playZone.maxY + pad,
+      screen.height / this.camera.zoom,
+    );
+    this.camera.x = -wx * this.camera.zoom;
+    this.camera.y = -wy * this.camera.zoom;
+  }
+
   private applyCamera(): void {
     if (!this.world) return;
+    this.clampCamera();
     this.world.scale.set(this.camera.zoom);
     this.world.position.set(this.camera.x, this.camera.y);
     this.onCameraChange?.({ ...this.camera });
@@ -893,4 +1101,11 @@ function joinUrl(base: string, rel: string): string {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+// Positions a window of `size` within [lo, hi]: clamps it inside when it fits,
+// centers it when the window is larger than the range.
+function fitOrClamp(v: number, lo: number, hi: number, size: number): number {
+  if (size >= hi - lo) return (lo + hi - size) / 2;
+  return clamp(v, lo, hi - size);
 }

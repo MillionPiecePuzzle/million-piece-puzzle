@@ -56,12 +56,10 @@ export class PuzzleCycle {
       ACTIVITY_BACKFILL_LIMIT,
     );
     this.ctx.hub.send(client, { t: "activity", items });
-    // A client joining an already-completed puzzle (the window before the cycle
-    // fires) gets the final standings so its completion modal is populated.
-    if (lockedCount >= this.ctx.meta.totalPieces) {
-      const entries = await this.ctx.mongo.leaderboard(this.ctx.puzzleId, LEADERBOARD_LIMIT);
-      this.ctx.hub.send(client, { t: "leaderboard", entries });
-    }
+    // Current standings so the in-game leaderboard panel is populated on join,
+    // and the completion modal too for a client joining a finished puzzle.
+    const entries = await this.ctx.mongo.leaderboard(this.ctx.puzzleId, LEADERBOARD_LIMIT);
+    this.ctx.hub.send(client, { t: "leaderboard", entries });
   }
 
   async resetCurrent(): Promise<void> {

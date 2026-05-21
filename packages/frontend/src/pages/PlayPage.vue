@@ -4,16 +4,18 @@ import TopBar from "../components/TopBar.vue";
 import PuzzleCanvas from "../components/PuzzleCanvas.vue";
 import ZoomControls from "../components/ZoomControls.vue";
 import ActivityTicker from "../components/ActivityTicker.vue";
+import LeaderboardPanel from "../components/LeaderboardPanel.vue";
+import MiniMap from "../components/MiniMap.vue";
 import ContributeFab from "../components/ContributeFab.vue";
 import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
-
-// Anchor the hairline grid to world space: one cell is a fixed world distance,
-// so it scales and pans with the canvas and reads as a measuring scale.
-const GRID_WORLD_CELL = 80;
+import { GRID_WORLD_CELL } from "../canvas/puzzleStage";
 
 const { camera } = useStageControls();
 
+// Drive the CSS hairline grid from world space: one cell is GRID_WORLD_CELL
+// world units, so the grid scales and pans with the canvas. The play zone is
+// snapped to the same pitch so its backdrop edge lands on a grid line.
 const backdropVars = computed(() => ({
   "--grid-cell": `${GRID_WORLD_CELL * camera.value.zoom}px`,
   "--grid-x": `${camera.value.x}px`,
@@ -30,7 +32,11 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
       <PuzzleCanvas />
       <ZoomControls />
       <ActivityTicker />
-      <ContributeFab />
+      <LeaderboardPanel />
+      <div class="corner-stack">
+        <ContributeFab />
+        <MiniMap />
+      </div>
       <DevControls v-if="devButtonsEnabled" />
     </main>
   </div>
@@ -66,5 +72,18 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
     linear-gradient(to bottom, rgba(21, 20, 15, 0.04) 1px, transparent 1px);
   background-size: var(--grid-cell, 80px) var(--grid-cell, 80px);
   background-position: var(--grid-x, 0) var(--grid-y, 0);
+}
+
+/* Stacks the Contribute card above the minimap with a fixed gap, so the
+   spacing holds whatever height the minimap takes for the play zone shape. */
+.corner-stack {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 16px;
 }
 </style>

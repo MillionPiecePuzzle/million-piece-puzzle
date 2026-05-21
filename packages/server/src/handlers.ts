@@ -324,9 +324,15 @@ async function applyMerge(
     lockedCount,
   });
 
-  if (willBeLocked && lockedCount >= ctx.meta.totalPieces) {
+  // Standings shift on every anchoring snap; rebroadcast so the in-game
+  // leaderboard stays live. The aggregation is a full scan of the merge log,
+  // acceptable at alpha scale (see DECISIONS).
+  if (lockedDelta > 0) {
     const entries = await ctx.mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT);
     ctx.hub.broadcast({ t: "leaderboard", entries });
+  }
+
+  if (willBeLocked && lockedCount >= ctx.meta.totalPieces) {
     ctx.cycle?.scheduleNextCycle();
   }
 }

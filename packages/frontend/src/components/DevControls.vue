@@ -27,7 +27,8 @@ function onComplete(): void {
 <style scoped>
 .dev-controls {
   position: absolute;
-  right: 20px;
+  /* Sits left of the minimap panel (right: 16px, width: 248px). */
+  right: 280px;
   bottom: 20px;
   display: inline-flex;
   align-items: center;

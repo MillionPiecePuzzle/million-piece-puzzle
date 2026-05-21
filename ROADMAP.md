@@ -94,7 +94,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 ### `frontend-canvas`
 - [ ] OpenSeadragon reference panel shows the source image
 - [x] Frustum culling active, rendering stays smooth while playing (zoomed in) at 10 000 pieces
-- [ ] Mini-map shows global progress
+- [x] Mini-map shows global progress
 - [x] Collaborator cursors rendered from presence messages (colored pointer, pseudo tag, held-piece preview, idle-bob)
 
 ### `backend-realtime`
@@ -128,6 +128,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] `frontend-canvas`: Client emits throttled `viewport` presence messages on pan, zoom, and resize, which activates the server-side drag and drop broadcast scoping
 - [x] `frontend-canvas`: Leaderboard rendered in the completion modal (per-user snap counts derived on demand from `ClusterMerge`)
 - [x] `backend-realtime` + `shared-protocol`: Activity ticker backfilled with recent `ClusterMerge` history on connect, so the feed is populated even for events that happened before the client joined (currently the ticker only shows snaps received live)
+- [x] `frontend-canvas`: Play-zone hard limits. The board is bounded by a play zone (the puzzle frame unioned with every scattered piece, widened by a margin, mirrored around the frame center, and snapped to the world grid), computed at build from the received positions. The camera cannot pan beyond it plus a small padding ring, the area outside is darkened with a coarse checker motif, held pieces are clamped so none can leave it, and minimum zoom is raised from 5% to 15%. The minimap (bottom-right) insets the zone within an out-of-bounds band and draws the puzzle frame, pieces as pixels, and the camera frustum; the spectator Contribute card stacks above it.
+- [x] `frontend-canvas` + `backend-realtime`: Leaderboard panel restored on `/play`; the server rebroadcasts standings after every anchoring snap and on join so the in-game panel stays live, not just the completion modal.
 
 ---
 
@@ -187,7 +189,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 Ideas worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.
 
 - **Anti-programmatic-solving via randomized piece ids on the wire.** Goal: a client cannot reconstruct adjacency from indices. Dependency: today the client also reconstructs geometry deterministically from `generationSeed` (see [piece geometry not on the wire](DECISIONS.md#2026-05-12-shared-protocol-piece-geometry-not-on-the-wire)), so the seed would have to stop being shared with clients, and piece silhouettes would have to be served pre-baked (image-pipeline already revisits this in [rectangular tiles](DECISIONS.md#2026-05-12-image-pipeline-rectangular-tiles)). Treat as a pair: id randomization + server-only seed + pre-masked tiles.
-- **Dynamic max-zoom that grows with progress.** Cap zoom-out level early in the puzzle and relax it as more pieces are placed, to bound the visible piece count in any viewport. Lighter alternative or complement to the Phase 2 LOD aggregated tiles.
+- **Dynamic max-zoom that grows with progress.** Cap zoom-out level early in the puzzle and relax it as more pieces are placed, to bound the visible piece count in any viewport. Lighter alternative or complement to the Phase 2 LOD aggregated tiles. A fixed 15% zoom floor already exists (see [play-zone hard limits](DECISIONS.md#2026-05-21-frontend-canvas-play-zone-hard-limits)); the dynamic, progress-relative version is the open idea here.
 - **Coordinate HUD overlay.** Small overlay showing the current viewport position (XY, sector, zoom). Zoom is already shown in the zoom rail, so the marginal value is the XY and a sector readout, which is low at alpha scale and grows with the canvas. Needs a "sector" concept defined first. Revisit at Phase 2 (1M pieces) when orientation on the canvas becomes a real problem.
 - **Jump-to search bar (`⌘K`).** Command palette to recenter the camera on a coordinate, sector, or piece id. Depends on a sector concept and a `panTo(worldX, worldY)` camera method (today only `fit` and `center` exist). A navigation aid sized for a huge canvas, not worth building at alpha scale.
 - **Bookmark tray (piece shortlist).** Client-side panel of thumbnails for pieces a player flags while hunting; clicking a slot flies the camera to the piece's current position. Geometry is deterministic from the seed, so thumbnails render with no extra data. Pure client-side, no protocol change. No value at alpha scale (the whole board fits on screen); it pays off once the canvas is large enough that pieces cannot be re-found by eye.
