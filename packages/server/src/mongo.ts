@@ -1,5 +1,5 @@
 import { MongoClient, type Collection, type Db } from "mongodb";
-import type { ActivityItem, ClusterMerge } from "@mpp/shared";
+import type { ActivityItem, ClusterMerge, LeaderboardEntry } from "@mpp/shared";
 
 export type ClusterMergeDoc = Omit<ClusterMerge, "_id">;
 
@@ -21,7 +21,7 @@ export class MongoLogger {
     this.merges = this.db.collection<ClusterMergeDoc>("cluster_merges");
     await this.merges.createIndexes([
       { key: { puzzleId: 1, at: 1 }, name: "puzzleId_at" },
-      { key: { puzzleId: 1, addedPieceIds: 1 }, name: "puzzleId_addedPieces" },
+      { key: { puzzleId: 1, droppedPieceIds: 1 }, name: "puzzleId_droppedPieces" },
     ]);
   }
 
@@ -47,6 +47,26 @@ export class MongoLogger {
         at: d.at.getTime(),
       };
     });
+  }
+
+  // Per-user contribution standings, derived on demand. Each piece scores one
+  // point for the user of the first merge (by `at`) that dragged it; every
+  // piece is dragged at least once on its way to its solved position, so
+  // per-user totals sum to the puzzle's piece count. The `puzzleId_at` index
+  // serves the match-then-sort; the unwind and grouping that follow are a full
+  // scan, acceptable for a one-off completion event at alpha scale.
+  async leaderboard(puzzleId: string, limit: number): Promise<LeaderboardEntry[]> {
+    const pipeline = [
+      { $match: { puzzleId } },
+      { $sort: { at: 1 } },
+      { $unwind: "$droppedPieceIds" },
+      { $group: { _id: "$droppedPieceIds", userId: { $first: "$userId" } } },
+      { $group: { _id: "$userId", pieces: { $sum: 1 } } },
+      { $sort: { pieces: -1, _id: 1 } },
+      { $limit: limit },
+    ];
+    const rows = await this.merges.aggregate<{ _id: string; pieces: number }>(pipeline).toArray();
+    return rows.map((r) => ({ userId: r._id, pieces: r.pieces }));
   }
 
   async close(): Promise<void> {

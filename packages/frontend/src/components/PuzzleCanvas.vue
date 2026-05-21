@@ -5,11 +5,14 @@ import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuz
 import { useStageControls } from "../composables/useStageControls";
 import { useMode } from "../composables/useMode";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
+import { toLeaderboardRows } from "../data/leaderboard";
+import LeaderboardRow from "./LeaderboardRow.vue";
 
 const host = ref<HTMLDivElement | null>(null);
 const {
   state,
   userId,
+  leaderboard,
   start,
   close,
   onMessage,
@@ -55,6 +58,8 @@ const totalPieces = computed(() =>
     ? state.value.manifest.pieces.length
     : 0,
 );
+
+const leaderboardRows = computed(() => toLeaderboardRows(leaderboard.value, userId.value));
 
 function routeMessage(msg: ServerMessage): void {
   if (!stage) return;
@@ -242,6 +247,12 @@ onBeforeUnmount(() => {
         <p class="kicker">Complete</p>
         <p class="value">Puzzle assembled.</p>
         <p class="meta">{{ totalPieces.toLocaleString() }} pieces placed.</p>
+        <div v-if="leaderboardRows.length > 0" class="completion-leaderboard">
+          <p class="lb-kicker">Top contributors</p>
+          <ol class="lb-list">
+            <LeaderboardRow v-for="row in leaderboardRows" :key="row.rank" :row="row" />
+          </ol>
+        </div>
       </div>
     </Transition>
     <Transition name="reopen">
@@ -307,7 +318,8 @@ onBeforeUnmount(() => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  min-width: 320px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
   padding: 32px 40px;
   text-align: center;
   background: rgba(255, 255, 255, 0.96);
@@ -315,6 +327,30 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(12px);
+}
+.completion-leaderboard {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+  text-align: left;
+}
+.lb-kicker {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.completion-leaderboard .lb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 264px;
+  overflow-y: auto;
 }
 .modal-close {
   position: absolute;

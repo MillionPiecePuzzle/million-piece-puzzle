@@ -16,6 +16,10 @@ import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
 import { detectSnap } from "./snap.js";
 
+// Cap on leaderboard entries derived on completion. Generous for the closed
+// alpha (5 to 20 contributors); bounds the payload once the puzzle scales up.
+export const LEADERBOARD_LIMIT = 100;
+
 export type Context = {
   hub: Hub;
   state: RedisState;
@@ -299,6 +303,7 @@ async function applyMerge(
     puzzleId: ctx.puzzleId,
     userId: client.userId,
     addedPieceIds,
+    droppedPieceIds: droppedPieces,
     targetAnchorPieceId,
     anchored: willBeLocked,
     lockedDelta,
@@ -320,6 +325,8 @@ async function applyMerge(
   });
 
   if (willBeLocked && lockedCount >= ctx.meta.totalPieces) {
+    const entries = await ctx.mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT);
+    ctx.hub.broadcast({ t: "leaderboard", entries });
     ctx.cycle?.scheduleNextCycle();
   }
 }

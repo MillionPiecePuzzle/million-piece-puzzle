@@ -1,7 +1,7 @@
 import type { ImageManifest } from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
-import type { Context } from "./handlers.js";
+import { LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { forceInitPuzzle, initPuzzleIfEmpty } from "./init.js";
 
 // Anchoring entries sent to seed a connecting client's activity ticker. Matches
@@ -56,6 +56,12 @@ export class PuzzleCycle {
       ACTIVITY_BACKFILL_LIMIT,
     );
     this.ctx.hub.send(client, { t: "activity", items });
+    // A client joining an already-completed puzzle (the window before the cycle
+    // fires) gets the final standings so its completion modal is populated.
+    if (lockedCount >= this.ctx.meta.totalPieces) {
+      const entries = await this.ctx.mongo.leaderboard(this.ctx.puzzleId, LEADERBOARD_LIMIT);
+      this.ctx.hub.send(client, { t: "leaderboard", entries });
+    }
   }
 
   async resetCurrent(): Promise<void> {

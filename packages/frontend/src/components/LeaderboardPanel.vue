@@ -1,10 +1,22 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { leaderboardPanelRows } from "../data/leaderboardMock";
+import { computed, ref } from "vue";
+import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardModal from "./LeaderboardModal.vue";
 import LeaderboardRow from "./LeaderboardRow.vue";
 
+const { leaderboard, userId } = usePuzzleSession();
 const showModal = ref(false);
+
+// Compact panel: the leaders, plus the local user and their neighbour when the
+// local user ranks outside the visible leaders.
+const panelRows = computed(() => {
+  const rows = toLeaderboardRows(leaderboard.value, userId.value);
+  const top = rows.slice(0, 6);
+  const youIndex = rows.findIndex((r) => r.you);
+  const tail = youIndex >= 6 ? rows.slice(youIndex, youIndex + 2) : [];
+  return [...top, ...tail];
+});
 </script>
 
 <template>
@@ -13,12 +25,7 @@ const showModal = ref(false);
       <h3>Leaderboard</h3>
     </div>
     <ol class="lb-list">
-      <LeaderboardRow
-        v-for="row in leaderboardPanelRows"
-        :key="row.rank"
-        :row="row"
-        rank-width="18px"
-      />
+      <LeaderboardRow v-for="row in panelRows" :key="row.rank" :row="row" rank-width="18px" />
     </ol>
     <div class="lb-foot">
       <button type="button" class="full-board" @click="showModal = true">full board</button>

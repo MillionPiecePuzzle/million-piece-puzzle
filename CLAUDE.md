@@ -77,7 +77,7 @@ Locked pieces are permanent (no undo, no griefing).
 ### Stats derived from the model
 
 - **Timelapse**: replay `ClusterMerge` by `at` in order. Geometry is reconstructed from `generationSeed`. Full canvas state at any timestamp is reproducible.
-- **Per-piece attribution**: lookup the single `ClusterMerge` where the piece appears in `addedPieceIds`. Gives the user and timestamp.
+- **Per-piece attribution**: lookup the first `ClusterMerge` (by `at`) where the piece appears in `droppedPieceIds`. Gives the user who placed it and the timestamp.
 - **Unique contributors**: `distinct(userId)` on `cluster_merges` filtered by `puzzleId`.
 - **Live locked count**: `puzzle:{puzzleId}:locked-count` in Redis, broadcast on every anchoring event.
 

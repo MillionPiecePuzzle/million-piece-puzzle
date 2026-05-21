@@ -1,23 +1,27 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
-import { leaderboardBoard } from "../data/leaderboardMock";
+import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardRow from "./LeaderboardRow.vue";
 
 const emit = defineEmits<{ close: [] }>();
 
+const { leaderboard, userId } = usePuzzleSession();
+const rows = computed(() => toLeaderboardRows(leaderboard.value, userId.value));
+
 const PAGE_SIZE = 10;
 const page = ref(0);
-const pageCount = Math.ceil(leaderboardBoard.length / PAGE_SIZE);
+const pageCount = computed(() => Math.max(1, Math.ceil(rows.value.length / PAGE_SIZE)));
 
 const pageRows = computed(() =>
-  leaderboardBoard.slice(page.value * PAGE_SIZE, page.value * PAGE_SIZE + PAGE_SIZE),
+  rows.value.slice(page.value * PAGE_SIZE, page.value * PAGE_SIZE + PAGE_SIZE),
 );
 
 function prev(): void {
   if (page.value > 0) page.value--;
 }
 function next(): void {
-  if (page.value < pageCount - 1) page.value++;
+  if (page.value < pageCount.value - 1) page.value++;
 }
 function onKey(e: KeyboardEvent): void {
   if (e.key === "Escape") emit("close");

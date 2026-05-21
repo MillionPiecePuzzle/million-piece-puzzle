@@ -396,7 +396,7 @@ describe("handleDrop", () => {
       expect.objectContaining({ t: "snap", newGroupId: 1, anchored: false }),
     );
     expect(logMerge).toHaveBeenCalledWith(
-      expect.objectContaining({ anchored: false, lockedDelta: 0 }),
+      expect.objectContaining({ anchored: false, lockedDelta: 0, droppedPieceIds: [4] }),
     );
   });
 
@@ -415,5 +415,34 @@ describe("handleDrop", () => {
     expect(logMerge).toHaveBeenCalledWith(
       expect.objectContaining({ anchored: true, lockedDelta: 1 }),
     );
+  });
+
+  it("broadcasts a leaderboard and schedules a cycle when the final piece completes the puzzle", async () => {
+    const send = vi.fn();
+    const broadcast = vi.fn();
+    const broadcastNear = vi.fn();
+    const logMerge = vi.fn();
+    const leaderboard = vi.fn().mockResolvedValue([{ userId: "u1", pieces: 1 }]);
+    const scheduleNextCycle = vi.fn();
+    const state = new FakeState();
+    const onePieceMeta: PuzzleMeta = { ...dropMeta, totalPieces: 1, gridRows: 1, gridCols: 1 };
+    const ctx = {
+      hub: { send, broadcast, broadcastNear },
+      state,
+      meta: onePieceMeta,
+      puzzleId: "test",
+      mongo: { logMerge, leaderboard },
+      cycle: { scheduleNextCycle },
+    } as unknown as Context;
+    state.place(dropped(0, 2, 2), [0]);
+
+    await handleDrop(ctx, client, { t: "drop", groupId: 0, worldX: 2, worldY: 2 });
+
+    expect(state.lockedCount).toBe(1);
+    expect(leaderboard).toHaveBeenCalledWith("test", expect.any(Number));
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "leaderboard", entries: [{ userId: "u1", pieces: 1 }] }),
+    );
+    expect(scheduleNextCycle).toHaveBeenCalled();
   });
 });

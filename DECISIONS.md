@@ -43,6 +43,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [WS hardening: Origin allowlist, per-connection token bucket, frame size cap, backpressure close](#2026-05-18-backend-realtime-ws-hardening) -> tune limits once load tests run; replace per-process bucket if the writer is sharded.
 - [Drag and drop broadcasts scoped to the receiver viewport](#2026-05-20-backend-realtime-viewport-scoped-drag-and-drop-broadcasts) -> Phase 2 viewport sharding plus incremental subscriptions.
 - [Anonymous pseudo lives on the session, not in Mongo](#2026-05-20-auth-and-accounts-anonymous-pseudo-on-the-session) -> Phase 2 moves it to a verified Mongo user profile with real auth.
+- [Completion leaderboard scored from the full ClusterMerge log](#2026-05-21-frontend-canvas-completion-leaderboard-scoring) -> precompute a per-user counter at 1M scale.
 
 ---
 
@@ -227,6 +228,12 @@ Revisit when: Phase 2 viewport sharding. Two known gaps: a large unlocked cluste
 Choice: the pseudo is an anonymous, client-chosen name validated by `normalizePseudo` in `shared` (trim, collapse spaces, 2 to 16 chars, letters/digits/space/hyphen/underscore). It is kept in `localStorage` on the client and on the WS connection (`Client.pseudo`) on the server, sent via the `setPseudo` message and re-sent on every `welcome`. It is never written to Mongo, so there is no uniqueness check. Live `SSnap` carries the snapper's pseudo so the activity feed shows real names; the `SActivity` backfill rebuilt from Mongo `ClusterMerge` keeps user ids.
 Why: Phase 1 is anonymous by design, so a session-scoped pseudo is enough for activity attribution without a user store. Carrying the pseudo on each `SSnap`, rather than through a `join`/`leave` presence registry, makes a mid-session pseudo change take effect for free and keeps presence broadcasting (still unimplemented) out of this task. The backfill cannot recover past pseudos because they are not persisted; the resulting inconsistency (named live entries, user ids for backfilled ones) is accepted since backfilled entries scroll off within a few snaps.
 Revisit when: Phase 2 auth lands. The pseudo moves to a Mongo user profile tied to a verified identity, `setPseudo` is replaced by the authenticated identity, and the activity backfill can resolve names from the user store.
+
+### 2026-05-21, frontend-canvas, completion leaderboard scoring
+
+Choice: the completion-modal leaderboard scores each piece one point, credited to the user of the first `ClusterMerge` (by `at`) whose `droppedPieceIds` lists it. `ClusterMerge` stores `droppedPieceIds`, the pieces of the group the user dragged in that merge, alongside `addedPieceIds` (the pieces whose group id changed, kept for client sprite re-parenting). Standings are derived on demand by a `cluster_merges` aggregation and sent as `SLeaderboard` on completion (and to a client joining an already-completed puzzle). Rows display a shortened `userId`, not a pseudo.
+Why: a piece moves only when its group is dragged, and every piece starts shuffled and must be carried to its solved position (a misplaced cluster cannot be bridged into the solved structure, since a snap needs both sides already aligned within tolerance). So every piece is in some merge's dragged group at least once, and crediting the first such merge gives each piece exactly one point, with per-user totals summing to the full piece count. `droppedPieceIds` is the correct basis: `addedPieceIds` records the lower-group-id side of a merge, not the side the user dragged, so it would credit the stationary cluster when a low-id cluster is dragged onto a high-id target. Pseudos are not persisted (see [anonymous pseudo on the session](#2026-05-20-auth-and-accounts-anonymous-pseudo-on-the-session)), so the aggregation can only yield ephemeral user ids.
+Revisit when: the aggregation unwinds and groups the full merge log, which will not scale to a 1M-piece puzzle; precompute a per-user counter then. When real auth lands, resolve names from the user store instead of showing user ids.
 
 ### 2026-05-20, shared-protocol, lockedDelta stored on ClusterMerge
 

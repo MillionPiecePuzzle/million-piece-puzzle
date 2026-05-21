@@ -126,7 +126,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] `frontend-shell` + `backend-realtime`: Closed-alpha feedback prep on the `develop` branch: landing passcode gate, sequential rotation of three committed puzzles (`alpha-1` 45 pieces, `alpha-2` 510 pieces, `alpha-3` 2040 pieces) with server-side cycling on completion, dev controls on `/play` (Reset puzzle, Complete & cycle) gated by `MPP_DEV_ENABLED` and `VITE_DEV_BUTTONS`, leaderboard panel hidden for now
 - [x] `frontend-shell`: Replace header spectator/contributor toggle with a floating "Contribute" CTA at bottom-right on the spectator view (supersedes the toggle task above)
 - [x] `frontend-canvas`: Client emits throttled `viewport` presence messages on pan, zoom, and resize, which activates the server-side drag and drop broadcast scoping
-- [ ] `frontend-canvas`: Leaderboard rendered in the completion modal (per-user snap counts derived on demand from `ClusterMerge`)
+- [x] `frontend-canvas`: Leaderboard rendered in the completion modal (per-user snap counts derived on demand from `ClusterMerge`)
 - [x] `backend-realtime` + `shared-protocol`: Activity ticker backfilled with recent `ClusterMerge` history on connect, so the feed is populated even for events that happened before the client joined (currently the ticker only shows snaps received live)
 
 ---

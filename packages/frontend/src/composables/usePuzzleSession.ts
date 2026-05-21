@@ -2,6 +2,7 @@ import { ref, shallowRef } from "vue";
 import type {
   GroupRuntime,
   ImageManifest,
+  LeaderboardEntry,
   PieceRuntime,
   SActivity,
   SSnap,
@@ -46,6 +47,8 @@ const puzzleName = ref<string | null>(null);
 const totalPieces = ref(0);
 const lockedCount = ref(0);
 const activity = ref<ActivityEntry[]>([]);
+// Per-user contribution standings, populated on puzzle completion.
+const leaderboard = ref<LeaderboardEntry[]>([]);
 
 let client: PuzzleWsClient | null = null;
 let welcome: SWelcome | null = null;
@@ -149,6 +152,7 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   const storedPseudo = usePseudo().pseudo.value;
   if (storedPseudo) client?.send({ t: "setPseudo", pseudo: storedPseudo });
   activity.value = [];
+  leaderboard.value = [];
   pendingState = null;
   const needsLoad = !manifest || manifest.puzzleId !== msg.puzzleId;
   if (needsLoad) {
@@ -185,6 +189,8 @@ async function start(): Promise<void> {
       recordSnap(msg);
     } else if (msg.t === "activity") {
       applyActivity(msg);
+    } else if (msg.t === "leaderboard") {
+      leaderboard.value = msg.entries;
     } else if (msg.t === "error") {
       state.value = { kind: "error", message: `${msg.code}: ${msg.message}` };
     }
@@ -218,6 +224,7 @@ function close(): void {
   lockedCount.value = 0;
   totalPieces.value = 0;
   activity.value = [];
+  leaderboard.value = [];
 }
 
 function onMessage(handler: MessageHandler): () => void {
@@ -265,6 +272,7 @@ export function usePuzzleSession() {
     totalPieces,
     lockedCount,
     activity,
+    leaderboard,
     start,
     close,
     onMessage,

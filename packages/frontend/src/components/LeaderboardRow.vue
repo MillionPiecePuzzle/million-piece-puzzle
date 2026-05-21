@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { LeaderboardRow } from "../data/leaderboardMock";
+import type { LeaderboardRow } from "../data/leaderboard";
 
 const props = withDefaults(defineProps<{ row: LeaderboardRow; rankWidth?: string }>(), {
   rankWidth: "22px",
