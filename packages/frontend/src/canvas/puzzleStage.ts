@@ -20,17 +20,13 @@ import { applyPath } from "./applyPath";
 import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
+import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
 
 export type Mode = "spectator" | "contributor";
 
 // Visible world rectangle, reported to the server so it can scope drag and
-// drop broadcasts to this client.
-export type ViewportRect = {
-  worldX: number;
-  worldY: number;
-  worldW: number;
-  worldH: number;
-};
+// drop broadcasts to this client. Also drives client-side frustum culling.
+export type ViewportRect = Viewport;
 
 type PieceNode = {
   id: number;
@@ -38,6 +34,7 @@ type PieceNode = {
   inner: Container;
   flash: Graphics;
   geometry: PieceGeometry;
+  localBounds: Aabb;
 };
 
 type GroupNode = {
@@ -47,6 +44,7 @@ type GroupNode = {
   locked: boolean;
   worldX: number;
   worldY: number;
+  localBounds: Aabb;
 };
 
 type HeldState = {
@@ -110,6 +108,9 @@ export class PuzzleStage {
   private pieceToGroup = new Map<number, number>();
   private camera = { x: 0, y: 0, zoom: 1 };
   private worldSize: { w: number; h: number } | null = null;
+  // Cached visible world rectangle, recomputed on every camera change and
+  // resize; null until the first camera update. Drives frustum culling.
+  private viewport: Viewport | null = null;
   private mode: Mode = "spectator";
   private localUserId: string | null = null;
   private callbacks: StageCallbacks | null = null;
@@ -177,6 +178,7 @@ export class PuzzleStage {
     app.stage.on("pointerupoutside", (ev) => this.onPointerUp(ev));
     app.renderer.on("resize", () => {
       this.refreshStageHitArea(app);
+      this.cullAll();
       this.notifyViewport();
     });
 
@@ -230,6 +232,7 @@ export class PuzzleStage {
         locked: group.locked,
         worldX: group.worldX,
         worldY: group.worldY,
+        localBounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
       };
       this.world.addChild(gc);
       this.groups.set(group.id, node);
@@ -247,6 +250,7 @@ export class PuzzleStage {
     }
 
     for (const node of this.groups.values()) {
+      node.localBounds = unionBounds(node.pieces.map((p) => p.localBounds));
       this.applyGroupInteractivity(node);
     }
 
@@ -283,6 +287,7 @@ export class PuzzleStage {
     this.held = null;
     this.peerCursors?.clearHeld();
     this.worldSize = null;
+    this.viewport = null;
     this.camera = { x: 0, y: 0, zoom: 1 };
     this.onCameraChange?.(this.camera);
   }
@@ -398,6 +403,7 @@ export class PuzzleStage {
       this.pieceToGroup.set(pieceId, newGroupId);
     }
 
+    host.localBounds = unionBounds(host.pieces.map((p) => p.localBounds));
     this.moveGroup(host, worldX, worldY);
     host.locked = host.locked || anchored;
     this.setGroupHeldVisual(host, false);
@@ -679,6 +685,7 @@ export class PuzzleStage {
     node.worldX = worldX;
     node.worldY = worldY;
     node.container.position.set(worldX, worldY);
+    this.cullGroup(node);
   }
 
   private screenToWorld(sx: number, sy: number): { x: number; y: number } {
@@ -740,22 +747,48 @@ export class PuzzleStage {
     this.world.scale.set(this.camera.zoom);
     this.world.position.set(this.camera.x, this.camera.y);
     this.onCameraChange?.({ ...this.camera });
+    this.cullAll();
     this.notifyViewport();
   }
 
-  // Derives the visible world rectangle from the camera and screen size and
-  // hands it to the consumer, which reports it to the server for broadcast
-  // scoping. Fires on every pan, zoom, and resize.
-  private notifyViewport(): void {
-    if (!this.app || !this.onViewportChange) return;
+  // Recomputes the visible world rectangle from the camera and screen size,
+  // then re-evaluates every group and piece against it. Runs on every pan,
+  // zoom, and resize.
+  private cullAll(): void {
+    if (!this.app) return;
     const screen = this.app.renderer.screen;
     const topLeft = this.screenToWorld(0, 0);
-    this.onViewportChange({
+    this.viewport = {
       worldX: topLeft.x,
       worldY: topLeft.y,
       worldW: screen.width / this.camera.zoom,
       worldH: screen.height / this.camera.zoom,
-    });
+    };
+    for (const node of this.groups.values()) this.cullGroup(node);
+  }
+
+  // Culls one group against the cached viewport. A group whose bounds miss the
+  // viewport is culled whole, skipping its pieces; a group that intersects has
+  // each piece tested individually, so a large partially-visible cluster only
+  // renders the pieces actually on screen.
+  private cullGroup(node: GroupNode): void {
+    const view = this.viewport;
+    if (!view) return;
+    if (!boundsVisible(node.localBounds, node.worldX, node.worldY, view)) {
+      node.container.culled = true;
+      return;
+    }
+    node.container.culled = false;
+    for (const piece of node.pieces) {
+      piece.container.culled = !boundsVisible(piece.localBounds, node.worldX, node.worldY, view);
+    }
+  }
+
+  // Hands the cached viewport to the consumer, which reports it to the server
+  // for drag and drop broadcast scoping. Fires on every pan, zoom, and resize.
+  private notifyViewport(): void {
+    if (!this.viewport || !this.onViewportChange) return;
+    this.onViewportChange(this.viewport);
   }
 
   private attachWheelZoom(canvas: HTMLCanvasElement): void {
@@ -820,7 +853,19 @@ function buildPieceNode(
 
   container.addChild(inner);
 
-  return { id: geometry.id, container, inner, flash, geometry };
+  return {
+    id: geometry.id,
+    container,
+    inner,
+    flash,
+    geometry,
+    localBounds: pieceLocalBounds(
+      geometry.canonicalOffset.x,
+      geometry.canonicalOffset.y,
+      manifest.pieceSize,
+      manifest.margin,
+    ),
+  };
 }
 
 async function loadTextures(manifest: ImageManifest, base: string): Promise<Map<number, Texture>> {

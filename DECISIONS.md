@@ -44,6 +44,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Drag and drop broadcasts scoped to the receiver viewport](#2026-05-20-backend-realtime-viewport-scoped-drag-and-drop-broadcasts) -> Phase 2 viewport sharding plus incremental subscriptions.
 - [Anonymous pseudo lives on the session, not in Mongo](#2026-05-20-auth-and-accounts-anonymous-pseudo-on-the-session) -> Phase 2 moves it to a verified Mongo user profile with real auth.
 - [Completion leaderboard scored from the full ClusterMerge log](#2026-05-21-frontend-canvas-completion-leaderboard-scoring) -> precompute a per-user counter at 1M scale.
+- [Frustum culling only, no zoom-out LOD](#2026-05-21-frontend-canvas-frustum-culling-without-zoom-out-lod) -> Phase 2 aggregated-tile LOD makes the fully-zoomed-out view affordable.
 
 ---
 
@@ -239,3 +240,9 @@ Revisit when: the aggregation unwinds and groups the full merge log, which will 
 
 Choice: `ClusterMerge` persists `lockedDelta`, the number of pieces a merge newly locked to the frame, even though stats are otherwise derived on demand.
 Why: the activity feed backfill sends a per-merge "placed N pieces" count for anchoring events, and that count cannot be reconstructed from a saved merge. A frame-anchored cluster locks its pieces without listing any in `addedPieceIds` (those ids only ever hold pieces that changed group id), so the count is known only at merge time. It is a property of the event, not a precomputed per-user counter, so it does not conflict with deriving user stats on demand.
+
+### 2026-05-21, frontend-canvas, frustum culling without zoom-out LOD
+
+Choice: the canvas culls groups and pieces outside the viewport by toggling Pixi's `culled` flag, recomputed on every camera change, resize, and group move. Culling is two-level: a group whose world AABB misses the viewport is culled whole; a group that intersects has each piece tested individually, so a large partially-visible cluster renders only its on-screen pieces. Bounds are analytic (canonical offset plus one margin per piece, unioned per group), never `getBounds`. There is no level-of-detail: pieces keep their silhouette mask at every zoom.
+Why: culling removes the per-piece stencil and draw-call cost for off-screen pieces, which keeps the zoomed-in playing experience smooth at 10 000 pieces. It does nothing when the whole board is on screen (fully zoomed out), where every piece is visible and every mask still renders, so that view stays heavy. Phase 1 accepts this because contributors play zoomed in, and a Phase 1 LOD would be throwaway work once the Phase 2 aggregated-tile LOD replaces per-piece sprites on zoom-out.
+Revisit when: Phase 2. The "Zoom-out LOD uses aggregated tiles instead of per-piece sprites" task makes the fully-zoomed-out view affordable and is the home for all zoom-out level-of-detail.

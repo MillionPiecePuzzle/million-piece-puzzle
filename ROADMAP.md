@@ -93,7 +93,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `frontend-canvas`
 - [ ] OpenSeadragon reference panel shows the source image
-- [ ] Frustum culling and LOD active, rendering stays smooth at 10 000 pieces
+- [x] Frustum culling active, rendering stays smooth while playing (zoomed in) at 10 000 pieces
 - [ ] Mini-map shows global progress
 - [x] Collaborator cursors rendered from presence messages (colored pointer, pseudo tag, held-piece preview, idle-bob)
 
