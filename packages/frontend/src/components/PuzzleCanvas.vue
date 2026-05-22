@@ -29,6 +29,7 @@ const { mode } = useMode();
 
 let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
+let buildChain: Promise<void> = Promise.resolve();
 let unsubscribe: (() => void) | null = null;
 const completed = ref(false);
 const modalVisible = ref(true);
@@ -186,9 +187,8 @@ onMounted(async () => {
   await start();
 });
 
-watch(state, async (s) => {
-  if (s.kind !== "ready" || !stage) return;
-  if (s.epoch === builtEpoch) return;
+async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Promise<void> {
+  if (!stage || s.epoch === builtEpoch) return;
   if (builtEpoch > 0) {
     stage.clearWorld();
     completed.value = false;
@@ -201,6 +201,18 @@ watch(state, async (s) => {
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
     triggerCompletion(false);
   }
+}
+
+// Builds run one at a time through this chain. If `state` changes while
+// build() is still awaiting its textures (e.g. dev_reset mid-load), the new
+// build waits for the in-flight one: otherwise the earlier build finishes
+// adding sprites after the newer build's clearWorld() ran, orphaning the
+// previous puzzle on the canvas.
+watch(state, (s) => {
+  if (s.kind !== "ready") return;
+  buildChain = buildChain
+    .then(() => buildStage(s))
+    .catch((err) => console.error("[canvas] stage build failed", err));
 });
 
 watch(mode, (m) => {
