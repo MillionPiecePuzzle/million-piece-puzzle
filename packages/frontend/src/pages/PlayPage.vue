@@ -5,6 +5,7 @@ import PuzzleCanvas from "../components/PuzzleCanvas.vue";
 import ZoomControls from "../components/ZoomControls.vue";
 import ActivityTicker from "../components/ActivityTicker.vue";
 import LeaderboardPanel from "../components/LeaderboardPanel.vue";
+import ReferencePanel from "../components/ReferencePanel.vue";
 import MiniMap from "../components/MiniMap.vue";
 import ContributeFab from "../components/ContributeFab.vue";
 import DevControls from "../components/DevControls.vue";
@@ -33,6 +34,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
       <ZoomControls />
       <ActivityTicker />
       <LeaderboardPanel />
+      <ReferencePanel />
       <div class="corner-stack">
         <ContributeFab />
         <MiniMap />

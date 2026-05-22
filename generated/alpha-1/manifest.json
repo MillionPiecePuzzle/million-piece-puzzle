@@ -8,9 +8,9 @@
   "margin": 149,
   "tileSize": 724,
   "source": {
-    "file": "alpha-1.jpg",
-    "width": 3840,
-    "height": 2160
+    "file": "source.avif",
+    "width": 3834,
+    "height": 2130
   },
   "pieces": [
     {

@@ -1,6 +1,6 @@
 /**
  * Image manifest produced by the image-pipeline slicer and consumed by the
- * frontend to load piece textures.
+ * frontend to load piece textures and the reference image.
  *
  * Each piece tile is a square of `tileSize = pieceSize + 2 * margin` pixels,
  * centered on the piece's grid cell. Tiles include the neighboring image area
@@ -20,6 +20,10 @@ export type ImageManifest = {
   pieceSize: number;
   margin: number;
   tileSize: number;
+  // Center-cropped puzzle reference image (the picture the assembled puzzle
+  // reproduces). `file` is relative to the manifest; `width` and `height` are
+  // the cropped dimensions, `cols * pieceSize` by `rows * pieceSize`, so the
+  // image maps 1:1 onto the puzzle world rect.
   source: {
     file: string;
     width: number;

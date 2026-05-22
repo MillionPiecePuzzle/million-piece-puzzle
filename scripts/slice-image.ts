@@ -13,6 +13,10 @@
  * center-cropped from the source; any leftover band on the longer axis is
  * discarded.
  *
+ * The center-cropped puzzle area is also written as `source.avif` next to the
+ * manifest. It maps 1:1 onto the puzzle world rect (origin at the top-left
+ * piece) and is what the frontend reference panel displays.
+ *
  * Usage:
  *   npm run slice -- --input samples/source/puzzle.png \
  *                    --seed test123 --rows 7 --cols 7 \
@@ -161,6 +165,11 @@ async function main() {
     }
   }
 
+  const sourceFileName = "source.avif";
+  await sharp(sourceBuffer)
+    .avif({ quality: args.quality, effort: 4 })
+    .toFile(path.join(args.output, sourceFileName));
+
   const manifest: ImageManifest = {
     puzzleId,
     name: args.name ?? puzzleId,
@@ -171,15 +180,17 @@ async function main() {
     margin,
     tileSize,
     source: {
-      file: path.basename(args.input),
-      width: sourceMeta.width,
-      height: sourceMeta.height,
+      file: sourceFileName,
+      width: croppedWidth,
+      height: croppedHeight,
     },
     pieces,
   };
   await writeFile(path.join(args.output, "manifest.json"), JSON.stringify(manifest, null, 2));
 
-  console.log(`sliced ${pieces.length} pieces (${tileSize}x${tileSize} each) to ${args.output}`);
+  console.log(
+    `sliced ${pieces.length} pieces (${tileSize}x${tileSize} each) and a ${croppedWidth}x${croppedHeight} reference image to ${args.output}`,
+  );
 }
 
 const isMain =

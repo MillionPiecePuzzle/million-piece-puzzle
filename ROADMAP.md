@@ -92,7 +92,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Spectator/contributor mode toggle works, no auth required
 
 ### `frontend-canvas`
-- [ ] OpenSeadragon reference panel shows the source image
+- [x] OpenSeadragon reference panel shows the source image
 - [x] Frustum culling active, rendering stays smooth while playing (zoomed in) at 10 000 pieces
 - [x] Mini-map shows global progress
 - [x] Collaborator cursors rendered from presence messages (colored pointer, pseudo tag, held-piece preview, idle-bob)
