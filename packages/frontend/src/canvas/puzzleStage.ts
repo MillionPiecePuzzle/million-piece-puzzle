@@ -417,7 +417,12 @@ export class PuzzleStage {
   clearWorld(): void {
     this.stopConfetti();
     if (this.world) {
-      this.world.removeChildren();
+      // removeChildren() only detaches. context:true is required to free each
+      // Graphics' GraphicsContext (mask, flash, frame, backdrop geometry);
+      // children:true alone destroys the nodes but leaks their geometry.
+      for (const child of this.world.removeChildren()) {
+        child.destroy({ children: true, context: true });
+      }
       this.world.x = 0;
       this.world.y = 0;
       this.world.scale.set(1);
