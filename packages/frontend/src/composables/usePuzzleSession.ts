@@ -5,6 +5,7 @@ import type {
   LeaderboardEntry,
   PieceRuntime,
   SActivity,
+  SError,
   SSnap,
   SState,
   SWelcome,
@@ -113,6 +114,18 @@ function applyState(msg: SState): void {
   };
 }
 
+// protocol_mismatch means the client and server disagree on the wire format:
+// the session cannot recover, so it is fatal. Every other code is transient
+// (a denied grab, a stale optimistic drag, a disabled dev control) and must
+// keep the session alive instead of blanking the puzzle until the next cycle.
+function handleServerError(msg: SError): void {
+  if (msg.code === "protocol_mismatch") {
+    state.value = { kind: "error", message: `${msg.code}: ${msg.message}` };
+    return;
+  }
+  console.warn(`puzzle session: transient server error ${msg.code}: ${msg.message}`);
+}
+
 async function loadManifestFor(puzzleId: string): Promise<void> {
   const url = manifestUrlFor(puzzleId);
   state.value = { kind: "loading-manifest", puzzleId };
@@ -192,7 +205,7 @@ async function start(): Promise<void> {
     } else if (msg.t === "leaderboard") {
       leaderboard.value = msg.entries;
     } else if (msg.t === "error") {
-      state.value = { kind: "error", message: `${msg.code}: ${msg.message}` };
+      handleServerError(msg);
     }
     for (const h of handlers) h(msg);
   });
