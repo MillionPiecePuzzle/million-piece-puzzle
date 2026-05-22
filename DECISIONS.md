@@ -260,3 +260,9 @@ Revisit when: a malicious client sends out-of-zone positions (move the clamp ser
 Choice: the slicer writes the center-cropped puzzle area as `source.avif` next to the manifest, and `manifest.source` points at it (`file`, plus `width` and `height` equal to `cols*pieceSize` by `rows*pieceSize`). The frontend reference panel displays it with OpenSeadragon's simple-image tile source, not a Deep Zoom pyramid.
 Why: the panel needs one fetchable image that maps 1:1 onto the puzzle world. Reusing the crop the slicer already computes costs one extra encode, and a single AVIF (a few MB) is light enough for the alpha source images. A Deep Zoom pyramid only earns its cost on the gigapixel Phase 1 source, which is a separate `image-pipeline` task. Before this, `manifest.source` recorded the raw input basename and the full source dimensions, and nothing read it.
 Revisit when: the image pipeline produces the gigapixel source and hosts it on R2. Point the reference panel at a DZI or IIIF tile source then.
+
+### 2026-05-22, infra-deploy, single R2 bucket for tiles and pieces
+
+Choice: tiles (Deep Zoom pyramid) and per-piece AVIF textures share one R2 bucket (`mpp-assets`), separated by key prefix (`tiles/`, `pieces/`). The bucket is exposed read-only over a Cloudflare custom domain (`assets.millionpiecepuzzle.com`), which also fronts it with the Cloudflare CDN; the `r2.dev` URL stays disabled. CORS allows `GET` and `HEAD` from the Pages origin and the local dev origin.
+Why: both asset sets come from the same image-pipeline run on the same source image and are immutable once published, so they share one lifecycle and identical caching needs; separate buckets would only add a second domain and CORS policy to maintain for no operational gain. A custom domain (instead of `r2.dev`) gives proper CDN cache control and no rate limit, which Cloudflare requires for production.
+Revisit when: an asset set needs an independent cache TTL or access policy.

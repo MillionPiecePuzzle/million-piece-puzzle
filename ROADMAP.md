@@ -110,7 +110,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Server deployed on Hetzner via Coolify
 - [x] Cloudflare in front for the frontend (Pages on `app.millionpiecepuzzle.com`) and the backend hostname (`ws.millionpiecepuzzle.com`, DNS+SSL via Let's Encrypt at Coolify)
 - [ ] Cloudflare CDN edge cache for spectator-mode snapshots
-- [ ] R2 buckets configured for tiles and piece textures
+- [x] R2 buckets configured for tiles and piece textures
 
 ### `tooling-foundations`
 - [ ] Stable, no further work expected
