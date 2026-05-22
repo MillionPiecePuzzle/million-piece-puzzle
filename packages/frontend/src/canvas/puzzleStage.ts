@@ -9,12 +9,14 @@ import {
   type Texture,
 } from "pixi.js";
 import {
+  GRID_WORLD_CELL,
   generatePuzzle,
   piecePath,
   type GroupRuntime,
   type ImageManifest,
   type PieceGeometry,
   type PieceRuntime,
+  type PlayZone,
 } from "@mpp/shared";
 import { applyPath } from "./applyPath";
 import { Tweener, peak, easeOutCubic } from "./tween";
@@ -34,7 +36,7 @@ export type MinimapPiece = { x: number; y: number; locked: boolean };
 
 // Everything the minimap needs to draw, pulled from the stage on demand.
 export type MinimapSnapshot = {
-  playZone: Aabb;
+  playZone: PlayZone;
   frame: { w: number; h: number };
   pieces: MinimapPiece[];
   viewport: Viewport | null;
@@ -78,16 +80,8 @@ const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
 
-// World-space grid cell. The /play backdrop draws a hairline grid at this
-// pitch (PlayPage imports this constant), and the play zone bounds are snapped
-// to it so the backdrop boundary always falls on a grid line.
-export const GRID_WORLD_CELL = 80;
-
-// The play zone is the puzzle frame unioned with every scattered piece, then
-// widened by a margin so pieces scattered against the raw bound still have
-// room to be dragged outward. The camera may travel one padding ring past it;
-// pieces stay strictly inside it.
-const PLAY_ZONE_MARGIN_FRACTION = 0.5;
+// The camera may travel one padding ring past the play zone; pieces stay
+// strictly inside it.
 const PLAY_ZONE_PADDING_FRACTION = 0.04;
 const BACKDROP_COLOR = 0x15140f;
 const BACKDROP_ALPHA = 0.3;
@@ -140,8 +134,9 @@ export class PuzzleStage {
   private pieceToGroup = new Map<number, number>();
   private camera = { x: 0, y: 0, zoom: 1 };
   private worldSize: { w: number; h: number } | null = null;
-  // Hard-limit rectangle (frame plus all scattered pieces), set in build().
-  private playZone: Aabb | null = null;
+  // Hard-limit rectangle, received from the server in build() so every client
+  // of a puzzle enforces the exact same bound.
+  private playZone: PlayZone | null = null;
   // World-space dark fill covering everything outside the play zone.
   private backdrop: Graphics | null = null;
   // Cached visible world rectangle, recomputed on every camera change and
@@ -234,6 +229,7 @@ export class PuzzleStage {
     manifest: ImageManifest,
     initialPieces: PieceRuntime[],
     initialGroups: GroupRuntime[],
+    playZone: PlayZone,
   ): Promise<void> {
     if (!this.app || !this.world) throw new Error("stage not mounted");
     const geom = generatePuzzle({
@@ -291,44 +287,9 @@ export class PuzzleStage {
       this.applyGroupInteractivity(node);
     }
 
-    this.playZone = this.computePlayZone();
+    this.playZone = playZone;
     this.createBackdrop();
     this.fitView();
-  }
-
-  // The play zone encloses the puzzle frame and every piece at its current
-  // position, widened by a margin, then mirrored around the frame center so the
-  // frame stays centered in the zone (and so in the minimap and the camera
-  // bounds). The symmetric half-extent is snapped outward to the world grid.
-  // Computed once after build: pieces only ever move inward of this padded
-  // bound (a drag is clamped, a merge lands within existing pieces), so it
-  // never needs to grow.
-  private computePlayZone(): Aabb {
-    const ws = this.worldSize ?? { w: 0, h: 0 };
-    const boxes: Aabb[] = [{ minX: 0, minY: 0, maxX: ws.w, maxY: ws.h }];
-    for (const group of this.groups.values()) {
-      for (const piece of group.pieces) {
-        boxes.push({
-          minX: group.worldX + piece.localBounds.minX,
-          minY: group.worldY + piece.localBounds.minY,
-          maxX: group.worldX + piece.localBounds.maxX,
-          maxY: group.worldY + piece.localBounds.maxY,
-        });
-      }
-    }
-    const raw = unionBounds(boxes);
-    const margin = Math.max(raw.maxX - raw.minX, raw.maxY - raw.minY) * PLAY_ZONE_MARGIN_FRACTION;
-    const cx = ws.w / 2;
-    const cy = ws.h / 2;
-    const snap = (half: number): number => Math.ceil(half / GRID_WORLD_CELL) * GRID_WORLD_CELL;
-    const halfX = snap(Math.max(cx - raw.minX, raw.maxX - cx) + margin);
-    const halfY = snap(Math.max(cy - raw.minY, raw.maxY - cy) + margin);
-    return {
-      minX: cx - halfX,
-      minY: cy - halfY,
-      maxX: cx + halfX,
-      maxY: cy + halfY,
-    };
   }
 
   private playZonePadding(): number {

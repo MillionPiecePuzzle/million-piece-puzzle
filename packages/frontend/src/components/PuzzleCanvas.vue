@@ -196,7 +196,7 @@ watch(state, async (s) => {
   }
   builtEpoch = s.epoch;
   stage.setLocalUserId(userId.value);
-  await stage.build(s.manifest, s.pieces, s.groups);
+  await stage.build(s.manifest, s.pieces, s.groups, s.welcome.playZone);
   stage.setMode(mode.value);
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
     triggerCompletion(false);

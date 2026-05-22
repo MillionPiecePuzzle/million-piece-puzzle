@@ -19,6 +19,7 @@
  */
 
 import type { GroupRuntime, PieceRuntime } from "./piece.js";
+import type { PlayZone } from "./playzone.js";
 
 // Client -> Server
 
@@ -103,6 +104,10 @@ export type SWelcome = {
   protocolVersion: number;
   puzzleId: string;
   lockedCount: number;
+  // World-space bounds of the puzzle, computed once by the server and identical
+  // for every client regardless of join time: camera limits, the held-piece
+  // clamp, and the minimap extent all derive from it.
+  playZone: PlayZone;
 };
 
 export type SState = {

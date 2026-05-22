@@ -1,8 +1,8 @@
-import type { ImageManifest } from "@mpp/shared";
+import type { ImageManifest, PlayZone } from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import { LEADERBOARD_LIMIT, type Context } from "./handlers.js";
-import { forceInitPuzzle, initPuzzleIfEmpty } from "./init.js";
+import { forceInitPuzzle, initPuzzleIfEmpty, playZoneForManifest } from "./init.js";
 
 // Anchoring entries sent to seed a connecting client's activity ticker. Matches
 // the ticker's display capacity on the frontend.
@@ -11,6 +11,9 @@ const ACTIVITY_BACKFILL_LIMIT = 6;
 export class PuzzleCycle {
   private cycleScheduled = false;
   private cycling = false;
+  // Play zone per puzzle id, memoized: it is a pure function of the manifest,
+  // so it is computed once per puzzle and reused for every welcome.
+  private readonly playZones = new Map<string, PlayZone>();
 
   constructor(
     private readonly ctx: Context,
@@ -26,6 +29,15 @@ export class PuzzleCycle {
 
   currentManifest(): ImageManifest {
     return this.manifestOf(this.ctx.puzzleId);
+  }
+
+  private playZoneFor(puzzleId: string): PlayZone {
+    let zone = this.playZones.get(puzzleId);
+    if (!zone) {
+      zone = playZoneForManifest(this.manifestOf(puzzleId));
+      this.playZones.set(puzzleId, zone);
+    }
+    return zone;
   }
 
   async restoreOrPickFirst(): Promise<void> {
@@ -45,6 +57,7 @@ export class PuzzleCycle {
       protocolVersion: PROTOCOL_VERSION,
       puzzleId: this.ctx.puzzleId,
       lockedCount,
+      playZone: this.playZoneFor(this.ctx.puzzleId),
     });
     const [pieces, groups] = await Promise.all([
       this.ctx.state.readAllPieces(this.ctx.meta.totalPieces),

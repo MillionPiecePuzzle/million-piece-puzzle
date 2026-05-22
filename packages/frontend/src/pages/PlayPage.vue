@@ -9,7 +9,7 @@ import MiniMap from "../components/MiniMap.vue";
 import ContributeFab from "../components/ContributeFab.vue";
 import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
-import { GRID_WORLD_CELL } from "../canvas/puzzleStage";
+import { GRID_WORLD_CELL } from "@mpp/shared";
 
 const { camera } = useStageControls();
 
