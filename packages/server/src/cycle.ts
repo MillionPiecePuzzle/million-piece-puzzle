@@ -10,6 +10,7 @@ const ACTIVITY_BACKFILL_LIMIT = 6;
 
 export class PuzzleCycle {
   private cycleScheduled = false;
+  private cycleTimer: ReturnType<typeof setTimeout> | null = null;
   private cycling = false;
   // Play zone per puzzle id, memoized: it is a pure function of the manifest,
   // so it is computed once per puzzle and reused for every welcome.
@@ -92,13 +93,18 @@ export class PuzzleCycle {
   scheduleNextCycle(): void {
     if (this.cycleScheduled || this.cycling) return;
     this.cycleScheduled = true;
-    setTimeout(() => {
+    this.cycleTimer = setTimeout(() => {
       this.cycleScheduled = false;
+      this.cycleTimer = null;
       void this.advance();
     }, this.cycleDelayMs);
   }
 
   private cancelScheduledCycle(): void {
+    if (this.cycleTimer !== null) {
+      clearTimeout(this.cycleTimer);
+      this.cycleTimer = null;
+    }
     this.cycleScheduled = false;
   }
 
