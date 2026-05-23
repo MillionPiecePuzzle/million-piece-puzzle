@@ -18,7 +18,8 @@ function showReference(manifest: ImageManifest): void {
   openedPuzzleId = manifest.puzzleId;
   aspectRatio.value = `${manifest.source.width} / ${manifest.source.height}`;
   const base = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
-  viewer.open({ tileSource: { type: "image", url: base + manifest.source.file } });
+  const dziUrl = base + manifest.source.dzi;
+  viewer.open(dziUrl as unknown as OpenSeadragon.TileSourceSpecifier);
 }
 
 onMounted(() => {

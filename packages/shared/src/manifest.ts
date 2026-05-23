@@ -14,6 +14,12 @@
  * `bucket = floor(id / 100)` zero-padded to 4 digits and `id` zero-padded to
  * the same width as the largest piece id. The exact relative path is carried
  * by each entry's `file` field.
+ *
+ * The reference image is published as a Deep Zoom pyramid: `source.dzi` is the
+ * XML descriptor, sibling folder `source_files/<level>/<x>_<y>.<ext>` holds the
+ * tiles. `width` and `height` are the cropped dimensions
+ * (`cols * pieceSize` by `rows * pieceSize`), so the pyramid maps 1:1 onto the
+ * puzzle world rect.
  */
 
 export type ImageManifest = {
@@ -25,12 +31,8 @@ export type ImageManifest = {
   pieceSize: number;
   margin: number;
   tileSize: number;
-  // Center-cropped puzzle reference image (the picture the assembled puzzle
-  // reproduces). `file` is relative to the manifest; `width` and `height` are
-  // the cropped dimensions, `cols * pieceSize` by `rows * pieceSize`, so the
-  // image maps 1:1 onto the puzzle world rect.
   source: {
-    file: string;
+    dzi: string;
     width: number;
     height: number;
   };

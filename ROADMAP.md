@@ -84,7 +84,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] Generation validated and stable at 10 000 pieces
 
 ### `image-pipeline`
-- [ ] Deep Zoom tile pyramid produced for the source image and uploaded to R2
+- [x] Deep Zoom tile pyramid produced for the source image and uploaded to R2
 - [x] Per-piece AVIF set uploaded to R2 with manifest
 
 ### `frontend-shell`

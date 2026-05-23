@@ -16,9 +16,10 @@
  * center-cropped from the source; any leftover band on the longer axis is
  * discarded.
  *
- * The center-cropped puzzle area is also written as `source.avif` next to the
- * manifest. It maps 1:1 onto the puzzle world rect (origin at the top-left
- * piece) and is what the frontend reference panel displays.
+ * The center-cropped puzzle area is also written as a Deep Zoom pyramid next
+ * to the manifest (`source.dzi` + `source_files/`). It maps 1:1 onto the puzzle
+ * world rect (origin at the top-left piece) and is what the frontend reference
+ * panel displays via OpenSeadragon.
  *
  * Usage:
  *   npm run slice -- --input samples/source/puzzle.png \
@@ -172,10 +173,11 @@ async function main() {
     }
   }
 
-  const sourceFileName = "source.avif";
+  const dziName = "source.dzi";
   await sharp(sourceBuffer)
-    .avif({ quality: args.quality, effort: 4 })
-    .toFile(path.join(args.output, sourceFileName));
+    .webp({ quality: args.quality, effort: 4 })
+    .tile({ layout: "dz", size: 254, overlap: 1, basename: "source" })
+    .toFile(path.join(args.output, "source"));
 
   const manifest: ImageManifest = {
     puzzleId,
@@ -187,7 +189,7 @@ async function main() {
     margin,
     tileSize,
     source: {
-      file: sourceFileName,
+      dzi: dziName,
       width: croppedWidth,
       height: croppedHeight,
     },

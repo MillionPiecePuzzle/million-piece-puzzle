@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   const publicBase = `${PUBLIC_BASE}/${args.puzzle}`;
   console.log(`[upload] done. Public URLs:`);
   console.log(`  manifest: ${publicBase}/manifest.json`);
-  console.log(`  source:   ${publicBase}/source.avif`);
+  console.log(`  source:   ${publicBase}/source.dzi (+ source_files/)`);
   console.log(`  pieces:   ${publicBase}/pieces/<bucket>/<id>.avif`);
 }
 
