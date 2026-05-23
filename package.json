@@ -19,6 +19,7 @@
     "dev:frontend": "npm run dev -w @mpp/frontend",
     "dev:server": "npm run dev -w @mpp/server",
     "slice": "tsx scripts/slice-image.ts",
+    "upload": "tsx scripts/upload-puzzle.ts",
     "test": "vitest run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

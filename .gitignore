@@ -28,6 +28,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+!packages/frontend/.env.production
 *.pem
 *.key
 
@@ -60,9 +61,7 @@ coverage/
 # Image pipeline artifacts (large, generated)
 /pieces/
 /tiles/
-generated/*
-!generated/test/
-!generated/alpha-3/
+generated/
 *.dzi
 
 # Source images (user-provided, not tracked)

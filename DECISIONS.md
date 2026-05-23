@@ -25,17 +25,14 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Edge params now 8 floats with circular bulb head](#2026-05-13-piece-generation-circular-bulb-head) -> revisit if silhouettes degenerate or if more variety is wanted.
 - [Default `pieceSize = 100` in generator output](#2026-05-12-piece-generation-piecesize-default) -> image pipeline will pin the real pixel size; consumer should pass it explicitly once known.
 - [Image pipeline emits rectangular tiles without silhouette mask](#2026-05-12-image-pipeline-rectangular-tiles) -> revisit if client-side masking shows up in render profiling at Phase 1+ scale.
-- [Piece tiles flat in `pieces/`, no folder bucketing](#2026-05-12-image-pipeline-flat-tile-layout) -> add bucketing in Phase 1+ when N exceeds a few thousand.
 - [Image pipeline derives `pieceSize` from image dimensions and center-crops](#2026-05-12-image-pipeline-adaptive-piecesize) -> revisit if non-centered crops or aspect-fitting become useful.
 - [Snap detection compares group origins for equality within tolerance](#2026-05-12-backend-realtime-snap-by-origin) -> stable assumption; revisit only if canonical offsets stop being puzzle-global (e.g., rotation enabled).
 - [Server Docker image installs all workspace runtime deps](#2026-05-12-backend-realtime-docker-all-workspace-deps) -> trim once image size matters.
 - [Piece outline approximated by 8 cubic Beziers per curved edge](#2026-05-13-piece-generation-edge-path-topology) -> revisit if silhouettes look degenerate or if a tighter approximation is needed for snap visuals.
-- [Vite dev middleware serves `generated/<id>/` at `/puzzle/`](#2026-05-12-frontend-canvas-vite-puzzle-middleware) -> drop once Phase 1 points the frontend at R2 and the slice output no longer needs a local HTTP face.
 - [Piece hit testing uses the sprite bounding rect, not the mask silhouette](#2026-05-12-frontend-canvas-bounding-rect-hits) -> revisit once overlap zones between adjacent unmerged pieces produce confusing pickups.
 - [Drag broadcasts sent on every pointermove without throttling](#2026-05-12-frontend-canvas-drag-no-throttle) -> coalesce with requestAnimationFrame once the WS shows backpressure or high-rate mice flood the server.
 - [Global serial dispatch queue for all WS messages](#2026-05-14-backend-realtime-global-serial-dispatch-queue) -> per-process total order; scaling the writer past one instance needs an atomic Lua merge, a regional lock, or write sharding.
 - [Cascade entrance animation descoped from Phase 0 to Phase 2](#2026-05-12-frontend-canvas-cascade-deferred) -> requires event scheduling (`eventStartsAt`) and a landing countdown to be meaningful; building it now would mean rebuilding it twice.
-- [Alpha puzzle fixture `generated/alpha-3/` committed and baked into images](#2026-05-15-infra-deploy-alpha-fixtures-committed) -> drop the commit and the Dockerfile `COPY` line once the image pipeline serves the same artifacts from R2.
 - [Closed-alpha gate is a frontend-only passcode](#2026-05-18-frontend-shell-alpha-passcode) -> replace with a server-validated invite token (or full auth) before opening the alpha beyond known testers.
 - [Dev controls (reset/complete) exposed on /play, server-gated by env var](#2026-05-18-frontend-shell-dev-controls) -> set `MPP_DEV_ENABLED=0` and `VITE_DEV_BUTTONS=0` before the first non-tester users land.
 - [Alpha topology: single VPS, Coolify on the workload host, Cloudflare DNS-only for `ws.*`](#2026-05-18-infra-deploy-alpha-topology) -> split Coolify control plane from workload, and consider Cloudflare-proxied origin or R2 fronting, before Phase 2 public traffic.
@@ -125,12 +122,6 @@ Choice: tile margin defaults to `round(0.35 * pieceSize)`, just above the max `d
 Why: ensures tabs always fit inside the tile with a small safety buffer.
 Revisit when: edge param ranges widen, or rotation is enabled (tabs may then point in unexpected directions and the margin assumption changes).
 
-### 2026-05-12, image-pipeline, flat tile layout
-
-Choice: piece tiles are written flat in `<output>/pieces/NNNN.avif`, zero-padded to at least 4 digits.
-Why: trivial at Phase 0 scale (49 pieces). The bucketed `pieces/0000/0000.avif` layout described in CLAUDE.md is overkill until N grows.
-Revisit when: Phase 1 (10k pieces) or Phase 2 (1M). Introduce per-100 or per-10000 bucket folders to keep filesystem listings sane.
-
 ### 2026-05-12, image-pipeline, adaptive pieceSize
 
 Choice: `--piece-size` is optional. When omitted, the script derives `pieceSize = floor(min(width/cols, height/rows))` from the source image and center-crops the puzzle area to `cols*pieceSize` by `rows*pieceSize`. Any leftover band on the longer axis is discarded.
@@ -155,12 +146,6 @@ Choice: piece silhouettes and canonical offsets are recomputed from `generationS
 Why: at 1M pieces, geometry would dominate payload size. Seed-based determinism keeps state minimal and timelapse replay tractable.
 Revisit when: never expected. If the generator becomes non-deterministic across platforms (FP drift), pin to a fixed integer-math implementation rather than start shipping geometry.
 
-### 2026-05-12, frontend-canvas, Vite puzzle assets
-
-Choice: in dev, a Vite middleware in `packages/frontend/vite.config.ts` serves `<repo>/generated/<MPP_PUZZLE_ID:default test>/` at `/puzzle/*`. In `vite build`, a companion plugin (`mpp:bundle-puzzle`) copies the same directory into `dist/puzzle/` so Cloudflare Pages ships the manifest and tiles as static assets. The frontend always fetches `/puzzle/manifest.json` and tiles relative to it.
-Why: keeps `generated/` as the single source of truth on disk, avoids checking copied artifacts into `packages/frontend/public/`, and gives both the dev server and the Pages build the same URL contract.
-Revisit when: production points the frontend at R2 (Phase 1). Both the middleware and the build-time copy can be removed once tiles live on a CDN.
-
 ### 2026-05-12, frontend-canvas, bounding rect hits
 
 Choice: each piece's interactive area is the Pixi container default (children bounds), which for a masked Sprite is the sprite's full bounding rect (tileSize square), not the visible silhouette. In overlap zones between adjacent unmerged pieces, clicks may pick either piece; topmost (z-order) wins.
@@ -184,12 +169,6 @@ Revisit when: starting Phase 2, or earlier if the Phase 1 alpha would benefit fr
 Choice: every incoming WS message and disconnect cleanup, across all clients, goes through one process-wide `SerialQueue` (`queue.ts`): tasks run to completion in FIFO order, one at a time.
 Why: handlers `await` Redis between reads and writes; without serialization two messages can interleave on those points and corrupt group state. A single chain makes the "server processes messages sequentially" invariant literally true with no locking logic.
 Revisit when: the writer path needs more than one instance. The guarantee is per process, so horizontally scaling the WS writer breaks it. Only the drop/merge path (`handleDrop` -> `applyMerge`, a non-atomic read-modify-write across many Redis calls) depends on it: `grab` is already atomic Lua, `drag` and `hello` do not mutate. The architecture assumes a single writer instance (reads and broadcasts scale separately, per the CLAUDE.md read/write split); when that no longer holds, the options are an atomic Lua merge, a distributed lock per canvas region, or write sharding by region. Within one process, the finer follow-up is per-group queues.
-
-### 2026-05-15, infra-deploy, alpha fixtures committed
-
-Choice: one puzzle output is committed under `generated/alpha-3/` (2040 pieces). The server Docker image copies it; the Vite build copies it into `dist/puzzles/alpha-3/`. Source images stay out of git; the deterministic AVIF outputs are what ships.
-Why: Coolify clones the repo as the build context, with no host volumes or pre-build hooks. Baking the fixture in is the simplest way to give the server its manifest at boot and to give the Pages build the matching tiles, without requiring a registry, an R2 bucket, or sharp inside the runtime image. 2040 pieces sits in the middle of the alpha target (5 to 20 testers on a 10 000-piece exit criterion) and is heavy enough to stress drag/snap without the multi-hour completion time of a true 10k board.
-Revisit when: the image pipeline produces and uploads the real puzzle to R2 (Phase 1 `image-pipeline` track). At that point, drop the `generated/alpha-3/` commit and the `COPY` line, and switch the server and Pages build to fetch the manifest from R2.
 
 ### 2026-05-18, frontend-shell, alpha passcode
 
@@ -273,3 +252,15 @@ Revisit when: Phase 2 at 1M pieces, where a full snapshot would balloon past ~25
 Choice: spectator traffic uses a dedicated hostname `snapshot.millionpiecepuzzle.com`, proxied through Cloudflare (orange cloud), pointing at the same Coolify service as the WS host. `ws.millionpiecepuzzle.com` stays DNS-only. A Cloudflare Cache Rule scoped to `(http.host eq "snapshot.millionpiecepuzzle.com" and http.request.uri.path eq "/snapshot")` sets cache eligibility to "Eligible for cache", edge TTL to "Respect origin", and enables "Serve stale content while updating" so a regeneration overrun never returns origin errors to viewers. The Node `/snapshot` handler hardcodes `Access-Control-Allow-Origin: *`, independent of the WS `MPP_ALLOWED_ORIGINS` allowlist which stays strict.
 Why: flipping `ws.*` to proxied would have contradicted the alpha-topology decision below and added a CF hop on every live WS frame in the middle of the alpha; a second hostname leaves WS untouched and isolates the cert and cache lifecycle. A path-scoped Cache Rule keeps any future endpoints under the same host (`/healthz`, future R2-fronted assets) uncached by default. CORS on `/snapshot` is wildcard because the payload is anonymous read-only puzzle state intentionally fronted by a shared CDN: a per-origin echo with `Vary: Origin` would cache-poison on Cloudflare Free (which does not honor Vary for caching), and an `Origin` header is trivially spoofed outside browsers so it is not a meaningful security boundary for an HTTP read endpoint. The WS Origin allowlist is a separate concern (anti-CSWSH from third-party tabs) and stays specific.
 Revisit when: `ws.*` itself moves to proxied (Phase 2 mechanical step in the alpha-topology entry). At that point fold spectator traffic back onto the WS host and retire the dedicated hostname, or keep it for cache isolation if Cache Rules prove brittle to scope by path.
+
+### 2026-05-23, image-pipeline, piece tiles bucketed by hundreds
+
+Choice: the slicer writes piece tiles to `pieces/<bucket>/<id>.avif`, where `bucket = floor(id / 100)` zero-padded to 4 digits and `id` zero-padded to the width of the largest piece id. Each entry's `file` in the manifest carries the bucketed path verbatim; the frontend never reconstructs it from `id`. The slicer is the only path that emits AVIF, so there is no flat layout to maintain in parallel.
+Why: at 1M pieces, a single flat `pieces/` directory holds a million entries, which slows `ls`, R2 listings, and any human inspection of the layout. Splitting by hundreds gives ~10 000 directories with up to 100 files each at full scale, both numbers comfortable to enumerate. Bucket size 100 is a round middle ground: 10 (too deep at 1M, 100 000 dirs) and 1000 (too wide per dir at full scale, complicates inspection) are the obvious neighbors. Padding the bucket index to 4 digits keeps directory names sorted lexicographically and matches the worst case at 1M pieces (`0000` to `9999`). The manifest stores the resolved path so the convention can change without a frontend release.
+Revisit when: never expected at this granularity. If the puzzle grows past 1M pieces, widen the bucket index padding rather than change the divisor.
+
+### 2026-05-23, backend-realtime, manifest fetched from R2 at boot
+
+Choice: the server reads `MPP_PUZZLE_ID` and `MPP_ASSETS_BASE_URL`, fetches `<base>/<id>/manifest.json` with the global `fetch()` once at boot, and aborts the process on any network error, non-2xx response, or `puzzleId` mismatch. There is no local fallback, no retry loop, and no manifest cache on the host filesystem. The previous `MPP_MANIFEST` path-based env is removed.
+Why: a single source of truth for the alpha asset set is the R2 bucket fronted by `assets.millionpiecepuzzle.com`. Removing the on-disk copy in the runtime image removes a class of skew bug (image baked with one manifest, R2 holding another) and reuses the bucket already needed for the per-piece tiles, so the server, the frontend, and the Pages build all read the same files. Fail-fast at boot turns a missing or wrong manifest into an immediate restart loop visible to Coolify, instead of a half-initialized process serving a stale puzzle. The host is allowed to depend on R2 at boot because the R2 custom domain (`assets.*`) is fronted by the Cloudflare CDN and serves an immutable artifact: a cold cache miss is one origin GET, after which the edge serves further restarts. Once Redis is initialized for a given puzzle id the running process no longer needs R2.
+Revisit when: the boot-time R2 read becomes a deploy hazard (extended Cloudflare or R2 incident overlapping a deploy). The cheapest mitigation is to keep the last successful manifest on a small persistent volume and read it as a fallback; a heavier one is to publish manifests immutably under a version suffix and pin the env to that version.

@@ -10,7 +10,6 @@ RUN npm ci --ignore-scripts
 
 COPY packages/shared packages/shared
 COPY packages/frontend packages/frontend
-COPY generated/alpha-3 generated/alpha-3
 
 RUN npm run build -w @mpp/shared
 

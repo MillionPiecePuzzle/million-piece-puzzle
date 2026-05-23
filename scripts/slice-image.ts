@@ -5,6 +5,9 @@
  * piece's grid cell. Tiles that extend past the source bounds are padded with
  * transparent pixels so every tile has identical dimensions.
  *
+ * Tiles are bucketed by hundreds: `pieces/<bucket>/<id>.avif` where
+ * `bucket = floor(id / 100)` zero-padded to 4 digits.
+ *
  * The bezier silhouette mask is intentionally NOT applied here. The frontend
  * applies the mask at render time using the piece geometry from `@mpp/shared`.
  *
@@ -140,8 +143,12 @@ async function main() {
       const padRight = tileSize - extractWidth - padLeft;
       const padBottom = tileSize - extractHeight - padTop;
 
-      const fileName = `${pad(id, idWidth)}.avif`;
-      const outPath = path.join(piecesDir, fileName);
+      const idStr = pad(id, idWidth);
+      const bucket = pad(Math.floor(id / 100), 4);
+      const fileName = `${idStr}.avif`;
+      const bucketDir = path.join(piecesDir, bucket);
+      await mkdir(bucketDir, { recursive: true });
+      const outPath = path.join(bucketDir, fileName);
 
       await sharp(sourceBuffer)
         .extract({
@@ -161,7 +168,7 @@ async function main() {
         .avif({ quality: args.quality, effort: 4 })
         .toFile(outPath);
 
-      pieces.push({ id, file: `pieces/${fileName}` });
+      pieces.push({ id, file: `pieces/${bucket}/${fileName}` });
     }
   }
 

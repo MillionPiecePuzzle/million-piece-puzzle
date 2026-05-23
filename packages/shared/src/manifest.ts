@@ -9,6 +9,11 @@
  *
  * Tile world position: `(col * pieceSize - margin, row * pieceSize - margin)`.
  * Row and col are derived from `id`: `row = id / cols`, `col = id % cols`.
+ *
+ * Tiles are bucketed by hundreds under `pieces/<bucket>/<id>.avif`, where
+ * `bucket = floor(id / 100)` zero-padded to 4 digits and `id` zero-padded to
+ * the same width as the largest piece id. The exact relative path is carried
+ * by each entry's `file` field.
  */
 
 export type ImageManifest = {

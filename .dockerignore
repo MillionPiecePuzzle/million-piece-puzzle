@@ -2,8 +2,7 @@ node_modules
 **/node_modules
 **/dist
 **/tsconfig.tsbuildinfo
-generated/*
-!generated/alpha-3
+generated
 samples
 .git
 .github

@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { ImageManifest } from "@mpp/shared";
 import { parseAllowedOrigins } from "./limits.js";
 
@@ -8,7 +6,9 @@ export type ServerConfig = {
   redisUrl: string;
   mongoUrl: string;
   mongoDb: string;
-  manifestPath: string;
+  puzzleId: string;
+  assetsBaseUrl: string;
+  manifestUrl: string;
   manifest: ImageManifest;
   devEnabled: boolean;
   allowedOrigins: string[];
@@ -39,16 +39,42 @@ function bool(name: string, fallback: boolean): boolean {
   return raw === "1" || raw.toLowerCase() === "true";
 }
 
+function trimTrailingSlash(s: string): string {
+  return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+async function fetchManifest(url: string): Promise<ImageManifest> {
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    throw new Error(`failed to fetch manifest ${url}: ${message}`);
+  }
+  if (!res.ok) {
+    throw new Error(`manifest fetch ${url} returned HTTP ${res.status}`);
+  }
+  return (await res.json()) as ImageManifest;
+}
+
 export async function loadConfig(): Promise<ServerConfig> {
-  const manifestPath = path.resolve(str("MPP_MANIFEST"));
-  const raw = await readFile(manifestPath, "utf8");
-  const manifest = JSON.parse(raw) as ImageManifest;
+  const puzzleId = str("MPP_PUZZLE_ID");
+  const assetsBaseUrl = trimTrailingSlash(str("MPP_ASSETS_BASE_URL"));
+  const manifestUrl = `${assetsBaseUrl}/${puzzleId}/manifest.json`;
+  const manifest = await fetchManifest(manifestUrl);
+  if (manifest.puzzleId !== puzzleId) {
+    throw new Error(
+      `manifest puzzleId "${manifest.puzzleId}" does not match MPP_PUZZLE_ID "${puzzleId}"`,
+    );
+  }
   return {
     port: int("MPP_PORT", 8080),
     redisUrl: str("MPP_REDIS_URL", "redis://127.0.0.1:6379"),
     mongoUrl: str("MPP_MONGO_URL", "mongodb://127.0.0.1:27017"),
     mongoDb: str("MPP_MONGO_DB", "mpp"),
-    manifestPath,
+    puzzleId,
+    assetsBaseUrl,
+    manifestUrl,
     manifest,
     devEnabled: bool("MPP_DEV_ENABLED", false),
     allowedOrigins: parseAllowedOrigins(process.env.MPP_ALLOWED_ORIGINS),
