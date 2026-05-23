@@ -11,7 +11,7 @@ function onReset(): void {
 }
 
 function onComplete(): void {
-  if (!confirm("Force-complete the current puzzle and cycle to the next?")) return;
+  if (!confirm("Force-complete the current puzzle for everyone?")) return;
   sendDevComplete();
 }
 </script>
@@ -20,7 +20,7 @@ function onComplete(): void {
   <div v-if="mode === 'contributor'" class="dev-controls" role="group" aria-label="Dev controls">
     <span class="kicker">Dev</span>
     <button type="button" class="dev-btn" @click="onReset">Reset puzzle</button>
-    <button type="button" class="dev-btn warn" @click="onComplete">Complete &amp; cycle</button>
+    <button type="button" class="dev-btn warn" @click="onComplete">Complete</button>
   </div>
 </template>
 

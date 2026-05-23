@@ -17,7 +17,7 @@ export class PuzzleWsClient {
     const ws = new WebSocket(this.url);
     this.ws = ws;
     ws.addEventListener("open", () => {
-      // The server picks the active puzzle in its sequential rotation. The
+      // The server holds a single puzzle and tells us its id in welcome. The
       // puzzleId in hello is informational only.
       this.send({ t: "hello", protocolVersion: PROTOCOL_VERSION, puzzleId: "*" });
     });

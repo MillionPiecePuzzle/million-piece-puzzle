@@ -77,7 +77,8 @@ export type CSetPseudo = {
 
 // Dev-only messages, gated server-side by MPP_DEV_ENABLED.
 // dev_reset: wipe and re-init the current puzzle (stays on the same puzzle).
-// dev_complete: force-complete the current puzzle so the server cycles to the next.
+// dev_complete: force-complete the current puzzle (locked count jumps to total,
+// status flips to completed). The puzzle stays completed until a dev_reset.
 export type CDevReset = { t: "dev_reset" };
 export type CDevComplete = { t: "dev_complete" };
 
@@ -94,10 +95,10 @@ export type ClientMessage =
 
 // Server -> Client
 
-// Server picks the active puzzle (sequential rotation). Client fetches the
-// matching manifest at `/puzzles/<puzzleId>/manifest.json` after welcome.
-// A second welcome on the same connection signals a puzzle cycle and the
-// client must reset and reload.
+// The server holds a single puzzle for the connection's lifetime. Welcome
+// carries its `puzzleId`; the client fetches the matching manifest at
+// `/puzzles/<puzzleId>/manifest.json`. A second welcome on the same
+// connection signals a reset (dev_reset) and the client must rebuild.
 export type SWelcome = {
   t: "welcome";
   userId: string;
@@ -116,9 +117,10 @@ export type SState = {
   groups: GroupRuntime[];
 };
 
-// Recent anchoring history, sent once right after `state` on connect (and again
-// on a puzzle cycle). It seeds the activity feed so a joining client sees past
-// placements, not only snaps that arrive live. Items are ordered newest first.
+// Recent anchoring history, sent once right after `state` on connect (and
+// again after a server-driven rebuild like dev_reset). It seeds the activity
+// feed so a joining client sees past placements, not only snaps that arrive
+// live. Items are ordered newest first.
 export type ActivityItem = {
   id: string;
   userId: string;

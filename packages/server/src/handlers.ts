@@ -27,13 +27,14 @@ export type Context = {
   puzzleId: string;
   mongo: MongoLogger;
   devEnabled: boolean;
-  // Optional during construction (Context is created before PuzzleCycle to
-  // avoid a circular import). The runtime always wires it before any client
-  // message is dispatched.
-  cycle?: {
+  // Optional during construction (Context is created before PuzzleLifecycle
+  // to avoid a circular import). The runtime always wires it before any
+  // client message is dispatched.
+  lifecycle?: {
     sendWelcomeAndState: (client: Client) => Promise<void>;
     resetCurrent: () => Promise<void>;
-    scheduleNextCycle: () => void;
+    markCompleted: () => Promise<void>;
+    forceComplete: () => Promise<void>;
   };
 };
 
@@ -69,14 +70,13 @@ export async function handleHello(ctx: Context, client: Client, msg: CHello): Pr
     client.ws.close();
     return;
   }
-  // The server picks the active puzzle in sequential rotation. The hello's
-  // puzzleId is informational only and ignored: the welcome carries the
-  // authoritative current puzzleId.
-  if (!ctx.cycle) {
+  // The hello's puzzleId is informational only and ignored: the welcome
+  // carries the authoritative current puzzleId.
+  if (!ctx.lifecycle) {
     err(ctx, client, "bad_message", "server not ready");
     return;
   }
-  await ctx.cycle.sendWelcomeAndState(client);
+  await ctx.lifecycle.sendWelcomeAndState(client);
 }
 
 export async function handleDevReset(ctx: Context, client: Client): Promise<void> {
@@ -84,8 +84,8 @@ export async function handleDevReset(ctx: Context, client: Client): Promise<void
     err(ctx, client, "dev_disabled", "dev controls disabled");
     return;
   }
-  if (!ctx.cycle) return;
-  await ctx.cycle.resetCurrent();
+  if (!ctx.lifecycle) return;
+  await ctx.lifecycle.resetCurrent();
 }
 
 export async function handleDevComplete(ctx: Context, client: Client): Promise<void> {
@@ -93,12 +93,8 @@ export async function handleDevComplete(ctx: Context, client: Client): Promise<v
     err(ctx, client, "dev_disabled", "dev controls disabled");
     return;
   }
-  if (!ctx.cycle) return;
-  // Trigger an immediate cycle to the next puzzle. We skip the per-piece snap
-  // animation: rebuilding 2000 sprites on the fly is heavier than the visual
-  // payoff here, and a tester pressing this button wants to move on, not
-  // watch confetti.
-  ctx.cycle.scheduleNextCycle();
+  if (!ctx.lifecycle) return;
+  await ctx.lifecycle.forceComplete();
 }
 
 export async function handleGrab(ctx: Context, client: Client, msg: CGrab): Promise<void> {
@@ -333,7 +329,7 @@ async function applyMerge(
   }
 
   if (willBeLocked && lockedCount >= ctx.meta.totalPieces) {
-    ctx.cycle?.scheduleNextCycle();
+    await ctx.lifecycle?.markCompleted();
   }
 }
 

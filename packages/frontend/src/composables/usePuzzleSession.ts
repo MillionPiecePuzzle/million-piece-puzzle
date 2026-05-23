@@ -227,8 +227,8 @@ async function startContributor(): Promise<void> {
 // state), so PuzzleCanvas builds the stage exactly once. Subsequent polls of
 // the same puzzleId reach subscribers via onSnapshot() and are applied in
 // place by the stage. A puzzleId change resets manifest and welcome so the
-// state machine rebuilds cleanly, matching what a server puzzle cycle does on
-// the WS path.
+// state machine rebuilds cleanly, matching what a server-driven rebuild does
+// on the WS path.
 async function startSpectator(): Promise<void> {
   if (started) return;
   started = true;

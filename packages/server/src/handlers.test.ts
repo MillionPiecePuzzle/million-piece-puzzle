@@ -420,13 +420,13 @@ describe("handleDrop", () => {
     );
   });
 
-  it("broadcasts a leaderboard and schedules a cycle when the final piece completes the puzzle", async () => {
+  it("broadcasts a leaderboard and marks the puzzle completed when the final piece is anchored", async () => {
     const send = vi.fn();
     const broadcast = vi.fn();
     const broadcastNear = vi.fn();
     const logMerge = vi.fn();
     const leaderboard = vi.fn().mockResolvedValue([{ userId: "u1", pieces: 1 }]);
-    const scheduleNextCycle = vi.fn();
+    const markCompleted = vi.fn().mockResolvedValue(undefined);
     const state = new FakeState();
     const onePieceMeta: PuzzleMeta = { ...dropMeta, totalPieces: 1, gridRows: 1, gridCols: 1 };
     const ctx = {
@@ -435,7 +435,7 @@ describe("handleDrop", () => {
       meta: onePieceMeta,
       puzzleId: "test",
       mongo: { logMerge, leaderboard },
-      cycle: { scheduleNextCycle },
+      lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);
 
@@ -446,6 +446,6 @@ describe("handleDrop", () => {
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "leaderboard", entries: [{ userId: "u1", pieces: 1 }] }),
     );
-    expect(scheduleNextCycle).toHaveBeenCalled();
+    expect(markCompleted).toHaveBeenCalled();
   });
 });

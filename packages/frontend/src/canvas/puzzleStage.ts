@@ -374,7 +374,7 @@ export class PuzzleStage {
   }
 
   // Wipe all piece/group state without tearing down the Pixi app, so a fresh
-  // build() can run on the same stage (puzzle cycling).
+  // build() can run on the same stage (server-driven reset).
   clearWorld(): void {
     this.stopConfetti();
     if (this.world) {

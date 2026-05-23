@@ -9,7 +9,8 @@ import { RedisState } from "./state.js";
 import { MongoLogger } from "./mongo.js";
 import { dispatch, type Context } from "./handlers.js";
 import { SerialQueue } from "./queue.js";
-import { PuzzleCycle } from "./cycle.js";
+import { PuzzleLifecycle } from "./lifecycle.js";
+import { initPuzzleIfEmpty } from "./init.js";
 import { TokenBucket, isAllowedOrigin } from "./limits.js";
 import { SnapshotPublisher, makeSnapshotHandler } from "./snapshot.js";
 
@@ -22,36 +23,24 @@ async function main(): Promise<void> {
   const mongo = new MongoLogger(config.mongoUrl, config.mongoDb);
   await mongo.connect();
 
-  // Bootstrap state with the first manifest. PuzzleCycle then takes over and
-  // restores whatever puzzle was active when the server was last running.
-  const firstManifest = config.manifests[0];
-  if (!firstManifest) throw new Error("config.manifests is empty");
-  const state = new RedisState(redis, firstManifest.puzzleId);
+  const manifest = config.manifest;
+  const state = new RedisState(redis, manifest.puzzleId);
+  const meta = await initPuzzleIfEmpty(state, manifest);
 
   const hub = new Hub(config.wsBufferedAmountLimitBytes);
   const ctx: Context = {
     hub,
     state,
-    meta: {
-      totalPieces: 0,
-      gridRows: 0,
-      gridCols: 0,
-      pieceSize: 0,
-      snapTolerance: 0,
-      generationSeed: "",
-      status: "active",
-      startedAt: 0,
-    },
-    puzzleId: firstManifest.puzzleId,
+    meta,
+    puzzleId: manifest.puzzleId,
     mongo,
     devEnabled: config.devEnabled,
   };
-  const cycle = new PuzzleCycle(ctx, config.manifests, config.cycleDelayMs);
-  ctx.cycle = cycle;
-  await cycle.restoreOrPickFirst();
+  const lifecycle = new PuzzleLifecycle(ctx, manifest);
+  ctx.lifecycle = lifecycle;
 
   console.log(
-    `[boot] puzzles=${config.manifests.map((m) => m.puzzleId).join(",")} active=${ctx.puzzleId} pieces=${ctx.meta.totalPieces} (${ctx.meta.gridCols}x${ctx.meta.gridRows}) protocol=v${PROTOCOL_VERSION} dev=${config.devEnabled}`,
+    `[boot] puzzle=${ctx.puzzleId} pieces=${ctx.meta.totalPieces} (${ctx.meta.gridCols}x${ctx.meta.gridRows}) protocol=v${PROTOCOL_VERSION} dev=${config.devEnabled}`,
   );
 
   if (config.allowedOrigins.length === 1 && config.allowedOrigins[0] === "*") {
@@ -67,7 +56,7 @@ async function main(): Promise<void> {
     state,
     puzzleId: () => ctx.puzzleId,
     totalPieces: () => ctx.meta.totalPieces,
-    playZone: () => cycle.currentPlayZone(),
+    playZone: () => lifecycle.currentPlayZone(),
   });
   snapshotPublisher.start();
   const handleSnapshot = makeSnapshotHandler(snapshotPublisher, config.snapshotIntervalMs);

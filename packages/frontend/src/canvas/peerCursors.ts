@@ -93,8 +93,8 @@ export class PeerCursorLayer {
     peer.badge.visible = held;
   }
 
-  // Puzzle cycle: connections persist so peers stay, but nobody holds a cluster
-  // on a fresh board.
+  // Puzzle reset: connections persist so peers stay, but nobody holds a
+  // cluster on a fresh board.
   clearHeld(): void {
     for (const peer of this.peers.values()) this.setHeld(peer.userId, false);
   }
