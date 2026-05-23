@@ -90,6 +90,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 ### `frontend-shell`
 - [x] Landing page presents the project and a single CTA to enter the canvas
 - [x] Spectator/contributor mode toggle works, no auth required
+- [ ] Spectator mode consumes `GET /snapshot` instead of opening a WebSocket: spectators do not count against the WS budget, the canvas renders pieces and clusters from the polled snapshot at the publisher cadence, the "Contribute" CTA upgrades the session to a WebSocket on click, and a puzzle cycle (snapshot `puzzleId` change) triggers a clean rebuild
 
 ### `frontend-canvas`
 - [x] OpenSeadragon reference panel shows the source image
