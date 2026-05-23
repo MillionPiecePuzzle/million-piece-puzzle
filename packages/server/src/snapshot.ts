@@ -84,36 +84,20 @@ export class SnapshotPublisher {
 // the publisher cadence so a Cloudflare edge cache front of this endpoint
 // absorbs spectator traffic with a stale-tolerance equal to one tick.
 //
-// CORS: spectator clients are served from a different origin
-// (app.millionpiecepuzzle.com) than the WS host. With a wildcard allowlist the
-// response carries `Access-Control-Allow-Origin: *` so the CDN can cache one
-// body for all callers; with a specific allowlist the request Origin is
-// echoed when it matches, and a `Vary: Origin` is added (Cloudflare's free
-// plan does not honor Vary for caching, so prefer `*` when the snapshot is
-// fronted by the edge).
-export function makeSnapshotHandler(
-  publisher: SnapshotPublisher,
-  intervalMs: number,
-  allowedOrigins: string[] = ["*"],
-) {
+// CORS: the snapshot is anonymous read-only puzzle state, intentionally fronted
+// by a shared CDN. `Access-Control-Allow-Origin: *` is hardcoded so the edge
+// caches a single body for all callers (Cloudflare Free does not honor `Vary:
+// Origin`, so a per-origin echo would cache-poison the response). The WS
+// `MPP_ALLOWED_ORIGINS` allowlist is unrelated and stays strict.
+export function makeSnapshotHandler(publisher: SnapshotPublisher, intervalMs: number) {
   const cacheSeconds = Math.max(1, Math.floor(intervalMs / 1000));
   const cacheControl = `public, max-age=${cacheSeconds}`;
-  const wildcard = allowedOrigins.length === 1 && allowedOrigins[0] === "*";
-
-  function corsFor(origin: string | undefined): Record<string, string> {
-    if (wildcard) return { "Access-Control-Allow-Origin": "*" };
-    if (origin && allowedOrigins.includes(origin)) {
-      return { "Access-Control-Allow-Origin": origin, Vary: "Origin" };
-    }
-    return {};
-  }
+  const cors = { "Access-Control-Allow-Origin": "*" };
 
   return function handle(req: IncomingMessage, res: ServerResponse): boolean {
     const url = req.url ?? "";
     const path = url.split("?", 1)[0];
     if (path !== "/snapshot") return false;
-    const origin = req.headers?.origin;
-    const cors = corsFor(typeof origin === "string" ? origin : undefined);
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         ...cors,

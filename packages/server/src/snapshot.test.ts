@@ -184,10 +184,10 @@ describe("makeSnapshotHandler", () => {
     expect(res.status).toBe(200);
   });
 
-  it("sets Access-Control-Allow-Origin: * when the allowlist is wildcard", async () => {
+  it("always sets Access-Control-Allow-Origin: * regardless of request Origin", async () => {
     const pub = new SnapshotPublisher(2000, makeSource());
     await pub.regenerate();
-    const handle = makeSnapshotHandler(pub, 2000, ["*"]);
+    const handle = makeSnapshotHandler(pub, 2000);
     const res = fakeResponse();
     handle(
       { url: "/snapshot", method: "GET", headers: { origin: "https://app.example" } } as never,
@@ -198,35 +198,9 @@ describe("makeSnapshotHandler", () => {
     expect(res.headers["Vary"]).toBeUndefined();
   });
 
-  it("echoes a matching Origin and adds Vary when the allowlist is specific", async () => {
-    const pub = new SnapshotPublisher(2000, makeSource());
-    await pub.regenerate();
-    const handle = makeSnapshotHandler(pub, 2000, ["https://app.example"]);
-    const res = fakeResponse();
-    handle(
-      { url: "/snapshot", method: "GET", headers: { origin: "https://app.example" } } as never,
-      res as never,
-    );
-    expect(res.headers["Access-Control-Allow-Origin"]).toBe("https://app.example");
-    expect(res.headers["Vary"]).toBe("Origin");
-  });
-
-  it("omits the CORS header when Origin does not match a specific allowlist", async () => {
-    const pub = new SnapshotPublisher(2000, makeSource());
-    await pub.regenerate();
-    const handle = makeSnapshotHandler(pub, 2000, ["https://app.example"]);
-    const res = fakeResponse();
-    handle(
-      { url: "/snapshot", method: "GET", headers: { origin: "https://evil.example" } } as never,
-      res as never,
-    );
-    expect(res.status).toBe(200);
-    expect(res.headers["Access-Control-Allow-Origin"]).toBeUndefined();
-  });
-
   it("answers OPTIONS preflight with 204 and the CORS headers", () => {
     const pub = new SnapshotPublisher(2000, makeSource());
-    const handle = makeSnapshotHandler(pub, 2000, ["*"]);
+    const handle = makeSnapshotHandler(pub, 2000);
     const res = fakeResponse();
     handle(
       { url: "/snapshot", method: "OPTIONS", headers: { origin: "https://app.example" } } as never,

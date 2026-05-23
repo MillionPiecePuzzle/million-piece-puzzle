@@ -70,11 +70,7 @@ async function main(): Promise<void> {
     playZone: () => cycle.currentPlayZone(),
   });
   snapshotPublisher.start();
-  const handleSnapshot = makeSnapshotHandler(
-    snapshotPublisher,
-    config.snapshotIntervalMs,
-    config.allowedOrigins,
-  );
+  const handleSnapshot = makeSnapshotHandler(snapshotPublisher, config.snapshotIntervalMs);
 
   // One HTTP server hosts both the spectator snapshot endpoint and the
   // WebSocket upgrade. WS upgrades bypass the request handler; HTTP requests
