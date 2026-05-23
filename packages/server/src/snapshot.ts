@@ -83,21 +83,55 @@ export class SnapshotPublisher {
 // for any other path, 405 for non-GET. The Cache-Control header is tuned to
 // the publisher cadence so a Cloudflare edge cache front of this endpoint
 // absorbs spectator traffic with a stale-tolerance equal to one tick.
-export function makeSnapshotHandler(publisher: SnapshotPublisher, intervalMs: number) {
+//
+// CORS: spectator clients are served from a different origin
+// (app.millionpiecepuzzle.com) than the WS host. With a wildcard allowlist the
+// response carries `Access-Control-Allow-Origin: *` so the CDN can cache one
+// body for all callers; with a specific allowlist the request Origin is
+// echoed when it matches, and a `Vary: Origin` is added (Cloudflare's free
+// plan does not honor Vary for caching, so prefer `*` when the snapshot is
+// fronted by the edge).
+export function makeSnapshotHandler(
+  publisher: SnapshotPublisher,
+  intervalMs: number,
+  allowedOrigins: string[] = ["*"],
+) {
   const cacheSeconds = Math.max(1, Math.floor(intervalMs / 1000));
   const cacheControl = `public, max-age=${cacheSeconds}`;
+  const wildcard = allowedOrigins.length === 1 && allowedOrigins[0] === "*";
+
+  function corsFor(origin: string | undefined): Record<string, string> {
+    if (wildcard) return { "Access-Control-Allow-Origin": "*" };
+    if (origin && allowedOrigins.includes(origin)) {
+      return { "Access-Control-Allow-Origin": origin, Vary: "Origin" };
+    }
+    return {};
+  }
+
   return function handle(req: IncomingMessage, res: ServerResponse): boolean {
     const url = req.url ?? "";
     const path = url.split("?", 1)[0];
     if (path !== "/snapshot") return false;
+    const origin = req.headers?.origin;
+    const cors = corsFor(typeof origin === "string" ? origin : undefined);
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        ...cors,
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Max-Age": "86400",
+      });
+      res.end();
+      return true;
+    }
     if (req.method !== "GET" && req.method !== "HEAD") {
-      res.writeHead(405, { Allow: "GET, HEAD" });
+      res.writeHead(405, { ...cors, Allow: "GET, HEAD, OPTIONS" });
       res.end();
       return true;
     }
     const latest = publisher.latest();
     if (!latest) {
       res.writeHead(503, {
+        ...cors,
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store",
       });
@@ -105,6 +139,7 @@ export function makeSnapshotHandler(publisher: SnapshotPublisher, intervalMs: nu
       return true;
     }
     res.writeHead(200, {
+      ...cors,
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": cacheControl,
       "Content-Length": Buffer.byteLength(latest.body).toString(),
