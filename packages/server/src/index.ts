@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 import { Redis as IORedis } from "ioredis";
 import { WebSocketServer, type WebSocket, type VerifyClientCallbackSync } from "ws";
 import { PROTOCOL_VERSION } from "@mpp/shared";
@@ -10,6 +11,7 @@ import { dispatch, type Context } from "./handlers.js";
 import { SerialQueue } from "./queue.js";
 import { PuzzleCycle } from "./cycle.js";
 import { TokenBucket, isAllowedOrigin } from "./limits.js";
+import { SnapshotPublisher, makeSnapshotHandler } from "./snapshot.js";
 
 async function main(): Promise<void> {
   const config = await loadConfig();
@@ -58,15 +60,38 @@ async function main(): Promise<void> {
     );
   }
 
+  // Periodic snapshot for spectator mode, served via HTTP and cached by the
+  // CDN edge. The publisher keeps the latest body in memory; the HTTP handler
+  // serves it without re-querying Redis on each request.
+  const snapshotPublisher = new SnapshotPublisher(config.snapshotIntervalMs, {
+    state,
+    puzzleId: () => ctx.puzzleId,
+    totalPieces: () => ctx.meta.totalPieces,
+    playZone: () => cycle.currentPlayZone(),
+  });
+  snapshotPublisher.start();
+  const handleSnapshot = makeSnapshotHandler(snapshotPublisher, config.snapshotIntervalMs);
+
+  // One HTTP server hosts both the spectator snapshot endpoint and the
+  // WebSocket upgrade. WS upgrades bypass the request handler; HTTP requests
+  // not matched by a handler get a 404.
+  const httpServer = createServer((req, res) => {
+    if (handleSnapshot(req, res)) return;
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("not found");
+  });
+
   const verifyClient: VerifyClientCallbackSync = (info) =>
     isAllowedOrigin(info.origin, config.allowedOrigins);
   const wss = new WebSocketServer({
-    port: config.port,
+    server: httpServer,
     maxPayload: config.wsMaxPayloadBytes,
     verifyClient,
   });
-  wss.on("listening", () => {
-    console.log(`[ws] listening on ${config.port}`);
+  httpServer.listen(config.port, () => {
+    console.log(
+      `[http] listening on ${config.port} (ws upgrade + GET /snapshot, snapshot interval ${config.snapshotIntervalMs}ms)`,
+    );
   });
 
   // Every message and disconnect cleanup runs through one queue, so handlers'
@@ -103,7 +128,9 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     console.log("[shutdown] closing");
+    snapshotPublisher.stop();
     wss.close();
+    httpServer.close();
     await redis.quit();
     await mongo.close();
     process.exit(0);

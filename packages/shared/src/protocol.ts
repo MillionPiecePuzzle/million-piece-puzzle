@@ -232,6 +232,22 @@ export type SError = {
   message: string;
 };
 
+// HTTP snapshot for spectator mode. Served by the server at GET /snapshot and
+// cached at the CDN edge with a short TTL. Mirrors what `welcome` + `state`
+// carry on the WebSocket so a consumer can render the canvas without opening a
+// WebSocket. Cursors, drags, and presence are deliberately absent: spectators
+// get a delayed, position-only view (see ROADMAP backlog for a future
+// keyframe + event-log stream that brings interpolation back).
+export type Snapshot = {
+  puzzleId: string;
+  generatedAt: number;
+  lockedCount: number;
+  totalPieces: number;
+  playZone: PlayZone;
+  pieces: PieceRuntime[];
+  groups: GroupRuntime[];
+};
+
 export type ServerMessage =
   | SWelcome
   | SState

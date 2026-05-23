@@ -47,6 +47,7 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Frustum culling only, no zoom-out LOD](#2026-05-21-frontend-canvas-frustum-culling-without-zoom-out-lod) -> Phase 2 aggregated-tile LOD makes the fully-zoomed-out view affordable.
 - [Board bounded by a server-computed play zone, camera and pieces clamped to it](#2026-05-21-frontend-canvas-play-zone-hard-limits) -> Phase 2 needs server-side position validation and revisits the bound under viewport sharding.
 - [Reference image is a single AVIF, not a Deep Zoom pyramid](#2026-05-22-image-pipeline-reference-image-as-a-single-avif) -> switch the reference panel to a DZI tile source when the gigapixel source lands on R2.
+- [Spectator snapshot is a full payload served from the WS host with a short edge cache](#2026-05-23-backend-realtime-spectator-snapshot-full-from-host) -> at 1M-piece scale switch to a keyframe + event-log diff stream (see ROADMAP backlog).
 
 ---
 
@@ -266,3 +267,9 @@ Revisit when: the image pipeline produces the gigapixel source and hosts it on R
 Choice: tiles (Deep Zoom pyramid) and per-piece AVIF textures share one R2 bucket (`mpp-assets`), separated by key prefix (`tiles/`, `pieces/`). The bucket is exposed read-only over a Cloudflare custom domain (`assets.millionpiecepuzzle.com`), which also fronts it with the Cloudflare CDN; the `r2.dev` URL stays disabled. CORS allows `GET` and `HEAD` from the Pages origin and the local dev origin.
 Why: both asset sets come from the same image-pipeline run on the same source image and are immutable once published, so they share one lifecycle and identical caching needs; separate buckets would only add a second domain and CORS policy to maintain for no operational gain. A custom domain (instead of `r2.dev`) gives proper CDN cache control and no rate limit, which Cloudflare requires for production.
 Revisit when: an asset set needs an independent cache TTL or access policy.
+
+### 2026-05-23, backend-realtime, spectator snapshot full from host
+
+Choice: spectator mode is fed by `GET /snapshot` on the WS host. A ticker (`MPP_SNAPSHOT_INTERVAL_MS`, default 2000) regenerates a full JSON payload (`puzzleId`, `generatedAt`, `lockedCount`, `playZone`, `pieces`, `groups`) in memory; the endpoint serves the cached body with `Cache-Control: public, max-age=<interval seconds>` so the Cloudflare edge absorbs spectator traffic. No R2 push: the host is the source of truth and a transient Redis hiccup keeps the last good body served rather than producing a 5xx.
+Why: read/write split for scaling without coupling spectators to the WS message rate. Serving from the host avoids an extra R2 write per tick and lets the snapshot live as long as the process does, even when the CDN cannot reach origin. Full payload (not a diff) is trivial to implement and verifiable end to end at alpha scale (~300 KB gzipped at 10k pieces).
+Revisit when: Phase 2 at 1M pieces, where a full snapshot would balloon past ~25 MB gzipped per tick. Move to a keyframe + event-log diff stream with client-side position interpolation (ROADMAP backlog: "Spectator stream: keyframe + event-log diffs with client-side interpolation"). Also revisit if WS-host availability becomes the bottleneck: pushing the snapshot to R2 decouples spectator availability from the writer process.

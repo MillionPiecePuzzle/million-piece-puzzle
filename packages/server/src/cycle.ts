@@ -41,6 +41,10 @@ export class PuzzleCycle {
     return zone;
   }
 
+  currentPlayZone(): PlayZone {
+    return this.playZoneFor(this.ctx.puzzleId);
+  }
+
   async restoreOrPickFirst(): Promise<void> {
     const active = await this.ctx.state.readActivePuzzleId();
     const fallback = this.manifests[0];

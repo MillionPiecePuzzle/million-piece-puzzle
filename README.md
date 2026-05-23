@@ -39,6 +39,6 @@ npm install
 docker compose up --build -d
 ```
 
-Frontend on `http://localhost:5173`, WebSocket server on `ws://localhost:8080/`. See [CLAUDE.md](CLAUDE.md) for the working conventions, [ROADMAP.md](ROADMAP.md) for what is in flight, and [DECISIONS.md](DECISIONS.md) for the non-obvious trade-offs.
+Frontend on `http://localhost:5173`, WebSocket server on `ws://localhost:8080/`, spectator snapshot on `http://localhost:8080/snapshot`. See [CLAUDE.md](CLAUDE.md) for the working conventions, [ROADMAP.md](ROADMAP.md) for what is in flight, and [DECISIONS.md](DECISIONS.md) for the non-obvious trade-offs.
 
 Bug reports and feedback go to [GitHub Issues](https://github.com/MillionPiecePuzzle/MillionPiecePuzzle/issues).

@@ -17,6 +17,7 @@ export type ServerConfig = {
   wsRateTokensPerSec: number;
   wsRateBurst: number;
   wsBufferedAmountLimitBytes: number;
+  snapshotIntervalMs: number;
 };
 
 function int(name: string, fallback: number): number {
@@ -80,5 +81,6 @@ export async function loadConfig(): Promise<ServerConfig> {
     wsRateTokensPerSec: int("MPP_WS_RATE_TOKENS_PER_SEC", 200),
     wsRateBurst: int("MPP_WS_RATE_BURST", 400),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
+    snapshotIntervalMs: int("MPP_SNAPSHOT_INTERVAL_MS", 2000),
   };
 }
