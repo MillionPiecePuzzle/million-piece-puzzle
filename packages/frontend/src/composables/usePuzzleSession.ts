@@ -10,13 +10,22 @@ import type {
   SState,
   SWelcome,
   ServerMessage,
+  Snapshot,
 } from "@mpp/shared";
+import { PROTOCOL_VERSION } from "@mpp/shared";
 import { PuzzleWsClient } from "../canvas/wsClient";
 import { manifestUrlFor } from "../data/manifestUrl";
+import { snapshotUrl } from "../data/snapshotUrl";
 import { usePseudo } from "./usePseudo";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/";
 const ACTIVITY_LIMIT = 6;
+// Spectators fetch the snapshot on this cadence; matches the server publisher
+// default (`MPP_SNAPSHOT_INTERVAL_MS=2000`) and the edge `Cache-Control`
+// `max-age`, so a poll usually hits a freshly published body at the edge.
+const SPECTATOR_POLL_MS = 2000;
+
+export type Transport = "none" | "snapshot" | "ws";
 
 export type PuzzleSessionState =
   | { kind: "idle" }
@@ -34,6 +43,7 @@ export type PuzzleSessionState =
   | { kind: "error"; message: string };
 
 export type MessageHandler = (msg: ServerMessage) => void;
+export type SnapshotHandler = (snap: Snapshot) => void;
 
 export type ActivityEntry = {
   id: string;
@@ -48,26 +58,27 @@ const puzzleName = ref<string | null>(null);
 const totalPieces = ref(0);
 const lockedCount = ref(0);
 const activity = ref<ActivityEntry[]>([]);
-// Per-user contribution standings, populated on puzzle completion.
 const leaderboard = ref<LeaderboardEntry[]>([]);
+const transport = ref<Transport>("none");
 
 let client: PuzzleWsClient | null = null;
 let welcome: SWelcome | null = null;
 let manifest: ImageManifest | null = null;
-// The server sends `welcome` then `state` back-to-back. We await the manifest
-// fetch on welcome, so the state can land before manifest is ready. Buffer it
-// here and apply once the manifest resolves.
 let pendingState: SState | null = null;
 let started = false;
 let buildEpoch = 0;
 const handlers = new Set<MessageHandler>();
+const snapshotHandlers = new Set<SnapshotHandler>();
+
+// Spectator polling state
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollAbort: AbortController | null = null;
+let pollPuzzleId: string | null = null;
 
 function actorLabel(id: string): string {
   return id === userId.value ? "you" : id;
 }
 
-// Live snaps carry the snapper's pseudo, so the feed shows real names. The
-// backfill (applyActivity) has only user ids: pseudos are not persisted.
 function snapActor(msg: SSnap): string {
   if (msg.userId === userId.value) return "you";
   return msg.pseudo ?? msg.userId;
@@ -76,8 +87,6 @@ function snapActor(msg: SSnap): string {
 function recordSnap(msg: SSnap): void {
   const prev = lockedCount.value;
   lockedCount.value = msg.lockedCount;
-  // The feed tracks anchoring merges only: each entry is one snap that locked
-  // pieces to the frame, counted by how much the locked total advanced.
   if (!msg.anchored) return;
   const pieceCount = msg.lockedCount - prev;
   if (pieceCount <= 0) return;
@@ -114,10 +123,6 @@ function applyState(msg: SState): void {
   };
 }
 
-// protocol_mismatch means the client and server disagree on the wire format:
-// the session cannot recover, so it is fatal. Every other code is transient
-// (a denied grab, a stale optimistic drag, a disabled dev control) and must
-// keep the session alive instead of blanking the puzzle until the next cycle.
 function handleServerError(msg: SError): void {
   if (msg.code === "protocol_mismatch") {
     state.value = { kind: "error", message: `${msg.code}: ${msg.message}` };
@@ -153,15 +158,9 @@ async function loadManifestFor(puzzleId: string): Promise<void> {
 }
 
 async function handleWelcome(msg: SWelcome): Promise<void> {
-  // A second welcome on the same connection means the server cycled to the
-  // next puzzle. We treat both cases identically: reset local progress, load
-  // the new manifest, wait for the fresh state.
   welcome = msg;
   userId.value = msg.userId;
   lockedCount.value = msg.lockedCount;
-  // Re-attach the stored pseudo to this connection. Covers reconnects and
-  // puzzle cycles, where a fresh welcome lands on a connection the server no
-  // longer (or never) knew the pseudo of.
   const storedPseudo = usePseudo().pseudo.value;
   if (storedPseudo) client?.send({ t: "setPseudo", pseudo: storedPseudo });
   activity.value = [];
@@ -176,13 +175,11 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   }
 }
 
-async function start(): Promise<void> {
+async function startContributor(): Promise<void> {
   if (started) return;
   started = true;
+  transport.value = "ws";
   state.value = { kind: "connecting" };
-  // `||` (not `??`) so docker-compose's `VITE_WS_URL: "${VITE_WS_URL:-}"`
-  // empty-string default falls back to the local default instead of producing
-  // a relative URL that resolves to the Vite host.
   const wsUrl = import.meta.env.VITE_WS_URL || DEFAULT_WS_URL;
   client = new PuzzleWsClient(wsUrl);
   welcome = null;
@@ -225,13 +222,96 @@ async function start(): Promise<void> {
   client.connect();
 }
 
+// Spectator entry: poll GET /snapshot at the publisher cadence. The first
+// response drives the same state machine the WS path uses (synthetic welcome +
+// state), so PuzzleCanvas builds the stage exactly once. Subsequent polls of
+// the same puzzleId reach subscribers via onSnapshot() and are applied in
+// place by the stage. A puzzleId change resets manifest and welcome so the
+// state machine rebuilds cleanly, matching what a server puzzle cycle does on
+// the WS path.
+async function startSpectator(): Promise<void> {
+  if (started) return;
+  started = true;
+  transport.value = "snapshot";
+  state.value = { kind: "connecting" };
+  welcome = null;
+  manifest = null;
+  pollPuzzleId = null;
+
+  await fetchAndDispatch();
+  schedulePoll();
+}
+
+function schedulePoll(): void {
+  if (!started || transport.value !== "snapshot") return;
+  pollTimer = setTimeout(() => {
+    void fetchAndDispatch().finally(() => schedulePoll());
+  }, SPECTATOR_POLL_MS);
+}
+
+async function fetchAndDispatch(): Promise<void> {
+  if (!started || transport.value !== "snapshot") return;
+  pollAbort?.abort();
+  pollAbort = new AbortController();
+  let snap: Snapshot;
+  try {
+    const res = await fetch(snapshotUrl(), {
+      signal: pollAbort.signal,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      if (state.value.kind === "connecting") {
+        state.value = { kind: "error", message: `snapshot ${res.status}` };
+      }
+      return;
+    }
+    snap = (await res.json()) as Snapshot;
+  } catch (e) {
+    if ((e as Error).name === "AbortError") return;
+    if (state.value.kind === "connecting") {
+      state.value = { kind: "error", message: (e as Error).message };
+    }
+    return;
+  }
+
+  if (snap.puzzleId !== pollPuzzleId) {
+    pollPuzzleId = snap.puzzleId;
+    const synthetic: SWelcome = {
+      t: "welcome",
+      userId: "",
+      protocolVersion: PROTOCOL_VERSION,
+      puzzleId: snap.puzzleId,
+      lockedCount: snap.lockedCount,
+      playZone: snap.playZone,
+    };
+    await handleWelcome(synthetic);
+    if (manifest) {
+      applyState({ t: "state", pieces: snap.pieces, groups: snap.groups });
+    } else {
+      pendingState = { t: "state", pieces: snap.pieces, groups: snap.groups };
+    }
+    return;
+  }
+
+  lockedCount.value = snap.lockedCount;
+  for (const h of snapshotHandlers) h(snap);
+}
+
 function close(): void {
   client?.close();
   client = null;
+  if (pollTimer !== null) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+  pollAbort?.abort();
+  pollAbort = null;
+  pollPuzzleId = null;
   welcome = null;
   manifest = null;
   pendingState = null;
   started = false;
+  transport.value = "none";
   state.value = { kind: "idle" };
   userId.value = null;
   lockedCount.value = 0;
@@ -243,6 +323,11 @@ function close(): void {
 function onMessage(handler: MessageHandler): () => void {
   handlers.add(handler);
   return () => handlers.delete(handler);
+}
+
+function onSnapshot(handler: SnapshotHandler): () => void {
+  snapshotHandlers.add(handler);
+  return () => snapshotHandlers.delete(handler);
 }
 
 function sendGrab(groupId: number): void {
@@ -286,9 +371,12 @@ export function usePuzzleSession() {
     lockedCount,
     activity,
     leaderboard,
-    start,
+    transport,
+    startContributor,
+    startSpectator,
     close,
     onMessage,
+    onSnapshot,
     sendGrab,
     sendDrag,
     sendDrop,

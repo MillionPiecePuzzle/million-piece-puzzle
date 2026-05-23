@@ -400,6 +400,57 @@ export class PuzzleStage {
     this.onCameraChange?.(this.camera);
   }
 
+  // Apply a fresh snapshot (same puzzleId) without rebuilding the stage: update
+  // group positions and locked state in place, fold any merged groups into the
+  // surviving host (their pieces reparent), and drop groups that no longer
+  // exist. Used by spectator mode polling /snapshot. A held local cluster is
+  // skipped so an active drag is not yanked by an in-flight snapshot.
+  applySnapshot(pieces: PieceRuntime[], groups: GroupRuntime[]): void {
+    if (!this.world) return;
+    const snapGroupIds = new Set<number>();
+    for (const g of groups) snapGroupIds.add(g.id);
+
+    const targetByPiece = new Map<number, number>();
+    for (const p of pieces) targetByPiece.set(p.id, p.groupId);
+
+    for (const [pieceId, currentGid] of this.pieceToGroup) {
+      const targetGid = targetByPiece.get(pieceId);
+      if (targetGid === undefined || targetGid === currentGid) continue;
+      const host = this.groups.get(targetGid);
+      const from = this.groups.get(currentGid);
+      if (!host || !from) continue;
+      const piece = from.pieces.find((n) => n.id === pieceId);
+      if (!piece) continue;
+      from.container.removeChild(piece.container);
+      from.pieces = from.pieces.filter((n) => n.id !== pieceId);
+      piece.container.x = piece.geometry.canonicalOffset.x;
+      piece.container.y = piece.geometry.canonicalOffset.y;
+      host.container.addChild(piece.container);
+      host.pieces.push(piece);
+      this.pieceToGroup.set(pieceId, targetGid);
+    }
+
+    for (const [gid, node] of this.groups) {
+      if (snapGroupIds.has(gid)) continue;
+      node.container.destroy({ children: true });
+      this.groups.delete(gid);
+    }
+
+    for (const g of groups) {
+      const node = this.groups.get(g.id);
+      if (!node) continue;
+      if (this.held && this.held.groupId === g.id) continue;
+      node.localBounds = unionBounds(node.pieces.map((p) => p.localBounds));
+      const becameLocked = !node.locked && g.locked;
+      node.locked = g.locked;
+      this.moveGroup(node, g.worldX, g.worldY);
+      if (becameLocked) {
+        node.container.zIndex = Z_LOCKED;
+        this.applyGroupInteractivity(node);
+      }
+    }
+  }
+
   // ----- incoming server messages -----
 
   applyGrabOk(groupId: number, userId: string): void {

@@ -14,9 +14,11 @@ const {
   state,
   userId,
   leaderboard,
-  start,
+  startContributor,
+  startSpectator,
   close,
   onMessage,
+  onSnapshot,
   sendGrab,
   sendDrag,
   sendDrop,
@@ -31,6 +33,7 @@ let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
 let buildChain: Promise<void> = Promise.resolve();
 let unsubscribe: (() => void) | null = null;
+let unsubscribeSnapshot: (() => void) | null = null;
 const completed = ref(false);
 const modalVisible = ref(true);
 
@@ -184,7 +187,31 @@ onMounted(async () => {
   });
   setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
   unsubscribe = onMessage(routeMessage);
-  await start();
+  unsubscribeSnapshot = onSnapshot((snap) => {
+    stage?.applySnapshot(snap.pieces, snap.groups);
+    if (totalPieces.value > 0 && snap.lockedCount >= totalPieces.value) {
+      triggerCompletion(true);
+    }
+  });
+  if (mode.value === "contributor") {
+    await startContributor();
+  } else {
+    await startSpectator();
+  }
+});
+
+// Switch transport when the user signs in (spectator -> contributor). The
+// session tears down the polling loop and opens a WebSocket; the fresh
+// `welcome` then drives a clean rebuild on the same stage.
+watch(mode, async (next, prev) => {
+  if (next === prev) return;
+  close();
+  builtEpoch = 0;
+  if (next === "contributor") {
+    await startContributor();
+  } else {
+    await startSpectator();
+  }
 });
 
 async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Promise<void> {
@@ -222,6 +249,8 @@ watch(mode, (m) => {
 onBeforeUnmount(() => {
   unsubscribe?.();
   unsubscribe = null;
+  unsubscribeSnapshot?.();
+  unsubscribeSnapshot = null;
   if (viewportTimer !== null) {
     clearTimeout(viewportTimer);
     viewportTimer = null;
