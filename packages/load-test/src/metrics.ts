@@ -31,8 +31,7 @@ export class Histogram {
   }
 
   summary(): { count: number; p50: number; p95: number; p99: number; max: number } {
-    const max =
-      this.samples.length === 0 ? 0 : this.samples.reduce((m, v) => (v > m ? v : m), 0);
+    const max = this.samples.length === 0 ? 0 : this.samples.reduce((m, v) => (v > m ? v : m), 0);
     return {
       count: this.count(),
       p50: this.percentile(50),

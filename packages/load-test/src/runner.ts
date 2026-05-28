@@ -120,14 +120,22 @@ export class Runner {
     console.log("");
     console.log("=== load test result ===");
     console.log(`bots=${this.cfg.bots} duration=${this.cfg.durationMs}ms`);
-    console.log(`grabs sent=${m.grabSent.get()} ok=${m.grabOk.get()} denied=${m.grabDenied.get()} raceLost=${m.grabRaceLost.get()} timeouts=${m.grabTimeouts.get()}`);
+    console.log(
+      `grabs sent=${m.grabSent.get()} ok=${m.grabOk.get()} denied=${m.grabDenied.get()} raceLost=${m.grabRaceLost.get()} timeouts=${m.grabTimeouts.get()}`,
+    );
     console.log(`drags sent=${m.dragsSent.get()} drops sent=${m.dropsSent.get()}`);
-    console.log(`grab latency (ms): count=${lat.count} p50=${lat.p50} p95=${lat.p95} p99=${lat.p99} max=${lat.max}`);
-    console.log(`server errors=${m.serverErrors.get()} ws errors=${m.wsErrors.get()} ws closes=${m.wsCloses.get()} backpressure(1013)=${m.backpressureCloses.get()}`);
+    console.log(
+      `grab latency (ms): count=${lat.count} p50=${lat.p50} p95=${lat.p95} p99=${lat.p99} max=${lat.max}`,
+    );
+    console.log(
+      `server errors=${m.serverErrors.get()} ws errors=${m.wsErrors.get()} ws closes=${m.wsCloses.get()} backpressure(1013)=${m.backpressureCloses.get()}`,
+    );
     const verdict =
       m.backpressureCloses.get() === 0 &&
       m.wsErrors.get() === 0 &&
       m.serverErrors.get() < Math.max(1, m.grabSent.get() * 0.05);
-    console.log(`verdict: ${verdict ? "PASS" : "FAIL"} (no backpressure closes, no ws errors, <5% server errors)`);
+    console.log(
+      `verdict: ${verdict ? "PASS" : "FAIL"} (no backpressure closes, no ws errors, <5% server errors)`,
+    );
   }
 }
