@@ -139,7 +139,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 #### Closed-alpha feedback (first `main` deploy)
 
 - [x] `backend-realtime`: Scatter decorrelated from the solved image and kept out of the frame. The scatter randomizes the group origin, but pieces render at `origin + canonicalOffset` (the solved cell), so the shuffled board is the source image plus bounded jitter (sky pieces sit high, ground low). Exit: each piece's initial world position is sampled from a ring around the frame, independent of its solved cell; no piece body starts inside the frame interior.
-- [ ] `frontend-canvas`: Leaderboard empty state. Exit: the leaderboard panel shows a placeholder message when there are no standings instead of rendering blank.
+- [x] `frontend-canvas`: Leaderboard empty state. Exit: the leaderboard panel shows a placeholder message when there are no standings instead of rendering blank.
 - [ ] `frontend-canvas`: Reference panel opens enlarged on click. Exit: clicking the reference panel opens a larger dismissible view of the source image, restoring the panel on close.
 - [ ] `frontend-canvas`: Reset hides the previous board. Exit: on `dev_reset` the old puzzle is hidden behind a loading state until the new board is ready; no stale board is shown during the rebuild.
 - [ ] `frontend-shell` + `frontend-canvas`: Staged load with progress. Exit: arriving on `/play` shows explicit progress through the load states (connect, manifest, textures, ready) with a progress indicator; the board renders only when ready, never partially built.

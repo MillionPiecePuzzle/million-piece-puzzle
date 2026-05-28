@@ -24,12 +24,15 @@ const panelRows = computed(() => {
     <div class="lb-head">
       <h3>Leaderboard</h3>
     </div>
-    <ol class="lb-list">
-      <LeaderboardRow v-for="row in panelRows" :key="row.rank" :row="row" rank-width="18px" />
-    </ol>
-    <div class="lb-foot">
-      <button type="button" class="full-board" @click="showModal = true">full board</button>
-    </div>
+    <template v-if="panelRows.length > 0">
+      <ol class="lb-list">
+        <LeaderboardRow v-for="row in panelRows" :key="row.rank" :row="row" rank-width="18px" />
+      </ol>
+      <div class="lb-foot">
+        <button type="button" class="full-board" @click="showModal = true">full board</button>
+      </div>
+    </template>
+    <p v-else class="empty">No standings yet.</p>
   </aside>
 
   <LeaderboardModal v-if="showModal" @close="showModal = false" />
@@ -75,5 +78,11 @@ const panelRows = computed(() => {
 }
 .full-board:hover {
   border-bottom-color: var(--ink);
+}
+.empty {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
 }
 </style>
