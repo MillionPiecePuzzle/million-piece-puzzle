@@ -136,6 +136,23 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] `frontend-canvas`: Bug. The play zone is computed per client in `PuzzleStage.build` from the join-time `state`, so clients joining at different times derive different zones. Remote positions are applied unclamped, so a piece dragged to an early client's zone edge lands outside a late client's smaller zone (unreachable, in the dark backdrop), and camera limits and minimap extent diverge between clients. Exit: all clients enforce the same play zone for a given puzzle.
 - [x] `frontend-canvas`: Bug. The `watch(state)` callback in `PuzzleCanvas.vue` is async with no in-flight guard, so a `state` change during an unfinished `build()` (e.g. `dev_reset` mid texture load) interleaves two builds and orphans the previous puzzle's sprites on the canvas. Exit: a new build waits for or cancels the in-flight one; no stale sprites after a rapid state change.
 
+#### Closed-alpha feedback (first `main` deploy)
+
+- [x] `backend-realtime`: Scatter decorrelated from the solved image and kept out of the frame. The scatter randomizes the group origin, but pieces render at `origin + canonicalOffset` (the solved cell), so the shuffled board is the source image plus bounded jitter (sky pieces sit high, ground low). Exit: each piece's initial world position is sampled from a ring around the frame, independent of its solved cell; no piece body starts inside the frame interior.
+- [ ] `frontend-canvas`: Leaderboard empty state. Exit: the leaderboard panel shows a placeholder message when there are no standings instead of rendering blank.
+- [ ] `frontend-canvas`: Reference panel opens enlarged on click. Exit: clicking the reference panel opens a larger dismissible view of the source image, restoring the panel on close.
+- [ ] `frontend-canvas`: Reset hides the previous board. Exit: on `dev_reset` the old puzzle is hidden behind a loading state until the new board is ready; no stale board is shown during the rebuild.
+- [ ] `frontend-shell` + `frontend-canvas`: Staged load with progress. Exit: arriving on `/play` shows explicit progress through the load states (connect, manifest, textures, ready) with a progress indicator; the board renders only when ready, never partially built.
+
+#### Performance pulled forward from Phase 2
+
+Built as the real Phase 2 solution, not a stopgap, so none is thrown away at 1M scale. The Phase 2 items that stay deferred (viewport and write sharding) are blocked on the single-writer alpha topology, not on piece count.
+
+- [ ] `frontend-canvas`: Drag throttling. Coalesce drag broadcasts to one message per animation frame, sending the last point. Exit: at most one `drag` per frame per held cluster; sustained drag ingest drops from per-pointermove to per-frame with no added visible lag.
+- [ ] `backend-realtime`: Per-group dispatch queues replacing the global serial queue. Exit: messages for independent groups process concurrently while per-group order is preserved and the merge/anchor read-modify-write stays serialized per group.
+- [ ] `frontend-canvas`: Zoom-out level of detail via render-to-texture. Exit: past a zoom-out threshold the board renders from a periodically refreshed low-res render texture instead of per-piece masked sprites; the fully zoomed-out view stays smooth at 10 000 pieces.
+- [ ] `backend-realtime`: Per-IP rate limit extending the per-connection token bucket. Exit: a single IP cannot exceed configured connection and message budgets regardless of how many sessions it opens.
+
 ---
 
 ## Phase 2, Public 1M
@@ -158,14 +175,14 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [ ] Auth modal wires Auth.js providers
 
 ### `frontend-canvas`
-- [ ] Zoom-out LOD uses aggregated tiles instead of per-piece sprites
+- [ ] Zoom-out LOD scales to 1M: move from the Phase 1 render-texture LOD to pipeline aggregated tiles if render-texture does not hold at full scale
 - [ ] Rendering stays smooth on commodity hardware at 1M pieces
 - [ ] Event-start cascade entrance: synchronized across clients at `eventStartsAt`, pieces fall into their shuffled positions, late joiners skip it
 
 ### `backend-realtime`
 - [ ] Viewport sharding for broadcasts at scale
 - [ ] Snapshot cadence tuned for CDN cost vs freshness
-- [ ] Basic anti-abuse (rate limiting per session)
+- [ ] Anti-abuse for public traffic beyond the Phase 1 per-IP rate limit
 
 ### `auth-and-accounts`
 - [ ] Auth.js wired with Google, Apple, and Reddit providers
