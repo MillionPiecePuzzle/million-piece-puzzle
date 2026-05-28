@@ -12,7 +12,7 @@ import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
 import { GRID_WORLD_CELL } from "@mpp/shared";
 
-const { camera } = useStageControls();
+const { camera, ready } = useStageControls();
 
 // Drive the CSS hairline grid from world space: one cell is GRID_WORLD_CELL
 // world units, so the grid scales and pans with the canvas. The play zone is
@@ -31,15 +31,17 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
     <TopBar />
     <main class="stage" aria-label="Puzzle stage" :style="backdropVars">
       <PuzzleCanvas />
-      <ZoomControls />
-      <ActivityTicker />
-      <LeaderboardPanel />
-      <ReferencePanel />
-      <div class="corner-stack">
-        <ContributeFab />
-        <MiniMap />
-      </div>
-      <DevControls v-if="devButtonsEnabled" />
+      <template v-if="ready">
+        <ZoomControls />
+        <ActivityTicker />
+        <LeaderboardPanel />
+        <ReferencePanel />
+        <div class="corner-stack">
+          <ContributeFab />
+          <MiniMap />
+        </div>
+        <DevControls v-if="devButtonsEnabled" />
+      </template>
     </main>
   </div>
 </template>

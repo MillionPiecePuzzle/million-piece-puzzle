@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
@@ -25,7 +25,7 @@ const {
   sendViewport,
   sendCursor,
 } = usePuzzleSession();
-const { setControls, setCamera } = useStageControls();
+const { setControls, setCamera, setReady } = useStageControls();
 const { setMinimapSource } = useMinimap();
 const { mode } = useMode();
 
@@ -86,6 +86,10 @@ const isTexturePhase = computed(() => loadPhase.value === "textures");
 const errorMessage = computed(() => (state.value.kind === "error" ? state.value.message : null));
 
 const showStatus = computed(() => state.value.kind !== "ready" || building.value);
+
+// Publish playability to the shell so it can hide overlay panels until the
+// board is on screen. Tracks the loading cover exactly (inverse of showStatus).
+watchEffect(() => setReady(!showStatus.value));
 
 const totalPieces = computed(() =>
   state.value.kind === "ready" || state.value.kind === "syncing"
@@ -306,6 +310,7 @@ onBeforeUnmount(() => {
     cursorTimer = null;
   }
   setControls(null);
+  setReady(false);
   setMinimapSource(null);
   close();
   stage?.destroy();
