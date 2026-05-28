@@ -41,6 +41,10 @@ onMounted(() => {
     visibilityRatio: 1,
     minZoomImageRatio: 1,
     maxZoomPixelRatio: 2,
+    // Context2d drawer rather than the default WebGL one: this static thumbnail
+    // shares the page with the PixiJS stage's WebGL context, and the webgl
+    // drawer's tile texture uploads fail (blank panel) under that contention.
+    drawer: "canvas",
   });
   watch(
     state,
@@ -60,25 +64,27 @@ onBeforeUnmount(() => {
 <template>
   <aside class="panel reference">
     <h3>Reference</h3>
-    <button
-      type="button"
-      class="preview"
-      :disabled="!currentManifest"
-      aria-label="Open enlarged reference"
-      @click="openModal"
-    >
+    <div class="preview">
       <div ref="host" class="osd" :style="{ aspectRatio }" />
-      <span class="expand" aria-hidden="true">
-        <svg viewBox="0 0 16 16" fill="none">
-          <path
-            d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
-            stroke="currentColor"
-            stroke-width="1.4"
-            stroke-linecap="round"
-          />
-        </svg>
-      </span>
-    </button>
+      <button
+        type="button"
+        class="open"
+        :disabled="!currentManifest"
+        aria-label="Open enlarged reference"
+        @click="openModal"
+      >
+        <span class="expand" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path
+              d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
+          </svg>
+        </span>
+      </button>
+    </div>
   </aside>
 
   <ReferenceModal
@@ -100,15 +106,6 @@ onBeforeUnmount(() => {
 }
 .preview {
   position: relative;
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-}
-.preview:disabled {
-  cursor: default;
 }
 .osd {
   position: relative;
@@ -116,7 +113,21 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border-radius: var(--radius-row);
   background: var(--ground-2);
-  pointer-events: none;
+}
+/* Transparent click target laid over the viewer. The OSD host is kept a sibling
+   of the button rather than its child: nesting the viewer inside a <button>
+   leaves its canvas blank (a button is not a normal containing block for the
+   drawer's canvas). */
+.open {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.open:disabled {
+  cursor: default;
 }
 .expand {
   position: absolute;
@@ -138,8 +149,8 @@ onBeforeUnmount(() => {
   height: 14px;
   display: block;
 }
-.preview:hover:not(:disabled) .expand,
-.preview:focus-visible .expand {
+.open:hover:not(:disabled) .expand,
+.open:focus-visible .expand {
   opacity: 1;
 }
 </style>

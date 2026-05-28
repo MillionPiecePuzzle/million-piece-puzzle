@@ -11,42 +11,25 @@ import type { RedisState, PuzzleMeta } from "./state.js";
 
 const SCATTER_DOMAIN = 2;
 
-// Outer bound of the scatter ring as a multiple of the frame, centered on the
-// frame. Pieces are scattered in the band between the frame and this rectangle.
-const SCATTER_RING_SCALE = 2;
+// Outer bound of the elliptical scatter halo, as a multiple of the clear
+// rectangle (the frame grown by half a piece). The halo shares the frame
+// aspect ratio so the cloud reads as an oval around the assembly area, not a
+// rectangular ring. Must be >= sqrt(2) so the outer ellipse fully encloses the
+// clear rectangle, leaving a valid ring at every angle; larger spaces pieces
+// further apart.
+const SCATTER_HALO_SCALE = 2.6;
 
-type Rect = { minX: number; minY: number; maxX: number; maxY: number };
+// Distance from the frame center to the clear rectangle (half-extents ax, ay)
+// along the unit ray (dx, dy). A body centered at or beyond this distance never
+// overlaps the frame interior.
+function rayToRect(ax: number, ay: number, dx: number, dy: number): number {
+  return 1 / Math.max(Math.abs(dx) / ax, Math.abs(dy) / ay);
+}
 
-const rectArea = (r: Rect): number => (r.maxX - r.minX) * (r.maxY - r.minY);
-
-const sampleRect = (r: Rect, rng: () => number): { x: number; y: number } => ({
-  x: r.minX + rng() * (r.maxX - r.minX),
-  y: r.minY + rng() * (r.maxY - r.minY),
-});
-
-// The ring between the frame and the frame scaled by SCATTER_RING_SCALE about
-// its center, as four non-overlapping bands. A body placed in any band clears
-// the frame interior, so the assembly area stays empty.
-function scatterRing(frameW: number, frameH: number, pieceSize: number) {
-  const cx = frameW / 2;
-  const cy = frameH / 2;
-  const outer: Rect = {
-    minX: cx - (frameW * SCATTER_RING_SCALE) / 2,
-    minY: cy - (frameH * SCATTER_RING_SCALE) / 2,
-    maxX: cx + (frameW * SCATTER_RING_SCALE) / 2,
-    maxY: cy + (frameH * SCATTER_RING_SCALE) / 2,
-  };
-  // Frame interior to exclude. The left and top edges are pulled out by one
-  // piece size so a body placed against them (it extends right and down) still
-  // clears the frame; the right and bottom edges sit on the frame, since a body
-  // there already extends away from it.
-  const inner: Rect = { minX: -pieceSize, minY: -pieceSize, maxX: frameW, maxY: frameH };
-  return {
-    top: { minX: outer.minX, minY: outer.minY, maxX: outer.maxX, maxY: inner.minY },
-    bottom: { minX: outer.minX, minY: inner.maxY, maxX: outer.maxX, maxY: outer.maxY },
-    left: { minX: outer.minX, minY: inner.minY, maxX: inner.minX, maxY: inner.maxY },
-    right: { minX: inner.maxX, minY: inner.minY, maxX: outer.maxX, maxY: inner.maxY },
-  };
+// Distance from the frame center to the halo ellipse (semi-axes ex, ey) along
+// the unit ray (dx, dy).
+function rayToEllipse(ex: number, ey: number, dx: number, dy: number): number {
+  return 1 / Math.sqrt((dx * dx) / (ex * ex) + (dy * dy) / (ey * ey));
 }
 
 // The deterministic initial layout: the generated geometry plus each piece's
@@ -64,33 +47,45 @@ export function scatteredLayout(manifest: ImageManifest) {
   const scatterRng = mulberry32(subseed(base, SCATTER_DOMAIN, 0, 0));
   const worldW = geom.cols * geom.pieceSize;
   const worldH = geom.rows * geom.pieceSize;
-  const ring = scatterRing(worldW, worldH, geom.pieceSize);
-  const aTop = rectArea(ring.top);
-  const aBottom = rectArea(ring.bottom);
-  const aLeft = rectArea(ring.left);
-  const total = aTop + aBottom + aLeft + rectArea(ring.right);
+  const half = geom.pieceSize / 2;
+  const cx = worldW / 2;
+  const cy = worldH / 2;
+  // Clear rectangle: the frame grown by half a piece, plus one world unit to
+  // absorb floating-point error at the ring's inner edge. A body centered
+  // beyond it cannot overlap the frame interior.
+  const ax = cx + half + 1;
+  const ay = cy + half + 1;
+  // Halo ellipse sharing the clear rectangle's aspect, scaled out so it always
+  // encloses it.
+  const ex = ax * SCATTER_HALO_SCALE;
+  const ey = ay * SCATTER_HALO_SCALE;
   const placements = geom.pieces.map((piece) => {
-    // Pick a band by area, then a uniform point in it. The point is the piece
-    // body (origin + canonicalOffset); the group origin is backed out from it.
-    // Randomizing the body rather than the origin decorrelates the scatter from
-    // the solved layout: pieces render at origin + canonicalOffset, and
-    // canonicalOffset is the solved cell, so randomizing the origin alone leaves
-    // the solved image in place.
-    const pick = scatterRng() * total;
-    const band =
-      pick < aTop
-        ? ring.top
-        : pick < aTop + aBottom
-          ? ring.bottom
-          : pick < aTop + aBottom + aLeft
-            ? ring.left
-            : ring.right;
-    const body = sampleRect(band, scatterRng);
+    // Sample the piece body (origin + canonicalOffset) in the elliptical ring
+    // around the frame, then back out the group origin. Randomizing the body
+    // rather than the origin decorrelates the scatter from the solved layout:
+    // pieces render at origin + canonicalOffset, and canonicalOffset is the
+    // solved cell, so randomizing the origin alone leaves the solved image in
+    // place.
+    const theta = scatterRng() * Math.PI * 2;
+    const dx = Math.cos(theta);
+    const dy = Math.sin(theta);
+    const rInner = rayToRect(ax, ay, dx, dy);
+    const rOuter = rayToEllipse(ex, ey, dx, dy);
+    // Area-uniform radius across the ring so density does not pile up against
+    // the frame edge. Clamped to rInner so float rounding never pulls a body
+    // back inside the clear rectangle.
+    const u = scatterRng();
+    const r = Math.max(
+      rInner,
+      Math.sqrt(rInner * rInner + u * (rOuter * rOuter - rInner * rInner)),
+    );
+    const bodyX = cx + r * dx;
+    const bodyY = cy + r * dy;
     return {
       id: piece.id,
       canonicalOffset: piece.canonicalOffset,
-      worldX: body.x - piece.canonicalOffset.x,
-      worldY: body.y - piece.canonicalOffset.y,
+      worldX: bodyX - half - piece.canonicalOffset.x,
+      worldY: bodyY - half - piece.canonicalOffset.y,
     };
   });
   return { geom, worldW, worldH, placements };

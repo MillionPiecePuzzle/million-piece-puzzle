@@ -36,6 +36,14 @@ let unsubscribe: (() => void) | null = null;
 let unsubscribeSnapshot: (() => void) | null = null;
 const completed = ref(false);
 const modalVisible = ref(true);
+// True while a build() is rebuilding the board for a new epoch. Keeps the
+// loading cover up across the syncing -> ready transition and through the async
+// texture load, so the previous board is hidden until the new one is rendered.
+const building = ref(false);
+// Count of piece textures fetched so far in the in-flight build, driving the
+// determinate progress bar of the "textures" phase. Reset at the start of each
+// build; the total is `totalPieces`.
+const textureLoaded = ref(0);
 
 function triggerCompletion(playSpectacle: boolean): void {
   if (completed.value || !stage) return;
@@ -44,25 +52,49 @@ function triggerCompletion(playSpectacle: boolean): void {
   stage.startConfetti();
 }
 
-const STATUS_LABELS: Record<PuzzleSessionState["kind"], string> = {
-  idle: "Idle",
-  connecting: "Connecting to server",
-  "loading-manifest": "Loading manifest",
-  syncing: "Syncing state",
+// The four staged-load phases shown to the player. Session states collapse onto
+// these: connect (idle/connecting), manifest (loading-manifest/syncing, i.e.
+// fetching the manifest and the initial piece state), textures (the async
+// texture load inside build()), ready (board on screen).
+type LoadPhase = "connect" | "manifest" | "textures" | "ready";
+
+const LOAD_PHASES: { key: LoadPhase; label: string }[] = [
+  { key: "connect", label: "Connect" },
+  { key: "manifest", label: "Manifest" },
+  { key: "textures", label: "Textures" },
+  { key: "ready", label: "Ready" },
+];
+
+const PHASE_HEADINGS: Record<LoadPhase, string> = {
+  connect: "Connecting to server",
+  manifest: "Loading puzzle data",
+  textures: "Loading textures",
   ready: "Ready",
-  error: "Error",
 };
 
-const statusLabel = computed(() => STATUS_LABELS[state.value.kind]);
+const loadPhase = computed<LoadPhase>(() => {
+  const k = state.value.kind;
+  if (k === "ready") return building.value ? "textures" : "ready";
+  if (k === "loading-manifest" || k === "syncing") return "manifest";
+  return "connect";
+});
+
+const phaseIndex = computed(() => LOAD_PHASES.findIndex((p) => p.key === loadPhase.value));
+const phaseHeading = computed(() => PHASE_HEADINGS[loadPhase.value]);
+const isTexturePhase = computed(() => loadPhase.value === "textures");
 
 const errorMessage = computed(() => (state.value.kind === "error" ? state.value.message : null));
 
-const showStatus = computed(() => state.value.kind !== "ready");
+const showStatus = computed(() => state.value.kind !== "ready" || building.value);
 
 const totalPieces = computed(() =>
   state.value.kind === "ready" || state.value.kind === "syncing"
     ? state.value.manifest.pieces.length
     : 0,
+);
+
+const textureProgress = computed(() =>
+  totalPieces.value > 0 ? Math.round((textureLoaded.value / totalPieces.value) * 100) : 0,
 );
 
 const leaderboardRows = computed(() => toLeaderboardRows(leaderboard.value, userId.value));
@@ -223,7 +255,10 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   }
   builtEpoch = s.epoch;
   stage.setLocalUserId(userId.value);
-  await stage.build(s.manifest, s.pieces, s.groups, s.welcome.playZone);
+  textureLoaded.value = 0;
+  await stage.build(s.manifest, s.pieces, s.groups, s.welcome.playZone, (loaded) => {
+    textureLoaded.value = loaded;
+  });
   stage.setMode(mode.value);
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
     triggerCompletion(false);
@@ -235,11 +270,22 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
 // build waits for the in-flight one: otherwise the earlier build finishes
 // adding sprites after the newer build's clearWorld() ran, orphaning the
 // previous puzzle on the canvas.
+//
+// `building` is raised here, synchronously with the ready transition, so the
+// loading cover never blinks off between `state` becoming ready and the build
+// actually starting. It is lowered only once the latest ready epoch is on the
+// canvas, so the cover spans the async texture load too.
 watch(state, (s) => {
   if (s.kind !== "ready") return;
+  if (stage && s.epoch !== builtEpoch) building.value = true;
   buildChain = buildChain
     .then(() => buildStage(s))
-    .catch((err) => console.error("[canvas] stage build failed", err));
+    .catch((err) => console.error("[canvas] stage build failed", err))
+    .finally(() => {
+      if (state.value.kind === "ready" && state.value.epoch === builtEpoch) {
+        building.value = false;
+      }
+    });
 });
 
 watch(mode, (m) => {
@@ -269,9 +315,34 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="host" class="canvas-host">
-    <div v-if="showStatus" class="status" role="status">
-      <p class="kicker">Status</p>
-      <p class="value">{{ statusLabel }}</p>
+    <div v-if="showStatus" class="status" role="status" aria-live="polite">
+      <p class="kicker">{{ errorMessage ? "Error" : "Loading" }}</p>
+      <p class="value">{{ errorMessage ? "Could not load the puzzle" : phaseHeading }}</p>
+      <template v-if="!errorMessage">
+        <ol class="steps" aria-hidden="true">
+          <li
+            v-for="(phase, i) in LOAD_PHASES"
+            :key="phase.key"
+            :class="{ done: i < phaseIndex, active: i === phaseIndex }"
+          >
+            <span class="dot" />
+            <span class="step-label">{{ phase.label }}</span>
+          </li>
+        </ol>
+        <div
+          class="progress"
+          :class="{ indeterminate: !isTexturePhase }"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="isTexturePhase ? textureProgress : undefined"
+        >
+          <div class="bar" :style="isTexturePhase ? { width: textureProgress + '%' } : undefined" />
+        </div>
+        <p v-if="isTexturePhase" class="detail">
+          {{ textureLoaded.toLocaleString() }} / {{ totalPieces.toLocaleString() }} textures
+        </p>
+      </template>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
     <Transition name="completion">
@@ -335,7 +406,11 @@ onBeforeUnmount(() => {
   place-content: center;
   text-align: center;
   color: var(--ink-3);
-  pointer-events: none;
+  /* Opaque cover (matching the stage backdrop) so the previous board is hidden
+     during a rebuild, and pointer-events block grabs on the board being torn
+     down underneath. */
+  background: radial-gradient(circle at 50% 40%, #faf7f0 0%, #efeadd 70%, #e7e1d1 100%);
+  pointer-events: auto;
 }
 .status .kicker {
   margin: 0 0 4px;
@@ -357,6 +432,93 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: oklch(0.55 0.18 30);
   max-width: 480px;
+}
+.steps {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  transition: color 200ms ease;
+}
+.steps .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-4);
+  background: transparent;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease;
+}
+.steps li.done {
+  color: var(--ink-3);
+}
+.steps li.done .dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.steps li.active {
+  color: var(--ink);
+}
+.steps li.active .dot {
+  border-color: var(--accent);
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.progress {
+  position: relative;
+  margin-top: 20px;
+  width: 280px;
+  max-width: calc(100vw - 64px);
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  overflow: hidden;
+}
+.progress .bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+.progress.indeterminate .bar {
+  width: 40%;
+  animation: bar-slide 1.1s ease-in-out infinite;
+}
+@keyframes bar-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(280%);
+  }
+}
+.detail {
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
 }
 .completion-modal {
   position: absolute;

@@ -230,6 +230,7 @@ export class PuzzleStage {
     initialPieces: PieceRuntime[],
     initialGroups: GroupRuntime[],
     playZone: PlayZone,
+    onTextureProgress?: (loaded: number, total: number) => void,
   ): Promise<void> {
     if (!this.app || !this.world) throw new Error("stage not mounted");
     const geom = generatePuzzle({
@@ -241,7 +242,7 @@ export class PuzzleStage {
     const geomById = new Map<number, PieceGeometry>(geom.pieces.map((p) => [p.id, p]));
 
     const base = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
-    const textures = await loadTextures(manifest, base);
+    const textures = await loadTextures(manifest, base, onTextureProgress);
 
     this.worldSize = {
       w: geom.cols * geom.pieceSize,
@@ -1093,8 +1094,15 @@ function buildPieceNode(
   };
 }
 
-async function loadTextures(manifest: ImageManifest, base: string): Promise<Map<number, Texture>> {
+async function loadTextures(
+  manifest: ImageManifest,
+  base: string,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Map<number, Texture>> {
   const out = new Map<number, Texture>();
+  const total = manifest.pieces.length;
+  let loaded = 0;
+  onProgress?.(0, total);
   const entries = await Promise.all(
     manifest.pieces.map(async (p) => {
       const url = joinUrl(base, p.file);
@@ -1104,6 +1112,9 @@ async function loadTextures(manifest: ImageManifest, base: string): Promise<Map<
       } catch (e) {
         console.warn("[stage] failed to load", url, e);
         return null;
+      } finally {
+        loaded += 1;
+        onProgress?.(loaded, total);
       }
     }),
   );

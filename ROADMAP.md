@@ -141,8 +141,12 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] `backend-realtime`: Scatter decorrelated from the solved image and kept out of the frame. The scatter randomizes the group origin, but pieces render at `origin + canonicalOffset` (the solved cell), so the shuffled board is the source image plus bounded jitter (sky pieces sit high, ground low). Exit: each piece's initial world position is sampled from a ring around the frame, independent of its solved cell; no piece body starts inside the frame interior.
 - [x] `frontend-canvas`: Leaderboard empty state. Exit: the leaderboard panel shows a placeholder message when there are no standings instead of rendering blank.
 - [x] `frontend-canvas`: Reference panel opens enlarged on click. Exit: clicking the reference panel opens a larger dismissible view of the source image with full-resolution Deep Zoom (OSD/DZI), restoring the panel on close.
-- [ ] `frontend-canvas`: Reset hides the previous board. Exit: on `dev_reset` the old puzzle is hidden behind a loading state until the new board is ready; no stale board is shown during the rebuild.
-- [ ] `frontend-shell` + `frontend-canvas`: Staged load with progress. Exit: arriving on `/play` shows explicit progress through the load states (connect, manifest, textures, ready) with a progress indicator; the board renders only when ready, never partially built.
+- [x] `backend-realtime`: Scatter shaped as an oval and spread out more. Exit: the initial scatter forms an elliptical cloud sharing the frame aspect, spaced wider than the rectangular ring, with no piece body inside the frame interior.
+- [x] `frontend-canvas`: Reference modal centered with a fixed border and reduced drag elasticity. Exit: the enlarged reference opens centered (fit on open) with a fixed border; OpenSeadragon pan/zoom is constrained to the image with a stiffer spring, leaving only a small glide and no overscroll bounce.
+- [x] `frontend-canvas`: Reset hides the previous board. Exit: on `dev_reset` the old puzzle is hidden behind a loading state until the new board is ready; no stale board is shown during the rebuild.
+- [x] `frontend-shell` + `frontend-canvas`: Staged load with progress. Exit: arriving on `/play` shows explicit progress through the load states (connect, manifest, textures, ready) with a progress indicator; the board renders only when ready, never partially built.
+- [x] `frontend-canvas`: Reference views render reliably next to the WebGL stage. Exit: the sidebar reference thumbnail and the enlarged modal both show the source image when the play page is loaded, instead of a blank viewer.
+- [x] `frontend-canvas`: Reference modal centered in the play zone with even margins. Exit: the enlarged reference window is centered within the play area below the header, with equal spacing on the left, right, top, and bottom.
 
 #### Performance pulled forward from Phase 2
 

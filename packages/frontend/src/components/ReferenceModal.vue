@@ -35,9 +35,23 @@ onMounted(() => {
     element: host.value,
     showNavigationControl: false,
     visibilityRatio: 1,
+    // Keep the image fitted inside the modal and snap to that fit the moment it
+    // loads, so the reference always opens centered.
+    homeFillsViewer: false,
+    // Snappier than the default spring: constrain panning to the image bounds
+    // (no overscroll bounce) and stiffen the motion so the drag has only a
+    // small glide left.
+    constrainDuringPan: true,
+    animationTime: 0.4,
+    springStiffness: 10,
     minZoomImageRatio: 0.9,
     maxZoomPixelRatio: 2,
+    // Context2d drawer rather than the default WebGL one: the page already runs
+    // the PixiJS stage's WebGL context, and the webgl drawer's tile texture
+    // uploads fail (blank viewer) under that contention.
+    drawer: "canvas",
   });
+  viewer.addHandler("open", () => viewer?.viewport.goHome(true));
   viewer.open(dziUrlFor(props.manifest) as unknown as OpenSeadragon.TileSourceSpecifier);
   window.addEventListener("keydown", onKey);
 });
@@ -88,18 +102,24 @@ onBeforeUnmount(() => {
 <style scoped>
 .backdrop {
   position: fixed;
-  inset: 0;
+  /* Cover the play zone only (below the 52px TopBar), so the window centers in
+     the play area rather than the whole viewport. */
+  inset: 52px 0 0 0;
   z-index: 60;
   display: grid;
   place-items: center;
+  /* One uniform value on all four sides, so the gap around the window is equal
+     left/right and top/bottom. */
+  padding: clamp(24px, 5vmin, 56px);
   background: rgba(21, 20, 15, 0.6);
   backdrop-filter: blur(2px);
 }
 .shell {
   position: relative;
-  width: min(92vw, 1400px);
-  height: 90vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
+  border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--ground-2);
   box-shadow: var(--shadow-panel);
