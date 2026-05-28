@@ -1,14 +1,24 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import OpenSeadragon from "openseadragon";
 import type { ImageManifest } from "@mpp/shared";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
+import ReferenceModal from "./ReferenceModal.vue";
 
 const { state } = usePuzzleSession();
 
 const host = ref<HTMLDivElement | null>(null);
 const aspectRatio = ref("16 / 9");
+const showModal = ref(false);
+
+const currentManifest = computed(() =>
+  state.value.kind === "ready" || state.value.kind === "syncing" ? state.value.manifest : null,
+);
+
+function openModal(): void {
+  if (currentManifest.value) showModal.value = true;
+}
 
 let viewer: OpenSeadragon.Viewer | null = null;
 let openedPuzzleId: string | null = null;
@@ -27,6 +37,7 @@ onMounted(() => {
   viewer = OpenSeadragon({
     element: host.value,
     showNavigationControl: false,
+    mouseNavEnabled: false,
     visibilityRatio: 1,
     minZoomImageRatio: 1,
     maxZoomPixelRatio: 2,
@@ -49,8 +60,32 @@ onBeforeUnmount(() => {
 <template>
   <aside class="panel reference">
     <h3>Reference</h3>
-    <div ref="host" class="osd" :style="{ aspectRatio }" />
+    <button
+      type="button"
+      class="preview"
+      :disabled="!currentManifest"
+      aria-label="Open enlarged reference"
+      @click="openModal"
+    >
+      <div ref="host" class="osd" :style="{ aspectRatio }" />
+      <span class="expand" aria-hidden="true">
+        <svg viewBox="0 0 16 16" fill="none">
+          <path
+            d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
+      </span>
+    </button>
   </aside>
+
+  <ReferenceModal
+    v-if="showModal && currentManifest"
+    :manifest="currentManifest"
+    @close="showModal = false"
+  />
 </template>
 
 <style scoped>
@@ -63,11 +98,48 @@ onBeforeUnmount(() => {
 .reference h3 {
   margin-bottom: 8px;
 }
+.preview {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.preview:disabled {
+  cursor: default;
+}
 .osd {
   position: relative;
   width: 100%;
   overflow: hidden;
   border-radius: var(--radius-row);
   background: var(--ground-2);
+  pointer-events: none;
+}
+.expand {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-panel);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.expand svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.preview:hover:not(:disabled) .expand,
+.preview:focus-visible .expand {
+  opacity: 1;
 }
 </style>
