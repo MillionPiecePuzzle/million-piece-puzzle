@@ -14,7 +14,7 @@ RUN npm run build -w @mpp/shared \
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-ENV MPP_PUZZLE_ID=alpha-3
+ENV MPP_PUZZLE_ID=test-puzzle-10k
 ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
 ENV MPP_DEV_ENABLED=1
 

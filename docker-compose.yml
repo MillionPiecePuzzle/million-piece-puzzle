@@ -29,7 +29,7 @@ services:
       MPP_REDIS_URL: "redis://redis:6379"
       MPP_MONGO_URL: "mongodb://mongo:27017"
       MPP_MONGO_DB: "mpp"
-      MPP_PUZZLE_ID: "${MPP_PUZZLE_ID:-alpha-3}"
+      MPP_PUZZLE_ID: "${MPP_PUZZLE_ID:-test-puzzle-10k}"
       MPP_ASSETS_BASE_URL: "${MPP_ASSETS_BASE_URL:-https://assets.millionpiecepuzzle.com}"
       # Comma-separated list of allowed Origin headers. Unset = wildcard (dev
       # only, with a boot warning). Set to your frontend origin(s) in prod.
