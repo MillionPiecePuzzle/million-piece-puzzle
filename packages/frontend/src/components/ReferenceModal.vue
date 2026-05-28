@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import OpenSeadragon from "openseadragon";
 import type { ImageManifest } from "@mpp/shared";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
@@ -9,6 +9,8 @@ const emit = defineEmits<{ close: [] }>();
 
 const host = ref<HTMLDivElement | null>(null);
 let viewer: OpenSeadragon.Viewer | null = null;
+
+const aspectRatio = computed(() => `${props.manifest.source.width / props.manifest.source.height}`);
 
 function dziUrlFor(manifest: ImageManifest): string {
   return manifestBaseUrl(manifestUrlFor(manifest.puzzleId)) + manifest.source.dzi;
@@ -21,8 +23,13 @@ function zoomBy(factor: number): void {
   vp.applyConstraints();
 }
 
-function fit(): void {
-  viewer?.viewport?.goHome();
+// Rest at the maximum zoom-out (minZoomImageRatio below) so the image sits
+// inside the viewer with a visible border all around, rather than filling it.
+function fit(immediate = false): void {
+  const vp = viewer?.viewport;
+  if (!vp) return;
+  vp.goHome(true);
+  vp.zoomTo(vp.getMinZoom(), undefined, immediate);
 }
 
 function onKey(e: KeyboardEvent): void {
@@ -51,7 +58,7 @@ onMounted(() => {
     // uploads fail (blank viewer) under that contention.
     drawer: "canvas",
   });
-  viewer.addHandler("open", () => viewer?.viewport.goHome(true));
+  viewer.addHandler("open", () => fit(true));
   viewer.open(dziUrlFor(props.manifest) as unknown as OpenSeadragon.TileSourceSpecifier);
   window.addEventListener("keydown", onKey);
 });
@@ -65,7 +72,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="backdrop" @click.self="emit('close')">
-    <div class="shell" role="dialog" aria-modal="true" aria-label="Reference image">
+    <div
+      class="shell"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reference image"
+      :style="{ '--ar': aspectRatio }"
+    >
       <button type="button" class="close" aria-label="Close" @click="emit('close')">&times;</button>
       <div ref="host" class="osd-large" />
       <div class="zoom">
@@ -84,7 +97,7 @@ onBeforeUnmount(() => {
             <path d="M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
           </svg>
         </button>
-        <button type="button" aria-label="Fit to view" @click="fit">
+        <button type="button" aria-label="Fit to view" @click="fit()">
           <svg class="ic" viewBox="0 0 16 16" fill="none">
             <path
               d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
@@ -113,11 +126,19 @@ onBeforeUnmount(() => {
   padding: clamp(24px, 5vmin, 56px);
   background: rgba(21, 20, 15, 0.6);
   backdrop-filter: blur(2px);
+  /* Size container so the shell can compute the largest image-ratio box that
+     fits the padded play zone, using cqw/cqh below. */
+  container-type: size;
 }
 .shell {
   position: relative;
-  width: 100%;
-  height: 100%;
+  /* Hug the reference image: the largest box at the image aspect ratio that
+     fits both the available width and height, so there are no empty side bands. */
+  aspect-ratio: var(--ar);
+  width: min(100cqw, calc(100cqh * var(--ar)));
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 14px;
