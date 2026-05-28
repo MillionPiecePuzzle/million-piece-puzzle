@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @mpp/shared && npm run build -w @mpp/server && npm run build -w @mpp/frontend",
-    "typecheck": "npm run build -w @mpp/shared && npm run typecheck -w @mpp/server && npm run typecheck -w @mpp/frontend",
+    "typecheck": "npm run build -w @mpp/shared && npm run typecheck -w @mpp/server && npm run typecheck -w @mpp/frontend && npm run typecheck -w @mpp/load-test",
     "clean": "npm run clean --workspaces --if-present",
     "dev:frontend": "npm run dev -w @mpp/frontend",
     "dev:server": "npm run dev -w @mpp/server",
