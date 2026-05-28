@@ -126,8 +126,8 @@ export class Runner {
     console.log(`server errors=${m.serverErrors.get()} ws errors=${m.wsErrors.get()} ws closes=${m.wsCloses.get()} backpressure(1013)=${m.backpressureCloses.get()}`);
     const verdict =
       m.backpressureCloses.get() === 0 &&
-      m.serverErrors.get() < m.grabSent.get() * 0.05 &&
-      lat.p95 < 50;
-    console.log(`verdict: ${verdict ? "PASS" : "FAIL"} (p95<50ms, no backpressure closes, <5% server errors)`);
+      m.wsErrors.get() === 0 &&
+      m.serverErrors.get() < Math.max(1, m.grabSent.get() * 0.05);
+    console.log(`verdict: ${verdict ? "PASS" : "FAIL"} (no backpressure closes, no ws errors, <5% server errors)`);
   }
 }

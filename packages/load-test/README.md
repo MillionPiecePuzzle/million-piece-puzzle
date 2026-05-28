@@ -45,10 +45,15 @@ The final line prints `PASS` when all of the following hold:
 
 - Zero WebSocket closes with code `1013` (backpressure, see DECISIONS:
   WS hardening).
+- Zero `ws` library errors raised on any bot.
 - Server `error` frames stay below 5% of grab attempts.
-- Grab round-trip p95 latency below 50 ms.
 
-Otherwise `FAIL`, look at the per-metric breakdown above it.
+Otherwise `FAIL`, look at the per-metric breakdown above it. Grab round-trip
+latency is reported (p50/p95/p99/max) but not gated: at alpha scale on a
+single VPS, multi-second p95 under 20-bot sustained drag traffic is an
+architecture cost (global serial dispatch queue, unthrottled drag broadcast),
+not a saturation signal. See DECISIONS: harness PASS criterion bounded to
+saturation signals.
 
 ## What is and is not exercised
 

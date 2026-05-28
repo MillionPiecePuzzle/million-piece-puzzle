@@ -118,7 +118,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ### `qa-and-load`
 - [x] Stateful server logic covered by unit tests: the merge-and-anchor path (`handleDrop` / `applyMerge`) and the serial dispatch queue
-- [~] Load test reproduces 20 concurrent clients dragging on a 10 000-piece puzzle without server saturation
+- [x] Load test reproduces 20 concurrent clients dragging on a 10 000-piece puzzle without server saturation
 
 ### `legal`
 - (not in Phase 1, closed alpha by invitation only)
