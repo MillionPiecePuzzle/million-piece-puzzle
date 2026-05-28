@@ -11,25 +11,33 @@ import type { RedisState, PuzzleMeta } from "./state.js";
 
 const SCATTER_DOMAIN = 2;
 
-// Outer bound of the elliptical scatter halo, as a multiple of the clear
-// rectangle (the frame grown by half a piece). The halo shares the frame
-// aspect ratio so the cloud reads as an oval around the assembly area, not a
-// rectangular ring. Must be >= sqrt(2) so the outer ellipse fully encloses the
-// clear rectangle, leaving a valid ring at every angle; larger spaces pieces
-// further apart.
-const SCATTER_HALO_SCALE = 2.6;
+// The scatter is a rounded-square band detached from the frame: pieces fill the
+// ring between an inner gap superellipse and an outer halo superellipse, both
+// sharing the frame aspect, leaving empty space around the assembly area. The
+// scales are multiples of the clear rectangle (the frame grown by half a
+// piece); both must be >= 2^(1/SCATTER_SHAPE_EXPONENT) so the curves fully
+// enclose that rectangle, and the gap must be < the halo.
+const SCATTER_GAP_SCALE = 1.4;
+const SCATTER_HALO_SCALE = 2.8;
 
-// Distance from the frame center to the clear rectangle (half-extents ax, ay)
-// along the unit ray (dx, dy). A body centered at or beyond this distance never
-// overlaps the frame interior.
-function rayToRect(ax: number, ay: number, dx: number, dy: number): number {
-  return 1 / Math.max(Math.abs(dx) / ax, Math.abs(dy) / ay);
-}
+// Superellipse exponent for the band bounds: 2 is an ellipse, higher values
+// square off the corners. ~4 reads as a rounded square ("squircle"), matching
+// the rounded-rectangle silhouette.
+const SCATTER_SHAPE_EXPONENT = 4;
 
-// Distance from the frame center to the halo ellipse (semi-axes ex, ey) along
-// the unit ray (dx, dy).
-function rayToEllipse(ex: number, ey: number, dx: number, dy: number): number {
-  return 1 / Math.sqrt((dx * dx) / (ex * ex) + (dy * dy) / (ey * ey));
+// Distance from the frame center to the superellipse (semi-axes ex, ey,
+// exponent n) along the unit ray (dx, dy). n = 2 is an ellipse; larger n
+// rounds the corners toward a square.
+function rayToSuperellipse(
+  ex: number,
+  ey: number,
+  n: number,
+  dx: number,
+  dy: number,
+): number {
+  return (
+    1 / Math.pow(Math.pow(Math.abs(dx) / ex, n) + Math.pow(Math.abs(dy) / ey, n), 1 / n)
+  );
 }
 
 // The deterministic initial layout: the generated geometry plus each piece's
@@ -51,34 +59,34 @@ export function scatteredLayout(manifest: ImageManifest) {
   const cx = worldW / 2;
   const cy = worldH / 2;
   // Clear rectangle: the frame grown by half a piece, plus one world unit to
-  // absorb floating-point error at the ring's inner edge. A body centered
-  // beyond it cannot overlap the frame interior.
+  // absorb floating-point error. The band scales out from here, so its inner
+  // gap superellipse always encloses the frame interior.
   const ax = cx + half + 1;
   const ay = cy + half + 1;
-  // Halo ellipse sharing the clear rectangle's aspect, scaled out so it always
-  // encloses it.
+  // Inner gap and outer halo superellipses, both sharing the clear rectangle's
+  // aspect. The empty ring between the frame and the gap detaches the cloud
+  // from the assembly area.
+  const gx = ax * SCATTER_GAP_SCALE;
+  const gy = ay * SCATTER_GAP_SCALE;
   const ex = ax * SCATTER_HALO_SCALE;
   const ey = ay * SCATTER_HALO_SCALE;
   const placements = geom.pieces.map((piece) => {
-    // Sample the piece body (origin + canonicalOffset) in the elliptical ring
-    // around the frame, then back out the group origin. Randomizing the body
-    // rather than the origin decorrelates the scatter from the solved layout:
-    // pieces render at origin + canonicalOffset, and canonicalOffset is the
-    // solved cell, so randomizing the origin alone leaves the solved image in
-    // place.
+    // Sample the piece body (origin + canonicalOffset) in the rounded-square
+    // band around the frame, then back out the group origin. Randomizing the
+    // body rather than the origin decorrelates the scatter from the solved
+    // layout: pieces render at origin + canonicalOffset, and canonicalOffset is
+    // the solved cell, so randomizing the origin alone leaves the solved image
+    // in place.
     const theta = scatterRng() * Math.PI * 2;
     const dx = Math.cos(theta);
     const dy = Math.sin(theta);
-    const rInner = rayToRect(ax, ay, dx, dy);
-    const rOuter = rayToEllipse(ex, ey, dx, dy);
-    // Area-uniform radius across the ring so density does not pile up against
-    // the frame edge. Clamped to rInner so float rounding never pulls a body
-    // back inside the clear rectangle.
-    const u = scatterRng();
-    const r = Math.max(
-      rInner,
-      Math.sqrt(rInner * rInner + u * (rOuter * rOuter - rInner * rInner)),
-    );
+    const rInner = rayToSuperellipse(gx, gy, SCATTER_SHAPE_EXPONENT, dx, dy);
+    const rOuter = rayToSuperellipse(ex, ey, SCATTER_SHAPE_EXPONENT, dx, dy);
+    // Triangular radius (mean of two uniforms) peaks at the band's middle and
+    // fades to both edges, so the cloud is dense mid-band and disperses inward
+    // and outward, like a tipped-out packet of pieces.
+    const t = (scatterRng() + scatterRng()) / 2;
+    const r = rInner + (rOuter - rInner) * t;
     const bodyX = cx + r * dx;
     const bodyY = cy + r * dy;
     return {

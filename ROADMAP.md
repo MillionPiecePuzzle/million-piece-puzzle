@@ -147,6 +147,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] `frontend-shell` + `frontend-canvas`: Staged load with progress. Exit: arriving on `/play` shows explicit progress through the load states (connect, manifest, textures, ready) with a progress indicator; the board renders only when ready, never partially built.
 - [x] `frontend-canvas`: Reference views render reliably next to the WebGL stage. Exit: the sidebar reference thumbnail and the enlarged modal both show the source image when the play page is loaded, instead of a blank viewer.
 - [x] `frontend-canvas`: Reference modal centered in the play zone with even margins. Exit: the enlarged reference window is centered within the play area below the header, with equal spacing on the left, right, top, and bottom.
+- [x] `backend-realtime`: Scatter reshaped into a detached center-dense rounded-square band. Exit: the initial scatter forms a rounded-square band (superellipse bounds sharing the frame aspect) detached from the frame by an empty gap, dense in the middle of the band and dispersing toward both edges, with no piece body inside the frame interior.
 
 #### Performance pulled forward from Phase 2
 
