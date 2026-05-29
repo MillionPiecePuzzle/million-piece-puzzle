@@ -218,4 +218,22 @@ export class RedisState {
   async addLockedCount(delta: number): Promise<number> {
     return await this.r.incrby(keys.lockedCount(this.puzzleId), delta);
   }
+
+  // Drive every existing group to the frame origin and lock it. A piece renders
+  // at its group origin plus its solved-cell canonicalOffset, so origin (0,0)
+  // places all of a group's pieces in their solved cells: the whole board lands
+  // assembled. Used by the dev force-complete path.
+  async anchorAllGroups(totalPieces: number): Promise<void> {
+    const groups = await this.readAllGroups(totalPieces);
+    const pipe = this.r.pipeline();
+    for (const g of groups) {
+      pipe.hset(keys.group(this.puzzleId, g.id), {
+        worldX: 0,
+        worldY: 0,
+        locked: 1,
+        heldBy: "",
+      });
+    }
+    await pipe.exec();
+  }
 }

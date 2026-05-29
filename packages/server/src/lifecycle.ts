@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ImageManifest, PlayZone } from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
@@ -74,29 +73,19 @@ export class PuzzleLifecycle {
     await this.ctx.state.writeMeta(this.ctx.meta);
   }
 
-  // Dev shortcut: drive the locked counter up to the total and emit a synthetic
-  // anchoring snap so connected clients trigger their completion UI. State
-  // integrity is intentionally loose (pieces are not moved to their solved
-  // positions); resetCurrent is the way back to a playable board.
+  // Dev shortcut: assemble the board. Every group is anchored at the frame
+  // origin (so each piece lands in its solved cell), the locked counter is
+  // driven to the total, and the fresh assembled state is rebroadcast so all
+  // clients rebuild onto the finished picture. resetCurrent is the way back to
+  // a playable board.
   async forceComplete(): Promise<void> {
     const total = this.ctx.meta.totalPieces;
+    await this.ctx.state.anchorAllGroups(total);
     const current = await this.ctx.state.getLockedCount();
     const remaining = total - current;
     if (remaining > 0) await this.ctx.state.addLockedCount(remaining);
     await this.markCompleted();
-    this.ctx.hub.broadcast({
-      t: "snap",
-      mergeId: randomUUID(),
-      newGroupId: 0,
-      addedPieceIds: [],
-      worldX: 0,
-      worldY: 0,
-      anchored: true,
-      userId: "dev",
-      pseudo: null,
-      at: Date.now(),
-      lockedCount: total,
-    });
+    await this.broadcastFreshState();
   }
 
   private async broadcastFreshState(): Promise<void> {
