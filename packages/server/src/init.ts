@@ -28,16 +28,8 @@ const SCATTER_SHAPE_EXPONENT = 4;
 // Distance from the frame center to the superellipse (semi-axes ex, ey,
 // exponent n) along the unit ray (dx, dy). n = 2 is an ellipse; larger n
 // rounds the corners toward a square.
-function rayToSuperellipse(
-  ex: number,
-  ey: number,
-  n: number,
-  dx: number,
-  dy: number,
-): number {
-  return (
-    1 / Math.pow(Math.pow(Math.abs(dx) / ex, n) + Math.pow(Math.abs(dy) / ey, n), 1 / n)
-  );
+function rayToSuperellipse(ex: number, ey: number, n: number, dx: number, dy: number): number {
+  return 1 / Math.pow(Math.pow(Math.abs(dx) / ex, n) + Math.pow(Math.abs(dy) / ey, n), 1 / n);
 }
 
 // The deterministic initial layout: the generated geometry plus each piece's

@@ -78,7 +78,10 @@ describe("scatter", () => {
     const cy = worldH / 2;
     const half = geom.pieceSize / 2;
     const radii = placements.map((p) =>
-      Math.hypot(p.worldX + p.canonicalOffset.x + half - cx, p.worldY + p.canonicalOffset.y + half - cy),
+      Math.hypot(
+        p.worldX + p.canonicalOffset.x + half - cx,
+        p.worldY + p.canonicalOffset.y + half - cy,
+      ),
     );
     const lo = Math.min(...radii);
     const hi = Math.max(...radii);
