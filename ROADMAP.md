@@ -149,6 +149,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] `frontend-canvas`: Reference modal centered in the play zone with even margins. Exit: the enlarged reference window is centered within the play area below the header, with equal spacing on the left, right, top, and bottom.
 - [x] `backend-realtime`: Scatter reshaped into a detached center-dense rounded-square band. Exit: the initial scatter forms a rounded-square band (superellipse bounds sharing the frame aspect) detached from the frame by an empty gap, dense in the middle of the band and dispersing toward both edges, with no piece body inside the frame interior.
 - [x] `backend-realtime`: Dev Complete actually assembles the board. The button anchored the locked counter and faked a snap, leaving pieces scattered. Exit: force-complete anchors every group at the frame origin (each piece in its solved cell), sets the locked count to the total, and rebroadcasts the fresh state so all clients rebuild onto the finished picture.
+- [x] `frontend-canvas`: Completion summary waits for the board. On reload of a completed puzzle the modal opened over the still-visible loading cover, hiding the canvas. Exit: the completion modal and its reopen button only render once the board is on screen (loading steps finished), so the assembled canvas is visible behind the summary.
 
 #### Performance pulled forward from Phase 2
 

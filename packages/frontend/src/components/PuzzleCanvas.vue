@@ -352,7 +352,7 @@ onBeforeUnmount(() => {
     </div>
     <Transition name="completion">
       <div
-        v-if="completed && modalVisible"
+        v-if="completed && modalVisible && !showStatus"
         class="completion-modal"
         role="dialog"
         aria-live="polite"
@@ -378,7 +378,7 @@ onBeforeUnmount(() => {
     </Transition>
     <Transition name="reopen">
       <button
-        v-if="completed && !modalVisible"
+        v-if="completed && !modalVisible && !showStatus"
         type="button"
         class="modal-reopen"
         aria-label="Show summary"
