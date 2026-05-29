@@ -409,6 +409,7 @@ onBeforeUnmount(() => {
   inset: 0;
   display: grid;
   place-content: center;
+  justify-items: center;
   text-align: center;
   color: var(--ink-3);
   /* Opaque cover (matching the stage backdrop) so the previous board is hidden
