@@ -69,7 +69,7 @@ Delivered across all tracks: monorepo with shared tsconfig, lint, format, build 
 
 Built as the real Phase 2 solution, not a stopgap, so none is thrown away at 1M scale. The Phase 2 items that stay deferred (viewport and write sharding) are blocked on the single-writer alpha topology, not on piece count.
 
-- [ ] `frontend-canvas`: Drag throttling. Coalesce drag broadcasts to one message per animation frame, sending the last point. Exit: at most one `drag` per frame per held cluster; sustained drag ingest drops from per-pointermove to per-frame with no added visible lag.
+- [x] `frontend-canvas`: Drag throttling. Coalesce drag broadcasts to one message per animation frame, sending the last point. Exit: at most one `drag` per frame per held cluster; sustained drag ingest drops from per-pointermove to per-frame with no added visible lag.
 - [ ] `backend-realtime`: Per-group dispatch queues replacing the global serial queue. Exit: messages for independent groups process concurrently while per-group order is preserved and the merge/anchor read-modify-write stays serialized per group.
 - [ ] `frontend-canvas`: Zoom-out level of detail via render-to-texture. Exit: past a zoom-out threshold the board renders from a periodically refreshed low-res render texture instead of per-piece masked sprites; the fully zoomed-out view stays smooth at 10 000 pieces.
 - [ ] `backend-realtime`: Per-IP rate limit extending the per-connection token bucket. Exit: a single IP cannot exceed configured connection and message budgets regardless of how many sessions it opens.

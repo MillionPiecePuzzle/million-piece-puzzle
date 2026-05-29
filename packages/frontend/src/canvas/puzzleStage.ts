@@ -155,6 +155,17 @@ export class PuzzleStage {
   };
 
   private held: HeldState | null = null;
+  // Last drag origin produced this frame while a cluster is held. moveGroup has
+  // already applied it locally; this only defers the broadcast so tickDragFlush
+  // emits at most one drag per frame. Null on frames with no movement, so idle
+  // frames broadcast nothing.
+  private pendingDrag: { worldX: number; worldY: number } | null = null;
+  private readonly tickDragFlush = (): void => {
+    if (!this.pendingDrag || !this.held || !this.callbacks) return;
+    const { worldX, worldY } = this.pendingDrag;
+    this.pendingDrag = null;
+    this.callbacks.onDrag(this.held.groupId, worldX, worldY);
+  };
   private pan: { active: boolean; lastX: number; lastY: number } = {
     active: false,
     lastX: 0,
@@ -217,6 +228,7 @@ export class PuzzleStage {
     this.world = world;
     this.tweener = new Tweener(app.ticker);
     app.ticker.add(this.tickPeerCursors);
+    app.ticker.add(this.tickDragFlush);
     this.attachWheelZoom(app.canvas);
   }
 
@@ -364,6 +376,7 @@ export class PuzzleStage {
     this.tweener?.destroy();
     this.tweener = null;
     this.app?.ticker.remove(this.tickPeerCursors);
+    this.app?.ticker.remove(this.tickDragFlush);
     this.peerCursors?.destroy();
     this.peerCursors = null;
     this.app?.destroy(true, { children: true, texture: true });
@@ -372,6 +385,7 @@ export class PuzzleStage {
     this.groups.clear();
     this.pieceToGroup.clear();
     this.held = null;
+    this.pendingDrag = null;
   }
 
   // Wipe all piece/group state without tearing down the Pixi app, so a fresh
@@ -392,6 +406,7 @@ export class PuzzleStage {
     this.groups.clear();
     this.pieceToGroup.clear();
     this.held = null;
+    this.pendingDrag = null;
     this.peerCursors?.clearHeld();
     this.worldSize = null;
     this.playZone = null;
@@ -800,7 +815,7 @@ export class PuzzleStage {
         world.y - this.held.pointerDy,
       );
       this.moveGroup(node, nx, ny);
-      this.callbacks.onDrag(node.id, nx, ny);
+      this.pendingDrag = { worldX: nx, worldY: ny };
       return;
     }
     if (this.pan.active) {
