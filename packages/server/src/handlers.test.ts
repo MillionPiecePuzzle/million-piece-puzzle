@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { dispatch, handleGrab, handleDrop } from "./handlers.js";
+import { dispatch, handleGrab, handleDrop, handleDevPlace } from "./handlers.js";
 import type { Context } from "./handlers.js";
 import type { Client } from "./hub.js";
 import type { PuzzleMeta } from "./state.js";
@@ -242,6 +242,10 @@ class FakeState {
     return Promise.resolve(g ? { ...g } : null);
   }
 
+  readAllGroups(): Promise<GroupRuntime[]> {
+    return Promise.resolve([...this.groups.values()].map((g) => ({ ...g })));
+  }
+
   writeGroup(g: GroupRuntime): Promise<void> {
     this.groups.set(g.id, { ...g });
     return Promise.resolve();
@@ -447,5 +451,43 @@ describe("handleDrop", () => {
       expect.objectContaining({ t: "leaderboard", entries: [{ userId: "u1", pieces: 1 }] }),
     );
     expect(markCompleted).toHaveBeenCalled();
+  });
+});
+
+describe("handleDevPlace", () => {
+  it("rejects when dev controls are disabled", async () => {
+    const { ctx, send } = makeDropCtx();
+    (ctx as { devEnabled?: boolean }).devEnabled = false;
+    await handleDevPlace(ctx, client);
+    expect(send).toHaveBeenCalledWith(
+      client,
+      expect.objectContaining({ t: "error", code: "dev_disabled" }),
+    );
+  });
+
+  it("anchors a random unlocked cluster to the frame origin", async () => {
+    const { ctx, broadcast, logMerge, state } = makeDropCtx();
+    (ctx as { devEnabled?: boolean }).devEnabled = true;
+    state.place({ id: 4, worldX: 500, worldY: 500, size: 1, locked: false, heldBy: null }, [4]);
+    await handleDevPlace(ctx, client);
+    expect(state.groups.get(4)?.locked).toBe(true);
+    expect(state.groups.get(4)?.worldX).toBe(0);
+    expect(state.groups.get(4)?.worldY).toBe(0);
+    expect(state.lockedCount).toBe(1);
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "snap", anchored: true, lockedCount: 1 }),
+    );
+    expect(logMerge).toHaveBeenCalledWith(
+      expect.objectContaining({ anchored: true, lockedDelta: 1 }),
+    );
+  });
+
+  it("does nothing when no unlocked, unheld cluster is available", async () => {
+    const { ctx, broadcast, state } = makeDropCtx();
+    (ctx as { devEnabled?: boolean }).devEnabled = true;
+    state.place({ id: 0, worldX: 0, worldY: 0, size: 1, locked: true, heldBy: null }, [0]);
+    state.place({ id: 1, worldX: 300, worldY: 300, size: 1, locked: false, heldBy: "other" }, [1]);
+    await handleDevPlace(ctx, client);
+    expect(broadcast).not.toHaveBeenCalled();
   });
 });

@@ -97,6 +97,38 @@ export async function handleDevComplete(ctx: Context, client: Client): Promise<v
   await ctx.lifecycle.forceComplete();
 }
 
+// Pick one random unlocked, unheld cluster and anchor it to the frame origin.
+// A piece renders at its group origin plus its solved-cell canonicalOffset, so a
+// group whose origin sits at (0,0) is in its correct spot: dropping it there is
+// exactly the frame-anchor path, reused here so dev placement emits the same
+// snap, merge log, and leaderboard update a human drop would.
+export async function handleDevPlace(ctx: Context, client: Client): Promise<void> {
+  if (!ctx.devEnabled) {
+    err(ctx, client, "dev_disabled", "dev controls disabled");
+    return;
+  }
+  const groups = await ctx.state.readAllGroups(ctx.meta.totalPieces);
+  const candidates = groups.filter((g) => !g.locked && g.heldBy === null);
+  if (candidates.length === 0) return;
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)]!;
+
+  await ctx.state.setGroupPosition(chosen.id, 0, 0);
+  chosen.worldX = 0;
+  chosen.worldY = 0;
+
+  const droppedPieces = await ctx.state.getGroupPieces(chosen.id);
+  const match = await detectSnap(
+    ctx.state,
+    ctx.meta.gridRows,
+    ctx.meta.gridCols,
+    ctx.meta.snapTolerance,
+    chosen,
+    droppedPieces,
+  );
+
+  await applyMerge(ctx, client, chosen.id, droppedPieces, match?.matchedGroupIds ?? [], 0, 0, true);
+}
+
 export async function handleGrab(ctx: Context, client: Client, msg: CGrab): Promise<void> {
   const owner = await ctx.state.tryAcquireGroup(msg.groupId, client.userId);
   if (owner === null) {
@@ -398,6 +430,9 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
       return;
     case "dev_complete":
       await handleDevComplete(ctx, client);
+      return;
+    case "dev_place":
+      await handleDevPlace(ctx, client);
       return;
     default:
       err(ctx, client, "bad_message", `unknown message type`);

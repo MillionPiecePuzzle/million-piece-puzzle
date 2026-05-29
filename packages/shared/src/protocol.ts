@@ -79,8 +79,11 @@ export type CSetPseudo = {
 // dev_reset: wipe and re-init the current puzzle (stays on the same puzzle).
 // dev_complete: force-complete the current puzzle (locked count jumps to total,
 // status flips to completed). The puzzle stays completed until a dev_reset.
+// dev_place: anchor one random unlocked cluster to the frame origin, as if a
+// human had dropped it in its solved spot (emits a normal anchoring snap).
 export type CDevReset = { t: "dev_reset" };
 export type CDevComplete = { t: "dev_complete" };
+export type CDevPlace = { t: "dev_place" };
 
 export type ClientMessage =
   | CHello
@@ -91,7 +94,8 @@ export type ClientMessage =
   | CCursor
   | CSetPseudo
   | CDevReset
-  | CDevComplete;
+  | CDevComplete
+  | CDevPlace;
 
 // Server -> Client
 

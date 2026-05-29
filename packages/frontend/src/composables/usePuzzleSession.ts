@@ -362,6 +362,10 @@ function sendDevComplete(): void {
   client?.send({ t: "dev_complete" });
 }
 
+function sendDevPlace(): void {
+  client?.send({ t: "dev_place" });
+}
+
 export function usePuzzleSession() {
   return {
     state,
@@ -385,5 +389,6 @@ export function usePuzzleSession() {
     sendSetPseudo,
     sendDevReset,
     sendDevComplete,
+    sendDevPlace,
   };
 }

@@ -2,7 +2,7 @@
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useMode } from "../composables/useMode";
 
-const { sendDevReset, sendDevComplete } = usePuzzleSession();
+const { sendDevReset, sendDevComplete, sendDevPlace } = usePuzzleSession();
 const { mode } = useMode();
 
 function onReset(): void {
@@ -14,11 +14,16 @@ function onComplete(): void {
   if (!confirm("Force-complete the current puzzle for everyone?")) return;
   sendDevComplete();
 }
+
+function onPlacePiece(): void {
+  sendDevPlace();
+}
 </script>
 
 <template>
   <div v-if="mode === 'contributor'" class="dev-controls" role="group" aria-label="Dev controls">
     <span class="kicker">Dev</span>
+    <button type="button" class="dev-btn" @click="onPlacePiece">Place piece</button>
     <button type="button" class="dev-btn" @click="onReset">Reset puzzle</button>
     <button type="button" class="dev-btn warn" @click="onComplete">Complete</button>
   </div>
