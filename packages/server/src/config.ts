@@ -15,6 +15,7 @@ export type ServerConfig = {
   wsMaxPayloadBytes: number;
   wsRateTokensPerSec: number;
   wsRateBurst: number;
+  wsMaxConnectionsPerIp: number;
   wsBufferedAmountLimitBytes: number;
   snapshotIntervalMs: number;
 };
@@ -81,6 +82,7 @@ export async function loadConfig(): Promise<ServerConfig> {
     wsMaxPayloadBytes: int("MPP_WS_MAX_PAYLOAD_BYTES", 64 * 1024),
     wsRateTokensPerSec: int("MPP_WS_RATE_TOKENS_PER_SEC", 200),
     wsRateBurst: int("MPP_WS_RATE_BURST", 400),
+    wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
     snapshotIntervalMs: int("MPP_SNAPSHOT_INTERVAL_MS", 2000),
   };

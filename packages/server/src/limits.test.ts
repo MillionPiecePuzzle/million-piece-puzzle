@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { TokenBucket, isAllowedOrigin, parseAllowedOrigins } from "./limits.js";
+import type { IncomingMessage } from "node:http";
+import {
+  TokenBucket,
+  IpRegistry,
+  clientIp,
+  isAllowedOrigin,
+  parseAllowedOrigins,
+} from "./limits.js";
 
 describe("TokenBucket", () => {
   beforeEach(() => {
@@ -53,6 +60,94 @@ describe("parseAllowedOrigins", () => {
       "http://b",
       "http://c",
     ]);
+  });
+});
+
+describe("IpRegistry", () => {
+  it("shares one message-rate bucket across an IP's connections", () => {
+    const reg = new IpRegistry(10, 2, 0);
+    const a = reg.acquire("1.1.1.1");
+    const b = reg.acquire("1.1.1.1");
+    expect(a).toBe(b);
+    // The shared budget is two tokens total, not two per connection: draining
+    // it from one connection denies the other.
+    expect(a!.consume()).toBe(true);
+    expect(b!.consume()).toBe(true);
+    expect(a!.consume()).toBe(false);
+    expect(b!.consume()).toBe(false);
+  });
+
+  it("gives different IPs independent buckets", () => {
+    const reg = new IpRegistry(10, 5, 0);
+    expect(reg.acquire("1.1.1.1")).not.toBe(reg.acquire("2.2.2.2"));
+  });
+
+  it("refuses connections past the per-IP cap regardless of session count", () => {
+    const reg = new IpRegistry(2, 5, 0);
+    expect(reg.acquire("1.1.1.1")).not.toBeNull();
+    expect(reg.acquire("1.1.1.1")).not.toBeNull();
+    expect(reg.acquire("1.1.1.1")).toBeNull();
+    expect(reg.acquire("1.1.1.1")).toBeNull();
+  });
+
+  it("frees a slot on release so the IP can reconnect", () => {
+    const reg = new IpRegistry(1, 5, 0);
+    expect(reg.acquire("1.1.1.1")).not.toBeNull();
+    expect(reg.acquire("1.1.1.1")).toBeNull();
+    reg.release("1.1.1.1");
+    expect(reg.acquire("1.1.1.1")).not.toBeNull();
+  });
+
+  it("deletes the entry when the last connection closes", () => {
+    const reg = new IpRegistry(2, 5, 0);
+    reg.acquire("1.1.1.1");
+    reg.acquire("1.1.1.1");
+    expect(reg.size()).toBe(1);
+    reg.release("1.1.1.1");
+    expect(reg.size()).toBe(1);
+    reg.release("1.1.1.1");
+    expect(reg.size()).toBe(0);
+  });
+
+  it("leaves no entry behind when a refused acquire creates one", () => {
+    const reg = new IpRegistry(0, 5, 0);
+    expect(reg.acquire("1.1.1.1")).toBeNull();
+    expect(reg.size()).toBe(0);
+  });
+});
+
+function fakeRequest(headers: Record<string, string | string[]>, remoteAddress?: string) {
+  return { headers, socket: { remoteAddress } } as unknown as IncomingMessage;
+}
+
+describe("clientIp", () => {
+  it("prefers the CF-Connecting-IP header over the socket address", () => {
+    const req = fakeRequest({ "cf-connecting-ip": "203.0.113.7" }, "172.16.0.1");
+    expect(clientIp(req, false)).toBe("203.0.113.7");
+    expect(clientIp(req, true)).toBe("203.0.113.7");
+  });
+
+  it("takes the first value when the header is an array", () => {
+    const req = fakeRequest({ "cf-connecting-ip": ["203.0.113.7", "10.0.0.1"] });
+    expect(clientIp(req, false)).toBe("203.0.113.7");
+  });
+
+  it("trims the header and treats blank as absent", () => {
+    expect(clientIp(fakeRequest({ "cf-connecting-ip": "  203.0.113.7 " }), false)).toBe(
+      "203.0.113.7",
+    );
+    expect(clientIp(fakeRequest({ "cf-connecting-ip": "   " }, "172.16.0.1"), true)).toBe(
+      "172.16.0.1",
+    );
+  });
+
+  it("falls back to the socket address in dev when no CF header is present", () => {
+    expect(clientIp(fakeRequest({}, "127.0.0.1"), true)).toBe("127.0.0.1");
+    expect(clientIp(fakeRequest({}), true)).toBe("unknown");
+  });
+
+  it("buckets header-less production traffic under a shared unknown key", () => {
+    expect(clientIp(fakeRequest({}, "172.16.0.1"), false)).toBe("unknown");
   });
 });
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import { Redis as IORedis } from "ioredis";
 import { WebSocketServer, type WebSocket, type VerifyClientCallbackSync } from "ws";
 import { PROTOCOL_VERSION } from "@mpp/shared";
@@ -11,8 +11,12 @@ import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { SerialQueue } from "./queue.js";
 import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
 import { initPuzzleIfEmpty } from "./init.js";
-import { TokenBucket, isAllowedOrigin } from "./limits.js";
+import { IpRegistry, isAllowedOrigin, clientIp } from "./limits.js";
 import { SnapshotPublisher, makeSnapshotHandler } from "./snapshot.js";
+
+// WebSocket close code 1013 ("Try Again Later"), used to refuse a connection
+// that exceeds the per-IP concurrent-connection cap.
+const CLOSE_TRY_AGAIN_LATER = 1013;
 
 async function main(): Promise<void> {
   const config = await loadConfig();
@@ -89,8 +93,23 @@ async function main(): Promise<void> {
   // `await` points cannot interleave (see DECISIONS: global serial dispatch queue).
   const queue = new SerialQueue();
 
-  wss.on("connection", (ws: WebSocket) => {
-    const bucket = new TokenBucket(config.wsRateBurst, config.wsRateTokensPerSec);
+  // Per-IP budget shared across an IP's connections: one message-rate bucket
+  // and a concurrent-connection cap (see DECISIONS: WS hardening).
+  const ipRegistry = new IpRegistry(
+    config.wsMaxConnectionsPerIp,
+    config.wsRateBurst,
+    config.wsRateTokensPerSec,
+  );
+
+  wss.on("connection", (ws: WebSocket, request: IncomingMessage) => {
+    const ip = clientIp(request, config.devEnabled);
+    const bucket = ipRegistry.acquire(ip);
+    if (bucket === null) {
+      // Over the per-IP concurrent-connection cap: refuse before adding the
+      // client so one IP cannot hold more than its budget of sessions open.
+      ws.close(CLOSE_TRY_AGAIN_LATER, "too many connections");
+      return;
+    }
     const client: Client = { userId: randomUUID(), ws, bucket, viewport: null, pseudo: null };
     // Presence: tell the newcomer about peers already present, then announce
     // the newcomer to them. join and leave bracket a connection.
@@ -101,14 +120,16 @@ async function main(): Promise<void> {
     hub.broadcast({ t: "join", userId: client.userId, pseudo: client.pseudo }, client);
 
     ws.on("message", (data) => {
-      // Hostile clients that exceed the per-connection rate are dropped
-      // silently to avoid amplifying their traffic with error frames.
+      // The bucket is shared by every connection from this IP, so messages over
+      // the per-IP rate are dropped silently to avoid amplifying hostile traffic
+      // with error frames.
       if (!bucket.consume()) return;
       const raw = typeof data === "string" ? data : data.toString("utf8");
       queue.enqueue("dispatch", () => dispatch(ctx, client, raw));
     });
 
     ws.on("close", () => {
+      ipRegistry.release(ip);
       hub.remove(client);
       hub.broadcast({ t: "leave", userId: client.userId });
       queue.enqueue("release", () =>
