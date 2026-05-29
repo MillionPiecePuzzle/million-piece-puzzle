@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { usePuzzleSession } from "../composables/usePuzzleSession";
-import { useMode } from "../composables/useMode";
 
 const { sendDevReset, sendDevComplete, sendDevPlace } = usePuzzleSession();
-const { mode } = useMode();
 
 function onReset(): void {
   if (!confirm("Reset the current puzzle for everyone?")) return;
@@ -21,7 +19,7 @@ function onPlacePiece(): void {
 </script>
 
 <template>
-  <div v-if="mode === 'contributor'" class="dev-controls" role="group" aria-label="Dev controls">
+  <div class="dev-controls" role="group" aria-label="Dev controls">
     <span class="kicker">Dev</span>
     <button type="button" class="dev-btn" @click="onPlacePiece">Place piece</button>
     <button type="button" class="dev-btn" @click="onReset">Reset puzzle</button>

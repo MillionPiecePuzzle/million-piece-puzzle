@@ -17,6 +17,7 @@ import { PuzzleWsClient } from "../canvas/wsClient";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { snapshotUrl } from "../data/snapshotUrl";
 import { usePseudo } from "./usePseudo";
+import { useMode } from "./useMode";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/";
 const ACTIVITY_LIMIT = 6;
@@ -72,6 +73,11 @@ let started = false;
 let buildEpoch = 0;
 const handlers = new Set<MessageHandler>();
 const snapshotHandlers = new Set<SnapshotHandler>();
+// Dev messages clicked while in spectator mode (no WebSocket). They are queued
+// here and flushed once the upgrade to a contributor connection delivers the
+// welcome, so the dev controls work regardless of transport.
+type DevTag = "dev_reset" | "dev_complete" | "dev_place";
+let pendingDev: DevTag[] = [];
 
 // Spectator polling state
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -169,6 +175,7 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   activity.value = [];
   leaderboard.value = [];
   pendingState = null;
+  flushPendingDev();
   const needsLoad = !manifest || manifest.puzzleId !== msg.puzzleId;
   if (needsLoad) {
     manifest = null;
@@ -176,6 +183,14 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   } else if (manifest) {
     state.value = { kind: "syncing", manifest, welcome };
   }
+}
+
+// The connection is open by the time welcome arrives, so any dev message queued
+// during a spectator-to-contributor upgrade can be sent now.
+function flushPendingDev(): void {
+  if (pendingDev.length === 0 || !client) return;
+  for (const t of pendingDev) client.send({ t });
+  pendingDev = [];
 }
 
 async function startContributor(): Promise<void> {
@@ -367,16 +382,29 @@ function sendSetPseudo(pseudo: string): void {
   client?.send({ t: "setPseudo", pseudo });
 }
 
+// Dev controls are always visible, including in spectator mode where there is
+// no WebSocket. Sending a dev message then upgrades the session to a contributor
+// connection and queues the message to flush on welcome; once connected it sends
+// directly.
+function sendDev(t: DevTag): void {
+  if (transport.value === "ws" && welcome && client) {
+    client.send({ t });
+    return;
+  }
+  pendingDev.push(t);
+  if (transport.value !== "ws") useMode().setMode("contributor");
+}
+
 function sendDevReset(): void {
-  client?.send({ t: "dev_reset" });
+  sendDev("dev_reset");
 }
 
 function sendDevComplete(): void {
-  client?.send({ t: "dev_complete" });
+  sendDev("dev_complete");
 }
 
 function sendDevPlace(): void {
-  client?.send({ t: "dev_place" });
+  sendDev("dev_place");
 }
 
 export function usePuzzleSession() {
