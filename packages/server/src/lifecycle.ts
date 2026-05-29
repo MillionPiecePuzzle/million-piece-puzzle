@@ -59,6 +59,9 @@ export class PuzzleLifecycle {
     this.resetting = true;
     try {
       await this.ctx.state.wipePuzzle(this.ctx.meta.totalPieces);
+      // The leaderboard and activity feed are derived from the merge log, so the
+      // fresh board must start with an empty log, not just empty Redis state.
+      await this.ctx.mongo.clearPuzzle(this.ctx.puzzleId);
       const meta = await forceInitPuzzle(this.ctx.state, this.manifest);
       this.ctx.meta = meta;
       await this.broadcastFreshState();

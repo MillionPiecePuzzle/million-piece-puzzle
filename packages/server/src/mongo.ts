@@ -29,6 +29,12 @@ export class MongoLogger {
     await this.merges.insertOne(doc);
   }
 
+  // Drop a puzzle's entire merge log. Called on reset so the derived leaderboard
+  // and activity feed start empty for the fresh board.
+  async clearPuzzle(puzzleId: string): Promise<void> {
+    await this.merges.deleteMany({ puzzleId });
+  }
+
   // Most recent anchoring merges for a puzzle, newest first, to backfill a
   // joining client's activity feed.
   async recentAnchoredMerges(puzzleId: string, limit: number): Promise<ActivityItem[]> {
