@@ -290,11 +290,21 @@ async function fetchAndDispatch(): Promise<void> {
     } else {
       pendingState = { t: "state", pieces: snap.pieces, groups: snap.groups };
     }
+    applySnapshotStandings(snap);
     return;
   }
 
   lockedCount.value = snap.lockedCount;
+  applySnapshotStandings(snap);
   for (const h of snapshotHandlers) h(snap);
+}
+
+// Spectators have no WebSocket, so the leaderboard and activity feed are carried
+// in the polled snapshot. handleWelcome clears both on a puzzleId change, so
+// this runs after it.
+function applySnapshotStandings(snap: Snapshot): void {
+  leaderboard.value = snap.leaderboard;
+  applyActivity({ t: "activity", items: snap.activity });
 }
 
 function close(): void {

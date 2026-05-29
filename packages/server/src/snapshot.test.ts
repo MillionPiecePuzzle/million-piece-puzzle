@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { GroupRuntime, PieceRuntime, PlayZone } from "@mpp/shared";
+import type {
+  ActivityItem,
+  GroupRuntime,
+  LeaderboardEntry,
+  PieceRuntime,
+  PlayZone,
+} from "@mpp/shared";
 import {
   SnapshotPublisher,
   buildSnapshot,
@@ -12,6 +18,9 @@ type FakeState = {
   readAllGroups: (n: number) => Promise<GroupRuntime[]>;
   getLockedCount: () => Promise<number>;
 };
+
+const leaderboardEntries: LeaderboardEntry[] = [{ userId: "u1", pieces: 3 }];
+const activityItems: ActivityItem[] = [{ id: "m1", userId: "u1", lockedDelta: 2, at: 1000 }];
 
 const zone: PlayZone = { minX: -100, minY: -100, maxX: 900, maxY: 900 };
 
@@ -35,6 +44,8 @@ function makeSource(overrides: Partial<FakeState> = {}): SnapshotSource {
     totalPieces: () => 2,
     playZone: () => zone,
     state: state as unknown as SnapshotSource["state"],
+    leaderboard: async () => leaderboardEntries,
+    activity: async () => activityItems,
   };
 }
 
@@ -72,6 +83,8 @@ describe("buildSnapshot", () => {
     expect(snap.pieces).toHaveLength(2);
     expect(snap.groups).toHaveLength(2);
     expect(snap.playZone).toEqual(zone);
+    expect(snap.leaderboard).toEqual(leaderboardEntries);
+    expect(snap.activity).toEqual(activityItems);
     expect(snap.generatedAt).toBeGreaterThanOrEqual(before);
     expect(snap.generatedAt).toBeLessThanOrEqual(Date.now());
   });

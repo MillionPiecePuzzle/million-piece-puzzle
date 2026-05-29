@@ -7,9 +7,9 @@ import { loadConfig } from "./config.js";
 import { Hub, type Client } from "./hub.js";
 import { RedisState } from "./state.js";
 import { MongoLogger } from "./mongo.js";
-import { dispatch, type Context } from "./handlers.js";
+import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { SerialQueue } from "./queue.js";
-import { PuzzleLifecycle } from "./lifecycle.js";
+import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
 import { initPuzzleIfEmpty } from "./init.js";
 import { TokenBucket, isAllowedOrigin } from "./limits.js";
 import { SnapshotPublisher, makeSnapshotHandler } from "./snapshot.js";
@@ -57,6 +57,8 @@ async function main(): Promise<void> {
     puzzleId: () => ctx.puzzleId,
     totalPieces: () => ctx.meta.totalPieces,
     playZone: () => lifecycle.currentPlayZone(),
+    leaderboard: () => mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT),
+    activity: () => mongo.recentAnchoredMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
   });
   snapshotPublisher.start();
   const handleSnapshot = makeSnapshotHandler(snapshotPublisher, config.snapshotIntervalMs);

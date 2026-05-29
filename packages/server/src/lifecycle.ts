@@ -6,7 +6,7 @@ import { forceInitPuzzle, playZoneForManifest } from "./init.js";
 
 // Anchoring entries sent to seed a connecting client's activity ticker. Matches
 // the ticker's display capacity on the frontend.
-const ACTIVITY_BACKFILL_LIMIT = 6;
+export const ACTIVITY_BACKFILL_LIMIT = 6;
 
 // Holds the single puzzle for its lifetime: serves welcomes, marks completion
 // when the locked count reaches the total, and supports a manual reset back to

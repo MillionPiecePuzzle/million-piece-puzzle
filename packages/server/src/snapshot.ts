@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { PlayZone, Snapshot } from "@mpp/shared";
+import type { ActivityItem, LeaderboardEntry, PlayZone, Snapshot } from "@mpp/shared";
 import type { RedisState } from "./state.js";
 
 export type SnapshotSource = {
@@ -7,15 +7,19 @@ export type SnapshotSource = {
   totalPieces: () => number;
   playZone: () => PlayZone;
   state: RedisState;
+  leaderboard: () => Promise<LeaderboardEntry[]>;
+  activity: () => Promise<ActivityItem[]>;
 };
 
 export async function buildSnapshot(source: SnapshotSource): Promise<Snapshot> {
   const puzzleId = source.puzzleId();
   const totalPieces = source.totalPieces();
-  const [pieces, groups, lockedCount] = await Promise.all([
+  const [pieces, groups, lockedCount, leaderboard, activity] = await Promise.all([
     source.state.readAllPieces(totalPieces),
     source.state.readAllGroups(totalPieces),
     source.state.getLockedCount(),
+    source.leaderboard(),
+    source.activity(),
   ]);
   return {
     puzzleId,
@@ -25,6 +29,8 @@ export async function buildSnapshot(source: SnapshotSource): Promise<Snapshot> {
     playZone: source.playZone(),
     pieces,
     groups,
+    leaderboard,
+    activity,
   };
 }
 

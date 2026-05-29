@@ -252,6 +252,12 @@ export type Snapshot = {
   playZone: PlayZone;
   pieces: PieceRuntime[];
   groups: GroupRuntime[];
+  // Mirror the `leaderboard` and `activity` WS messages so spectators polling
+  // the snapshot get the same standings and recent-placement feed contributors
+  // receive on connect. Ordered like their WS counterparts (leaderboard highest
+  // first, activity newest first).
+  leaderboard: LeaderboardEntry[];
+  activity: ActivityItem[];
 };
 
 export type ServerMessage =
