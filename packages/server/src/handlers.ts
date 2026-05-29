@@ -34,7 +34,7 @@ export type Context = {
     sendWelcomeAndState: (client: Client) => Promise<void>;
     resetCurrent: () => Promise<void>;
     markCompleted: () => Promise<void>;
-    forceComplete: () => Promise<void>;
+    forceComplete: (userId: string) => Promise<void>;
   };
 };
 
@@ -94,7 +94,7 @@ export async function handleDevComplete(ctx: Context, client: Client): Promise<v
     return;
   }
   if (!ctx.lifecycle) return;
-  await ctx.lifecycle.forceComplete();
+  await ctx.lifecycle.forceComplete(client.userId);
 }
 
 // Pick one random unlocked, unheld cluster and anchor it to the frame origin.

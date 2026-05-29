@@ -80,13 +80,27 @@ export class PuzzleLifecycle {
   // origin (so each piece lands in its solved cell), the locked counter is
   // driven to the total, and the fresh assembled state is rebroadcast so all
   // clients rebuild onto the finished picture. resetCurrent is the way back to
-  // a playable board.
-  async forceComplete(): Promise<void> {
+  // a playable board. The executing client is credited for every piece not
+  // already attributed: the leaderboard credits each piece to the first merge
+  // (by `at`) that dragged it, so logging one merge now whose droppedPieceIds
+  // lists all pieces leaves earlier contributions intact and assigns the rest
+  // to the executor.
+  async forceComplete(userId: string): Promise<void> {
     const total = this.ctx.meta.totalPieces;
     await this.ctx.state.anchorAllGroups(total);
     const current = await this.ctx.state.getLockedCount();
     const remaining = total - current;
     if (remaining > 0) await this.ctx.state.addLockedCount(remaining);
+    await this.ctx.mongo.logMerge({
+      puzzleId: this.ctx.puzzleId,
+      userId,
+      addedPieceIds: [],
+      droppedPieceIds: Array.from({ length: total }, (_, i) => i),
+      targetAnchorPieceId: 0,
+      anchored: true,
+      lockedDelta: Math.max(0, remaining),
+      at: new Date(),
+    });
     await this.markCompleted();
     await this.broadcastFreshState();
   }
