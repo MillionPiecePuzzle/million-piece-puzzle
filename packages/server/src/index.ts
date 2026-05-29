@@ -8,7 +8,7 @@ import { Hub, type Client } from "./hub.js";
 import { RedisState } from "./state.js";
 import { MongoLogger } from "./mongo.js";
 import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
-import { SerialQueue } from "./queue.js";
+import { GroupQueue } from "./queue.js";
 import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
 import { initPuzzleIfEmpty } from "./init.js";
 import { IpRegistry, isAllowedOrigin, clientIp } from "./limits.js";
@@ -32,6 +32,10 @@ async function main(): Promise<void> {
   const meta = await initPuzzleIfEmpty(state, manifest);
 
   const hub = new Hub(config.wsBufferedAmountLimitBytes);
+  // Per-group dispatch queues: messages for different groups run concurrently,
+  // a group's own messages stay ordered, and a merge serializes against every
+  // group it joins (see DECISIONS: per-group dispatch queues).
+  const queue = new GroupQueue();
   const ctx: Context = {
     hub,
     state,
@@ -39,6 +43,7 @@ async function main(): Promise<void> {
     puzzleId: manifest.puzzleId,
     mongo,
     devEnabled: config.devEnabled,
+    queue,
   };
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
   ctx.lifecycle = lifecycle;
@@ -89,10 +94,6 @@ async function main(): Promise<void> {
     );
   });
 
-  // Every message and disconnect cleanup runs through one queue, so handlers'
-  // `await` points cannot interleave (see DECISIONS: global serial dispatch queue).
-  const queue = new SerialQueue();
-
   // Per-IP budget shared across an IP's connections: one message-rate bucket
   // and a concurrent-connection cap (see DECISIONS: WS hardening).
   const ipRegistry = new IpRegistry(
@@ -125,16 +126,16 @@ async function main(): Promise<void> {
       // with error frames.
       if (!bucket.consume()) return;
       const raw = typeof data === "string" ? data : data.toString("utf8");
-      queue.enqueue("dispatch", () => dispatch(ctx, client, raw));
+      // Fire and forget: dispatch routes the message onto its group's queue
+      // synchronously (preserving arrival order) and resolves once handled.
+      void dispatch(ctx, client, raw);
     });
 
     ws.on("close", () => {
       ipRegistry.release(ip);
       hub.remove(client);
       hub.broadcast({ t: "leave", userId: client.userId });
-      queue.enqueue("release", () =>
-        releaseHeldGroups(ctx.state, ctx.meta.totalPieces, client.userId, hub),
-      );
+      void releaseHeldGroups(ctx, client.userId, hub);
     });
   });
 
@@ -151,29 +152,27 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
-async function releaseHeldGroups(
-  state: RedisState,
-  totalPieces: number,
-  userId: string,
-  hub: Hub,
-): Promise<void> {
-  const groups = await state.readAllGroups(totalPieces);
-  for (const g of groups) {
-    if (g.heldBy === userId) {
-      await state.releaseGroup(g.id);
+// Release every group a departing client still held. The candidate scan runs
+// unlocked, then the release runs on those groups' queues: no other client can
+// take a hold this user already owns, and a hold cleared in the meantime (the
+// group merged away or anchored) is re-checked under the lock before release,
+// so the cleanup never fights a concurrent merge on those groups.
+async function releaseHeldGroups(ctx: Context, userId: string, hub: Hub): Promise<void> {
+  const groups = await ctx.state.readAllGroups(ctx.meta.totalPieces);
+  const heldIds = groups.filter((g) => g.heldBy === userId).map((g) => g.id);
+  if (heldIds.length === 0) return;
+  await ctx.queue.run("release", heldIds, async () => {
+    for (const id of heldIds) {
+      const g = await ctx.state.readGroup(id);
+      if (!g || g.heldBy !== userId) continue;
+      await ctx.state.releaseGroup(id);
       hub.broadcastNear(
-        {
-          t: "drop",
-          groupId: g.id,
-          worldX: g.worldX,
-          worldY: g.worldY,
-          userId,
-        },
+        { t: "drop", groupId: id, worldX: g.worldX, worldY: g.worldY, userId },
         g.worldX,
         g.worldY,
       );
     }
-  }
+  });
 }
 
 main().catch((e: unknown) => {

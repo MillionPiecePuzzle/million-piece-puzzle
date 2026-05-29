@@ -4,6 +4,7 @@ import type { Context } from "./handlers.js";
 import type { Client } from "./hub.js";
 import type { PuzzleMeta } from "./state.js";
 import type { GroupRuntime } from "@mpp/shared";
+import { GroupQueue } from "./queue.js";
 
 const meta: PuzzleMeta = {
   totalPieces: 100,
@@ -20,6 +21,24 @@ const client = { userId: "u1", bucket: { consume: () => true } } as unknown as C
 
 const badMessage = () => expect.objectContaining({ t: "error", code: "bad_message" });
 
+const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+async function waitFor(predicate: () => boolean, tries = 50): Promise<void> {
+  for (let i = 0; i < tries; i++) {
+    if (predicate()) return;
+    await flush();
+  }
+  throw new Error("waitFor timed out");
+}
+
 function makeCtx() {
   const send = vi.fn();
   const broadcast = vi.fn();
@@ -32,6 +51,7 @@ function makeCtx() {
     meta,
     puzzleId: "test",
     mongo: { logMerge: vi.fn() },
+    queue: new GroupQueue(),
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastNear, tryAcquireGroup, readGroup };
 }
@@ -328,6 +348,7 @@ function makeDropCtx() {
     meta: dropMeta,
     puzzleId: "test",
     mongo: { logMerge, leaderboard },
+    queue: new GroupQueue(),
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastNear, logMerge, leaderboard, state };
 }
@@ -489,5 +510,66 @@ describe("handleDevPlace", () => {
     state.place({ id: 1, worldX: 300, worldY: 300, size: 1, locked: false, heldBy: "other" }, [1]);
     await handleDevPlace(ctx, client);
     expect(broadcast).not.toHaveBeenCalled();
+  });
+});
+
+// A drop that snaps onto a neighbour mutates two groups at once. Routed through
+// the per-group queue, the dispatcher discovers the neighbour and re-runs the
+// drop holding both groups' locks. These tests drive that path end to end.
+describe("cross-group merge ordering", () => {
+  it("merges the dropped group into its neighbour through the per-group queue", async () => {
+    const { ctx, state, broadcast } = makeDropCtx();
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place(dropped(4, 200, 200), [4]);
+
+    await dispatch(
+      ctx,
+      client,
+      JSON.stringify({ t: "drop", groupId: 4, worldX: 200, worldY: 200 }),
+    );
+
+    expect(state.groups.has(4)).toBe(false);
+    expect(state.groups.get(1)?.size).toBe(2);
+    expect(state.pieceToGroup.get(4)).toBe(1);
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "snap", newGroupId: 1, anchored: false }),
+    );
+  });
+
+  it("holds both groups' locks for the whole merge, so a later op on the neighbour waits", async () => {
+    const { ctx, state } = makeDropCtx();
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place(dropped(4, 200, 200), [4]);
+
+    // Hold the merge mid read-modify-write, after group 4 is folded into group 1
+    // but before the merged group is written back.
+    const events: string[] = [];
+    const gate = deferred();
+    const realAdd = state.addGroupPieces.bind(state);
+    state.addGroupPieces = (id: number, pieces: number[]): Promise<void> => {
+      events.push("merge-write");
+      return gate.promise.then(() => realAdd(id, pieces));
+    };
+
+    const dropDone = dispatch(
+      ctx,
+      client,
+      JSON.stringify({ t: "drop", groupId: 4, worldX: 200, worldY: 200 }),
+    );
+    await waitFor(() => events.includes("merge-write"));
+
+    // A task on the neighbour group must queue behind the in-flight merge,
+    // proving the dispatched drop holds group 1's lock, not just group 4's.
+    let neighbourRan = false;
+    const neighbour = ctx.queue.run("probe", [1], async () => {
+      neighbourRan = true;
+    });
+    await flush();
+    expect(neighbourRan).toBe(false);
+
+    gate.resolve();
+    await Promise.all([dropDone, neighbour]);
+    expect(neighbourRan).toBe(true);
+    expect(state.groups.get(1)?.size).toBe(2);
   });
 });

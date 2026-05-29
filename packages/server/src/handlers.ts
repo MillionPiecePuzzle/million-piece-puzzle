@@ -14,6 +14,7 @@ import { PROTOCOL_VERSION, normalizePseudo } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
+import type { GroupQueue } from "./queue.js";
 import { detectSnap } from "./snap.js";
 
 // Cap on leaderboard entries derived on completion. Generous for the closed
@@ -27,6 +28,7 @@ export type Context = {
   puzzleId: string;
   mongo: MongoLogger;
   devEnabled: boolean;
+  queue: GroupQueue;
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.
@@ -208,7 +210,21 @@ export function handleSetPseudo(ctx: Context, client: Client, msg: CSetPseudo): 
   ctx.hub.broadcast({ t: "join", userId: client.userId, pseudo }, client);
 }
 
-export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Promise<void> {
+// A merge mutates every group it joins, so it has to run holding all their
+// locks. The dropped group's neighbours are only known after detectSnap, so
+// when `handleDrop` runs under the per-group queue (callers pass `lockedGroups`)
+// and the snap reaches a group we do not yet hold, it returns the full set to
+// lock and mutates nothing, letting the caller re-run holding the expanded set.
+// A direct call (no `lockedGroups`) assumes the caller already holds whatever it
+// needs and always applies.
+export type DropOutcome = { expand: number[] } | void;
+
+export async function handleDrop(
+  ctx: Context,
+  client: Client,
+  msg: CDrop,
+  lockedGroups?: ReadonlySet<number>,
+): Promise<DropOutcome> {
   const g = await ctx.state.readGroup(msg.groupId);
   if (!g) {
     err(ctx, client, "unknown_group", `group ${msg.groupId}`);
@@ -219,7 +235,8 @@ export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Prom
     return;
   }
 
-  await ctx.state.setGroupPosition(msg.groupId, msg.worldX, msg.worldY);
+  // Detection only: position is set in memory so detectSnap sees the drop point,
+  // but nothing is persisted until we know all involved groups are locked.
   g.worldX = msg.worldX;
   g.worldY = msg.worldY;
 
@@ -234,6 +251,14 @@ export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Prom
     g,
     droppedPieces,
   );
+  const matchedGroupIds = match?.matchedGroupIds ?? [];
+
+  if (lockedGroups) {
+    const required = [msg.groupId, ...matchedGroupIds];
+    if (required.some((id) => !lockedGroups.has(id))) return { expand: required };
+  }
+
+  await ctx.state.setGroupPosition(msg.groupId, msg.worldX, msg.worldY);
 
   if (!frameAnchor && !match) {
     await ctx.state.releaseGroup(msg.groupId);
@@ -251,7 +276,6 @@ export async function handleDrop(ctx: Context, client: Client, msg: CDrop): Prom
     return;
   }
 
-  const matchedGroupIds = match?.matchedGroupIds ?? [];
   const targetWorldX = frameAnchor ? 0 : match!.targetWorldX;
   const targetWorldY = frameAnchor ? 0 : match!.targetWorldY;
 
@@ -365,6 +389,29 @@ async function applyMerge(
   }
 }
 
+// Upper bound on lock-set expansions for one drop. Each pass adds at least one
+// neighbour group, so it terminates; the cap only guards the pathological case
+// where concurrent merges keep moving fresh groups into snap range between
+// passes (effectively impossible at any real rate).
+const MAX_MERGE_LOCK_ATTEMPTS = 8;
+
+// Run a drop under the per-group queue. The first pass locks only the dropped
+// group; if the snap reaches groups it does not hold, `handleDrop` reports them
+// and the drop re-runs holding the union, until the whole merge is covered.
+async function scheduleDrop(ctx: Context, client: Client, msg: CDrop): Promise<void> {
+  const locked = new Set<number>([msg.groupId]);
+  for (let attempt = 0; attempt < MAX_MERGE_LOCK_ATTEMPTS; attempt++) {
+    let expand: number[] | undefined;
+    await ctx.queue.run("drop", [...locked], async () => {
+      const outcome = await handleDrop(ctx, client, msg, locked);
+      if (outcome) expand = outcome.expand;
+    });
+    if (!expand) return;
+    for (const id of expand) locked.add(id);
+  }
+  console.error(`[queue:drop] gave up expanding merge locks for group ${msg.groupId}`);
+}
+
 export async function dispatch(ctx: Context, client: Client, raw: string): Promise<void> {
   let msg: ClientMessage;
   try {
@@ -379,14 +426,16 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
   }
   switch (msg.t) {
     case "hello":
-      await handleHello(ctx, client, msg);
+      // Reads the whole board for the initial snapshot; the global barrier keeps
+      // it from observing a half-applied merge.
+      await ctx.queue.runGlobal("hello", () => handleHello(ctx, client, msg));
       return;
     case "grab":
       if (!isValidGroupId(msg.groupId, ctx.meta.totalPieces)) {
         err(ctx, client, "bad_message", "invalid groupId");
         return;
       }
-      await handleGrab(ctx, client, msg);
+      await ctx.queue.run("grab", [msg.groupId], () => handleGrab(ctx, client, msg));
       return;
     case "drag":
     case "drop":
@@ -398,8 +447,9 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
         err(ctx, client, "bad_message", "invalid coordinates");
         return;
       }
-      if (msg.t === "drag") await handleDrag(ctx, client, msg);
-      else await handleDrop(ctx, client, msg);
+      if (msg.t === "drag")
+        await ctx.queue.run("drag", [msg.groupId], () => handleDrag(ctx, client, msg));
+      else await scheduleDrop(ctx, client, msg);
       return;
     case "viewport":
       if (
@@ -426,15 +476,23 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
       handleSetPseudo(ctx, client, msg);
       return;
     case "dev_reset":
-      await handleDevReset(ctx, client);
+      await runDev(ctx, "dev_reset", () => handleDevReset(ctx, client));
       return;
     case "dev_complete":
-      await handleDevComplete(ctx, client);
+      await runDev(ctx, "dev_complete", () => handleDevComplete(ctx, client));
       return;
     case "dev_place":
-      await handleDevPlace(ctx, client);
+      await runDev(ctx, "dev_place", () => handleDevPlace(ctx, client));
       return;
     default:
       err(ctx, client, "bad_message", `unknown message type`);
   }
+}
+
+// Dev commands rewrite the whole board (reset, force-complete) or scan it to
+// pick a target (place), so they take the global barrier when enabled. When
+// disabled the handler just emits `dev_disabled`, so it runs inline rather than
+// serializing the board behind a rejected command.
+function runDev(ctx: Context, label: string, fn: () => Promise<void>): Promise<void> {
+  return ctx.devEnabled ? ctx.queue.runGlobal(label, fn) : fn();
 }

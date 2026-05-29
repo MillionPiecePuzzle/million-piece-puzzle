@@ -51,9 +51,8 @@ The final line prints `PASS` when all of the following hold:
 Otherwise `FAIL`, look at the per-metric breakdown above it. Grab round-trip
 latency is reported (p50/p95/p99/max) but not gated: at alpha scale on a
 single VPS, multi-second p95 under 20-bot sustained drag traffic is an
-architecture cost (global serial dispatch queue, unthrottled drag broadcast),
-not a saturation signal. See DECISIONS: harness PASS criterion bounded to
-saturation signals.
+architecture cost (the single-process WS writer), not a saturation signal.
+See DECISIONS: harness PASS criterion bounded to saturation signals.
 
 ## What is and is not exercised
 
