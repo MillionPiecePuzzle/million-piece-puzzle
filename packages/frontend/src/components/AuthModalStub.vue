@@ -1,13 +1,22 @@
 <script setup lang="ts">
+import { watch } from "vue";
 import { useAuthModal } from "../composables/useAuthModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { usePseudo } from "../composables/usePseudo";
 import { useAuth } from "../composables/useAuth";
+import { usePuzzleSession } from "../composables/usePuzzleSession";
 
 const { open, hide } = useAuthModal();
 const { show: showPseudoModal } = usePseudoModal();
 const { pseudo } = usePseudo();
 const { completeSignIn } = useAuth();
+const { completed } = usePuzzleSession();
+
+// A finished puzzle has no contributor entry point: close the modal if it is
+// open when completion lands and keep it from rendering afterwards.
+watch(completed, (done) => {
+  if (done) hide();
+});
 
 function continueWithGoogle() {
   hide();
@@ -23,7 +32,7 @@ function continueWithGoogle() {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="auth-backdrop" @click.self="hide">
+    <div v-if="open && !completed" class="auth-backdrop" @click.self="hide">
       <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
         <header>
           <h2 id="auth-title">Become a contributor</h2>

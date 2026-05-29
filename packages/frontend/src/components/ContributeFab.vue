@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { useMode } from "../composables/useMode";
 import { useAuthModal } from "../composables/useAuthModal";
+import { usePuzzleSession } from "../composables/usePuzzleSession";
 
 const { mode } = useMode();
 const { show } = useAuthModal();
+const { completed } = usePuzzleSession();
 </script>
 
 <template>
   <div
-    v-if="mode === 'spectator'"
+    v-if="mode === 'spectator' && !completed"
     class="contribute-card"
     role="region"
     aria-label="Spectator mode"

@@ -153,6 +153,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 - [x] `backend-realtime` + `shared-protocol` + `frontend-shell`: Spectator leaderboard and activity. Both feeds were only emitted on the WebSocket path, so spectators polling `GET /snapshot` saw empty panels. Exit: the snapshot carries `leaderboard` and `activity`, the publisher fills them from Mongo, and the spectator session applies them so the in-game panels populate without a WebSocket.
 - [x] `backend-realtime`: Reset clears the derived feeds. `dev_reset` wiped Redis but not the merge log, so the leaderboard and activity feed kept showing the old puzzle's standings after a reset. Exit: `resetCurrent` clears the puzzle's `cluster_merges`, so the fresh board's leaderboard and activity feed start empty (Redis was already wiped).
 - [x] `backend-realtime`: Dev Complete credits the executor. Force-complete logged no merge, so the leaderboard credited nobody for the assembled board. Exit: `dev_complete` logs one merge crediting the executing client for every piece not already attributed (first-merge scoring leaves earlier contributions intact), and the rebroadcast leaderboard reflects it.
+- [x] `frontend-shell`: Contributor entry points hidden on completion. Exit: once every piece is locked, the spectator Contribute card is hidden and the "Become a contributor" modal will not open (closes if already open).
 
 #### Performance pulled forward from Phase 2
 

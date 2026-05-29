@@ -1,4 +1,4 @@
-import { ref, shallowRef } from "vue";
+import { computed, ref, shallowRef } from "vue";
 import type {
   GroupRuntime,
   ImageManifest,
@@ -60,6 +60,9 @@ const lockedCount = ref(0);
 const activity = ref<ActivityEntry[]>([]);
 const leaderboard = ref<LeaderboardEntry[]>([]);
 const transport = ref<Transport>("none");
+// The puzzle is finished once every piece is locked. Derived so the shell can
+// gate the contributor entry points (Contribute card, auth modal) on it.
+const completed = computed(() => totalPieces.value > 0 && lockedCount.value >= totalPieces.value);
 
 let client: PuzzleWsClient | null = null;
 let welcome: SWelcome | null = null;
@@ -386,6 +389,7 @@ export function usePuzzleSession() {
     activity,
     leaderboard,
     transport,
+    completed,
     startContributor,
     startSpectator,
     close,
