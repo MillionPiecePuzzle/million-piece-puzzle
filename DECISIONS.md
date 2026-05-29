@@ -23,7 +23,6 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Absolute world coordinates on every drag frame](#2026-05-12-shared-protocol-absolute-coords-on-drag) -> consider deltas or quantization if bandwidth becomes a constraint.
 - [Drop implicitly releases the held cluster, no explicit release message](#2026-05-12-shared-protocol-drop-implies-release) -> may need an explicit release if disconnect handling diverges from drop semantics.
 - [Edge params now 8 floats with circular bulb head](#2026-05-13-piece-generation-circular-bulb-head) -> revisit if silhouettes degenerate or if more variety is wanted.
-- [Default `pieceSize = 100` in generator output](#2026-05-12-piece-generation-piecesize-default) -> image pipeline will pin the real pixel size; consumer should pass it explicitly once known.
 - [Image pipeline emits rectangular tiles without silhouette mask](#2026-05-12-image-pipeline-rectangular-tiles) -> revisit if client-side masking shows up in render profiling at Phase 1+ scale.
 - [Image pipeline derives `pieceSize` from image dimensions and center-crops](#2026-05-12-image-pipeline-adaptive-piecesize) -> revisit if non-centered crops or aspect-fitting become useful.
 - [Snap detection compares group origins for equality within tolerance](#2026-05-12-backend-realtime-snap-by-origin) -> stable assumption; revisit only if canonical offsets stop being puzzle-global (e.g., rotation enabled).
@@ -42,7 +41,6 @@ Quick scan of choices that knowingly do not scale to Phase 2 (1M pieces, public)
 - [Leaderboard scored from the full ClusterMerge log, re-run per anchoring snap](#2026-05-21-frontend-canvas-leaderboard-scoring) -> precompute a per-user counter at 1M scale.
 - [Frustum culling only, no zoom-out LOD](#2026-05-21-frontend-canvas-frustum-culling-without-zoom-out-lod) -> Phase 2 aggregated-tile LOD makes the fully-zoomed-out view affordable.
 - [Board bounded by a server-computed play zone, camera and pieces clamped to it](#2026-05-21-frontend-canvas-play-zone-hard-limits) -> Phase 2 needs server-side position validation and revisits the bound under viewport sharding.
-- [Reference image is a single AVIF, not a Deep Zoom pyramid](#2026-05-22-image-pipeline-reference-image-as-a-single-avif) -> switch the reference panel to a DZI tile source when the gigapixel source lands on R2.
 - [Spectator snapshot is a full payload served from the WS host with a short edge cache](#2026-05-23-backend-realtime-spectator-snapshot-full-from-host) -> at 1M-piece scale switch to a keyframe + event-log diff stream (see ROADMAP backlog).
 - [Spectator snapshot fronted by a dedicated Cloudflare-proxied hostname](#2026-05-23-infra-deploy-snapshot-proxied-hostname) -> revisit when `ws.*` itself moves to proxied (Phase 2) and the two endpoints can share a host again.
 - [Load harness PASS criterion bounded to saturation signals, not absolute latency](#2026-05-28-qa-and-load-harness-pass-criterion-bounded-to-saturation-signals) -> reintroduce a latency budget once Phase 2 perf work (drag throttling, per-group queues, write sharding) lands.
@@ -98,18 +96,6 @@ Revisit when: silhouettes look degenerate, neighbors visibly misalign at snap, o
 Choice: the renderer (path.ts) walks each curved edge as 8 cubic Bezier segments: flat shoulder, rise-lower (baseline to neck pinch with undercut), rise-upper (neck pinch outward to bulb equator), bulb top-left quarter arc, bulb top-right quarter arc, fall-upper, fall-lower, flat shoulder. The two bulb arcs approximate a true circle using the canonical cubic Bezier handle length `0.5523 * r`.
 Why: the bulb being a circle is what makes the silhouette read as a jigsaw piece rather than a generic curve. Separating the rise into "lower" (under the baseline, undercut) and "upper" (outward swing from neck to bulb equator) lets the neck pinch be an actual sharp narrowing rather than a smooth bulge. 4 or 6 segments do not have enough endpoints to encode a flat baseline + undercut + neck pinch + circular bulb.
 Revisit when: GPU cost of triangulating ~8 cubics per curved edge at 1M pieces shows up in profiling. Drop the two flat-shoulder cubics in favor of `L` line commands first; further compaction would mean sacrificing the circular bulb.
-
-### 2026-05-12, piece-generation, pieceSize default
-
-Choice: `generatePuzzle` defaults `pieceSize` to 100 (world units = pixels at native resolution).
-Why: convenient placeholder for tests and Phase 0. The real value will be set by the image pipeline once piece textures are sized.
-Revisit when: image pipeline produces the per-piece AVIF set. Pass the actual pixel size explicitly and drop the default, or align the default with whatever the pipeline emits.
-
-### 2026-05-12, piece-generation, Bezier rendering deferred
-
-Choice: the generator emits only raw edge parameters. The conversion from parameters to cubic Bezier segments (handles, control points) is not implemented here.
-Why: that conversion is needed only for rendering. It belongs naturally with the PixiJS canvas work in track `frontend-canvas`.
-Revisit when: starting `frontend-canvas`. Add a function `edgeToCubicSegments(edge, length): CubicSegment[]` either in this generator module or alongside the renderer, whichever is cleaner.
 
 ### 2026-05-12, image-pipeline, rectangular tiles
 
