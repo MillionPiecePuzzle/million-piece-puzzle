@@ -88,7 +88,7 @@ Built as the real Phase 2 solution, not a stopgap, so none is thrown away at 1M 
 - [ ] Generation pipeline produces and validates 1 000 000 unique pieces
 
 ### `image-pipeline`
-- [ ] Gigapixel source processed end to end (Deep Zoom + per-piece AVIF) and hosted on R2
+- [ ] Gigapixel source processed end to end (Deep Zoom + per-piece AVIF, pre-masked alpha-cut server-side) and hosted on R2
 
 ### `frontend-shell`
 - [ ] Final landing copy, contributor onboarding flow (login + pseudo creation)
@@ -97,6 +97,8 @@ Built as the real Phase 2 solution, not a stopgap, so none is thrown away at 1M 
 
 ### `frontend-canvas`
 - [ ] Zoom-out LOD scales to 1M: move from the Phase 1 render-texture LOD to pipeline aggregated tiles if render-texture does not hold at full scale
+- [ ] Viewport-driven texture streaming: fetch only textures for pieces in or near the frustum instead of loading every per-piece AVIF up front. Exit: entering `/play` at 1M does not eagerly fetch all textures; pieces page in and out as the viewport moves; the zoomed-out view renders from aggregated tiles with no per-piece fetch
+- [ ] Chunked board build with full status coverage: split the post-download `build()` work (piece-node construction, initial LOD bake) into yielding chunks and report its progress. Exit: the loading status stays accurate from connect to board-on-screen with no uncovered gap after textures reach 100%; building 1M piece nodes does not freeze the main thread
 - [ ] Rendering stays smooth on commodity hardware at 1M pieces
 - [ ] Event-start cascade entrance: synchronized across clients at `eventStartsAt`, pieces fall into their shuffled positions, late joiners skip it
 
