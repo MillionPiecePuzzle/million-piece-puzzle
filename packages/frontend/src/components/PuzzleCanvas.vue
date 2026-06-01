@@ -242,7 +242,6 @@ onMounted(async () => {
 watch(mode, async (next, prev) => {
   if (next === prev) return;
   close();
-  builtEpoch = 0;
   if (next === "contributor") {
     await startContributor();
   } else {
