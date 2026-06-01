@@ -1,15 +1,8 @@
 /**
- * Anonymous session identity.
- *
- * Phase 0 only: the server assigns an ephemeral id on WS connect. Lives in
- * connection state, never persisted. Distinct from the Mongo User type which
- * represents an authenticated, named contributor.
+ * Pseudo validation, shared by the client and the server so the rule never
+ * drifts. The pseudo is the contributor's public identity, stored on the Mongo
+ * user profile and shown for snap attribution.
  */
-
-export type AnonymousUser = {
-  id: string;
-  pseudo: string | null;
-};
 
 export const PSEUDO_MIN_LENGTH = 2;
 export const PSEUDO_MAX_LENGTH = 16;

@@ -67,14 +67,6 @@ export type CCursor = {
   worldY: number;
 };
 
-// Anonymous pseudo chosen by the client, attached to the connection. Sent on
-// first contribution and on every change. Not persisted: it lives on the WS
-// connection only, so there is no uniqueness check.
-export type CSetPseudo = {
-  t: "setPseudo";
-  pseudo: string;
-};
-
 // Dev-only messages, gated server-side by MPP_DEV_ENABLED.
 // dev_reset: wipe and re-init the current puzzle (stays on the same puzzle).
 // dev_complete: force-complete the current puzzle (locked count jumps to total,
@@ -92,7 +84,6 @@ export type ClientMessage =
   | CDrop
   | CViewport
   | CCursor
-  | CSetPseudo
   | CDevReset
   | CDevComplete
   | CDevPlace;
@@ -128,6 +119,9 @@ export type SState = {
 export type ActivityItem = {
   id: string;
   userId: string;
+  // Contributor pseudo resolved from the user profile, null when the user has
+  // not set one. Carried so backfilled items show names like the live feed.
+  pseudo?: string | null;
   lockedDelta: number;
   at: number;
 };
@@ -142,11 +136,12 @@ export type SActivity = {
 // client on join, so the in-game leaderboard stays live. Each piece is worth
 // one point, credited to the user of the first merge that dragged it; every
 // piece is dragged at least once on its way to its solved position, so the
-// entries' pieces sum to the puzzle's piece count. userId is the ephemeral
-// connection id: pseudos are not persisted, so no name is carried. Entries are
+// entries' pieces sum to the puzzle's piece count. userId is the persisted user
+// id; pseudo is resolved from the user profile (null when unset). Entries are
 // ordered highest first.
 export type LeaderboardEntry = {
   userId: string;
+  pseudo?: string | null;
   pieces: number;
 };
 
@@ -192,9 +187,9 @@ export type SSnap = {
   worldY: number;
   anchored: boolean;
   userId: string;
-  // Pseudo of the snapping client at snap time, null if they never set one.
-  // Carried per event because pseudos are not persisted: the activity backfill
-  // rebuilt from Mongo cannot recover them.
+  // Pseudo of the snapping user, null if unset. Carried on the live event to
+  // avoid a profile lookup on the hot path; the Mongo-backed activity backfill
+  // resolves the same pseudo via a join.
   pseudo: string | null;
   at: number;
   lockedCount: number;
@@ -208,8 +203,8 @@ export type SRollback = {
 };
 
 // Presence, server to client. join is sent to a connecting client once per peer
-// already present, to existing peers when a new peer connects, and again to
-// peers when a peer changes its pseudo (so a stale pseudo tag refreshes). leave
+// already present, and to existing peers when a new peer connects. The pseudo
+// is the peer's authenticated profile pseudo, fixed for the connection. leave
 // is sent when a peer disconnects. cursor relays a peer's pointer to its
 // viewport-neighbor peers. There is no server viewport relay: viewport is a
 // server-side broadcast-scoping input only.

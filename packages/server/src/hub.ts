@@ -19,8 +19,8 @@ export type Client = {
   // viewport receives every drag and drop broadcast, so scoping never silently
   // cuts off a client that has not yet reported one.
   viewport: Viewport | null;
-  // Anonymous pseudo set by the client, null until its first `setPseudo`.
-  // Lives on the connection only, never persisted.
+  // The authenticated user's profile pseudo, resolved at the WS upgrade and
+  // fixed for the connection, null when the user has not set one yet.
   pseudo: string | null;
 };
 

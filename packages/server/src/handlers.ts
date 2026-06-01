@@ -5,12 +5,11 @@ import type {
   CDrop,
   CGrab,
   CHello,
-  CSetPseudo,
   CViewport,
   ClientMessage,
   ServerMessage,
 } from "@mpp/shared";
-import { PROTOCOL_VERSION, normalizePseudo } from "@mpp/shared";
+import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
@@ -197,17 +196,6 @@ export function handleCursor(ctx: Context, client: Client, msg: CCursor): void {
     msg.worldY,
     client,
   );
-}
-
-export function handleSetPseudo(ctx: Context, client: Client, msg: CSetPseudo): void {
-  const pseudo = normalizePseudo(msg.pseudo);
-  if (pseudo === null) {
-    err(ctx, client, "bad_message", "invalid pseudo");
-    return;
-  }
-  client.pseudo = pseudo;
-  // Re-announce so peers refresh the pseudo tag on their cursor for this client.
-  ctx.hub.broadcast({ t: "join", userId: client.userId, pseudo }, client);
 }
 
 // A merge mutates every group it joins, so it has to run holding all their
@@ -471,9 +459,6 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
         return;
       }
       handleCursor(ctx, client, msg);
-      return;
-    case "setPseudo":
-      handleSetPseudo(ctx, client, msg);
       return;
     case "dev_reset":
       await runDev(ctx, "dev_reset", () => handleDevReset(ctx, client));

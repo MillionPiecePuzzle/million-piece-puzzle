@@ -4,11 +4,15 @@
  * ObjectId fields are represented as hex strings in shared types. The server
  * maps them to/from BSON ObjectId at the storage boundary.
  *
- * Required indexes:
- *   users.pseudo                              unique
+ * The Auth.js Mongo adapter owns the shape of `users`, `accounts`, and
+ * `sessions` (it creates the documents) but does NOT create their indexes, so
+ * the server ensures them at boot (see server `ensureIndexes`):
+ *   users.pseudo            partial-unique (only docs where pseudo is a string)
+ *   users.email             unique
+ *   accounts (provider, providerAccountId)    unique
+ *   sessions.sessionToken   unique
  *   cluster_merges (puzzleId, at)             timelapse replay
  *   cluster_merges (puzzleId, droppedPieceIds) per-piece attribution
- * Auth.js adapter manages its own collections (accounts, sessions) and their indexes.
  */
 
 export type PuzzleStatus = "draft" | "active" | "completed";
@@ -27,9 +31,17 @@ export type Puzzle = {
   completedAt: Date | null;
 };
 
+// Authenticated contributor. The OAuth profile fields (email, name, image) are
+// written by the Auth.js adapter on first sign-in; pseudo is set later through
+// the forced onboarding modal and is null until then. pseudo is the only
+// public-facing identity, shown for snap attribution.
 export type User = {
   _id: string;
-  pseudo: string;
+  email: string;
+  name?: string | null;
+  image?: string | null;
+  emailVerified?: Date | null;
+  pseudo: string | null;
   createdAt: Date;
   lastSeenAt: Date;
 };

@@ -187,15 +187,6 @@ describe("dispatch validation", () => {
     );
   });
 
-  it("re-announces join with the new pseudo on setPseudo", async () => {
-    const { ctx, broadcast } = makeCtx();
-    await dispatch(ctx, client, JSON.stringify({ t: "setPseudo", pseudo: "Alice" }));
-    expect(broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ t: "join", userId: "u1", pseudo: "Alice" }),
-      client,
-    );
-  });
-
   it("rejects invalid JSON", async () => {
     const { ctx, send } = makeCtx();
     await dispatch(ctx, client, "not json");

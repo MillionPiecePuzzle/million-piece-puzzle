@@ -1,22 +1,30 @@
-import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { Redis as IORedis } from "ioredis";
-import { WebSocketServer, type WebSocket, type VerifyClientCallbackSync } from "ws";
+import { MongoClient } from "mongodb";
+import { MongoDBAdapter } from "@auth/mongodb-adapter";
+import { WebSocketServer, type WebSocket, type VerifyClientCallbackAsync } from "ws";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import { loadConfig } from "./config.js";
 import { Hub, type Client } from "./hub.js";
 import { RedisState } from "./state.js";
-import { MongoLogger } from "./mongo.js";
+import { MongoLogger, ensureIndexes } from "./mongo.js";
 import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { GroupQueue } from "./queue.js";
 import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
 import { initPuzzleIfEmpty } from "./init.js";
-import { IpRegistry, isAllowedOrigin, clientIp } from "./limits.js";
+import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { SnapshotPublisher, makeSnapshotHandler } from "./snapshot.js";
+import { buildAuthConfig, resolveSessionUser } from "./auth.js";
+import { createApp } from "./httpApp.js";
 
 // WebSocket close code 1013 ("Try Again Later"), used to refuse a connection
 // that exceeds the per-IP concurrent-connection cap.
 const CLOSE_TRY_AGAIN_LATER = 1013;
+
+// User stashed on the upgrade request by verifyClient and read by the
+// connection handler, so the session is resolved exactly once at the upgrade.
+type AuthedUser = { id: string; pseudo: string | null };
+type AuthedRequest = IncomingMessage & { mppUser?: AuthedUser };
 
 async function main(): Promise<void> {
   const config = await loadConfig();
@@ -24,8 +32,14 @@ async function main(): Promise<void> {
   const redis = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
   redis.on("error", (e: Error) => console.error("[redis]", e.message));
 
-  const mongo = new MongoLogger(config.mongoUrl, config.mongoDb);
-  await mongo.connect();
+  // One Mongo client shared by the merge log, the user-profile ops, and the
+  // Auth.js adapter.
+  const mongoClient = new MongoClient(config.mongoUrl);
+  await mongoClient.connect();
+  const db = mongoClient.db(config.mongoDb);
+  await ensureIndexes(db);
+  const mongo = new MongoLogger(db);
+  const adapter = MongoDBAdapter(mongoClient, { databaseName: config.mongoDb });
 
   const manifest = config.manifest;
   const state = new RedisState(redis, manifest.puzzleId);
@@ -58,6 +72,23 @@ async function main(): Promise<void> {
     );
   }
 
+  // Auth.js reads its secrets and host from process.env; fill non-secret dev
+  // defaults so a local run works, and warn loudly when the secrets are missing.
+  process.env.AUTH_URL ??= config.authUrl;
+  process.env.AUTH_TRUST_HOST ??= "true";
+  if (!process.env.AUTH_SECRET) {
+    console.warn("[auth] AUTH_SECRET is unset: auth routes and WS upgrades will fail.");
+  }
+  if (!process.env.AUTH_GOOGLE_ID || !process.env.AUTH_GOOGLE_SECRET) {
+    console.warn("[auth] AUTH_GOOGLE_ID/AUTH_GOOGLE_SECRET unset: Google sign-in will fail.");
+  }
+  const authConfig = buildAuthConfig({
+    adapter,
+    secure: config.authSecure,
+    cookieDomain: config.authCookieDomain,
+    appOrigin: config.appOrigin,
+  });
+
   // Periodic snapshot for spectator mode, served via HTTP and cached by the
   // CDN edge. The publisher keeps the latest body in memory; the HTTP handler
   // serves it without re-querying Redis on each request.
@@ -72,17 +103,56 @@ async function main(): Promise<void> {
   snapshotPublisher.start();
   const handleSnapshot = makeSnapshotHandler(snapshotPublisher, config.snapshotIntervalMs);
 
-  // One HTTP server hosts both the spectator snapshot endpoint and the
-  // WebSocket upgrade. WS upgrades bypass the request handler; HTTP requests
-  // not matched by a handler get a 404.
-  const httpServer = createServer((req, res) => {
-    if (handleSnapshot(req, res)) return;
-    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("not found");
+  // Express hosts the auth routes, the pseudo-profile route, and the snapshot.
+  // The WebSocket upgrade attaches to the same http.Server below.
+  const app = createApp({
+    authConfig,
+    pseudoStore: mongo,
+    authLimiter: new RedisFixedWindow(redis, "auth", config.authRateMax, config.authRateWindowSec),
+    signupLimiter: new RedisFixedWindow(
+      redis,
+      "signup",
+      config.signupMaxPerIp,
+      config.signupWindowSec,
+    ),
+    appOrigin: config.appOrigin,
+    devEnabled: config.devEnabled,
+    handleSnapshot,
   });
+  const httpServer = createServer(app);
 
-  const verifyClient: VerifyClientCallbackSync = (info) =>
-    isAllowedOrigin(info.origin, config.allowedOrigins);
+  // The WS upgrade requires a valid session: the Origin is checked, then the
+  // parent-domain session cookie is resolved against the adapter. Resolving here
+  // (not in the connection handler) means the connection only fires for an
+  // authenticated upgrade, so no early `hello` is dropped during the async
+  // lookup. The resolved user is stashed on the request for the handler.
+  const verifyClient: VerifyClientCallbackAsync = (info, cb) => {
+    if (!isAllowedOrigin(info.origin, config.allowedOrigins)) {
+      cb(false, 403, "forbidden origin");
+      return;
+    }
+    void (async () => {
+      try {
+        const resolved = await resolveSessionUser(
+          info.req.headers.cookie,
+          adapter,
+          config.authSecure,
+        );
+        if (!resolved) {
+          cb(false, 401, "unauthorized");
+          return;
+        }
+        (info.req as AuthedRequest).mppUser = {
+          id: resolved.user.id,
+          pseudo: (resolved.user as { pseudo?: string | null }).pseudo ?? null,
+        };
+        cb(true);
+      } catch (e) {
+        console.error("[ws auth]", (e as Error).message);
+        cb(false, 401, "unauthorized");
+      }
+    })();
+  };
   const wss = new WebSocketServer({
     server: httpServer,
     maxPayload: config.wsMaxPayloadBytes,
@@ -90,7 +160,7 @@ async function main(): Promise<void> {
   });
   httpServer.listen(config.port, () => {
     console.log(
-      `[http] listening on ${config.port} (ws upgrade + GET /snapshot, snapshot interval ${config.snapshotIntervalMs}ms)`,
+      `[http] listening on ${config.port} (ws upgrade + /auth + /profile + GET /snapshot, snapshot interval ${config.snapshotIntervalMs}ms)`,
     );
   });
 
@@ -103,6 +173,13 @@ async function main(): Promise<void> {
   );
 
   wss.on("connection", (ws: WebSocket, request: IncomingMessage) => {
+    const authed = (request as AuthedRequest).mppUser;
+    if (!authed) {
+      // verifyClient only lets authenticated upgrades through, so this is a
+      // defensive guard rather than an expected path.
+      ws.close(1011, "auth missing");
+      return;
+    }
     const ip = clientIp(request, config.devEnabled);
     const bucket = ipRegistry.acquire(ip);
     if (bucket === null) {
@@ -111,7 +188,16 @@ async function main(): Promise<void> {
       ws.close(CLOSE_TRY_AGAIN_LATER, "too many connections");
       return;
     }
-    const client: Client = { userId: randomUUID(), ws, bucket, viewport: null, pseudo: null };
+    const client: Client = {
+      userId: authed.id,
+      ws,
+      bucket,
+      viewport: null,
+      pseudo: authed.pseudo,
+    };
+    void mongo.touchLastSeen(authed.id).catch((e: unknown) => {
+      console.error("[lastSeen]", (e as Error).message);
+    });
     // Presence: tell the newcomer about peers already present, then announce
     // the newcomer to them. join and leave bracket a connection.
     for (const peer of hub.allClients()) {
@@ -145,7 +231,7 @@ async function main(): Promise<void> {
     wss.close();
     httpServer.close();
     await redis.quit();
-    await mongo.close();
+    await mongoClient.close();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);

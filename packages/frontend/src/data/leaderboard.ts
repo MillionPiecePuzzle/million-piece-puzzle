@@ -24,10 +24,11 @@ const palette = [
   "#8a7d6a",
 ];
 
-// Pseudos are not persisted server-side, so an entry carries only the ephemeral
-// userId. Show a short prefix of it as the display name.
-function shortId(userId: string): string {
-  return userId.slice(0, 8);
+// An entry's display name is the contributor's pseudo. It falls back to a short
+// prefix of the user id when the pseudo is unset (a contributor who placed
+// pieces before choosing one cannot occur, but backfilled rows stay robust).
+function displayName(entry: LeaderboardEntry): string {
+  return entry.pseudo ?? entry.userId.slice(0, 8);
 }
 
 function initials(name: string): string {
@@ -40,7 +41,7 @@ export function toLeaderboardRows(
 ): LeaderboardRow[] {
   return entries.map((entry, i) => {
     const you = entry.userId === myUserId;
-    const name = shortId(entry.userId);
+    const name = displayName(entry);
     return {
       rank: i + 1,
       name,

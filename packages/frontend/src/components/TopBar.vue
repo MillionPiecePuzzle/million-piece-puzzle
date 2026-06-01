@@ -34,15 +34,15 @@ const progressPct = computed(() =>
     <span v-else></span>
 
     <div class="top-right">
-      <div v-if="user" class="presence">
+      <div v-if="user && user.pseudo" class="presence">
         <span class="dot" aria-label="Connected"></span>
         <button
           type="button"
           class="pseudo"
-          :title="`Signed in as ${user.name}. Click to change.`"
+          :title="`Signed in as ${user.pseudo}. Click to change.`"
           @click="showPseudoModal('edit')"
         >
-          {{ user.name }}
+          {{ user.pseudo }}
         </button>
         <span class="status">connected</span>
       </div>

@@ -1,15 +1,11 @@
 <script setup lang="ts">
 import { watch } from "vue";
 import { useAuthModal } from "../composables/useAuthModal";
-import { usePseudoModal } from "../composables/usePseudoModal";
-import { usePseudo } from "../composables/usePseudo";
 import { useAuth } from "../composables/useAuth";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 
 const { open, hide } = useAuthModal();
-const { show: showPseudoModal } = usePseudoModal();
-const { pseudo } = usePseudo();
-const { completeSignIn } = useAuth();
+const { signIn } = useAuth();
 const { completed } = usePuzzleSession();
 
 // A finished puzzle has no contributor entry point: close the modal if it is
@@ -19,14 +15,9 @@ watch(completed, (done) => {
 });
 
 function continueWithGoogle() {
-  hide();
-  // A returning contributor already has a pseudo: go straight in. A first-time
-  // contributor must pick one through the forced pseudo modal.
-  if (pseudo.value) {
-    completeSignIn();
-  } else {
-    showPseudoModal("forced");
-  }
+  // Navigates away to Google; the forced pseudo modal is shown on return when
+  // the session has no pseudo yet (see useAuth.bootstrap).
+  void signIn("google");
 }
 </script>
 
@@ -50,8 +41,6 @@ function continueWithGoogle() {
             Continue with Google
           </button>
         </div>
-
-        <p class="note">Mock sign-in. Auth providers come later.</p>
       </div>
     </div>
   </Teleport>
@@ -138,12 +127,5 @@ h2 {
   font-weight: 600;
   font-size: 13px;
   color: #4285f4;
-}
-.note {
-  margin: 14px 0 0;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-4);
-  text-align: center;
 }
 </style>

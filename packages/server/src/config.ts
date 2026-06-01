@@ -18,6 +18,29 @@ export type ServerConfig = {
   wsMaxConnectionsPerIp: number;
   wsBufferedAmountLimitBytes: number;
   snapshotIntervalMs: number;
+  // Auth.js host base (e.g. https://ws.millionpiecepuzzle.com). The Google
+  // callback URL and session action URLs derive from it. The secrets
+  // (AUTH_SECRET, AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET) stay in process.env and
+  // are read by Auth.js directly, never copied into config.
+  authUrl: string;
+  // Whether session cookies are marked Secure. Derived from authUrl scheme: a
+  // Secure cookie is dropped over plain http, so dev on http://localhost must
+  // not set it. Also selects the cookie-name prefix (__Secure- when true).
+  authSecure: boolean;
+  // Domain attribute for the session cookie. Empty means host-only (dev on
+  // localhost works across ports). In prod set to ".millionpiecepuzzle.com" so
+  // the cookie is readable on the ws.* WS upgrade.
+  authCookieDomain: string;
+  // SPA origin allowed to make credentialed requests to /auth and /profile, and
+  // permitted as an OAuth redirect target.
+  appOrigin: string;
+  // Per-IP fixed window on all /auth and /profile requests.
+  authRateMax: number;
+  authRateWindowSec: number;
+  // Stricter per-IP fixed window on the OAuth callback, the account-creation
+  // chokepoint.
+  signupMaxPerIp: number;
+  signupWindowSec: number;
 };
 
 function int(name: string, fallback: number): number {
@@ -68,8 +91,11 @@ export async function loadConfig(): Promise<ServerConfig> {
       `manifest puzzleId "${manifest.puzzleId}" does not match MPP_PUZZLE_ID "${puzzleId}"`,
     );
   }
+  const port = int("MPP_PORT", 8080);
+  const allowedOrigins = parseAllowedOrigins(process.env.MPP_ALLOWED_ORIGINS);
+  const authUrl = trimTrailingSlash(str("AUTH_URL", `http://localhost:${port}`));
   return {
-    port: int("MPP_PORT", 8080),
+    port,
     redisUrl: str("MPP_REDIS_URL", "redis://127.0.0.1:6379"),
     mongoUrl: str("MPP_MONGO_URL", "mongodb://127.0.0.1:27017"),
     mongoDb: str("MPP_MONGO_DB", "mpp"),
@@ -78,12 +104,28 @@ export async function loadConfig(): Promise<ServerConfig> {
     manifestUrl,
     manifest,
     devEnabled: bool("MPP_DEV_ENABLED", false),
-    allowedOrigins: parseAllowedOrigins(process.env.MPP_ALLOWED_ORIGINS),
+    allowedOrigins,
     wsMaxPayloadBytes: int("MPP_WS_MAX_PAYLOAD_BYTES", 64 * 1024),
     wsRateTokensPerSec: int("MPP_WS_RATE_TOKENS_PER_SEC", 200),
     wsRateBurst: int("MPP_WS_RATE_BURST", 400),
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
     snapshotIntervalMs: int("MPP_SNAPSHOT_INTERVAL_MS", 2000),
+    authUrl,
+    authSecure: authUrl.startsWith("https:"),
+    authCookieDomain: str("AUTH_COOKIE_DOMAIN", ""),
+    appOrigin: str("MPP_APP_ORIGIN", defaultAppOrigin(allowedOrigins)),
+    authRateMax: int("MPP_AUTH_RATE_MAX", 60),
+    authRateWindowSec: int("MPP_AUTH_RATE_WINDOW_SEC", 60),
+    signupMaxPerIp: int("MPP_SIGNUP_MAX_PER_IP", 10),
+    signupWindowSec: int("MPP_SIGNUP_WINDOW_SEC", 3600),
   };
+}
+
+// The SPA origin defaults to the first concrete allowed WS origin (the frontend
+// is the only browser client that posts credentialed auth requests), falling
+// back to the Vite dev origin when the allowlist is the wildcard.
+function defaultAppOrigin(allowedOrigins: string[]): string {
+  const concrete = allowedOrigins.find((o) => o !== "*");
+  return concrete ?? "http://localhost:5173";
 }

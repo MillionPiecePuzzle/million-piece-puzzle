@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { IncomingMessage } from "node:http";
+import type { Redis } from "ioredis";
 import {
   TokenBucket,
   IpRegistry,
+  RedisFixedWindow,
   clientIp,
   isAllowedOrigin,
   parseAllowedOrigins,
@@ -148,6 +150,47 @@ describe("clientIp", () => {
 
   it("buckets header-less production traffic under a shared unknown key", () => {
     expect(clientIp(fakeRequest({}, "172.16.0.1"), false)).toBe("unknown");
+  });
+});
+
+function fakeRedis() {
+  const counts = new Map<string, number>();
+  const incr = vi.fn(async (key: string) => {
+    const next = (counts.get(key) ?? 0) + 1;
+    counts.set(key, next);
+    return next;
+  });
+  const expire = vi.fn(async () => 1);
+  return { redis: { incr, expire } as unknown as Redis, incr, expire, counts };
+}
+
+describe("RedisFixedWindow", () => {
+  it("allows up to max within the window, then denies", async () => {
+    const { redis } = fakeRedis();
+    const w = new RedisFixedWindow(redis, "auth", 2, 60);
+    expect(await w.allow("1.1.1.1")).toBe(true);
+    expect(await w.allow("1.1.1.1")).toBe(true);
+    expect(await w.allow("1.1.1.1")).toBe(false);
+  });
+
+  it("sets the TTL only on the first hit of the window", async () => {
+    const { redis, expire } = fakeRedis();
+    const w = new RedisFixedWindow(redis, "auth", 5, 60);
+    await w.allow("1.1.1.1");
+    await w.allow("1.1.1.1");
+    expect(expire).toHaveBeenCalledTimes(1);
+    expect(expire).toHaveBeenCalledWith("ratelimit:auth:1.1.1.1", 60);
+  });
+
+  it("keys windows by bucket and ip independently", async () => {
+    const { redis } = fakeRedis();
+    const auth = new RedisFixedWindow(redis, "auth", 1, 60);
+    const signup = new RedisFixedWindow(redis, "signup", 1, 60);
+    expect(await auth.allow("1.1.1.1")).toBe(true);
+    expect(await auth.allow("2.2.2.2")).toBe(true);
+    // Same ip but a different bucket has its own counter.
+    expect(await signup.allow("1.1.1.1")).toBe(true);
+    expect(await auth.allow("1.1.1.1")).toBe(false);
   });
 });
 

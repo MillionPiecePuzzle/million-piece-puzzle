@@ -2,6 +2,29 @@
 // See DECISIONS: backend-realtime WS hardening.
 
 import type { IncomingMessage } from "node:http";
+import type { Redis } from "ioredis";
+import * as keys from "./redis/keys.js";
+
+// Per-IP fixed-window counter backed by Redis: INCR the window key, set its TTL
+// on the first hit of the window, allow while the count stays within `max`.
+// Used for the low-volume auth routes where a Redis counter stays correct even
+// if the writer is later sharded, unlike the in-process TokenBucket the
+// high-frequency WS path keeps. Over-budget callers get a 429.
+export class RedisFixedWindow {
+  constructor(
+    private readonly redis: Redis,
+    private readonly bucket: string,
+    private readonly max: number,
+    private readonly windowSec: number,
+  ) {}
+
+  async allow(ip: string): Promise<boolean> {
+    const key = keys.authRate(this.bucket, ip);
+    const count = await this.redis.incr(key);
+    if (count === 1) await this.redis.expire(key, this.windowSec);
+    return count <= this.max;
+  }
+}
 
 export class TokenBucket {
   private tokens: number;

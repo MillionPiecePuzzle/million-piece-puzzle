@@ -93,7 +93,7 @@ Locked pieces are permanent (no undo, no griefing).
 - **Node.js + TypeScript**: WebSocket server and game logic
 - **Redis**: live state of all pieces (~16-32 MB in memory)
 - **MongoDB**: snap events log, user profiles
-- **Auth.js**: authentication via OAuth providers (Google, Apple, Reddit), self-hosted in the Node server, Mongo adapter
+- **Auth.js** (`@auth/express`): Google OAuth, self-hosted in the Node server, Mongo adapter, database sessions. Login anti-abuse is internal per-IP rate limiting (Redis), not a third-party challenge.
 - **GlitchTip** (self-hosted, Sentry-compatible): error monitoring
 - All orchestrated by **Coolify** on a **Hetzner VPS**
 
@@ -102,7 +102,6 @@ Locked pieces are permanent (no undo, no griefing).
 - **Cloudflare R2**: image tile pyramid + per-piece textures
 - **Cloudflare CDN**: caches snapshots, sits in front of the VPS for SSL/DDoS
 - **Cloudflare Web Analytics**: privacy-friendly traffic stats
-- **Cloudflare Turnstile**: anti-bot on login
 
 ### Packaging
 - **Docker** for the backend services
@@ -137,7 +136,7 @@ GitHub Organization: `MillionPiecePuzzle`
 ## User Flow
 
 Landing page
-- "Enter the canvas": Spectator mode (no auth, read-only)
-- "Become a contributor": Auth.js OAuth login (Google, Apple, Reddit), then pseudo onboarding, then Player mode (can drag/drop pieces)
+- "Enter the canvas": Spectator mode (no auth, read-only, polls `GET /snapshot`)
+- "Become a contributor": Auth.js Google sign-in, then pseudo onboarding, then Player mode (can drag/drop pieces)
 
-Mandatory authentication for contribution. Pseudo stored in Mongo and shown publicly for snap attribution.
+Mandatory authentication for contribution: the WebSocket upgrade requires a valid session, so anonymous connections are rejected. Pseudo stored in Mongo and shown publicly for snap attribution.

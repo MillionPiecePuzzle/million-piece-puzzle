@@ -2,16 +2,16 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { PSEUDO_MAX_LENGTH, PSEUDO_MIN_LENGTH, normalizePseudo } from "@mpp/shared";
 import { usePseudoModal } from "../composables/usePseudoModal";
-import { usePseudo } from "../composables/usePseudo";
 import { useAuth } from "../composables/useAuth";
-import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { useMode } from "../composables/useMode";
 
 const { open, mode, hide } = usePseudoModal();
-const { pseudo, setPseudo } = usePseudo();
-const { completeSignIn } = useAuth();
-const { sendSetPseudo } = usePuzzleSession();
+const { user, submitPseudo } = useAuth();
+const { setMode } = useMode();
 
 const draft = ref("");
+const error = ref<string | null>(null);
+const saving = ref(false);
 const inputEl = ref<HTMLInputElement | null>(null);
 
 const normalized = computed(() => normalizePseudo(draft.value));
@@ -27,16 +27,26 @@ const lede = computed(() =>
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
-  draft.value = mode.value === "edit" ? (pseudo.value ?? "") : "";
+  draft.value = mode.value === "edit" ? (user.value?.pseudo ?? "") : "";
+  error.value = null;
   void nextTick(() => inputEl.value?.focus());
 });
 
-function save() {
+async function save() {
   const name = normalized.value;
-  if (name === null) return;
-  setPseudo(name);
-  sendSetPseudo(name);
-  if (mode.value === "forced") completeSignIn();
+  if (name === null || saving.value) return;
+  saving.value = true;
+  error.value = null;
+  const res = await submitPseudo(name);
+  saving.value = false;
+  if (!res.ok) {
+    error.value =
+      res.reason === "taken" ? "That pseudo is already taken." : "Could not save, try again.";
+    return;
+  }
+  // First pseudo unlocks contribution: switch the session to the authenticated
+  // WebSocket. An edit just updates the name.
+  if (mode.value === "forced") setMode("contributor");
   hide();
 }
 
@@ -71,8 +81,11 @@ function onBackdrop() {
           {{ PSEUDO_MIN_LENGTH }} to {{ PSEUDO_MAX_LENGTH }} characters: letters, digits, spaces,
           hyphens and underscores.
         </p>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
 
-        <button class="save" :disabled="!valid" @click="save">Save</button>
+        <button class="save" :disabled="!valid || saving" @click="save">
+          {{ saving ? "Saving..." : "Save" }}
+        </button>
       </div>
     </div>
   </Teleport>
@@ -145,6 +158,12 @@ h2 {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-4);
+}
+.error {
+  margin: -6px 0 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: oklch(0.55 0.18 30);
 }
 .save {
   width: 100%;

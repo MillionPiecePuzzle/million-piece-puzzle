@@ -12,7 +12,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 4. `frontend-shell`: landing, routing, spectator/contributor modes, auth modal
 5. `frontend-canvas`: PixiJS rendering, OpenSeadragon, drag/drop, LOD, culling
 6. `backend-realtime`: WS server, drag/drop/snap logic, Redis state, Mongo logs, CDN snapshots
-7. `auth-and-accounts`: Auth.js (Google, Apple, Reddit), pseudo onboarding, sessions, Turnstile
+7. `auth-and-accounts`: Auth.js (Google), pseudo onboarding, sessions, login anti-abuse
 8. `infra-deploy`: Docker, Coolify, Hetzner, Cloudflare (Pages, R2, CDN, DNS)
 9. `tooling-foundations`: monorepo workspaces, shared tsconfig, eslint, prettier
 10. `qa-and-load`: load tests up to 1M simulated pieces and clients
@@ -72,14 +72,15 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [ ] Anti-abuse for public traffic beyond the Phase 1 per-IP rate limit
 
 ### `auth-and-accounts`
-- [ ] Auth.js wired with Google, Apple, and Reddit providers
-- [ ] Cloudflare Turnstile on login
-- [ ] User profiles stored in Mongo, pseudo shown for snap attribution
+- [x] Auth.js wired with the Google provider
+- [x] Login anti-abuse: per-IP rate limit on auth routes + per-IP account-creation cap
+- [x] User profiles stored in Mongo, pseudo shown for snap attribution
 
 ### `infra-deploy`
 - [ ] Production hardening: backups (Redis snapshot, Mongo dump), secrets management, DDoS posture verified
 
 ### `qa-and-load`
+- [ ] Load-test bots authenticate past the WS session gate (seed test sessions and send the session cookie on the upgrade) so the harness can run now that anonymous WS upgrades are rejected
 - [ ] Soak test with simulated traffic at target scale passes without state corruption
 
 ### `legal`

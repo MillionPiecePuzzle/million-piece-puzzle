@@ -23,3 +23,6 @@ export const lockedCount = (puzzleId: string) => `puzzle:${puzzleId}:locked-coun
 
 /** Hash: userId -> viewportX, viewportY, zoom, lastSeenAt. */
 export const presence = (puzzleId: string) => `puzzle:${puzzleId}:presence`;
+
+/** Integer with TTL: per-IP fixed-window counter for an auth-route rate bucket. */
+export const authRate = (bucket: string, ip: string) => `ratelimit:${bucket}:${ip}`;

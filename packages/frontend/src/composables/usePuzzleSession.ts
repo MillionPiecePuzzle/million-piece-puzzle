@@ -1,5 +1,6 @@
 import { computed, ref, shallowRef } from "vue";
 import type {
+  ActivityItem,
   GroupRuntime,
   ImageManifest,
   LeaderboardEntry,
@@ -16,7 +17,6 @@ import { PROTOCOL_VERSION } from "@mpp/shared";
 import { PuzzleWsClient } from "../canvas/wsClient";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { snapshotUrl } from "../data/snapshotUrl";
-import { usePseudo } from "./usePseudo";
 import { useMode } from "./useMode";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/";
@@ -84,10 +84,6 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let pollAbort: AbortController | null = null;
 let pollPuzzleId: string | null = null;
 
-function actorLabel(id: string): string {
-  return id === userId.value ? "you" : id;
-}
-
 function snapActor(msg: SSnap): string {
   if (msg.userId === userId.value) return "you";
   return msg.pseudo ?? msg.userId;
@@ -108,11 +104,16 @@ function recordSnap(msg: SSnap): void {
   activity.value = [entry, ...activity.value].slice(0, ACTIVITY_LIMIT);
 }
 
+function activityActor(item: ActivityItem): string {
+  if (item.userId === userId.value) return "you";
+  return item.pseudo ?? item.userId;
+}
+
 function applyActivity(msg: SActivity): void {
   activity.value = msg.items
     .map((item) => ({
       id: item.id,
-      actor: actorLabel(item.userId),
+      actor: activityActor(item),
       pieceCount: item.lockedDelta,
       at: item.at,
     }))
@@ -170,8 +171,6 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   welcome = msg;
   userId.value = msg.userId;
   lockedCount.value = msg.lockedCount;
-  const storedPseudo = usePseudo().pseudo.value;
-  if (storedPseudo) client?.send({ t: "setPseudo", pseudo: storedPseudo });
   activity.value = [];
   leaderboard.value = [];
   pendingState = null;
@@ -378,10 +377,6 @@ function sendCursor(worldX: number, worldY: number): void {
   client?.send({ t: "cursor", worldX, worldY });
 }
 
-function sendSetPseudo(pseudo: string): void {
-  client?.send({ t: "setPseudo", pseudo });
-}
-
 // Dev controls are always visible, including in spectator mode where there is
 // no WebSocket. Sending a dev message then upgrades the session to a contributor
 // connection and queues the message to flush on welcome; once connected it sends
@@ -428,7 +423,6 @@ export function usePuzzleSession() {
     sendDrop,
     sendViewport,
     sendCursor,
-    sendSetPseudo,
     sendDevReset,
     sendDevComplete,
     sendDevPlace,

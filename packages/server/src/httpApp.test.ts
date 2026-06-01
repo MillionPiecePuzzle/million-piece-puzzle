@@ -1,0 +1,178 @@
+import { describe, it, expect, vi } from "vitest";
+import type { Request, Response } from "express";
+import { makeProfilePseudoHandler, makeCors, makeRateLimit } from "./httpApp.js";
+import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
+import { RedisFixedWindow } from "./limits.js";
+import type { Redis } from "ioredis";
+
+function fakeRes() {
+  const res = {
+    statusCode: 0,
+    body: undefined as unknown,
+    ended: false,
+    headers: {} as Record<string, string>,
+  };
+  const r = res as unknown as Response & typeof res;
+  r.status = vi.fn((code: number) => {
+    res.statusCode = code;
+    return r;
+  }) as unknown as Response["status"];
+  r.json = vi.fn((b: unknown) => {
+    res.body = b;
+    return r;
+  }) as unknown as Response["json"];
+  r.type = vi.fn(() => r) as unknown as Response["type"];
+  r.send = vi.fn((b: unknown) => {
+    res.body = b;
+    return r;
+  }) as unknown as Response["send"];
+  r.end = vi.fn(() => {
+    res.ended = true;
+    return r;
+  }) as unknown as Response["end"];
+  r.setHeader = vi.fn((k: string, v: string) => {
+    res.headers[k] = v;
+    return r;
+  }) as unknown as Response["setHeader"];
+  return r;
+}
+
+const profile: UserProfile = { id: "u1", name: "N", image: null, pseudo: "Alice" };
+
+describe("makeProfilePseudoHandler", () => {
+  it("401 when no session user", async () => {
+    const setPseudo = vi.fn();
+    const handler = makeProfilePseudoHandler({
+      getUserId: async () => null,
+      pseudoStore: { setPseudo },
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "Alice" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(401);
+    expect(setPseudo).not.toHaveBeenCalled();
+  });
+
+  it("400 when the pseudo is invalid", async () => {
+    const setPseudo = vi.fn();
+    const handler = makeProfilePseudoHandler({
+      getUserId: async () => "u1",
+      pseudoStore: { setPseudo },
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "x" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(setPseudo).not.toHaveBeenCalled();
+  });
+
+  it("200 with the updated profile on success", async () => {
+    const setPseudo = vi.fn(async () => profile);
+    const handler = makeProfilePseudoHandler({
+      getUserId: async () => "u1",
+      pseudoStore: { setPseudo },
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "  Alice  " } } as Request, res);
+    expect(setPseudo).toHaveBeenCalledWith("u1", "Alice");
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(200);
+    expect((res as unknown as { body: unknown }).body).toEqual({ user: profile });
+  });
+
+  it("409 when the pseudo is taken", async () => {
+    const handler = makeProfilePseudoHandler({
+      getUserId: async () => "u1",
+      pseudoStore: {
+        setPseudo: async () => {
+          throw new DuplicatePseudoError();
+        },
+      },
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "Alice" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(409);
+  });
+
+  it("500 on an unexpected store error", async () => {
+    const handler = makeProfilePseudoHandler({
+      getUserId: async () => "u1",
+      pseudoStore: {
+        setPseudo: async () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "Alice" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(500);
+  });
+});
+
+describe("makeCors", () => {
+  it("echoes the app origin with credentials and continues", () => {
+    const cors = makeCors("http://app.test");
+    const res = fakeRes();
+    const next = vi.fn();
+    cors({ headers: { origin: "http://app.test" }, method: "GET" } as Request, res, next);
+    const headers = (res as unknown as { headers: Record<string, string> }).headers;
+    expect(headers["Access-Control-Allow-Origin"]).toBe("http://app.test");
+    expect(headers["Access-Control-Allow-Credentials"]).toBe("true");
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("answers a preflight OPTIONS with 204 and does not continue", () => {
+    const cors = makeCors("http://app.test");
+    const res = fakeRes();
+    const next = vi.fn();
+    cors({ headers: { origin: "http://app.test" }, method: "OPTIONS" } as Request, res, next);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(204);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("sends no CORS headers for a foreign origin", () => {
+    const cors = makeCors("http://app.test");
+    const res = fakeRes();
+    const next = vi.fn();
+    cors({ headers: { origin: "http://evil.test" }, method: "GET" } as Request, res, next);
+    const headers = (res as unknown as { headers: Record<string, string> }).headers;
+    expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+function fakeRedisAllowing(allow: boolean) {
+  const incr = vi.fn(async () => (allow ? 1 : 999));
+  const expire = vi.fn(async () => 1);
+  return { incr, expire } as unknown as Redis;
+}
+
+describe("makeRateLimit", () => {
+  it("continues when under budget", async () => {
+    const mw = makeRateLimit(new RedisFixedWindow(fakeRedisAllowing(true), "auth", 60, 60), true);
+    const res = fakeRes();
+    const next = vi.fn();
+    await mw({ headers: {}, socket: { remoteAddress: "1.1.1.1" } } as Request, res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("429s when over budget", async () => {
+    const mw = makeRateLimit(new RedisFixedWindow(fakeRedisAllowing(false), "auth", 60, 60), true);
+    const res = fakeRes();
+    const next = vi.fn();
+    await mw({ headers: {}, socket: { remoteAddress: "1.1.1.1" } } as Request, res, next);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(429);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("fails open when Redis errors", async () => {
+    const redis = {
+      incr: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+      expire: vi.fn(),
+    } as unknown as Redis;
+    const mw = makeRateLimit(new RedisFixedWindow(redis, "auth", 60, 60), true);
+    const res = fakeRes();
+    const next = vi.fn();
+    await mw({ headers: {}, socket: { remoteAddress: "1.1.1.1" } } as Request, res, next);
+    expect(next).toHaveBeenCalled();
+  });
+});
