@@ -28,51 +28,15 @@ Delivered across all tracks: monorepo with shared tsconfig, lint, format, build 
 
 ---
 
-## Phase 1, Closed Alpha
+## Phase 1, Closed Alpha, CLOSED
 
-**Exit criterion**: 5 to 20 invited people, connected concurrently, complete a 10 000-piece puzzle on a deployed instance, in anonymous mode.
+**Exit criterion (met)**: 5 to 20 invited people, connected concurrently, complete a 10 000-piece puzzle on a deployed instance, in anonymous mode.
 
-### `shared-protocol`
-- [x] Protocol version field in handshake; presence messages (join, leave, viewport, cursor) defined
+Delivered across all tracks: protocol version field in the handshake plus presence messages (join, leave, viewport, cursor); generation validated and stable at 10 000 pieces; Deep Zoom tile pyramid and per-piece AVIF set on R2 with a manifest; landing with a single enter-canvas CTA and a spectator/contributor split where the spectator renders from polled `GET /snapshot` (no WS budget) and Contribute upgrades to a WebSocket, a `puzzleId` change forcing a clean rebuild; OpenSeadragon reference panel, frustum culling smooth at 10 000 pieces, mini-map global progress, collaborator cursors from presence; viewport-neighbor broadcast scoping for drag and drop (snap stays global), periodic CDN snapshots, dispatch-boundary message validation, and a hardened WS boundary (Origin allowlist, payload cap, per-connection token bucket, backpressure close); anonymous pseudo entry attached to the session; server on Hetzner via Coolify, Cloudflare front (Pages `app.`, backend `ws.` with DNS and SSL at Coolify), CDN edge cache for snapshots, R2 buckets for tiles and textures; unit tests for the merge-and-anchor path and the per-group dispatch queue plus a 20-client load test on a 10 000-piece puzzle without saturation.
 
-### `piece-generation`
-- [x] Generation validated and stable at 10 000 pieces
+Complementary: closed-alpha gate (landing passcode, single `alpha-3` puzzle from R2, completion freezes the board), env-gated dev controls usable from any session mode, floating Contribute CTA, throttled `viewport` presence, live leaderboard and backfilled activity ticker, server-computed play-zone hard limits (camera clamp, darkened out-of-bounds, 15% min zoom, minimap with frame/pieces/frustum), scatter shaping decorrelated from the solved image, reference enlarge modal, staged load with progress, and clean reset/complete handling carried into the spectator snapshot. Bugs fixed: transient errors no longer fatal, cleared display objects destroyed, same play zone on all clients, in-flight `build()` guarded against rapid `state` changes, and the stale board (orphaned LOD sprite) cleared on a mode-switch rebuild.
 
-### `image-pipeline`
-- [x] Deep Zoom tile pyramid and per-piece AVIF set uploaded to R2 with manifest
-
-### `frontend-shell`
-- [x] Landing with a single enter-canvas CTA; spectator/contributor mode (no auth); spectator consumes `GET /snapshot` instead of a WebSocket (no WS budget, renders from the polled snapshot, Contribute upgrades to WS, a `puzzleId` change triggers a clean rebuild)
-
-### `frontend-canvas`
-- [x] OpenSeadragon reference panel; frustum culling smooth at 10 000 pieces; mini-map global progress; collaborator cursors from presence messages
-
-### `backend-realtime`
-- [x] Viewport-neighbor broadcast scoping for drag and drop (snap stays global, no-viewport clients receive everything); periodic CDN snapshots; dispatch-boundary message validation (bad groupId/coords rejected before Redis); WS boundary hardened (Origin allowlist, payload cap, per-connection token bucket, backpressure close)
-
-### `auth-and-accounts`
-- [x] Anonymous pseudo entry (name, no verification) attached to the session
-
-### `infra-deploy`
-- [x] Server on Hetzner via Coolify; Cloudflare front (Pages `app.`, backend `ws.` with DNS+SSL at Coolify); CDN edge cache for snapshots; R2 buckets for tiles and textures
-
-### `tooling-foundations`
-- [x] Stable, no further work expected
-
-### `qa-and-load`
-- [x] Unit tests for the merge-and-anchor path (`handleDrop`/`applyMerge`) and the per-group dispatch queue; load test of 20 concurrent clients dragging a 10 000-piece puzzle without saturation
-
-### `complementary`
-- [x] Delivered: closed-alpha gate (landing passcode, single `alpha-3` puzzle loaded from R2 at boot, held until reset, completion freezes the board); env-gated dev controls (Place, Reset, Complete) usable from any session mode (spectator click upgrades to a WS and queues the action); floating bottom-right Contribute CTA; throttled `viewport` presence on pan/zoom/resize; leaderboard (live in-game panel rebroadcast on snap and join, plus completion modal) and activity ticker backfilled on connect; play-zone hard limits (server-computed shared zone, camera clamp, darkened out-of-bounds checker, held-piece clamp, 15% min zoom, minimap with frame/pieces/frustum); scatter shaping (decorrelated from the solved image, kept out of the frame, final center-dense rounded-square band); reference panel enlarge modal (centered, constrained OSD, reliable render next to the WebGL stage); staged load with progress (connect, manifest, textures, ready); reset hides the old board and clears the derived feeds; dev Complete assembles the board and credits the executor; spectator leaderboard and activity carried in the snapshot; contributor entry points hidden on completion. Bugs fixed: transient errors no longer fatal (only `protocol_mismatch`/disconnect blank the session); cleared display objects destroyed (no leak across rebuilds); same play zone enforced on all clients; in-flight `build()` guarded against rapid `state` changes.
-
-#### Performance pulled forward from Phase 2
-
-Built as the real Phase 2 solution, not a stopgap, so none is thrown away at 1M scale. The Phase 2 items that stay deferred (viewport and write sharding) are blocked on the single-writer alpha topology, not on piece count.
-
-- [x] `frontend-canvas`: Drag throttling. Coalesce drag broadcasts to one message per animation frame, sending the last point. Exit: at most one `drag` per frame per held cluster; sustained drag ingest drops from per-pointermove to per-frame with no added visible lag.
-- [x] `backend-realtime`: Per-group dispatch queues. Exit: messages for independent groups process concurrently while per-group order is preserved and the merge/anchor read-modify-write stays serialized per group.
-- [x] `frontend-canvas`: Zoom-out level of detail via render-to-texture. Exit: past a zoom-out threshold the board renders from a periodically refreshed low-res render texture instead of per-piece masked sprites; the fully zoomed-out view stays smooth at 10 000 pieces.
-- [x] `backend-realtime`: Per-IP rate limit extending the per-connection token bucket. Exit: a single IP cannot exceed configured connection and message budgets regardless of how many sessions it opens.
+Performance pulled forward from Phase 2, built as the real solution and kept at 1M scale: drag broadcasts coalesced to one per frame, per-group dispatch queues, zoom-out render-texture LOD, and a per-IP rate limit over the per-connection token bucket. Viewport and write sharding stay deferred, blocked on the single-writer alpha topology rather than on piece count.
 
 ---
 
