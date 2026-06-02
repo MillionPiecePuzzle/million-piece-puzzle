@@ -111,7 +111,10 @@ const Z_LOCAL_HELD = 100;
 // queue fills the visible tiles in the background, so they are ready by the time
 // the camera reaches LOD_ENTER_ZOOM. Below LOD_ENTER_ZOOM the baked tiles show
 // (with LOD_EXIT_ZOOM hysteresis so a zoom hovering at the threshold does not
-// thrash). The bake queue drains a few tiles per frame so entering never hitches.
+// thrash). The bake queue drains a few tiles per frame so a progressive zoom-out
+// never hitches; a direct jump below LOD_ENTER_ZOOM (cold start, fit, double-click,
+// keyboard) skips the warm band, so its screen-cover tiles are baked in one burst
+// on entry (see setLodActive) instead.
 const LOD_ENTER_ZOOM = 0.3;
 const LOD_EXIT_ZOOM = 0.35;
 const LOD_WARM_ZOOM = 0.5;
@@ -1211,14 +1214,17 @@ export class PuzzleStage {
     if (active !== this.lodActive) this.setLodActive(active);
   }
 
-  // Shows or hides the baked tiles. Entering hides the on-screen clusters now
-  // covered by a ready tile (held and not-yet-baked ones stay live, gapless);
-  // exiting restores exactly the clusters the LOD had hidden.
+  // Shows or hides the baked tiles. Entering bakes any screen-cover tiles the warm
+  // band did not pre-bake (a direct jump below LOD_ENTER_ZOOM has no warm interval)
+  // in one burst, then hides the on-screen clusters now covered by a ready tile
+  // (held and not-yet-baked ones stay live, gapless); exiting restores exactly the
+  // clusters the LOD had hidden.
   private setLodActive(active: boolean): void {
     if (!this.lodLayer) return;
     this.lodActive = active;
     this.lodLayer.setVisible(active);
     if (active) {
+      this.bakeViewportCover();
       this.refreshLodVisibility();
     } else {
       for (const gid of this.lodHidden) {
@@ -1240,7 +1246,10 @@ export class PuzzleStage {
 
   // Gapless fill: while the LOD is active a non-held cluster renders live until
   // every tile it occupies is baked, then hides (the tiles draw it). Held
-  // clusters always render live on top.
+  // clusters always render live on top. Hiding a cluster also makes it
+  // non-interactive (Pixi skips hit-testing an invisible container), so no grab
+  // can start below LOD_ENTER_ZOOM: the active band is overview-only by design
+  // (see DECISIONS.md, tiled zoom-out LOD).
   private applyGroupLodVisibility(node: GroupNode): void {
     const live = this.heldGroupIds.has(node.id) || !this.allCellsReady(node.id);
     node.container.visible = live;
@@ -1285,6 +1294,22 @@ export class PuzzleStage {
     for (const gid of this.groupGrid.queryRect(box)) {
       const node = this.groups.get(gid);
       if (node) this.applyGroupLodVisibility(node);
+    }
+  }
+
+  // Bakes every screen-cover tile not already ready, synchronously. Called once on
+  // the inactive->active transition: a direct jump below LOD_ENTER_ZOOM (cold start,
+  // fit, double-click, keyboard) never crossed the warm band, so without this the
+  // 2-tiles/frame queue would leave the viewport rendering every cluster live for
+  // ~0.3-1s. The set is bounded by the screen (configure sizes the resident cap and
+  // VRAM ceiling to hold it), so the burst is one longer frame, not unbounded work.
+  // The progressive wheel path enters already warm, so these are mostly ready and
+  // this is a near no-op.
+  private bakeViewportCover(): void {
+    if (!this.lodLayer || !this.viewport) return;
+    for (const key of this.lodLayer.neededTiles(this.viewport)) {
+      if (this.lodLayer.isReady(key)) continue;
+      this.bakeTile(key);
     }
   }
 
