@@ -18,12 +18,16 @@ ENV MPP_PUZZLE_ID=test-puzzle-10k
 ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
 ENV MPP_DEV_ENABLED=1
 
-# Non-secret auth config. The secrets (AUTH_SECRET, AUTH_GOOGLE_ID,
-# AUTH_GOOGLE_SECRET) are set in the Coolify service environment, never here.
+# Non-secret prod config (auth host/cookie/origin + WS Origin allowlist). The
+# secrets (AUTH_SECRET, AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET) are set in the
+# Coolify service environment, never here. docker-compose.override.yml overrides
+# these with localhost values for local dev; Coolify deploys docker-compose.yml
+# alone, so these baked values are the prod source.
 ENV AUTH_URL=https://ws.millionpiecepuzzle.com
 ENV AUTH_TRUST_HOST=true
 ENV AUTH_COOKIE_DOMAIN=.millionpiecepuzzle.com
 ENV MPP_APP_ORIGIN=https://app.millionpiecepuzzle.com
+ENV MPP_ALLOWED_ORIGINS=https://app.millionpiecepuzzle.com
 
 COPY --from=builder /repo/package.json /repo/package-lock.json ./
 COPY --from=builder /repo/packages/shared/package.json packages/shared/package.json

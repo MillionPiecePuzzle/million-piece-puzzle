@@ -10,6 +10,15 @@ services:
   server:
     ports:
       - "8080:8080"
+    # Local-dev values for the non-secret config baked as prod ENV in
+    # packages/server/Dockerfile. docker compose auto-merges this override for
+    # local runs; Coolify deploys docker-compose.yml alone, so prod keeps the
+    # image ENV. Override any of these via this directory's `.env`.
+    environment:
+      MPP_ALLOWED_ORIGINS: "${MPP_ALLOWED_ORIGINS:-}"
+      AUTH_URL: "${AUTH_URL:-http://localhost:8080}"
+      AUTH_COOKIE_DOMAIN: "${AUTH_COOKIE_DOMAIN:-}"
+      MPP_APP_ORIGIN: "${MPP_APP_ORIGIN:-http://localhost:5173}"
 
   frontend:
     ports:
