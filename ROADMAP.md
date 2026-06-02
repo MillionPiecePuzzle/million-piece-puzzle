@@ -36,7 +36,7 @@ Delivered across all tracks: protocol version field in the handshake plus presen
 
 Complementary: closed-alpha gate (landing passcode, single `alpha-3` puzzle from R2, completion freezes the board), env-gated dev controls usable from any session mode, floating Contribute CTA, throttled `viewport` presence, live leaderboard and backfilled activity ticker, server-computed play-zone hard limits (camera clamp, darkened out-of-bounds, 15% min zoom, minimap with frame/pieces/frustum), scatter shaping decorrelated from the solved image, reference enlarge modal, staged load with progress, and clean reset/complete handling carried into the spectator snapshot. Bugs fixed: transient errors no longer fatal, cleared display objects destroyed, same play zone on all clients, in-flight `build()` guarded against rapid `state` changes, and the stale board (orphaned LOD sprite) cleared on a mode-switch rebuild.
 
-Performance pulled forward from Phase 2, built as the real solution and kept at 1M scale: drag broadcasts coalesced to one per frame, per-group dispatch queues, zoom-out render-texture LOD, and a per-IP rate limit over the per-connection token bucket. Viewport and write sharding stay deferred, blocked on the single-writer alpha topology rather than on piece count.
+Performance pulled forward from Phase 2, built as the real solution and kept at 1M scale: drag broadcasts coalesced to one per frame, per-group dispatch queues, a zoom-out LOD, and a per-IP rate limit over the per-connection token bucket. Viewport and write sharding stay deferred, blocked on the single-writer alpha topology rather than on piece count.
 
 ---
 
@@ -60,9 +60,9 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [ ] Auth modal wires Auth.js providers
 
 ### `frontend-canvas`
-- [ ] Zoom-out LOD scales to 1M: move from the Phase 1 render-texture LOD to pipeline aggregated tiles if render-texture does not hold at full scale
+- [x] Zoom-out LOD scales to 1M: client-baked tile cache with constant per-piece density, cull and per-tile bake bounded by the visible window via a spatial index (`groupGrid.ts`, `lodTiles.ts`). Verified at the alpha's 10 000; 1M verification is gated by `Chunked board build` (the only remaining O(board) step is the one-time index population at build)
 - [ ] Viewport-driven texture streaming: fetch only textures for pieces in or near the frustum instead of loading every per-piece AVIF up front. Exit: entering `/play` at 1M does not eagerly fetch all textures; pieces page in and out as the viewport moves; the zoomed-out view renders from aggregated tiles with no per-piece fetch
-- [ ] Chunked board build with full status coverage: split the post-download `build()` work (piece-node construction, initial LOD bake) into yielding chunks and report its progress. Exit: the loading status stays accurate from connect to board-on-screen with no uncovered gap after textures reach 100%; building 1M piece nodes does not freeze the main thread
+- [ ] Chunked board build with full status coverage: split the post-download `build()` work (piece-node construction, initial spatial-index population) into yielding chunks and report its progress. Exit: the loading status stays accurate from connect to board-on-screen with no uncovered gap after textures reach 100%; building 1M piece nodes does not freeze the main thread
 - [ ] Rendering stays smooth on commodity hardware at 1M pieces
 - [ ] Event-start cascade entrance: synchronized across clients at `eventStartsAt`, pieces fall into their shuffled positions, late joiners skip it
 

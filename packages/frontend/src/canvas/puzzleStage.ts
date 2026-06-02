@@ -3,9 +3,7 @@ import {
   Assets,
   Container,
   Graphics,
-  Matrix,
   Rectangle,
-  RenderTexture,
   Sprite,
   type FederatedPointerEvent,
   type Texture,
@@ -25,6 +23,8 @@ import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
+import { GroupGrid, LOD_TILE_WORLD, type CellKey } from "./groupGrid";
+import { LodTileLayer } from "./lodTiles";
 
 export type Mode = "spectator" | "contributor";
 
@@ -99,22 +99,23 @@ const Z_BACKDROP = -2;
 const Z_FRAME = -1;
 const Z_LOCKED = 0;
 const Z_UNLOCKED = 1;
-// The zoom-out LOD sprite sits above the resting clusters it replaces and the
+// The zoom-out LOD tiles sit above the resting clusters they replace and the
 // frame, but below held clusters so a piece in hand keeps rendering live on top.
 const Z_LOD = 5;
 const Z_REMOTE_HELD = 10;
 const Z_LOCAL_HELD = 100;
 
-// Zoom-out level of detail. Below LOD_ENTER_ZOOM the whole world is baked once
-// into a low-res render texture and shown as a single sprite instead of the
-// per-piece masked sprites; above LOD_EXIT_ZOOM the live pieces return. The gap
-// between the two is hysteresis so a zoom hovering at the threshold does not
-// thrash the bake. The texture is sized to the play zone, capped on its long
-// side, and refreshed on a slow cadence while active (plus on board changes).
+// Zoom-out level of detail, in three bands. At or above LOD_WARM_ZOOM the live
+// pieces render and the tile layer is idle. In the warm band
+// (LOD_ENTER_ZOOM .. LOD_WARM_ZOOM) the live pieces still render while the bake
+// queue fills the visible tiles in the background, so they are ready by the time
+// the camera reaches LOD_ENTER_ZOOM. Below LOD_ENTER_ZOOM the baked tiles show
+// (with LOD_EXIT_ZOOM hysteresis so a zoom hovering at the threshold does not
+// thrash). The bake queue drains a few tiles per frame so entering never hitches.
 const LOD_ENTER_ZOOM = 0.3;
 const LOD_EXIT_ZOOM = 0.35;
-const LOD_MAX_TEXTURE_DIM = 2048;
-const LOD_REFRESH_MS = 1500;
+const LOD_WARM_ZOOM = 0.5;
+const LOD_BAKE_PER_FRAME = 2;
 const SNAP_BUMP_SCALE = 1.08;
 const SNAP_BUMP_MS = 240;
 const SNAP_FLASH_ALPHA = 0.55;
@@ -193,21 +194,28 @@ export class PuzzleStage {
   };
   private tweener: Tweener | null = null;
 
-  // Zoom-out LOD. lodTexture holds the whole world baked at low resolution,
-  // shown through lodSprite (a child of world, so the camera transforms it like
-  // any other content). lodMatrix maps world space to the texture's pixels for
-  // the bake. heldGroupIds is every cluster a human is dragging right now (local
-  // or remote): these are excluded from the bake and drawn live on top so a
-  // piece in hand never freezes into the texture.
-  private lodTexture: RenderTexture | null = null;
-  private lodSprite: Sprite | null = null;
-  private lodMatrix: Matrix | null = null;
+  // Spatial index over the LOD tile grid, keyed by tile cell. Bounds both the
+  // live cull (visible candidates) and the per-tile bake (a cell's groups) so
+  // neither is O(board). Upkeep is O(cells per group) per move, off the dirty
+  // path. lastVisible is the previous cull candidate set, so a group leaving the
+  // query region can be culled without rescanning the board. lodHidden is the
+  // groups currently hidden by an active LOD (covered by a ready tile), kept so
+  // exiting LOD restores exactly them.
+  private groupGrid = new GroupGrid(LOD_TILE_WORLD);
+  private lastVisible = new Set<number>();
+  private lodHidden = new Set<number>();
+
+  // Zoom-out LOD tile cache. lodActive means baked tiles are shown; lodWarm means
+  // the bake queue is filling tiles in the background (warm band or active).
+  // heldGroupIds is every cluster a human is dragging right now (local or
+  // remote): excluded from bakes and drawn live on top so a piece in hand never
+  // freezes into a tile.
+  private lodLayer: LodTileLayer | null = null;
   private lodActive = false;
-  private lodRefreshAccMs = 0;
-  private lodDirty = false;
+  private lodWarm = false;
   private heldGroupIds = new Set<number>();
-  private readonly tickLod = (ticker: { deltaMS: number }): void => {
-    this.updateLod(ticker.deltaMS);
+  private readonly tickLod = (): void => {
+    this.tickLodFrame();
   };
 
   private confetti: {
@@ -259,6 +267,7 @@ export class PuzzleStage {
     app.renderer.on("resize", () => {
       this.refreshStageHitArea(app);
       this.redrawBackdrop();
+      this.configureLodLayer();
       this.applyCamera();
     });
 
@@ -335,14 +344,18 @@ export class PuzzleStage {
       this.pieceToGroup.set(piece.id, piece.groupId);
     }
 
+    this.groupGrid.clear();
+    this.lastVisible.clear();
+    this.lodHidden.clear();
     for (const node of this.groups.values()) {
       node.localBounds = unionBounds(node.pieces.map((p) => p.localBounds));
+      this.groupGrid.upsert(node.id, this.worldAabb(node));
       this.applyGroupInteractivity(node);
     }
 
     this.playZone = playZone;
     this.createBackdrop();
-    this.createLod();
+    this.createLodLayer();
     this.fitView();
   }
 
@@ -421,15 +434,16 @@ export class PuzzleStage {
     this.app?.ticker.remove(this.tickLod);
     this.peerCursors?.destroy();
     this.peerCursors = null;
+    this.lodLayer?.destroy();
+    this.lodLayer = null;
     this.app?.destroy(true, { children: true, texture: true });
-    this.lodTexture?.destroy(true);
-    this.lodTexture = null;
-    this.lodSprite = null;
-    this.lodMatrix = null;
     this.app = null;
     this.world = null;
     this.groups.clear();
     this.pieceToGroup.clear();
+    this.groupGrid.clear();
+    this.lastVisible.clear();
+    this.lodHidden.clear();
     this.heldGroupIds.clear();
     this.held = null;
     this.pendingDrag = null;
@@ -450,14 +464,14 @@ export class PuzzleStage {
       this.world.y = 0;
       this.world.scale.set(1);
     }
-    this.lodTexture?.destroy(true);
-    this.lodTexture = null;
-    this.lodSprite = null;
-    this.lodMatrix = null;
+    this.lodLayer?.destroy();
+    this.lodLayer = null;
     this.lodActive = false;
-    this.lodDirty = false;
-    this.lodRefreshAccMs = 0;
+    this.lodWarm = false;
     this.heldGroupIds.clear();
+    this.groupGrid.clear();
+    this.lastVisible.clear();
+    this.lodHidden.clear();
     this.groups.clear();
     this.pieceToGroup.clear();
     this.held = null;
@@ -504,9 +518,16 @@ export class PuzzleStage {
 
     for (const [gid, node] of this.groups) {
       if (snapGroupIds.has(gid)) continue;
+      this.forgetGroup(gid);
       node.container.destroy({ children: true });
       this.groups.delete(gid);
     }
+
+    // A whole-board snapshot can move any cluster, so every resident tile is
+    // stale; re-baking the bounded resident set is cheap. Mark them dirty before
+    // refreshing visibility so the covered groups fall back to live (no gap)
+    // until the bake queue catches up.
+    this.lodLayer?.markAllDirty();
 
     for (const g of groups) {
       const node = this.groups.get(g.id);
@@ -522,7 +543,7 @@ export class PuzzleStage {
       }
     }
 
-    this.lodDirty = true;
+    if (this.lodActive) this.refreshLodVisibility();
   }
 
   // ----- incoming server messages -----
@@ -544,6 +565,7 @@ export class PuzzleStage {
     if (!this.held || this.held.groupId !== groupId) return;
     const node = this.groups.get(groupId);
     if (node) {
+      this.markTilesDirty(this.worldAabb(node));
       this.moveGroup(node, this.held.originX, this.held.originY);
       this.setGroupHeldVisual(node, false);
     }
@@ -564,6 +586,10 @@ export class PuzzleStage {
   applyRemoteDrop(groupId: number, userId: string, worldX: number, worldY: number): void {
     const node = this.groups.get(groupId);
     if (!node) return;
+    // The drop can relocate a cluster that was never locally held (joined
+    // mid-drag, or a drop with no prior drag frame), so the grab hook never
+    // dirtied the old tile. Dirty it here, before the move, or it keeps a ghost.
+    this.markTilesDirty(this.worldAabb(node));
     this.moveGroup(node, worldX, worldY);
     if (userId !== this.localUserId) {
       node.container.zIndex = this.restingZ(node);
@@ -574,6 +600,7 @@ export class PuzzleStage {
   applyRollback(groupId: number, worldX: number, worldY: number): void {
     const node = this.groups.get(groupId);
     if (!node) return;
+    this.markTilesDirty(this.worldAabb(node));
     this.moveGroup(node, worldX, worldY);
     if (this.held && this.held.groupId === groupId) {
       this.setGroupHeldVisual(node, false);
@@ -616,6 +643,7 @@ export class PuzzleStage {
       if (gid !== undefined && gid !== newGroupId) sourceGroupIds.add(gid);
     }
 
+    const hostOldRect = this.worldAabb(host);
     const preLockedPieceIds = new Set<number>();
     if (host.locked) for (const p of host.pieces) preLockedPieceIds.add(p.id);
     for (const gid of sourceGroupIds) {
@@ -645,13 +673,17 @@ export class PuzzleStage {
     }
 
     host.localBounds = unionBounds(host.pieces.map((p) => p.localBounds));
+    this.markTilesDirty(hostOldRect);
     this.moveGroup(host, worldX, worldY);
     host.locked = host.locked || anchored;
     this.setGroupHeldVisual(host, false);
+    this.markTilesDirty(this.worldAabb(host));
 
     for (const gid of sourceGroupIds) {
       const dead = this.groups.get(gid);
       if (!dead) continue;
+      this.markTilesDirty(this.worldAabb(dead));
+      this.forgetGroup(gid);
       dead.container.destroy({ children: true });
       this.groups.delete(gid);
     }
@@ -659,8 +691,6 @@ export class PuzzleStage {
     this.applyGroupInteractivity(host);
 
     this.heldGroupIds.delete(newGroupId);
-    for (const gid of sourceGroupIds) this.heldGroupIds.delete(gid);
-    this.lodDirty = true;
 
     if (this.held && (this.held.groupId === newGroupId || sourceGroupIds.has(this.held.groupId))) {
       this.held = null;
@@ -938,6 +968,7 @@ export class PuzzleStage {
     node.worldX = worldX;
     node.worldY = worldY;
     node.container.position.set(worldX, worldY);
+    this.groupGrid.upsert(node.id, this.worldAabb(node));
     this.cullGroup(node);
   }
 
@@ -1065,20 +1096,43 @@ export class PuzzleStage {
     this.evaluateLod();
   }
 
-  // Recomputes the visible world rectangle from the camera and screen size,
-  // then re-evaluates every group and piece against it. Runs on every pan,
-  // zoom, and resize.
+  // Recomputes the visible world rectangle, then re-evaluates only the groups the
+  // spatial index reports near the viewport (O(visible), not O(board)). Groups
+  // that left the query region since last frame are culled from lastVisible.
+  // Runs on every pan, zoom, and resize, whether or not the LOD is active.
   private cullAll(): void {
     if (!this.app) return;
     const screen = this.app.renderer.screen;
     const topLeft = this.screenToWorld(0, 0);
-    this.viewport = {
+    const view: Viewport = {
       worldX: topLeft.x,
       worldY: topLeft.y,
       worldW: screen.width / this.camera.zoom,
       worldH: screen.height / this.camera.zoom,
     };
-    for (const node of this.groups.values()) this.cullGroup(node);
+    this.viewport = view;
+    const candidates = this.groupGrid.queryRect({
+      minX: view.worldX,
+      minY: view.worldY,
+      maxX: view.worldX + view.worldW,
+      maxY: view.worldY + view.worldH,
+    });
+    for (const gid of candidates) {
+      const node = this.groups.get(gid);
+      if (!node) continue;
+      this.cullGroup(node);
+      if (this.lodActive) this.applyGroupLodVisibility(node);
+    }
+    for (const gid of this.lastVisible) {
+      if (candidates.has(gid)) continue;
+      const node = this.groups.get(gid);
+      if (!node) continue;
+      node.container.culled = true;
+      // It left the candidate path, so if an active LOD had hidden it, restore
+      // its live visibility here: nothing else will (keeps lodHidden bounded).
+      if (this.lodHidden.delete(gid)) node.container.visible = true;
+    }
+    this.lastVisible = candidates;
   }
 
   // Culls one group against the cached viewport. A group whose bounds miss the
@@ -1105,126 +1159,218 @@ export class PuzzleStage {
     this.onViewportChange(this.viewport);
   }
 
+  // World-space AABB of a group, from its origin and analytic local bounds.
+  private worldAabb(node: GroupNode): Aabb {
+    const b = node.localBounds;
+    return {
+      minX: node.worldX + b.minX,
+      minY: node.worldY + b.minY,
+      maxX: node.worldX + b.maxX,
+      maxY: node.worldY + b.maxY,
+    };
+  }
+
+  // Drops a group from every index that tracks it, before it is destroyed
+  // (merged away, vanished from a snapshot, or world cleared), so the cull diff
+  // and LOD bookkeeping never touch a dead node.
+  private forgetGroup(gid: number): void {
+    this.groupGrid.remove(gid);
+    this.lastVisible.delete(gid);
+    this.lodHidden.delete(gid);
+    this.heldGroupIds.delete(gid);
+  }
+
   // ----- zoom-out level of detail -----
 
-  // Allocates the render texture and its display sprite, sized to the play zone
-  // and capped on the long side so a large board does not allocate a huge
-  // texture. lodScale is the world-to-texture pixel ratio (<= 1, never
-  // upscaling a small board past 1:1); lodMatrix bakes world space into the
-  // texture; the sprite scales the texture back up to cover the zone in world
-  // space, so the camera transform places it exactly over the live pieces.
-  private createLod(): void {
-    if (!this.world || !this.playZone) return;
-    const zone = this.playZone;
-    const zoneW = zone.maxX - zone.minX;
-    const zoneH = zone.maxY - zone.minY;
-    const lodScale = Math.min(1, LOD_MAX_TEXTURE_DIM / Math.max(zoneW, zoneH));
-    const texW = Math.max(1, Math.round(zoneW * lodScale));
-    const texH = Math.max(1, Math.round(zoneH * lodScale));
-    this.lodTexture = RenderTexture.create({
-      width: texW,
-      height: texH,
-      resolution: 1,
-      antialias: true,
-    });
-    this.lodMatrix = new Matrix(
-      lodScale,
-      0,
-      0,
-      lodScale,
-      -zone.minX * lodScale,
-      -zone.minY * lodScale,
-    );
-    const sprite = new Sprite(this.lodTexture);
-    sprite.eventMode = "none";
-    sprite.zIndex = Z_LOD;
-    sprite.position.set(zone.minX, zone.minY);
-    sprite.scale.set(zoneW / texW, zoneH / texH);
-    sprite.visible = false;
-    this.world.addChild(sprite);
-    this.lodSprite = sprite;
+  // Builds the tile layer over the play zone and sizes it for the current
+  // screen. The container is a child of world (zIndex Z_LOD), so the camera
+  // transforms the tiles like any other content.
+  private createLodLayer(): void {
+    if (!this.world || !this.app || !this.playZone) return;
+    const layer = new LodTileLayer(this.playZone, this.app.renderer.resolution);
+    layer.container.zIndex = Z_LOD;
+    this.world.addChild(layer.container);
+    this.lodLayer = layer;
+    this.configureLodLayer();
   }
 
-  // Crosses the LOD threshold with hysteresis. Activating bakes the world once
-  // immediately so the sprite never shows an empty texture for a frame.
+  private configureLodLayer(): void {
+    if (!this.lodLayer || !this.app) return;
+    const screen = this.app.renderer.screen;
+    this.lodLayer.configure(screen.width, screen.height, MIN_ZOOM);
+  }
+
+  // Crosses the three zoom bands. The bake queue (drained in tickLodFrame) fills
+  // tiles in the background while warm, so reaching the active band does not
+  // hitch; LOD_EXIT_ZOOM gives the active band hysteresis.
   private evaluateLod(): void {
-    if (!this.lodSprite) return;
-    const shouldActivate = this.lodActive
-      ? this.camera.zoom < LOD_EXIT_ZOOM
-      : this.camera.zoom < LOD_ENTER_ZOOM;
-    if (shouldActivate === this.lodActive) return;
-    this.lodActive = shouldActivate;
-    if (shouldActivate) {
-      this.setLodDisplay(true);
-      this.bakeLod();
+    if (!this.lodLayer) return;
+    const zoom = this.camera.zoom;
+    this.lodWarm = zoom < LOD_WARM_ZOOM;
+    const active = this.lodActive ? zoom < LOD_EXIT_ZOOM : zoom < LOD_ENTER_ZOOM;
+    if (active !== this.lodActive) this.setLodActive(active);
+  }
+
+  // Shows or hides the baked tiles. Entering hides the on-screen clusters now
+  // covered by a ready tile (held and not-yet-baked ones stay live, gapless);
+  // exiting restores exactly the clusters the LOD had hidden.
+  private setLodActive(active: boolean): void {
+    if (!this.lodLayer) return;
+    this.lodActive = active;
+    this.lodLayer.setVisible(active);
+    if (active) {
+      this.refreshLodVisibility();
     } else {
-      this.setLodDisplay(false);
+      for (const gid of this.lodHidden) {
+        const node = this.groups.get(gid);
+        if (node) node.container.visible = true;
+      }
+      this.lodHidden.clear();
     }
   }
 
-  // Switches between the live per-piece view and the baked LOD view. In LOD
-  // view every cluster is hidden except the ones held right now (drawn live on
-  // top of the texture); the frame and backdrop stay live in both views.
-  private setLodDisplay(active: boolean): void {
-    if (!this.lodSprite) return;
-    this.lodSprite.visible = active;
-    for (const node of this.groups.values()) {
-      node.container.visible = active ? this.heldGroupIds.has(node.id) : true;
+  // Re-evaluates LOD visibility for the current on-screen candidates. Used on
+  // enter and after a snapshot, where many tiles change at once.
+  private refreshLodVisibility(): void {
+    for (const gid of this.lastVisible) {
+      const node = this.groups.get(gid);
+      if (node) this.applyGroupLodVisibility(node);
     }
   }
 
+  // Gapless fill: while the LOD is active a non-held cluster renders live until
+  // every tile it occupies is baked, then hides (the tiles draw it). Held
+  // clusters always render live on top.
+  private applyGroupLodVisibility(node: GroupNode): void {
+    const live = this.heldGroupIds.has(node.id) || !this.allCellsReady(node.id);
+    node.container.visible = live;
+    if (live) this.lodHidden.delete(node.id);
+    else this.lodHidden.add(node.id);
+  }
+
+  private allCellsReady(gid: number): boolean {
+    if (!this.lodLayer) return false;
+    for (const key of this.groupGrid.cellsOf(gid)) {
+      if (!this.lodLayer.isReady(key)) return false;
+    }
+    return true;
+  }
+
+  // A grabbed cluster is excluded from future bakes though its position has not
+  // changed, so its resting tile is now stale (a ghost). Dirty it on the grab
+  // transition only; per-frame drag moves of an already-held cluster stay off
+  // the dirty path (held = drawn live, excluded from bakes).
   private markGroupHeld(node: GroupNode): void {
+    const wasHeld = this.heldGroupIds.has(node.id);
     this.heldGroupIds.add(node.id);
     if (this.lodActive) node.container.visible = true;
+    if (!wasHeld) this.markTilesDirty(this.worldAabb(node));
   }
 
-  // A released cluster stays visible (live) until the next bake folds it into
-  // the texture, so it never blinks out between drop and refresh; the bake's
-  // restore step then hides it. lodDirty forces that bake on the next tick.
+  // The released cluster's new resting tile must fold it back in. It stays live
+  // until that tile re-bakes (gapless), then the bake hides it.
   private releaseGroupHeld(groupId: number): void {
     this.heldGroupIds.delete(groupId);
-    this.lodDirty = true;
+    const node = this.groups.get(groupId);
+    if (node) this.markTilesDirty(this.worldAabb(node));
   }
 
-  // Refreshes the LOD texture while active, on a slow cadence or as soon as the
-  // board changed (lodDirty), so periodic re-bakes stay cheap.
-  private updateLod(deltaMS: number): void {
+  // Marks every resident tile overlapping the box stale, and (while active)
+  // flips the box's clusters back to live so nothing disappears in the gap
+  // between a tile going stale and the bake queue refreshing it.
+  private markTilesDirty(box: Aabb): void {
+    if (!this.lodLayer) return;
+    this.lodLayer.markDirtyRect(box);
     if (!this.lodActive) return;
-    this.lodRefreshAccMs += deltaMS;
-    if (this.lodDirty || this.lodRefreshAccMs >= LOD_REFRESH_MS) this.bakeLod();
+    for (const gid of this.groupGrid.queryRect(box)) {
+      const node = this.groups.get(gid);
+      if (node) this.applyGroupLodVisibility(node);
+    }
   }
 
-  // Renders the whole world into the low-res texture with lodMatrix as the root
-  // transform (bypassing the camera). Held clusters, the LOD sprite itself, and
-  // the live frame/backdrop overlays are hidden for the capture; every other
-  // cluster is shown and un-culled so the entire zone is baked regardless of
-  // what is currently on screen. The display state is restored afterward.
-  private bakeLod(): void {
-    if (!this.app || !this.world || !this.lodTexture || !this.lodMatrix || !this.lodSprite) return;
-    this.lodSprite.visible = false;
+  // Per-frame LOD driver: while warm or active, enqueue the visible-but-not-ready
+  // tiles, bake a bounded few of them, and keep the resident set within budget.
+  private tickLodFrame(): void {
+    if (!this.lodLayer || !this.viewport) return;
+    if (!this.lodWarm && !this.lodActive) return;
+    const needed = this.lodLayer.neededTiles(this.viewport);
+    let baked = 0;
+    for (const key of needed) {
+      if (baked >= LOD_BAKE_PER_FRAME) break;
+      if (this.lodLayer.isReady(key)) continue;
+      this.bakeTile(key);
+      baked++;
+    }
+    this.lodLayer.cull(this.viewport);
+  }
+
+  // Renders one tile's clusters into its texture with the tile matrix as the root
+  // transform (bypassing the camera). Held clusters, the frame, the backdrop and
+  // the tile layer are excluded; non-tile clusters clip out of the texture, so
+  // only this tile's clusters contribute. After baking, the tile's clusters are
+  // re-culled and (if active) hidden now that the tile covers them.
+  private bakeTile(key: CellKey): void {
+    if (!this.app || !this.world || !this.lodLayer) return;
+    const target = this.lodLayer.prepareBake(key);
+    if (!target) return;
+    const groupIds = this.groupGrid.cellGroups(key);
+    const r = this.lodLayer.cellRect(key);
+    const tileView: Viewport = {
+      worldX: r.minX,
+      worldY: r.minY,
+      worldW: r.maxX - r.minX,
+      worldH: r.maxY - r.minY,
+    };
+
     if (this.frame) this.frame.visible = false;
     if (this.backdrop) this.backdrop.visible = false;
-    for (const node of this.groups.values()) {
-      const held = this.heldGroupIds.has(node.id);
-      node.container.visible = !held;
-      if (!held) {
+    this.lodLayer.setVisible(false);
+    const heldHidden: GroupNode[] = [];
+    const forced: GroupNode[] = [];
+    if (groupIds) {
+      for (const gid of groupIds) {
+        const node = this.groups.get(gid);
+        if (!node) continue;
+        if (this.heldGroupIds.has(gid)) {
+          node.container.visible = false;
+          heldHidden.push(node);
+          continue;
+        }
+        // Render only the cluster's pieces that fall inside the tile: a large
+        // cluster spans many tiles, so unculling all of it would redraw far-off
+        // pieces (which clip out anyway) once per tile it touches.
+        node.container.visible = true;
         node.container.culled = false;
-        for (const piece of node.pieces) piece.container.culled = false;
+        for (const piece of node.pieces) {
+          piece.container.culled = !boundsVisible(
+            piece.localBounds,
+            node.worldX,
+            node.worldY,
+            tileView,
+          );
+        }
+        forced.push(node);
       }
     }
+
     this.app.renderer.render({
       container: this.world,
-      target: this.lodTexture,
-      transform: this.lodMatrix,
+      target: target.texture,
+      transform: target.matrix,
       clear: true,
       clearColor: [0, 0, 0, 0],
     });
+
     if (this.frame) this.frame.visible = true;
     if (this.backdrop) this.backdrop.visible = true;
-    this.setLodDisplay(true);
-    this.lodDirty = false;
-    this.lodRefreshAccMs = 0;
-    this.cullAll();
+    this.lodLayer.setVisible(this.lodActive);
+    this.lodLayer.markBaked(key);
+    for (const node of heldHidden) node.container.visible = true;
+    for (const node of forced) {
+      this.cullGroup(node);
+      if (this.lodActive) this.applyGroupLodVisibility(node);
+      else node.container.visible = true;
+    }
   }
 
   private attachWheelZoom(canvas: HTMLCanvasElement): void {
