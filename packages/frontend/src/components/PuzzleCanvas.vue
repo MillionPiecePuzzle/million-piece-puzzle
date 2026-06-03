@@ -40,10 +40,13 @@ const modalVisible = ref(true);
 // loading cover up across the syncing -> ready transition and through the async
 // texture load, so the previous board is hidden until the new one is rendered.
 const building = ref(false);
-// Count of piece textures fetched so far in the in-flight build, driving the
-// determinate progress bar of the "textures" phase. Reset at the start of each
-// build; the total is `totalPieces`.
+// Streaming coverage of the in-flight build, driving the determinate progress
+// bar of the "textures" phase. The board no longer eagerly loads every piece, so
+// these track the first viewport's coverage (loaded/total in coverage units the
+// stage reports: baked tiles when zoomed out, hydrated groups otherwise), not the
+// whole 1M piece set. Both reset at the start of each build.
 const textureLoaded = ref(0);
+const textureTotal = ref(0);
 
 function triggerCompletion(playSpectacle: boolean): void {
   if (completed.value || !stage) return;
@@ -98,7 +101,7 @@ const totalPieces = computed(() =>
 );
 
 const textureProgress = computed(() =>
-  totalPieces.value > 0 ? Math.round((textureLoaded.value / totalPieces.value) * 100) : 0,
+  textureTotal.value > 0 ? Math.round((textureLoaded.value / textureTotal.value) * 100) : 0,
 );
 
 const leaderboardRows = computed(() => toLeaderboardRows(leaderboard.value, userId.value));
@@ -259,8 +262,10 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   builtEpoch = s.epoch;
   stage.setLocalUserId(userId.value);
   textureLoaded.value = 0;
-  await stage.build(s.manifest, s.pieces, s.groups, s.welcome.playZone, (loaded) => {
+  textureTotal.value = 0;
+  await stage.build(s.manifest, s.pieces, s.groups, s.welcome.playZone, (loaded, total) => {
     textureLoaded.value = loaded;
+    textureTotal.value = total;
   });
   stage.setMode(mode.value);
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
@@ -344,7 +349,7 @@ onBeforeUnmount(() => {
           <div class="bar" :style="isTexturePhase ? { width: textureProgress + '%' } : undefined" />
         </div>
         <p v-if="isTexturePhase" class="detail">
-          {{ textureLoaded.toLocaleString() }} / {{ totalPieces.toLocaleString() }} textures
+          {{ textureLoaded.toLocaleString() }} / {{ textureTotal.toLocaleString() }} loaded
         </p>
       </template>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>

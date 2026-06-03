@@ -56,7 +56,16 @@ type PieceNode = {
 type GroupNode = {
   id: number;
   container: Container;
+  // Membership: the piece ids this group owns, maintained independently of
+  // whether their textures and nodes are built. Drives localBounds (from
+  // geometry), the spatial index, and the minimap, so the group is fully
+  // described even while dehydrated (no textures fetched).
+  pieceIds: number[];
+  // Built piece nodes, present only for pieces currently hydrated. A dehydrated
+  // group has an empty array and an empty container.
   pieces: PieceNode[];
+  hydrated: boolean;
+  hydrating: boolean;
   locked: boolean;
   worldX: number;
   worldY: number;
@@ -119,6 +128,19 @@ const LOD_ENTER_ZOOM = 0.3;
 const LOD_EXIT_ZOOM = 0.35;
 const LOD_WARM_ZOOM = 0.5;
 const LOD_BAKE_PER_FRAME = 2;
+
+// Viewport-driven texture streaming. Per-piece AVIF textures and their nodes are
+// built on demand for groups within the hydrate ring around the viewport and
+// freed when they leave the (wider) keep ring or become covered by a ready LOD
+// tile. This bounds resident textures to the visible window instead of the whole
+// board: entering the canvas never fetches every piece, and panning pages pieces
+// in and out. Rings are fractions of the viewport size; the keep ring is wider
+// than the hydrate ring so a piece hovering at the boundary does not thrash
+// load/unload. HYDRATE_MAX_INFLIGHT bounds concurrent group loads so a deep
+// zoom-out enqueues many groups without firing all their fetches at once.
+const HYDRATE_MARGIN_FRAC = 0.3;
+const DEHYDRATE_MARGIN_FRAC = 0.9;
+const HYDRATE_MAX_INFLIGHT = 128;
 const SNAP_BUMP_SCALE = 1.08;
 const SNAP_BUMP_MS = 240;
 const SNAP_FLASH_ALPHA = 0.55;
@@ -221,6 +243,27 @@ export class PuzzleStage {
     this.tickLodFrame();
   };
 
+  // Texture streaming state. The manifest, geometry map and per-piece texture
+  // URLs are kept so a group can be hydrated (textures fetched, nodes built) and
+  // dehydrated (nodes destroyed, textures unloaded) at any time after build().
+  // resident is every group hydrated or in flight; hydrateQueue/hydrateQueued is
+  // the pending load queue drained a bounded few per frame; inFlight counts
+  // running group loads. initialFill resolves build()'s promise once the first
+  // viewport is covered (tiles ready or window pieces built), keeping the loading
+  // cover up over the progressive fill instead of an eager whole-board fetch.
+  private manifest: ImageManifest | null = null;
+  private geomById = new Map<number, PieceGeometry>();
+  private textureBase = "";
+  private fileById = new Map<number, string>();
+  private resident = new Set<number>();
+  private hydrateQueue: number[] = [];
+  private hydrateQueued = new Set<number>();
+  private inFlight = 0;
+  private initialFill: {
+    resolve: () => void;
+    progress: ((loaded: number, total: number) => void) | undefined;
+  } | null = null;
+
   private confetti: {
     layer: Container;
     particles: ConfettiParticle[];
@@ -302,10 +345,10 @@ export class PuzzleStage {
       cols: manifest.cols,
       pieceSize: manifest.pieceSize,
     });
-    const geomById = new Map<number, PieceGeometry>(geom.pieces.map((p) => [p.id, p]));
-
-    const base = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
-    const textures = await loadTextures(manifest, base, onTextureProgress);
+    this.manifest = manifest;
+    this.geomById = new Map<number, PieceGeometry>(geom.pieces.map((p) => [p.id, p]));
+    this.textureBase = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
+    this.fileById = new Map<number, string>(manifest.pieces.map((p) => [p.id, p.file]));
 
     this.worldSize = {
       w: geom.cols * geom.pieceSize,
@@ -318,40 +361,45 @@ export class PuzzleStage {
     this.world.addChild(frame);
     this.frame = frame;
 
-    for (const group of initialGroups) {
-      const gc = new Container();
-      gc.x = group.worldX;
-      gc.y = group.worldY;
-      gc.zIndex = group.locked ? Z_LOCKED : Z_UNLOCKED;
-      const node: GroupNode = {
-        id: group.id,
-        container: gc,
-        pieces: [],
-        locked: group.locked,
-        worldX: group.worldX,
-        worldY: group.worldY,
-        localBounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-      };
-      this.world.addChild(gc);
-      this.groups.set(group.id, node);
-    }
-
+    // Group membership, built from the piece->group mapping. Textures and piece
+    // nodes are not fetched here: a group is created dehydrated (empty
+    // container), with its localBounds and spatial-index cell set derived from
+    // geometry alone, so the index is fully populated for the on-demand stream
+    // without an O(board) texture fetch.
+    const idsByGroup = new Map<number, number[]>();
     for (const piece of initialPieces) {
-      const geometry = geomById.get(piece.id);
-      const texture = textures.get(piece.id);
-      const groupNode = this.groups.get(piece.groupId);
-      if (!geometry || !texture || !groupNode) continue;
-      const node = buildPieceNode(geometry, texture, manifest);
-      groupNode.container.addChild(node.container);
-      groupNode.pieces.push(node);
       this.pieceToGroup.set(piece.id, piece.groupId);
+      let ids = idsByGroup.get(piece.groupId);
+      if (!ids) {
+        ids = [];
+        idsByGroup.set(piece.groupId, ids);
+      }
+      ids.push(piece.id);
     }
 
     this.groupGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
-    for (const node of this.groups.values()) {
-      node.localBounds = unionBounds(node.pieces.map((p) => p.localBounds));
+    for (const group of initialGroups) {
+      const gc = new Container();
+      gc.x = group.worldX;
+      gc.y = group.worldY;
+      gc.zIndex = group.locked ? Z_LOCKED : Z_UNLOCKED;
+      const pieceIds = idsByGroup.get(group.id) ?? [];
+      const node: GroupNode = {
+        id: group.id,
+        container: gc,
+        pieceIds,
+        pieces: [],
+        hydrated: false,
+        hydrating: false,
+        locked: group.locked,
+        worldX: group.worldX,
+        worldY: group.worldY,
+        localBounds: this.boundsForIds(pieceIds),
+      };
+      this.world.addChild(gc);
+      this.groups.set(group.id, node);
       this.groupGrid.upsert(node.id, this.worldAabb(node));
       this.applyGroupInteractivity(node);
     }
@@ -360,6 +408,31 @@ export class PuzzleStage {
     this.createBackdrop();
     this.createLodLayer();
     this.fitView();
+
+    // Stream the first viewport in (and bake its tiles when zoomed out) before
+    // resolving, so the loading cover stays up until the board is actually on
+    // screen rather than over an eager whole-board fetch.
+    await this.awaitInitialCoverage(onTextureProgress);
+  }
+
+  // Local AABB of a set of pieces from geometry alone (canonical offset plus one
+  // margin per piece), so a group's bounds are known without building any node.
+  private boundsForIds(ids: readonly number[]): Aabb {
+    if (!this.manifest) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    const boxes: Aabb[] = [];
+    for (const id of ids) {
+      const g = this.geomById.get(id);
+      if (!g) continue;
+      boxes.push(
+        pieceLocalBounds(
+          g.canonicalOffset.x,
+          g.canonicalOffset.y,
+          this.manifest.pieceSize,
+          this.manifest.margin,
+        ),
+      );
+    }
+    return unionBounds(boxes);
   }
 
   private playZonePadding(): number {
@@ -439,6 +512,8 @@ export class PuzzleStage {
     this.peerCursors = null;
     this.lodLayer?.destroy();
     this.lodLayer = null;
+    this.releaseAllTextures();
+    this.resetStreaming();
     this.app?.destroy(true, { children: true, texture: true });
     this.app = null;
     this.world = null;
@@ -448,14 +523,46 @@ export class PuzzleStage {
     this.lastVisible.clear();
     this.lodHidden.clear();
     this.heldGroupIds.clear();
+    this.geomById = new Map();
+    this.fileById = new Map();
+    this.manifest = null;
+    this.textureBase = "";
     this.held = null;
     this.pendingDrag = null;
+  }
+
+  // Unloads every resident piece texture from the Assets cache. Sprites are freed
+  // by the container teardown; this releases the shared textures the cache still
+  // holds so a rebuild or unmount does not leak them.
+  private releaseAllTextures(): void {
+    for (const node of this.groups.values()) {
+      for (const piece of node.pieces) {
+        const url = this.pieceUrl(piece.id);
+        if (url) void Assets.unload(url);
+      }
+    }
+  }
+
+  // Clears the streaming queues and resolves any pending build() promise so a
+  // teardown mid-fill does not leave build() awaiting forever.
+  private resetStreaming(): void {
+    this.resident.clear();
+    this.hydrateQueue = [];
+    this.hydrateQueued.clear();
+    this.inFlight = 0;
+    if (this.initialFill) {
+      const fill = this.initialFill;
+      this.initialFill = null;
+      fill.resolve();
+    }
   }
 
   // Wipe all piece/group state without tearing down the Pixi app, so a fresh
   // build() can run on the same stage (server-driven reset).
   clearWorld(): void {
     this.stopConfetti();
+    this.releaseAllTextures();
+    this.resetStreaming();
     if (this.world) {
       // removeChildren() only detaches. context:true is required to free each
       // Graphics' GraphicsContext (mask, flash, frame, backdrop geometry);
@@ -480,6 +587,10 @@ export class PuzzleStage {
     this.held = null;
     this.pendingDrag = null;
     this.peerCursors?.clearHeld();
+    this.geomById = new Map();
+    this.fileById = new Map();
+    this.manifest = null;
+    this.textureBase = "";
     this.worldSize = null;
     this.playZone = null;
     this.frame = null;
@@ -508,6 +619,9 @@ export class PuzzleStage {
       const host = this.groups.get(targetGid);
       const from = this.groups.get(currentGid);
       if (!host || !from) continue;
+      this.pieceToGroup.set(pieceId, targetGid);
+      from.pieceIds = from.pieceIds.filter((id) => id !== pieceId);
+      if (!host.pieceIds.includes(pieceId)) host.pieceIds.push(pieceId);
       const piece = from.pieces.find((n) => n.id === pieceId);
       if (!piece) continue;
       from.container.removeChild(piece.container);
@@ -516,7 +630,6 @@ export class PuzzleStage {
       piece.container.y = piece.geometry.canonicalOffset.y;
       host.container.addChild(piece.container);
       host.pieces.push(piece);
-      this.pieceToGroup.set(pieceId, targetGid);
     }
 
     for (const [gid, node] of this.groups) {
@@ -536,7 +649,8 @@ export class PuzzleStage {
       const node = this.groups.get(g.id);
       if (!node) continue;
       if (this.held && this.held.groupId === g.id) continue;
-      node.localBounds = unionBounds(node.pieces.map((p) => p.localBounds));
+      node.localBounds = this.boundsForIds(node.pieceIds);
+      node.hydrated = node.pieces.length >= node.pieceIds.length;
       const becameLocked = !node.locked && g.locked;
       node.locked = g.locked;
       this.moveGroup(node, g.worldX, g.worldY);
@@ -546,6 +660,9 @@ export class PuzzleStage {
       }
     }
 
+    // A snapshot can move any cluster into or out of view; page textures in and
+    // out for the new layout before refreshing tile visibility.
+    this.updateResidency();
     if (this.lodActive) this.refreshLodVisibility();
   }
 
@@ -655,37 +772,43 @@ export class PuzzleStage {
     }
     const addedSet = new Set(addedPieceIds);
 
-    // Reparent each added piece into the host container, preserving its world
-    // position. Canonical offsets are globally consistent so we just set the
-    // piece container's local position to its canonical offset; the host will
-    // be moved to (worldX, worldY) below.
+    // Reparent each added piece into the host, preserving its world position.
+    // Membership (pieceIds, pieceToGroup) moves unconditionally; the built node
+    // moves only when the source piece is hydrated, so a merge of off-screen
+    // (dehydrated) clusters still updates the model. Canonical offsets are
+    // globally consistent, so the piece's local position is its canonical
+    // offset; the host is moved to (worldX, worldY) below.
     for (const pieceId of addedPieceIds) {
       const fromGroupId = this.pieceToGroup.get(pieceId);
-      if (fromGroupId === undefined) continue;
+      if (fromGroupId === undefined || fromGroupId === newGroupId) continue;
       const from = this.groups.get(fromGroupId);
-      if (!from) continue;
-      const piece = from.pieces.find((p) => p.id === pieceId);
-      if (!piece) continue;
+      this.pieceToGroup.set(pieceId, newGroupId);
+      if (from) from.pieceIds = from.pieceIds.filter((id) => id !== pieceId);
+      if (!host.pieceIds.includes(pieceId)) host.pieceIds.push(pieceId);
+      const piece = from?.pieces.find((p) => p.id === pieceId);
+      if (!from || !piece) continue;
       from.container.removeChild(piece.container);
       from.pieces = from.pieces.filter((p) => p.id !== pieceId);
       piece.container.x = piece.geometry.canonicalOffset.x;
       piece.container.y = piece.geometry.canonicalOffset.y;
       host.container.addChild(piece.container);
       host.pieces.push(piece);
-      this.pieceToGroup.set(pieceId, newGroupId);
     }
 
-    host.localBounds = unionBounds(host.pieces.map((p) => p.localBounds));
+    host.localBounds = this.boundsForIds(host.pieceIds);
+    host.hydrated = host.pieces.length >= host.pieceIds.length;
     this.markTilesDirty(hostOldRect);
     this.moveGroup(host, worldX, worldY);
     host.locked = host.locked || anchored;
     this.setGroupHeldVisual(host, false);
     this.markTilesDirty(this.worldAabb(host));
+    this.reconcileGroupResidency(host);
 
     for (const gid of sourceGroupIds) {
       const dead = this.groups.get(gid);
       if (!dead) continue;
       this.markTilesDirty(this.worldAabb(dead));
+      this.dehydrateGroup(dead);
       this.forgetGroup(gid);
       dead.container.destroy({ children: true });
       this.groups.delete(gid);
@@ -1024,13 +1147,18 @@ export class PuzzleStage {
   }
 
   getMinimapSnapshot(): MinimapSnapshot | null {
-    if (!this.playZone || !this.worldSize) return null;
+    if (!this.playZone || !this.worldSize || !this.manifest) return null;
+    // Dots come from group membership and geometry, not built nodes, so the map
+    // stays complete while most pieces are dehydrated (their textures unloaded).
+    const half = this.manifest.pieceSize / 2;
     const pieces: MinimapPiece[] = [];
     for (const group of this.groups.values()) {
-      for (const piece of group.pieces) {
+      for (const id of group.pieceIds) {
+        const g = this.geomById.get(id);
+        if (!g) continue;
         pieces.push({
-          x: group.worldX + (piece.localBounds.minX + piece.localBounds.maxX) / 2,
-          y: group.worldY + (piece.localBounds.minY + piece.localBounds.maxY) / 2,
+          x: group.worldX + g.canonicalOffset.x + half,
+          y: group.worldY + g.canonicalOffset.y + half,
           locked: group.locked,
         });
       }
@@ -1097,6 +1225,7 @@ export class PuzzleStage {
     this.cullAll();
     this.notifyViewport();
     this.evaluateLod();
+    this.updateResidency();
   }
 
   // Recomputes the visible world rectangle, then re-evaluates only the groups the
@@ -1181,6 +1310,231 @@ export class PuzzleStage {
     this.lastVisible.delete(gid);
     this.lodHidden.delete(gid);
     this.heldGroupIds.delete(gid);
+    this.resident.delete(gid);
+    this.hydrateQueued.delete(gid);
+  }
+
+  // ----- texture streaming -----
+
+  // Per-piece texture URL from the manifest's bucketed path, resolved against the
+  // assets base. Null for an unknown piece id.
+  private pieceUrl(pieceId: number): string | null {
+    const file = this.fileById.get(pieceId);
+    if (file === undefined) return null;
+    return joinUrl(this.textureBase, file);
+  }
+
+  // Whether a group must render its pieces live right now: held clusters always
+  // do; with the LOD inactive every group does; with it active a group renders
+  // live only until every tile it occupies is baked (then the tiles draw it and
+  // its textures can be freed). This is the hydration predicate: a group that is
+  // not live needs no resident textures.
+  private isGroupLive(node: GroupNode): boolean {
+    if (this.heldGroupIds.has(node.id)) return true;
+    if (!this.lodActive) return true;
+    return !this.allCellsReady(node.id);
+  }
+
+  // Viewport rectangle grown by a fraction of its size on every side. The hydrate
+  // ring decides what to load ahead of the camera; the wider keep ring decides
+  // what to retain (hysteresis), so a piece at the edge does not thrash.
+  private viewportRing(frac: number): Aabb | null {
+    const v = this.viewport;
+    if (!v) return null;
+    const mx = v.worldW * frac;
+    const my = v.worldH * frac;
+    return {
+      minX: v.worldX - mx,
+      minY: v.worldY - my,
+      maxX: v.worldX + v.worldW + mx,
+      maxY: v.worldY + v.worldH + my,
+    };
+  }
+
+  private groupInRing(node: GroupNode, frac: number): boolean {
+    const ring = this.viewportRing(frac);
+    if (!ring) return false;
+    const b = node.localBounds;
+    return (
+      node.worldX + b.maxX >= ring.minX &&
+      node.worldX + b.minX <= ring.maxX &&
+      node.worldY + b.maxY >= ring.minY &&
+      node.worldY + b.minY <= ring.maxY
+    );
+  }
+
+  private enqueueHydrate(gid: number): void {
+    if (this.resident.has(gid) || this.hydrateQueued.has(gid)) return;
+    const node = this.groups.get(gid);
+    if (!node || node.hydrated || node.hydrating) return;
+    this.hydrateQueued.add(gid);
+    this.hydrateQueue.push(gid);
+  }
+
+  // Starts queued group loads up to the in-flight cap. Drained once per frame, so
+  // a deep zoom-out that enqueues thousands of groups fetches them progressively
+  // instead of firing every request at once.
+  private pumpHydration(): void {
+    while (this.inFlight < HYDRATE_MAX_INFLIGHT && this.hydrateQueue.length > 0) {
+      const gid = this.hydrateQueue.shift();
+      if (gid === undefined) break;
+      if (!this.hydrateQueued.has(gid)) continue;
+      this.hydrateQueued.delete(gid);
+      const node = this.groups.get(gid);
+      if (!node || node.hydrated || node.hydrating) continue;
+      this.inFlight++;
+      void this.hydrateGroup(node).finally(() => {
+        this.inFlight--;
+      });
+    }
+  }
+
+  // Fetches every piece texture of a group and builds its nodes. Tolerant of a
+  // group being dehydrated, merged away, or the world cleared mid-fetch: a piece
+  // whose group is no longer resident (or no longer owns it) is unloaded instead
+  // of attached. A piece that fails to load is skipped; the group still completes
+  // so streaming never stalls on a missing tile.
+  private async hydrateGroup(node: GroupNode): Promise<void> {
+    if (node.hydrated || node.hydrating) return;
+    node.hydrating = true;
+    this.resident.add(node.id);
+    await Promise.all(
+      node.pieceIds.map(async (pieceId) => {
+        if (node.pieces.some((p) => p.id === pieceId)) return;
+        const url = this.pieceUrl(pieceId);
+        if (!url) return;
+        let texture: Texture;
+        try {
+          texture = (await Assets.load(url)) as Texture;
+        } catch (e) {
+          console.warn("[stage] failed to load", url, e);
+          return;
+        }
+        const stillMine =
+          this.resident.has(node.id) &&
+          this.groups.get(node.id) === node &&
+          this.pieceToGroup.get(pieceId) === node.id;
+        if (!stillMine || node.pieces.some((p) => p.id === pieceId)) {
+          void Assets.unload(url);
+          return;
+        }
+        const geometry = this.geomById.get(pieceId);
+        if (!geometry || !this.manifest) return;
+        const built = buildPieceNode(geometry, texture, this.manifest);
+        node.container.addChild(built.container);
+        node.pieces.push(built);
+      }),
+    );
+    node.hydrating = false;
+    if (!this.resident.has(node.id) || this.groups.get(node.id) !== node) {
+      this.destroyPieceNodes(node);
+      return;
+    }
+    node.hydrated = true;
+    this.applyGroupInteractivity(node);
+    this.cullGroup(node);
+    if (this.lodActive) this.applyGroupLodVisibility(node);
+  }
+
+  // Frees a group's textures and nodes. A group whose load is still in flight is
+  // dropped from resident here; the load's completion sees it is no longer
+  // resident and cleans up whatever it built.
+  private dehydrateGroup(node: GroupNode): void {
+    this.resident.delete(node.id);
+    this.hydrateQueued.delete(node.id);
+    if (node.hydrating) return;
+    if (!node.hydrated && node.pieces.length === 0) return;
+    this.destroyPieceNodes(node);
+  }
+
+  private destroyPieceNodes(node: GroupNode): void {
+    for (const piece of node.pieces) {
+      const url = this.pieceUrl(piece.id);
+      node.container.removeChild(piece.container);
+      piece.container.destroy({ children: true });
+      if (url) void Assets.unload(url);
+    }
+    node.pieces = [];
+    node.hydrated = false;
+  }
+
+  // Decides one group's residency from the live predicate and the rings: a
+  // non-live group (covered by ready tiles) is freed; a live group inside the
+  // hydrate ring is loaded.
+  private reconcileGroupResidency(node: GroupNode): void {
+    if (!this.isGroupLive(node)) {
+      this.dehydrateGroup(node);
+      return;
+    }
+    if (this.groupInRing(node, HYDRATE_MARGIN_FRAC)) this.enqueueHydrate(node.id);
+  }
+
+  // Reconciles residency across the visible window: hydrate live groups inside the
+  // hydrate ring, free residents that left the keep ring or stopped being live.
+  // Runs on every camera change, so panning pages textures in and out.
+  private updateResidency(): void {
+    const hydrateRing = this.viewportRing(HYDRATE_MARGIN_FRAC);
+    if (!hydrateRing) return;
+    for (const gid of this.groupGrid.queryRect(hydrateRing)) {
+      const node = this.groups.get(gid);
+      if (node) this.reconcileGroupResidency(node);
+    }
+    const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
+    const keep = keepRing ? this.groupGrid.queryRect(keepRing) : new Set<number>();
+    for (const gid of [...this.resident, ...this.hydrateQueued]) {
+      const node = this.groups.get(gid);
+      if (!node) {
+        this.resident.delete(gid);
+        this.hydrateQueued.delete(gid);
+        continue;
+      }
+      if (keep.has(gid) && this.isGroupLive(node)) continue;
+      this.dehydrateGroup(node);
+    }
+  }
+
+  // Resolves build()'s promise once the first viewport is visually covered: with
+  // the LOD active that means every needed tile is baked, otherwise every live
+  // group in the hydrate ring is built. Progress is reported in coverage units
+  // (tiles or groups), monotonic even though covered pieces are freed as tiles
+  // bake. The per-frame driver (tickLodFrame) checks completion.
+  private awaitInitialCoverage(progress?: (loaded: number, total: number) => void): Promise<void> {
+    return new Promise((resolve) => {
+      this.initialFill = { resolve, progress };
+    });
+  }
+
+  private initialCoverage(): { loaded: number; total: number; done: boolean } {
+    if (this.lodActive && this.lodLayer && this.viewport) {
+      const needed = this.lodLayer.neededTiles(this.viewport);
+      let ready = 0;
+      for (const key of needed) if (this.lodLayer.isReady(key)) ready++;
+      return { loaded: ready, total: needed.length, done: ready >= needed.length };
+    }
+    const ring = this.viewportRing(HYDRATE_MARGIN_FRAC);
+    if (!ring) return { loaded: 0, total: 0, done: false };
+    let total = 0;
+    let loaded = 0;
+    for (const gid of this.groupGrid.queryRect(ring)) {
+      const node = this.groups.get(gid);
+      if (!node || !this.isGroupLive(node)) continue;
+      total++;
+      if (node.hydrated) loaded++;
+    }
+    // total can be 0 for a fit over an empty region; the ring is populated
+    // synchronously before the first tick, so resolving immediately is correct
+    // and avoids a hang with nothing to load.
+    return { loaded, total, done: loaded >= total };
+  }
+
+  private tickInitialFill(): void {
+    if (!this.initialFill) return;
+    const { loaded, total, done } = this.initialCoverage();
+    this.initialFill.progress?.(loaded, total);
+    if (!done) return;
+    const fill = this.initialFill;
+    this.initialFill = null;
+    fill.resolve();
   }
 
   // ----- zoom-out level of detail -----
@@ -1253,8 +1607,15 @@ export class PuzzleStage {
   private applyGroupLodVisibility(node: GroupNode): void {
     const live = this.heldGroupIds.has(node.id) || !this.allCellsReady(node.id);
     node.container.visible = live;
-    if (live) this.lodHidden.delete(node.id);
-    else this.lodHidden.add(node.id);
+    if (live) {
+      this.lodHidden.delete(node.id);
+      // Still drawn live (tiles not yet covering it): keep it loaded if near.
+      if (this.groupInRing(node, HYDRATE_MARGIN_FRAC)) this.enqueueHydrate(node.id);
+    } else {
+      this.lodHidden.add(node.id);
+      // Fully covered by ready tiles: the tiles draw it, so free its textures.
+      this.dehydrateGroup(node);
+    }
   }
 
   private allCellsReady(gid: number): boolean {
@@ -1273,6 +1634,9 @@ export class PuzzleStage {
     const wasHeld = this.heldGroupIds.has(node.id);
     this.heldGroupIds.add(node.id);
     if (this.lodActive) node.container.visible = true;
+    // A held cluster always renders live, so make sure it is loaded (it may have
+    // been covered by a tile, or be a remote grab on an off-screen cluster).
+    if (this.groupInRing(node, HYDRATE_MARGIN_FRAC)) this.enqueueHydrate(node.id);
     if (!wasHeld) this.markTilesDirty(this.worldAabb(node));
   }
 
@@ -1316,17 +1680,18 @@ export class PuzzleStage {
   // Per-frame LOD driver: while warm or active, enqueue the visible-but-not-ready
   // tiles, bake a bounded few of them, and keep the resident set within budget.
   private tickLodFrame(): void {
-    if (!this.lodLayer || !this.viewport) return;
-    if (!this.lodWarm && !this.lodActive) return;
-    const needed = this.lodLayer.neededTiles(this.viewport);
-    let baked = 0;
-    for (const key of needed) {
-      if (baked >= LOD_BAKE_PER_FRAME) break;
-      if (this.lodLayer.isReady(key)) continue;
-      this.bakeTile(key);
-      baked++;
+    this.pumpHydration();
+    if (this.lodLayer && this.viewport && (this.lodWarm || this.lodActive)) {
+      const needed = this.lodLayer.neededTiles(this.viewport);
+      let baked = 0;
+      for (const key of needed) {
+        if (baked >= LOD_BAKE_PER_FRAME) break;
+        if (this.lodLayer.isReady(key)) continue;
+        if (this.bakeTile(key)) baked++;
+      }
+      this.lodLayer.cull(this.viewport);
     }
-    this.lodLayer.cull(this.viewport);
+    this.tickInitialFill();
   }
 
   // Renders one tile's clusters into its texture with the tile matrix as the root
@@ -1334,11 +1699,26 @@ export class PuzzleStage {
   // the tile layer are excluded; non-tile clusters clip out of the texture, so
   // only this tile's clusters contribute. After baking, the tile's clusters are
   // re-culled and (if active) hidden now that the tile covers them.
-  private bakeTile(key: CellKey): void {
-    if (!this.app || !this.world || !this.lodLayer) return;
-    const target = this.lodLayer.prepareBake(key);
-    if (!target) return;
+  private bakeTile(key: CellKey): boolean {
+    if (!this.app || !this.world || !this.lodLayer) return false;
     const groupIds = this.groupGrid.cellGroups(key);
+    // Defer until every non-held cluster in the cell is hydrated: baking from
+    // missing textures would mark the tile ready with blank pieces. Enqueue the
+    // missing ones so a later frame can complete the bake.
+    if (groupIds) {
+      let pending = false;
+      for (const gid of groupIds) {
+        if (this.heldGroupIds.has(gid)) continue;
+        const node = this.groups.get(gid);
+        if (node && !node.hydrated) {
+          this.enqueueHydrate(gid);
+          pending = true;
+        }
+      }
+      if (pending) return false;
+    }
+    const target = this.lodLayer.prepareBake(key);
+    if (!target) return false;
     const r = this.lodLayer.cellRect(key);
     const tileView: Viewport = {
       worldX: r.minX,
@@ -1396,6 +1776,7 @@ export class PuzzleStage {
       if (this.lodActive) this.applyGroupLodVisibility(node);
       else node.container.visible = true;
     }
+    return true;
   }
 
   private attachWheelZoom(canvas: HTMLCanvasElement): void {
@@ -1473,34 +1854,6 @@ function buildPieceNode(
       manifest.margin,
     ),
   };
-}
-
-async function loadTextures(
-  manifest: ImageManifest,
-  base: string,
-  onProgress?: (loaded: number, total: number) => void,
-): Promise<Map<number, Texture>> {
-  const out = new Map<number, Texture>();
-  const total = manifest.pieces.length;
-  let loaded = 0;
-  onProgress?.(0, total);
-  const entries = await Promise.all(
-    manifest.pieces.map(async (p) => {
-      const url = joinUrl(base, p.file);
-      try {
-        const tex = (await Assets.load(url)) as Texture;
-        return [p.id, tex] as const;
-      } catch (e) {
-        console.warn("[stage] failed to load", url, e);
-        return null;
-      } finally {
-        loaded += 1;
-        onProgress?.(loaded, total);
-      }
-    }),
-  );
-  for (const e of entries) if (e) out.set(e[0], e[1]);
-  return out;
 }
 
 function joinUrl(base: string, rel: string): string {
