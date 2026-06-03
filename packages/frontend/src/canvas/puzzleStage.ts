@@ -1324,17 +1324,6 @@ export class PuzzleStage {
     return joinUrl(this.textureBase, file);
   }
 
-  // Whether a group must render its pieces live right now: held clusters always
-  // do; with the LOD inactive every group does; with it active a group renders
-  // live only until every tile it occupies is baked (then the tiles draw it and
-  // its textures can be freed). This is the hydration predicate: a group that is
-  // not live needs no resident textures.
-  private isGroupLive(node: GroupNode): boolean {
-    if (this.heldGroupIds.has(node.id)) return true;
-    if (!this.lodActive) return true;
-    return !this.allCellsReady(node.id);
-  }
-
   // Viewport rectangle grown by a fraction of its size on every side. The hydrate
   // ring decides what to load ahead of the camera; the wider keep ring decides
   // what to retain (hysteresis), so a piece at the edge does not thrash.
@@ -1458,46 +1447,45 @@ export class PuzzleStage {
     node.hydrated = false;
   }
 
-  // Decides one group's residency from the live predicate and the rings: a
-  // non-live group (covered by ready tiles) is freed; a live group inside the
-  // hydrate ring is loaded.
+  // Queues a group's textures if it sits inside the hydrate ring. Residency is
+  // purely a function of the viewport window, not of LOD tile coverage: a window
+  // piece stays resident even while hidden behind a baked tile, so a re-bake
+  // (e.g. a spectator snapshot dirtying every tile) draws from still-resident
+  // pieces instead of blanking and re-fetching them. Bounding resident VRAM at a
+  // deep zoom-out window is left to the Phase 2 "smooth at 1M" work.
   private reconcileGroupResidency(node: GroupNode): void {
-    if (!this.isGroupLive(node)) {
-      this.dehydrateGroup(node);
-      return;
-    }
     if (this.groupInRing(node, HYDRATE_MARGIN_FRAC)) this.enqueueHydrate(node.id);
   }
 
-  // Reconciles residency across the visible window: hydrate live groups inside the
-  // hydrate ring, free residents that left the keep ring or stopped being live.
+  // Reconciles residency across the visible window: hydrate groups inside the
+  // hydrate ring, free residents that left the wider keep ring (hysteresis).
   // Runs on every camera change, so panning pages textures in and out.
   private updateResidency(): void {
     const hydrateRing = this.viewportRing(HYDRATE_MARGIN_FRAC);
     if (!hydrateRing) return;
     for (const gid of this.groupGrid.queryRect(hydrateRing)) {
       const node = this.groups.get(gid);
-      if (node) this.reconcileGroupResidency(node);
+      if (node) this.enqueueHydrate(node.id);
     }
     const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
     const keep = keepRing ? this.groupGrid.queryRect(keepRing) : new Set<number>();
     for (const gid of [...this.resident, ...this.hydrateQueued]) {
+      if (keep.has(gid)) continue;
       const node = this.groups.get(gid);
       if (!node) {
         this.resident.delete(gid);
         this.hydrateQueued.delete(gid);
         continue;
       }
-      if (keep.has(gid) && this.isGroupLive(node)) continue;
       this.dehydrateGroup(node);
     }
   }
 
-  // Resolves build()'s promise once the first viewport is visually covered: with
-  // the LOD active that means every needed tile is baked, otherwise every live
-  // group in the hydrate ring is built. Progress is reported in coverage units
-  // (tiles or groups), monotonic even though covered pieces are freed as tiles
-  // bake. The per-frame driver (tickLodFrame) checks completion.
+  // Resolves build()'s promise once every group in the hydrate ring is hydrated,
+  // i.e. the first viewport's pieces are on screen (the LOD bakes its tiles from
+  // them within the next frames). Hydration-based, not tile-based, so a spectator
+  // snapshot dirtying every tile cannot reset the loading progress. The per-frame
+  // driver (tickLodFrame) checks completion.
   private awaitInitialCoverage(progress?: (loaded: number, total: number) => void): Promise<void> {
     return new Promise((resolve) => {
       this.initialFill = { resolve, progress };
@@ -1505,19 +1493,13 @@ export class PuzzleStage {
   }
 
   private initialCoverage(): { loaded: number; total: number; done: boolean } {
-    if (this.lodActive && this.lodLayer && this.viewport) {
-      const needed = this.lodLayer.neededTiles(this.viewport);
-      let ready = 0;
-      for (const key of needed) if (this.lodLayer.isReady(key)) ready++;
-      return { loaded: ready, total: needed.length, done: ready >= needed.length };
-    }
     const ring = this.viewportRing(HYDRATE_MARGIN_FRAC);
     if (!ring) return { loaded: 0, total: 0, done: false };
     let total = 0;
     let loaded = 0;
     for (const gid of this.groupGrid.queryRect(ring)) {
       const node = this.groups.get(gid);
-      if (!node || !this.isGroupLive(node)) continue;
+      if (!node) continue;
       total++;
       if (node.hydrated) loaded++;
     }
@@ -1607,15 +1589,8 @@ export class PuzzleStage {
   private applyGroupLodVisibility(node: GroupNode): void {
     const live = this.heldGroupIds.has(node.id) || !this.allCellsReady(node.id);
     node.container.visible = live;
-    if (live) {
-      this.lodHidden.delete(node.id);
-      // Still drawn live (tiles not yet covering it): keep it loaded if near.
-      if (this.groupInRing(node, HYDRATE_MARGIN_FRAC)) this.enqueueHydrate(node.id);
-    } else {
-      this.lodHidden.add(node.id);
-      // Fully covered by ready tiles: the tiles draw it, so free its textures.
-      this.dehydrateGroup(node);
-    }
+    if (live) this.lodHidden.delete(node.id);
+    else this.lodHidden.add(node.id);
   }
 
   private allCellsReady(gid: number): boolean {
