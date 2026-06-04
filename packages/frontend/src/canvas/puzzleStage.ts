@@ -10,8 +10,9 @@ import {
 } from "pixi.js";
 import {
   GRID_WORLD_CELL,
-  generatePuzzle,
+  generatePieceGeometry,
   piecePath,
+  seedFromString,
   type GroupRuntime,
   type ImageManifest,
   type PieceGeometry,
@@ -141,6 +142,12 @@ const LOD_BAKE_PER_FRAME = 2;
 const HYDRATE_MARGIN_FRAC = 0.3;
 const DEHYDRATE_MARGIN_FRAC = 0.9;
 const HYDRATE_MAX_INFLIGHT = 128;
+
+// Post-download construction (the map/group/index passes in build()) runs in
+// bursts of at most this many milliseconds, yielding to the event loop between
+// bursts, so building up to 1M group nodes never freezes the main thread and the
+// loading cover can paint determinate "build" progress.
+const BUILD_CHUNK_BUDGET_MS = 8;
 const SNAP_BUMP_SCALE = 1.08;
 const SNAP_BUMP_MS = 240;
 const SNAP_FLASH_ALPHA = 0.55;
@@ -243,7 +250,7 @@ export class PuzzleStage {
     this.tickLodFrame();
   };
 
-  // Texture streaming state. The manifest, geometry map and per-piece texture
+  // Texture streaming state. The manifest, geometry cache and per-piece texture
   // URLs are kept so a group can be hydrated (textures fetched, nodes built) and
   // dehydrated (nodes destroyed, textures unloaded) at any time after build().
   // resident is every group hydrated or in flight; hydrateQueue/hydrateQueued is
@@ -252,8 +259,18 @@ export class PuzzleStage {
   // viewport is covered (tiles ready or window pieces built), keeping the loading
   // cover up over the progressive fill instead of an eager whole-board fetch.
   private manifest: ImageManifest | null = null;
+  // Lazy per-piece geometry. genBase is seedFromString(manifest.seed); full edge
+  // geometry is generated on demand (geomFor) only for pieces actually hydrated
+  // (~the visible window), and cached here. Index bounds and the minimap need
+  // only the canonical offset, which canonicalOffsetFor derives arithmetically
+  // from the id without generating any edges, so neither touches this cache.
+  private genBase = 0;
   private geomById = new Map<number, PieceGeometry>();
   private textureBase = "";
+  // Incremented at the start of build(), and in clearWorld()/destroy(). Each
+  // build()'s chunked passes capture it and bail when it changes, so a teardown
+  // or rebuild mid-construction stops the in-flight passes.
+  private buildToken = 0;
   private fileById = new Map<number, string>();
   private resident = new Set<number>();
   private hydrateQueue: number[] = [];
@@ -336,75 +353,122 @@ export class PuzzleStage {
     initialPieces: PieceRuntime[],
     initialGroups: GroupRuntime[],
     playZone: PlayZone,
-    onTextureProgress?: (loaded: number, total: number) => void,
+    onProgress?: (p: { phase: "build" | "textures"; loaded: number; total: number }) => void,
   ): Promise<void> {
     if (!this.app || !this.world) throw new Error("stage not mounted");
-    const geom = generatePuzzle({
-      seed: manifest.seed,
-      rows: manifest.rows,
-      cols: manifest.cols,
-      pieceSize: manifest.pieceSize,
-    });
+    const world = this.world;
+    const token = ++this.buildToken;
+
     this.manifest = manifest;
-    this.geomById = new Map<number, PieceGeometry>(geom.pieces.map((p) => [p.id, p]));
+    this.genBase = seedFromString(manifest.seed);
+    this.geomById = new Map<number, PieceGeometry>();
     this.textureBase = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
-    this.fileById = new Map<number, string>(manifest.pieces.map((p) => [p.id, p.file]));
 
     this.worldSize = {
-      w: geom.cols * geom.pieceSize,
-      h: geom.rows * geom.pieceSize,
+      w: manifest.cols * manifest.pieceSize,
+      h: manifest.rows * manifest.pieceSize,
     };
+
+    // The construction passes mutate the world subtree in many bursts. Keep it
+    // non-renderable across them so Pixi does not re-sort a sortableChildren
+    // world on every yield mid-build; renderable is restored before fitView.
+    world.renderable = false;
 
     const frame = new Graphics();
     frame.rect(0, 0, this.worldSize.w, this.worldSize.h).stroke({ color: 0x1a1a1a, width: 4 });
     frame.zIndex = Z_FRAME;
-    this.world.addChild(frame);
+    world.addChild(frame);
     this.frame = frame;
-
-    // Group membership, built from the piece->group mapping. Textures and piece
-    // nodes are not fetched here: a group is created dehydrated (empty
-    // container), with its localBounds and spatial-index cell set derived from
-    // geometry alone, so the index is fully populated for the on-demand stream
-    // without an O(board) texture fetch.
-    const idsByGroup = new Map<number, number[]>();
-    for (const piece of initialPieces) {
-      this.pieceToGroup.set(piece.id, piece.groupId);
-      let ids = idsByGroup.get(piece.groupId);
-      if (!ids) {
-        ids = [];
-        idsByGroup.set(piece.groupId, ids);
-      }
-      ids.push(piece.id);
-    }
 
     this.groupGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
-    for (const group of initialGroups) {
-      const gc = new Container();
-      gc.x = group.worldX;
-      gc.y = group.worldY;
-      gc.zIndex = group.locked ? Z_LOCKED : Z_UNLOCKED;
-      const pieceIds = idsByGroup.get(group.id) ?? [];
-      const node: GroupNode = {
-        id: group.id,
-        container: gc,
-        pieceIds,
-        pieces: [],
-        hydrated: false,
-        hydrating: false,
-        locked: group.locked,
-        worldX: group.worldX,
-        worldY: group.worldY,
-        localBounds: this.boundsForIds(pieceIds),
-      };
-      this.world.addChild(gc);
-      this.groups.set(group.id, node);
-      this.groupGrid.upsert(node.id, this.worldAabb(node));
-      this.applyGroupInteractivity(node);
-    }
+
+    // Cumulative "build" progress across the three passes over a combined total,
+    // so the loading cover walks a single determinate bar from 0 to 100 before
+    // the texture phase takes over.
+    const buildTotal = manifest.pieces.length + initialPieces.length + initialGroups.length;
+    let buildBase = 0;
+    const reportBuild = (done: number) =>
+      onProgress?.({ phase: "build", loaded: buildBase + done, total: buildTotal });
+
+    // Pass A: piece id -> texture file path.
+    this.fileById = new Map<number, string>();
+    if (
+      !(await this.chunkedPass(
+        token,
+        manifest.pieces.length,
+        (i) => {
+          const p = manifest.pieces[i]!;
+          this.fileById.set(p.id, p.file);
+        },
+        reportBuild,
+      ))
+    )
+      return;
+    buildBase += manifest.pieces.length;
+
+    // Pass B: piece -> group mapping and group -> piece-ids membership.
+    const idsByGroup = new Map<number, number[]>();
+    if (
+      !(await this.chunkedPass(
+        token,
+        initialPieces.length,
+        (i) => {
+          const piece = initialPieces[i]!;
+          this.pieceToGroup.set(piece.id, piece.groupId);
+          let ids = idsByGroup.get(piece.groupId);
+          if (!ids) {
+            ids = [];
+            idsByGroup.set(piece.groupId, ids);
+          }
+          ids.push(piece.id);
+        },
+        reportBuild,
+      ))
+    )
+      return;
+    buildBase += initialPieces.length;
+
+    // Pass C: one dehydrated container per group (empty container, no textures
+    // fetched) plus its spatial-index entry. localBounds and the index cell set
+    // are derived from geometry alone (canonical offsets), so the index is fully
+    // populated for the on-demand stream without an O(board) texture fetch.
+    if (
+      !(await this.chunkedPass(
+        token,
+        initialGroups.length,
+        (i) => {
+          const group = initialGroups[i]!;
+          const gc = new Container();
+          gc.x = group.worldX;
+          gc.y = group.worldY;
+          gc.zIndex = group.locked ? Z_LOCKED : Z_UNLOCKED;
+          const pieceIds = idsByGroup.get(group.id) ?? [];
+          const node: GroupNode = {
+            id: group.id,
+            container: gc,
+            pieceIds,
+            pieces: [],
+            hydrated: false,
+            hydrating: false,
+            locked: group.locked,
+            worldX: group.worldX,
+            worldY: group.worldY,
+            localBounds: this.boundsForIds(pieceIds),
+          };
+          world.addChild(gc);
+          this.groups.set(group.id, node);
+          this.groupGrid.upsert(node.id, this.worldAabb(node));
+          this.applyGroupInteractivity(node);
+        },
+        reportBuild,
+      ))
+    )
+      return;
 
     this.playZone = playZone;
+    world.renderable = true;
     this.createBackdrop();
     this.createLodLayer();
     this.fitView();
@@ -412,7 +476,61 @@ export class PuzzleStage {
     // Stream the first viewport in (and bake its tiles when zoomed out) before
     // resolving, so the loading cover stays up until the board is actually on
     // screen rather than over an eager whole-board fetch.
-    await this.awaitInitialCoverage(onTextureProgress);
+    await this.awaitInitialCoverage((loaded, total) =>
+      onProgress?.({ phase: "textures", loaded, total }),
+    );
+  }
+
+  // Runs step(0..count-1) in bursts capped at BUILD_CHUNK_BUDGET_MS, yielding to
+  // the event loop between bursts and reporting cumulative progress, so a large
+  // pass never blocks the main thread. Returns false (and stops) if buildToken
+  // changed since the pass started, i.e. a teardown or rebuild superseded it.
+  private async chunkedPass(
+    token: number,
+    count: number,
+    step: (i: number) => void,
+    report: (done: number) => void,
+  ): Promise<boolean> {
+    let i = 0;
+    while (i < count) {
+      const start = performance.now();
+      while (i < count && performance.now() - start < BUILD_CHUNK_BUDGET_MS) {
+        step(i);
+        i++;
+      }
+      report(i);
+      if (i < count) {
+        await yieldToEventLoop();
+        if (this.buildToken !== token) return false;
+      }
+    }
+    return true;
+  }
+
+  // Full edge geometry for one piece, generated on demand and cached. Used only
+  // by hydration (buildPieceNode), so the cache holds at most the pieces ever
+  // hydrated, never the whole board.
+  private geomFor(id: number): PieceGeometry {
+    let g = this.geomById.get(id);
+    if (!g && this.manifest) {
+      g = generatePieceGeometry(
+        this.genBase,
+        this.manifest.rows,
+        this.manifest.cols,
+        this.manifest.pieceSize,
+        id,
+      );
+      this.geomById.set(id, g);
+    }
+    return g!;
+  }
+
+  // Canonical (solved) offset of a piece, derived arithmetically from the id
+  // without generating any edges. Drives the index bounds and the minimap, so
+  // neither triggers edge generation.
+  private canonicalOffsetFor(id: number): { x: number; y: number } {
+    const m = this.manifest!;
+    return { x: (id % m.cols) * m.pieceSize, y: Math.floor(id / m.cols) * m.pieceSize };
   }
 
   // Local AABB of a set of pieces from geometry alone (canonical offset plus one
@@ -421,16 +539,8 @@ export class PuzzleStage {
     if (!this.manifest) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
     const boxes: Aabb[] = [];
     for (const id of ids) {
-      const g = this.geomById.get(id);
-      if (!g) continue;
-      boxes.push(
-        pieceLocalBounds(
-          g.canonicalOffset.x,
-          g.canonicalOffset.y,
-          this.manifest.pieceSize,
-          this.manifest.margin,
-        ),
-      );
+      const off = this.canonicalOffsetFor(id);
+      boxes.push(pieceLocalBounds(off.x, off.y, this.manifest.pieceSize, this.manifest.margin));
     }
     return unionBounds(boxes);
   }
@@ -502,6 +612,7 @@ export class PuzzleStage {
   }
 
   destroy(): void {
+    this.buildToken++;
     this.stopConfetti();
     this.tweener?.destroy();
     this.tweener = null;
@@ -524,6 +635,7 @@ export class PuzzleStage {
     this.lodHidden.clear();
     this.heldGroupIds.clear();
     this.geomById = new Map();
+    this.genBase = 0;
     this.fileById = new Map();
     this.manifest = null;
     this.textureBase = "";
@@ -560,6 +672,7 @@ export class PuzzleStage {
   // Wipe all piece/group state without tearing down the Pixi app, so a fresh
   // build() can run on the same stage (server-driven reset).
   clearWorld(): void {
+    this.buildToken++;
     this.stopConfetti();
     this.releaseAllTextures();
     this.resetStreaming();
@@ -588,6 +701,7 @@ export class PuzzleStage {
     this.pendingDrag = null;
     this.peerCursors?.clearHeld();
     this.geomById = new Map();
+    this.genBase = 0;
     this.fileById = new Map();
     this.manifest = null;
     this.textureBase = "";
@@ -1154,11 +1268,10 @@ export class PuzzleStage {
     const pieces: MinimapPiece[] = [];
     for (const group of this.groups.values()) {
       for (const id of group.pieceIds) {
-        const g = this.geomById.get(id);
-        if (!g) continue;
+        const off = this.canonicalOffsetFor(id);
         pieces.push({
-          x: group.worldX + g.canonicalOffset.x + half,
-          y: group.worldY + g.canonicalOffset.y + half,
+          x: group.worldX + off.x + half,
+          y: group.worldY + off.y + half,
           locked: group.locked,
         });
       }
@@ -1407,8 +1520,8 @@ export class PuzzleStage {
           void Assets.unload(url);
           return;
         }
-        const geometry = this.geomById.get(pieceId);
-        if (!geometry || !this.manifest) return;
+        if (!this.manifest) return;
+        const geometry = this.geomFor(pieceId);
         const built = buildPieceNode(geometry, texture, this.manifest);
         node.container.addChild(built.container);
         node.pieces.push(built);
@@ -1829,6 +1942,13 @@ function buildPieceNode(
       manifest.margin,
     ),
   };
+}
+
+// Yields to the macrotask queue so the browser can paint the loading cover and
+// handle input between construction bursts. A macrotask (setTimeout), not a
+// microtask, so the frame actually renders between chunks.
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function joinUrl(base: string, rel: string): string {

@@ -41,6 +41,41 @@ function curvedEdge(edgeSeed: number, flipped: boolean): Edge {
   };
 }
 
+// Geometry of a single piece, derived from the puzzle's base seed and the grid
+// dimensions. `base` is `seedFromString(seed)`, hoisted out so a caller building
+// pieces one at a time hashes the seed once. Output is independent of the order
+// pieces are generated in: each shared edge keys its own subseed by grid
+// position, so neighbors agree regardless of when either is built.
+export function generatePieceGeometry(
+  base: number,
+  rows: number,
+  cols: number,
+  pieceSize: number,
+  id: number,
+): PieceGeometry {
+  const row = Math.floor(id / cols);
+  const col = id % cols;
+  const top: Edge =
+    row === 0 ? { type: "flat" } : curvedEdge(subseed(base, HORIZONTAL_DOMAIN, row - 1, col), true);
+  const bottom: Edge =
+    row === rows - 1
+      ? { type: "flat" }
+      : curvedEdge(subseed(base, HORIZONTAL_DOMAIN, row, col), false);
+  const left: Edge =
+    col === 0 ? { type: "flat" } : curvedEdge(subseed(base, VERTICAL_DOMAIN, row, col - 1), true);
+  const right: Edge =
+    col === cols - 1
+      ? { type: "flat" }
+      : curvedEdge(subseed(base, VERTICAL_DOMAIN, row, col), false);
+  return {
+    id,
+    row,
+    col,
+    canonicalOffset: { x: col * pieceSize, y: row * pieceSize },
+    edges: { top, right, bottom, left },
+  };
+}
+
 export function generatePuzzle(options: GenerateOptions): PuzzleGeometry {
   const { seed, rows, cols } = options;
   if (rows < 1 || cols < 1) {
@@ -50,30 +85,10 @@ export function generatePuzzle(options: GenerateOptions): PuzzleGeometry {
   const snapTolerance = options.snapTolerance ?? 0.2 * pieceSize;
   const base = seedFromString(seed);
 
-  const horizontalEdgeSeed = (rowAbove: number, col: number) =>
-    subseed(base, HORIZONTAL_DOMAIN, rowAbove, col);
-  const verticalEdgeSeed = (row: number, colLeft: number) =>
-    subseed(base, VERTICAL_DOMAIN, row, colLeft);
-
   const pieces: PieceGeometry[] = [];
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      const id = row * cols + col;
-      const top: Edge =
-        row === 0 ? { type: "flat" } : curvedEdge(horizontalEdgeSeed(row - 1, col), true);
-      const bottom: Edge =
-        row === rows - 1 ? { type: "flat" } : curvedEdge(horizontalEdgeSeed(row, col), false);
-      const left: Edge =
-        col === 0 ? { type: "flat" } : curvedEdge(verticalEdgeSeed(row, col - 1), true);
-      const right: Edge =
-        col === cols - 1 ? { type: "flat" } : curvedEdge(verticalEdgeSeed(row, col), false);
-      pieces.push({
-        id,
-        row,
-        col,
-        canonicalOffset: { x: col * pieceSize, y: row * pieceSize },
-        edges: { top, right, bottom, left },
-      });
+      pieces.push(generatePieceGeometry(base, rows, cols, pieceSize, row * cols + col));
     }
   }
   return { rows, cols, pieceSize, snapTolerance, pieces };

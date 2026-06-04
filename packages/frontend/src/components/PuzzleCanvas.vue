@@ -38,15 +38,17 @@ const completed = ref(false);
 const modalVisible = ref(true);
 // True while a build() is rebuilding the board for a new epoch. Keeps the
 // loading cover up across the syncing -> ready transition and through the async
-// texture load, so the previous board is hidden until the new one is rendered.
+// construction and texture load, so the previous board is hidden until the new
+// one is rendered.
 const building = ref(false);
-// Streaming coverage of the in-flight build, driving the determinate progress
-// bar of the "textures" phase. The board no longer eagerly loads every piece, so
-// these track the first viewport's coverage (loaded/total in coverage units the
-// stage reports: baked tiles when zoomed out, hydrated groups otherwise), not the
-// whole 1M piece set. Both reset at the start of each build.
-const textureLoaded = ref(0);
-const textureTotal = ref(0);
+// Determinate progress of the in-flight build, driving the progress bar. The
+// stage reports two phases: "build" (the chunked map/group/index construction,
+// counted over pieces + groups) then "textures" (the first viewport's streaming
+// coverage in groups). buildPhaseKind tracks which is current; the counters and
+// the kind reset at the start of each build.
+const buildPhaseKind = ref<"build" | "textures">("build");
+const progressLoaded = ref(0);
+const progressTotal = ref(0);
 
 function triggerCompletion(playSpectacle: boolean): void {
   if (completed.value || !stage) return;
@@ -55,15 +57,17 @@ function triggerCompletion(playSpectacle: boolean): void {
   stage.startConfetti();
 }
 
-// The four staged-load phases shown to the player. Session states collapse onto
+// The staged-load phases shown to the player. Session states collapse onto
 // these: connect (idle/connecting), manifest (loading-manifest/syncing, i.e.
-// fetching the manifest and the initial piece state), textures (the async
-// texture load inside build()), ready (board on screen).
-type LoadPhase = "connect" | "manifest" | "textures" | "ready";
+// fetching the manifest and the initial piece state), build (the chunked board
+// construction inside build()), textures (the async texture stream inside
+// build()), ready (board on screen).
+type LoadPhase = "connect" | "manifest" | "build" | "textures" | "ready";
 
 const LOAD_PHASES: { key: LoadPhase; label: string }[] = [
   { key: "connect", label: "Connect" },
   { key: "manifest", label: "Manifest" },
+  { key: "build", label: "Build" },
   { key: "textures", label: "Textures" },
   { key: "ready", label: "Ready" },
 ];
@@ -71,20 +75,23 @@ const LOAD_PHASES: { key: LoadPhase; label: string }[] = [
 const PHASE_HEADINGS: Record<LoadPhase, string> = {
   connect: "Connecting to server",
   manifest: "Loading puzzle data",
+  build: "Building the board",
   textures: "Loading textures",
   ready: "Ready",
 };
 
 const loadPhase = computed<LoadPhase>(() => {
   const k = state.value.kind;
-  if (k === "ready") return building.value ? "textures" : "ready";
+  if (k === "ready") return building.value ? buildPhaseKind.value : "ready";
   if (k === "loading-manifest" || k === "syncing") return "manifest";
   return "connect";
 });
 
 const phaseIndex = computed(() => LOAD_PHASES.findIndex((p) => p.key === loadPhase.value));
 const phaseHeading = computed(() => PHASE_HEADINGS[loadPhase.value]);
-const isTexturePhase = computed(() => loadPhase.value === "textures");
+const isProgressPhase = computed(
+  () => loadPhase.value === "build" || loadPhase.value === "textures",
+);
 
 const errorMessage = computed(() => (state.value.kind === "error" ? state.value.message : null));
 
@@ -100,8 +107,8 @@ const totalPieces = computed(() =>
     : 0,
 );
 
-const textureProgress = computed(() =>
-  textureTotal.value > 0 ? Math.round((textureLoaded.value / textureTotal.value) * 100) : 0,
+const loadProgress = computed(() =>
+  progressTotal.value > 0 ? Math.round((progressLoaded.value / progressTotal.value) * 100) : 0,
 );
 
 const leaderboardRows = computed(() => toLeaderboardRows(leaderboard.value, userId.value));
@@ -261,11 +268,13 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   }
   builtEpoch = s.epoch;
   stage.setLocalUserId(userId.value);
-  textureLoaded.value = 0;
-  textureTotal.value = 0;
-  await stage.build(s.manifest, s.pieces, s.groups, s.welcome.playZone, (loaded, total) => {
-    textureLoaded.value = loaded;
-    textureTotal.value = total;
+  buildPhaseKind.value = "build";
+  progressLoaded.value = 0;
+  progressTotal.value = 0;
+  await stage.build(s.manifest, s.pieces, s.groups, s.welcome.playZone, (p) => {
+    buildPhaseKind.value = p.phase;
+    progressLoaded.value = p.loaded;
+    progressTotal.value = p.total;
   });
   stage.setMode(mode.value);
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
@@ -340,16 +349,16 @@ onBeforeUnmount(() => {
         </ol>
         <div
           class="progress"
-          :class="{ indeterminate: !isTexturePhase }"
+          :class="{ indeterminate: !isProgressPhase }"
           role="progressbar"
           aria-valuemin="0"
           aria-valuemax="100"
-          :aria-valuenow="isTexturePhase ? textureProgress : undefined"
+          :aria-valuenow="isProgressPhase ? loadProgress : undefined"
         >
-          <div class="bar" :style="isTexturePhase ? { width: textureProgress + '%' } : undefined" />
+          <div class="bar" :style="isProgressPhase ? { width: loadProgress + '%' } : undefined" />
         </div>
-        <p v-if="isTexturePhase" class="detail">
-          {{ textureLoaded.toLocaleString() }} / {{ textureTotal.toLocaleString() }} loaded
+        <p v-if="isProgressPhase" class="detail">
+          {{ progressLoaded.toLocaleString() }} / {{ progressTotal.toLocaleString() }}
         </p>
       </template>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
