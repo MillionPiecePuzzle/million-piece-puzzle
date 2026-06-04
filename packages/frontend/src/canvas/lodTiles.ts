@@ -144,10 +144,6 @@ export class LodTileLayer {
     }
   }
 
-  markAllDirty(): void {
-    for (const tile of this.tiles.values()) this.markTileDirty(tile);
-  }
-
   // World rectangle of one tile cell, for the stage to query the cell's groups.
   cellRect(key: CellKey): Aabb {
     const { cx, cy } = unpackCell(key);

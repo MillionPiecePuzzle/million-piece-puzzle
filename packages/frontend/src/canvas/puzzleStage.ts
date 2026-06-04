@@ -24,7 +24,7 @@ import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
-import { GroupGrid, LOD_TILE_WORLD, type CellKey } from "./groupGrid";
+import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
 
 export type Mode = "spectator" | "contributor";
@@ -116,6 +116,19 @@ const LOD_ENTER_ZOOM = 0.3;
 const LOD_EXIT_ZOOM = 0.35;
 const LOD_WARM_ZOOM = 0.5;
 const LOD_BAKE_PER_FRAME = 2;
+
+// A tile cell is "hot" for this long after its last real change (a drop, snap,
+// rollback, grab, or a snapshot diff). When the LOD covers the board, a non-held
+// cluster all of whose tiles have gone cold renders entirely from its baked
+// tiles, so its full-res per-piece textures are freed: resident VRAM at a deep
+// zoom-out converges on the hot working set plus the bake-in-progress and held
+// clusters, not the whole window. Several snapshot cycles (2s each), so a region
+// worked continuously stays hydrated and never blanks; the first change to a
+// long-cold region re-hydrates its tile and may flash once before settling. The
+// cold-residents sweep runs every Nth frame: it scans the resident set it
+// shrinks, so it self-limits and need not run every frame.
+const LOD_HOT_TTL_MS = 9000;
+const LOD_COLD_SWEEP_FRAMES = 6;
 
 // Viewport-driven texture streaming. Per-piece AVIF textures and their nodes are
 // built on demand for groups within the hydrate ring around the viewport and
@@ -241,6 +254,12 @@ export class PuzzleStage {
   private lodActive = false;
   private lodWarm = false;
   private heldGroupIds = new Set<number>();
+  // Per-cell last-change timestamp (performance.now), updated wherever a tile is
+  // dirtied (markTilesDirty, the single chokepoint for drop/snap/rollback/grab
+  // and the snapshot diff). Drives cell/group hotness for the cold-residents
+  // sweep; bounded by the board's cell count and pruned of stale entries.
+  private cellDirtyMs = new Map<CellKey, number>();
+  private coldSweepFrame = 0;
   private readonly tickLod = (): void => {
     this.tickLodFrame();
   };
@@ -392,6 +411,8 @@ export class PuzzleStage {
     this.groupGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
+    this.cellDirtyMs.clear();
+    this.coldSweepFrame = 0;
 
     // Cumulative "build" progress across the three passes over a combined total,
     // so the loading cover walks a single determinate bar from 0 to 100 before
@@ -636,6 +657,8 @@ export class PuzzleStage {
     this.lastVisible.clear();
     this.lodHidden.clear();
     this.heldGroupIds.clear();
+    this.cellDirtyMs.clear();
+    this.coldSweepFrame = 0;
     this.geomById = new Map();
     this.genBase = 0;
     this.fileById = new Map();
@@ -694,6 +717,8 @@ export class PuzzleStage {
     this.lodActive = false;
     this.lodWarm = false;
     this.heldGroupIds.clear();
+    this.cellDirtyMs.clear();
+    this.coldSweepFrame = 0;
     this.groupGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
@@ -738,8 +763,8 @@ export class PuzzleStage {
     // re-bakes and re-fetches nothing. changed collects those clusters; their
     // pre-change world AABB is captured on first touch (before any update), so
     // both the rect a cluster leaves and the one it lands in are dirtied once the
-    // updates apply. markAllDirty would instead un-bake the whole resident set
-    // every poll, which is what keeps a deep zoom-out window fully hydrated.
+    // updates apply. Dirtying the whole resident set every poll instead would
+    // keep a deep zoom-out window fully hydrated, defeating cold-cluster freeing.
     const changed = new Set<number>();
     const oldRects: Aabb[] = [];
     const markChanged = (node: GroupNode): void => {
@@ -946,7 +971,7 @@ export class PuzzleStage {
     host.locked = host.locked || anchored;
     this.setGroupHeldVisual(host, false);
     this.markTilesDirty(this.worldAabb(host));
-    this.reconcileGroupResidency(host);
+    this.reconcileGroupResidency(host, performance.now());
 
     for (const gid of sourceGroupIds) {
       const dead = this.groups.get(gid);
@@ -1601,25 +1626,62 @@ export class PuzzleStage {
     node.hydrated = false;
   }
 
-  // Queues a group's textures if it sits inside the hydrate ring. Residency is
-  // purely a function of the viewport window, not of LOD tile coverage: a window
-  // piece stays resident even while hidden behind a baked tile, so a re-bake
-  // (e.g. a spectator snapshot dirtying every tile) draws from still-resident
-  // pieces instead of blanking and re-fetching them. Bounding resident VRAM at a
-  // deep zoom-out window is left to the Phase 2 "smooth at 1M" work.
-  private reconcileGroupResidency(node: GroupNode): void {
-    if (this.groupInRing(node, HYDRATE_MARGIN_FRAC)) this.enqueueHydrate(node.id);
+  private isCellHot(key: CellKey, now: number): boolean {
+    const t = this.cellDirtyMs.get(key);
+    return t !== undefined && now - t < LOD_HOT_TTL_MS;
+  }
+
+  // A group is hot if any tile it occupies is hot. Every cluster touching a hot
+  // cell must stay resident: that cell's tile will re-bake, and a bake needs all
+  // the cell's non-held clusters hydrated, so per-cell (not per-group) hotness is
+  // what keeps the bake inputs available.
+  private isGroupHot(gid: number, now: number): boolean {
+    for (const key of this.groupGrid.cellsOf(gid)) {
+      if (this.isCellHot(key, now)) return true;
+    }
+    return false;
+  }
+
+  // A covered, idle cluster: the LOD is active, it is not held, every tile it
+  // occupies is baked (the tiles draw it), and none of those tiles changed within
+  // the hot window. Such a cluster adds nothing on screen, so its full-res
+  // textures are freed; the first later change to one of its tiles marks the cell
+  // hot, which re-hydrates it and re-bakes the tile from live pieces. Suppressed
+  // until the initial fill resolves: that gate counts hydrated groups, and at a
+  // cold start every cell is cold (no change yet), so freeing covered clusters
+  // mid-fill would stall the loading cover. Once resolved, the idle window frees.
+  private isCoveredCold(node: GroupNode, now: number): boolean {
+    return (
+      this.initialFill === null &&
+      this.lodActive &&
+      !this.heldGroupIds.has(node.id) &&
+      this.allCellsReady(node.id) &&
+      !this.isGroupHot(node.id, now)
+    );
+  }
+
+  // Hydrates a group inside the hydrate ring, except when it is covered and cold
+  // (drawn by baked tiles, no recent change): that group is freed instead, to
+  // bound resident VRAM at a deep zoom-out. With the LOD inactive (zoomed in)
+  // nothing is covered, so this hydrates the whole window as before and the
+  // pieces render live.
+  private reconcileGroupResidency(node: GroupNode, now: number): void {
+    if (!this.groupInRing(node, HYDRATE_MARGIN_FRAC)) return;
+    if (this.isCoveredCold(node, now)) this.dehydrateGroup(node);
+    else this.enqueueHydrate(node.id);
   }
 
   // Reconciles residency across the visible window: hydrate groups inside the
-  // hydrate ring, free residents that left the wider keep ring (hysteresis).
-  // Runs on every camera change, so panning pages textures in and out.
+  // hydrate ring (except covered-cold ones, which are freed), then free residents
+  // that left the wider keep ring (hysteresis). Runs on every camera change, so
+  // panning pages textures in and out and a deep zoom-out sheds its idle window.
   private updateResidency(): void {
     const hydrateRing = this.viewportRing(HYDRATE_MARGIN_FRAC);
     if (!hydrateRing) return;
+    const now = performance.now();
     for (const gid of this.groupGrid.queryRect(hydrateRing)) {
       const node = this.groups.get(gid);
-      if (node) this.enqueueHydrate(node.id);
+      if (node) this.reconcileGroupResidency(node, now);
     }
     const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
     const keep = keepRing ? this.groupGrid.queryRect(keepRing) : new Set<number>();
@@ -1783,6 +1845,8 @@ export class PuzzleStage {
   private markTilesDirty(box: Aabb): void {
     if (!this.lodLayer) return;
     this.lodLayer.markDirtyRect(box);
+    const now = performance.now();
+    for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) this.cellDirtyMs.set(key, now);
     if (!this.lodActive) return;
     for (const gid of this.groupGrid.queryRect(box)) {
       const node = this.groups.get(gid);
@@ -1820,7 +1884,28 @@ export class PuzzleStage {
       }
       this.lodLayer.cull(this.viewport);
     }
+    this.sweepColdResidents();
     this.tickInitialFill();
+  }
+
+  // Frees the per-piece textures of resident clusters now covered by cold baked
+  // tiles, so resident VRAM at a deep zoom-out converges on the hot working set
+  // (recently changed cells) plus the bake-in-progress and held clusters rather
+  // than the whole window. Throttled to one pass every LOD_COLD_SWEEP_FRAMES; the
+  // scan is bounded by the resident set it shrinks. Also prunes hotness entries
+  // past the hot window so the cell map stays the size of the hot set.
+  private sweepColdResidents(): void {
+    if (!this.lodActive) return;
+    if (++this.coldSweepFrame < LOD_COLD_SWEEP_FRAMES) return;
+    this.coldSweepFrame = 0;
+    const now = performance.now();
+    for (const gid of [...this.resident]) {
+      const node = this.groups.get(gid);
+      if (node && this.isCoveredCold(node, now)) this.dehydrateGroup(node);
+    }
+    for (const [key, t] of this.cellDirtyMs) {
+      if (now - t >= LOD_HOT_TTL_MS) this.cellDirtyMs.delete(key);
+    }
   }
 
   // Renders one tile's clusters into its texture with the tile matrix as the root
