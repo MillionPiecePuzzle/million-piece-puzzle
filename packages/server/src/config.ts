@@ -18,6 +18,9 @@ export type ServerConfig = {
   wsMaxConnectionsPerIp: number;
   wsBufferedAmountLimitBytes: number;
   snapshotIntervalMs: number;
+  // Unix ms of the event start, carried in welcome and the snapshot so clients
+  // sync the entrance cascade. 0 (default) means no scheduled start.
+  eventStartsAt: number;
   // Auth.js host base (e.g. https://ws.millionpiecepuzzle.com). The Google
   // callback URL and session action URLs derive from it. The secrets
   // (AUTH_SECRET, AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET) stay in process.env and
@@ -111,6 +114,7 @@ export async function loadConfig(): Promise<ServerConfig> {
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
     snapshotIntervalMs: int("MPP_SNAPSHOT_INTERVAL_MS", 2000),
+    eventStartsAt: int("MPP_EVENT_STARTS_AT", 0),
     authUrl,
     authSecure: authUrl.startsWith("https:"),
     authCookieDomain: str("AUTH_COOKIE_DOMAIN", ""),

@@ -46,7 +46,7 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 
 ### `shared-protocol`
 - [ ] Protocol frozen at v1, breaking changes go through version bump
-- [ ] `eventStartsAt` (unix ms) included in `welcome` so clients can sync the cascade trigger
+- [x] `eventStartsAt` (unix ms) included in `welcome` so clients can sync the cascade trigger. Sourced from `MPP_EVENT_STARTS_AT` (default 0 = no scheduled start), and mirrored into the spectator `Snapshot` since its synthetic `welcome` derives from it
 
 ### `piece-generation`
 - [ ] Generation pipeline produces and validates 1 000 000 unique pieces

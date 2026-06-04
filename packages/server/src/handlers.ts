@@ -27,6 +27,7 @@ export type Context = {
   puzzleId: string;
   mongo: MongoLogger;
   devEnabled: boolean;
+  eventStartsAt: number;
   queue: GroupQueue;
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any

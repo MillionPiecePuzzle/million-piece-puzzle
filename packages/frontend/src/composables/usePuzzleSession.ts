@@ -300,6 +300,7 @@ async function fetchAndDispatch(): Promise<void> {
       puzzleId: snap.puzzleId,
       lockedCount: snap.lockedCount,
       playZone: snap.playZone,
+      eventStartsAt: snap.eventStartsAt,
     };
     await handleWelcome(synthetic);
     if (manifest) {

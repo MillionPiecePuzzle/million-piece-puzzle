@@ -43,6 +43,7 @@ function makeSource(overrides: Partial<FakeState> = {}): SnapshotSource {
     puzzleId: () => "puzzle-1",
     totalPieces: () => 2,
     playZone: () => zone,
+    eventStartsAt: () => 1717500000000,
     state: state as unknown as SnapshotSource["state"],
     leaderboard: async () => leaderboardEntries,
     activity: async () => activityItems,
@@ -83,6 +84,7 @@ describe("buildSnapshot", () => {
     expect(snap.pieces).toHaveLength(2);
     expect(snap.groups).toHaveLength(2);
     expect(snap.playZone).toEqual(zone);
+    expect(snap.eventStartsAt).toBe(1717500000000);
     expect(snap.leaderboard).toEqual(leaderboardEntries);
     expect(snap.activity).toEqual(activityItems);
     expect(snap.generatedAt).toBeGreaterThanOrEqual(before);

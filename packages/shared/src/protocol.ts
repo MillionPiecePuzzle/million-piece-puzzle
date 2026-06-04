@@ -104,6 +104,10 @@ export type SWelcome = {
   // for every client regardless of join time: camera limits, the held-piece
   // clamp, and the minimap extent all derive from it.
   playZone: PlayZone;
+  // Unix ms at which the event starts and the entrance cascade triggers, the
+  // same value for every client so they can fire it in sync. 0 means no
+  // scheduled start (already running): clients skip the wait and the cascade.
+  eventStartsAt: number;
 };
 
 export type SState = {
@@ -245,6 +249,9 @@ export type Snapshot = {
   lockedCount: number;
   totalPieces: number;
   playZone: PlayZone;
+  // Mirrors `welcome.eventStartsAt` so a spectator polling the snapshot can show
+  // the same countdown a contributor sees. 0 means no scheduled start.
+  eventStartsAt: number;
   pieces: PieceRuntime[];
   groups: GroupRuntime[];
   // Mirror the `leaderboard` and `activity` WS messages so spectators polling

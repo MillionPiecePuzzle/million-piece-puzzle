@@ -57,6 +57,7 @@ async function main(): Promise<void> {
     puzzleId: manifest.puzzleId,
     mongo,
     devEnabled: config.devEnabled,
+    eventStartsAt: config.eventStartsAt,
     queue,
   };
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
@@ -97,6 +98,7 @@ async function main(): Promise<void> {
     puzzleId: () => ctx.puzzleId,
     totalPieces: () => ctx.meta.totalPieces,
     playZone: () => lifecycle.currentPlayZone(),
+    eventStartsAt: () => ctx.eventStartsAt,
     leaderboard: () => mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT),
     activity: () => mongo.recentAnchoredMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
   });

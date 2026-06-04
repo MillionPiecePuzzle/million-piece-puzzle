@@ -39,6 +39,7 @@ export class PuzzleLifecycle {
       puzzleId: this.ctx.puzzleId,
       lockedCount,
       playZone: this.playZone,
+      eventStartsAt: this.ctx.eventStartsAt,
     });
     const [pieces, groups] = await Promise.all([
       this.ctx.state.readAllPieces(this.ctx.meta.totalPieces),

@@ -6,6 +6,7 @@ export type SnapshotSource = {
   puzzleId: () => string;
   totalPieces: () => number;
   playZone: () => PlayZone;
+  eventStartsAt: () => number;
   state: RedisState;
   leaderboard: () => Promise<LeaderboardEntry[]>;
   activity: () => Promise<ActivityItem[]>;
@@ -27,6 +28,7 @@ export async function buildSnapshot(source: SnapshotSource): Promise<Snapshot> {
     lockedCount,
     totalPieces,
     playZone: source.playZone(),
+    eventStartsAt: source.eventStartsAt(),
     pieces,
     groups,
     leaderboard,
