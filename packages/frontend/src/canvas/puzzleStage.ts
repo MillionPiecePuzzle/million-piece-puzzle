@@ -733,12 +733,29 @@ export class PuzzleStage {
     const targetByPiece = new Map<number, number>();
     for (const p of pieces) targetByPiece.set(p.id, p.groupId);
 
+    // Targeted dirtying: only clusters that actually change (membership,
+    // position, or locked) invalidate tiles, so a snapshot where nothing moved
+    // re-bakes and re-fetches nothing. changed collects those clusters; their
+    // pre-change world AABB is captured on first touch (before any update), so
+    // both the rect a cluster leaves and the one it lands in are dirtied once the
+    // updates apply. markAllDirty would instead un-bake the whole resident set
+    // every poll, which is what keeps a deep zoom-out window fully hydrated.
+    const changed = new Set<number>();
+    const oldRects: Aabb[] = [];
+    const markChanged = (node: GroupNode): void => {
+      if (changed.has(node.id)) return;
+      changed.add(node.id);
+      oldRects.push(this.worldAabb(node));
+    };
+
     for (const [pieceId, currentGid] of this.pieceToGroup) {
       const targetGid = targetByPiece.get(pieceId);
       if (targetGid === undefined || targetGid === currentGid) continue;
       const host = this.groups.get(targetGid);
       const from = this.groups.get(currentGid);
       if (!host || !from) continue;
+      markChanged(host);
+      markChanged(from);
       this.pieceToGroup.set(pieceId, targetGid);
       from.pieceIds = from.pieceIds.filter((id) => id !== pieceId);
       if (!host.pieceIds.includes(pieceId)) host.pieceIds.push(pieceId);
@@ -754,30 +771,37 @@ export class PuzzleStage {
 
     for (const [gid, node] of this.groups) {
       if (snapGroupIds.has(gid)) continue;
+      markChanged(node);
       this.forgetGroup(gid);
       node.container.destroy({ children: true });
       this.groups.delete(gid);
     }
 
-    // A whole-board snapshot can move any cluster, so every resident tile is
-    // stale; re-baking the bounded resident set is cheap. Mark them dirty before
-    // refreshing visibility so the covered groups fall back to live (no gap)
-    // until the bake queue catches up.
-    this.lodLayer?.markAllDirty();
-
     for (const g of groups) {
       const node = this.groups.get(g.id);
       if (!node) continue;
       if (this.held && this.held.groupId === g.id) continue;
+      const moved = node.worldX !== g.worldX || node.worldY !== g.worldY;
+      const becameLocked = !node.locked && g.locked;
+      if (moved || node.locked !== g.locked) markChanged(node);
       node.localBounds = this.boundsForIds(node.pieceIds);
       node.hydrated = node.pieces.length >= node.pieceIds.length;
-      const becameLocked = !node.locked && g.locked;
       node.locked = g.locked;
       this.moveGroup(node, g.worldX, g.worldY);
       if (becameLocked) {
         this.placeGroupInLayer(node, this.lockedLayer);
         this.applyGroupInteractivity(node);
       }
+    }
+
+    // Dirty the tiles each changed cluster left and the tiles it now occupies.
+    // markTilesDirty, while the LOD is active, also flips the covered clusters
+    // back to live so nothing blanks in the gap before the bake queue catches up.
+    // Unchanged clusters keep their ready tiles, so an idle poll re-bakes nothing.
+    for (const rect of oldRects) this.markTilesDirty(rect);
+    for (const gid of changed) {
+      const node = this.groups.get(gid);
+      if (node) this.markTilesDirty(this.worldAabb(node));
     }
 
     // A snapshot can move any cluster into or out of view; page textures in and
