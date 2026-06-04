@@ -102,19 +102,6 @@ const BACKDROP_ALPHA = 0.3;
 const BACKDROP_CHECKER_CELLS = 8;
 const BACKDROP_CHECKER_ALPHA = 0.14;
 
-// Group stacking order. Locked clusters form the solved base layer; loose
-// clusters always sit above them so they stay grabbable. Held clusters lift
-// further still. The backdrop and frame sit below every cluster.
-const Z_BACKDROP = -2;
-const Z_FRAME = -1;
-const Z_LOCKED = 0;
-const Z_UNLOCKED = 1;
-// The zoom-out LOD tiles sit above the resting clusters they replace and the
-// frame, but below held clusters so a piece in hand keeps rendering live on top.
-const Z_LOD = 5;
-const Z_REMOTE_HELD = 10;
-const Z_LOCAL_HELD = 100;
-
 // Zoom-out level of detail, in three bands. At or above LOD_WARM_ZOOM the live
 // pieces render and the tile layer is idle. In the warm band
 // (LOD_ENTER_ZOOM .. LOD_WARM_ZOOM) the live pieces still render while the bake
@@ -192,6 +179,14 @@ export class PuzzleStage {
   private frame: Graphics | null = null;
   // World-space dark fill covering everything outside the play zone.
   private backdrop: Graphics | null = null;
+  // Fixed z-order layers under world. Stacking is the child order of world
+  // (locked < unlocked < lod < remote-held < local-held), so a group's depth is
+  // which layer holds it, not a per-container zIndex. This keeps world free of
+  // sortableChildren, whose sort would be O(N log N) over the whole board.
+  private lockedLayer: Container | null = null;
+  private unlockedLayer: Container | null = null;
+  private remoteHeldLayer: Container | null = null;
+  private localHeldLayer: Container | null = null;
   // Cached visible world rectangle, recomputed on every camera change and
   // resize; null until the first camera update. Drives frustum culling.
   private viewport: Viewport | null = null;
@@ -314,7 +309,6 @@ export class PuzzleStage {
     });
     host.appendChild(app.canvas);
     const world = new Container();
-    world.sortableChildren = true;
     app.stage.addChild(world);
 
     const peerCursors = new PeerCursorLayer();
@@ -369,16 +363,31 @@ export class PuzzleStage {
       h: manifest.rows * manifest.pieceSize,
     };
 
-    // The construction passes mutate the world subtree in many bursts. Keep it
-    // non-renderable across them so Pixi does not re-sort a sortableChildren
-    // world on every yield mid-build; renderable is restored before fitView.
+    // The construction passes append many containers in bursts. Keep the world
+    // non-renderable across them so Pixi does not traverse the partially built
+    // subtree each frame between yields; renderable is restored before fitView.
     world.renderable = false;
+
+    // Fixed z-order layers, created in stacking order (first child renders at the
+    // bottom): backdrop, frame, locked, unlocked, then the held layers. The LOD
+    // tile container is inserted into the slot before the held layers by
+    // createLodLayer once the play zone is known. Depth is layer membership, so
+    // the world needs no sortableChildren and pays no sort over the whole board.
+    const backdrop = new Graphics();
+    backdrop.eventMode = "none";
+    world.addChild(backdrop);
+    this.backdrop = backdrop;
 
     const frame = new Graphics();
     frame.rect(0, 0, this.worldSize.w, this.worldSize.h).stroke({ color: 0x1a1a1a, width: 4 });
-    frame.zIndex = Z_FRAME;
     world.addChild(frame);
     this.frame = frame;
+
+    this.lockedLayer = new Container();
+    this.unlockedLayer = new Container();
+    this.remoteHeldLayer = new Container();
+    this.localHeldLayer = new Container();
+    world.addChild(this.lockedLayer, this.unlockedLayer, this.remoteHeldLayer, this.localHeldLayer);
 
     this.groupGrid.clear();
     this.lastVisible.clear();
@@ -443,7 +452,6 @@ export class PuzzleStage {
           const gc = new Container();
           gc.x = group.worldX;
           gc.y = group.worldY;
-          gc.zIndex = group.locked ? Z_LOCKED : Z_UNLOCKED;
           const pieceIds = idsByGroup.get(group.id) ?? [];
           const node: GroupNode = {
             id: group.id,
@@ -457,7 +465,7 @@ export class PuzzleStage {
             worldY: group.worldY,
             localBounds: this.boundsForIds(pieceIds),
           };
-          world.addChild(gc);
+          (group.locked ? this.lockedLayer! : this.unlockedLayer!).addChild(gc);
           this.groups.set(group.id, node);
           this.groupGrid.upsert(node.id, this.worldAabb(node));
           this.applyGroupInteractivity(node);
@@ -469,7 +477,7 @@ export class PuzzleStage {
 
     this.playZone = playZone;
     world.renderable = true;
-    this.createBackdrop();
+    this.redrawBackdrop();
     this.createLodLayer();
     this.fitView();
 
@@ -552,16 +560,6 @@ export class PuzzleStage {
     return Math.max(w, h) * PLAY_ZONE_PADDING_FRACTION;
   }
 
-  private createBackdrop(): void {
-    if (!this.world) return;
-    const g = new Graphics();
-    g.zIndex = Z_BACKDROP;
-    g.eventMode = "none";
-    this.world.addChild(g);
-    this.backdrop = g;
-    this.redrawBackdrop();
-  }
-
   // Dark fill over everything outside the play zone, then a coarse checker on
   // top so the out-of-bounds area reads as a distinct motif from the fine grid
   // inside. The zone interior is left unpainted so the light stage backdrop
@@ -628,6 +626,10 @@ export class PuzzleStage {
     this.app?.destroy(true, { children: true, texture: true });
     this.app = null;
     this.world = null;
+    this.lockedLayer = null;
+    this.unlockedLayer = null;
+    this.remoteHeldLayer = null;
+    this.localHeldLayer = null;
     this.groups.clear();
     this.pieceToGroup.clear();
     this.groupGrid.clear();
@@ -709,6 +711,10 @@ export class PuzzleStage {
     this.playZone = null;
     this.frame = null;
     this.backdrop = null;
+    this.lockedLayer = null;
+    this.unlockedLayer = null;
+    this.remoteHeldLayer = null;
+    this.localHeldLayer = null;
     this.viewport = null;
     this.camera = { x: 0, y: 0, zoom: 1 };
     this.onCameraChange?.(this.camera);
@@ -769,7 +775,7 @@ export class PuzzleStage {
       node.locked = g.locked;
       this.moveGroup(node, g.worldX, g.worldY);
       if (becameLocked) {
-        node.container.zIndex = Z_LOCKED;
+        this.placeGroupInLayer(node, this.lockedLayer);
         this.applyGroupInteractivity(node);
       }
     }
@@ -791,7 +797,7 @@ export class PuzzleStage {
     }
     // Remote grab: keep group visible on top while held by someone else, and
     // mark it live so the LOD bake leaves it out and draws it on top.
-    node.container.zIndex = Z_REMOTE_HELD;
+    this.placeGroupInLayer(node, this.remoteHeldLayer);
     this.markGroupHeld(node);
   }
 
@@ -826,7 +832,7 @@ export class PuzzleStage {
     this.markTilesDirty(this.worldAabb(node));
     this.moveGroup(node, worldX, worldY);
     if (userId !== this.localUserId) {
-      node.container.zIndex = this.restingZ(node);
+      this.placeGroupInLayer(node, this.restingLayer(node));
     }
     this.releaseGroupHeld(groupId);
   }
@@ -1195,13 +1201,20 @@ export class PuzzleStage {
     // jump away from the cursor on grab and drop.
     const scale = held ? HELD_SCALE : 1;
     for (const piece of node.pieces) piece.inner.scale.set(scale);
-    node.container.zIndex = held ? Z_LOCAL_HELD : this.restingZ(node);
+    this.placeGroupInLayer(node, held ? this.localHeldLayer : this.restingLayer(node));
   }
 
-  // Stacking order a group returns to when it is not held: locked clusters
-  // drop to the base layer, loose clusters stay above them.
-  private restingZ(node: GroupNode): number {
-    return node.locked ? Z_LOCKED : Z_UNLOCKED;
+  // Layer a group returns to when it is not held: locked clusters drop to the
+  // base layer, loose clusters stay above them.
+  private restingLayer(node: GroupNode): Container | null {
+    return node.locked ? this.lockedLayer : this.unlockedLayer;
+  }
+
+  // Reparents a group's container into a z-order layer. A no-op when the group
+  // is already in that layer, so an unchanged depth never pays the reparent.
+  private placeGroupInLayer(node: GroupNode, layer: Container | null): void {
+    if (!layer || node.container.parent === layer) return;
+    layer.addChild(node.container);
   }
 
   private moveGroup(node: GroupNode, worldX: number, worldY: number): void {
@@ -1555,6 +1568,10 @@ export class PuzzleStage {
       node.container.removeChild(piece.container);
       piece.container.destroy({ children: true });
       if (url) void Assets.unload(url);
+      // Evict the cached edge geometry with the node: a re-hydration regenerates
+      // it deterministically via geomFor, so the cache stays bounded by the
+      // currently resident pieces rather than every piece ever hydrated.
+      this.geomById.delete(piece.id);
     }
     node.pieces = [];
     node.hydrated = false;
@@ -1635,13 +1652,13 @@ export class PuzzleStage {
   // ----- zoom-out level of detail -----
 
   // Builds the tile layer over the play zone and sizes it for the current
-  // screen. The container is a child of world (zIndex Z_LOD), so the camera
-  // transforms the tiles like any other content.
+  // screen. The container is inserted into world just below the held layers, so
+  // tiles sit above the resting clusters they replace and below a piece in hand;
+  // the camera transforms it like any other content.
   private createLodLayer(): void {
-    if (!this.world || !this.app || !this.playZone) return;
+    if (!this.world || !this.app || !this.playZone || !this.remoteHeldLayer) return;
     const layer = new LodTileLayer(this.playZone, this.app.renderer.resolution);
-    layer.container.zIndex = Z_LOD;
-    this.world.addChild(layer.container);
+    this.world.addChildAt(layer.container, this.world.getChildIndex(this.remoteHeldLayer));
     this.lodLayer = layer;
     this.configureLodLayer();
   }
