@@ -84,6 +84,22 @@ describe("detectSnap", () => {
     expect(match).toEqual({ matchedGroupIds: [100], targetWorldX: 8, targetWorldY: 0 });
   });
 
+  it("skips a neighbour cluster held by another user", async () => {
+    const state = new FakeState();
+    state.place(1, { ...group(100, 5, -3), heldBy: "other-user" });
+    const dropped = group(50, 0, 0);
+    expect(await detectSnap(asState(state), ROWS, COLS, 10, dropped, [4])).toBeNull();
+  });
+
+  it("merges a free neighbour while skipping a held one", async () => {
+    const state = new FakeState();
+    state.place(1, { ...group(100, 5, 0), heldBy: "other-user" }); // up, held -> skipped
+    state.place(3, group(200, 5, 0)); // left, free -> matched
+    const dropped = group(50, 5, 0);
+    const match = await detectSnap(asState(state), ROWS, COLS, 10, dropped, [4]);
+    expect(match).toEqual({ matchedGroupIds: [200], targetWorldX: 5, targetWorldY: 0 });
+  });
+
   it("prefers a locked candidate as the merge target", async () => {
     const state = new FakeState();
     state.place(1, group(100, 5, 0)); // unlocked, inserted first

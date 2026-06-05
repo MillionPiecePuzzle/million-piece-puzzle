@@ -34,6 +34,13 @@ export async function detectSnap(
       if (candidates.has(nGroupId)) continue;
       const nGroup = await state.readGroup(nGroupId);
       if (!nGroup) continue;
+      // An actively-held cluster belongs to its holder until they drop it, and
+      // its stored position is frozen at grab time (drag never persists), so it
+      // is not a valid merge target: snapping onto it would yank it out of the
+      // holder's hand at a stale position. Locked groups read heldBy null, so
+      // anchor-by-merge targets are unaffected. The join still happens when the
+      // holder drops, where their own detectSnap re-checks alignment.
+      if (nGroup.heldBy !== null) continue;
       if (
         Math.abs(nGroup.worldX - droppedGroup.worldX) <= snapTolerance &&
         Math.abs(nGroup.worldY - droppedGroup.worldY) <= snapTolerance
