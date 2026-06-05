@@ -196,6 +196,7 @@ async function main(): Promise<void> {
       bucket,
       viewport: null,
       pseudo: authed.pseudo,
+      held: new Set(),
     };
     void mongo.touchLastSeen(authed.id).catch((e: unknown) => {
       console.error("[lastSeen]", (e as Error).message);
@@ -223,7 +224,7 @@ async function main(): Promise<void> {
       ipRegistry.release(ip);
       hub.remove(client);
       hub.broadcast({ t: "leave", userId: client.userId });
-      void releaseHeldGroups(ctx, client.userId, hub);
+      void releaseHeldGroups(ctx, client, hub);
     });
   });
 
@@ -240,15 +241,17 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
-// Release every group a departing client still held. The candidate scan runs
-// unlocked, then the release runs on those groups' queues: no other client can
-// take a hold this user already owns, and a hold cleared in the meantime (the
-// group merged away or anchored) is re-checked under the lock before release,
-// so the cleanup never fights a concurrent merge on those groups.
-async function releaseHeldGroups(ctx: Context, userId: string, hub: Hub): Promise<void> {
-  const groups = await ctx.state.readAllGroups(ctx.meta.totalPieces);
-  const heldIds = groups.filter((g) => g.heldBy === userId).map((g) => g.id);
+// Release every group a departing client still held. The connection tracks its
+// held group ids (see Client.held), so the cleanup is O(held), not a board scan,
+// and a client that never grabbed anything does nothing. The release runs on
+// those groups' queues: no other client can take a hold this user already owns,
+// and a stale id (the group merged away or anchored between the drop and the
+// disconnect) is re-checked under the lock before release, so the cleanup never
+// fights a concurrent merge on those groups.
+async function releaseHeldGroups(ctx: Context, client: Client, hub: Hub): Promise<void> {
+  const heldIds = [...client.held];
   if (heldIds.length === 0) return;
+  const userId = client.userId;
   await ctx.queue.run("release", heldIds, async () => {
     for (const id of heldIds) {
       const g = await ctx.state.readGroup(id);

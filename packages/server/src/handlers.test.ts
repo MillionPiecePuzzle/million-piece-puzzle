@@ -17,7 +17,11 @@ const meta: PuzzleMeta = {
   startedAt: 0,
 };
 
-const client = { userId: "u1", bucket: { consume: () => true } } as unknown as Client;
+const client = {
+  userId: "u1",
+  bucket: { consume: () => true },
+  held: new Set<number>(),
+} as unknown as Client;
 
 const badMessage = () => expect.objectContaining({ t: "error", code: "bad_message" });
 
@@ -231,6 +235,22 @@ describe("handleGrab", () => {
     await handleGrab(ctx, client, { t: "grab", groupId: 5 });
     expect(send).toHaveBeenCalledWith(client, { t: "grab_denied", groupId: 5, heldBy: "" });
   });
+
+  it("tracks the held group id on a winning grab", async () => {
+    const { ctx, tryAcquireGroup } = makeCtx();
+    tryAcquireGroup.mockResolvedValue(null);
+    const c = { userId: "u1", held: new Set<number>() } as unknown as Client;
+    await handleGrab(ctx, c, { t: "grab", groupId: 7 });
+    expect([...c.held]).toEqual([7]);
+  });
+
+  it("does not track the group when the grab is denied", async () => {
+    const { ctx, tryAcquireGroup } = makeCtx();
+    tryAcquireGroup.mockResolvedValue("other-user");
+    const c = { userId: "u1", held: new Set<number>() } as unknown as Client;
+    await handleGrab(ctx, c, { t: "grab", groupId: 7 });
+    expect(c.held.size).toBe(0);
+  });
 });
 
 // In-memory RedisState stand-in: a real working store so handleDrop exercises
@@ -383,6 +403,31 @@ describe("handleDrop", () => {
       500,
       500,
     );
+  });
+
+  it("removes the group from the held set once the drop completes", async () => {
+    const { ctx, state } = makeDropCtx();
+    state.place(dropped(4, 500, 500), [4]);
+    const c = { userId: "u1", held: new Set<number>([4]) } as unknown as Client;
+    await handleDrop(ctx, c, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
+    expect(c.held.has(4)).toBe(false);
+  });
+
+  it("keeps the held group when the drop reports an expand pass", async () => {
+    const { ctx, state } = makeDropCtx();
+    // The snap reaches group 1, which the passed lock set does not cover, so
+    // handleDrop returns { expand } and mutates nothing, including the held set.
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place(dropped(4, 200, 200), [4]);
+    const c = { userId: "u1", held: new Set<number>([4]) } as unknown as Client;
+    const outcome = await handleDrop(
+      ctx,
+      c,
+      { t: "drop", groupId: 4, worldX: 200, worldY: 200 },
+      new Set([4]),
+    );
+    expect(outcome).toEqual({ expand: [4, 1] });
+    expect(c.held.has(4)).toBe(true);
   });
 
   it("anchors the group to the frame when dropped near the origin", async () => {

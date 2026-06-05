@@ -134,6 +134,7 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
 export async function handleGrab(ctx: Context, client: Client, msg: CGrab): Promise<void> {
   const owner = await ctx.state.tryAcquireGroup(msg.groupId, client.userId);
   if (owner === null) {
+    client.held.add(msg.groupId);
     ctx.hub.broadcast({
       t: "grab_ok",
       groupId: msg.groupId,
@@ -246,6 +247,10 @@ export async function handleDrop(
     const required = [msg.groupId, ...matchedGroupIds];
     if (required.some((id) => !lockedGroups.has(id))) return { expand: required };
   }
+
+  // The hold ends here whether the drop just releases the group or merges it
+  // away, so drop it from the connection's held set (see Client.held).
+  client.held.delete(msg.groupId);
 
   await ctx.state.setGroupPosition(msg.groupId, msg.worldX, msg.worldY);
 

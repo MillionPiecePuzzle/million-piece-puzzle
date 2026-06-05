@@ -22,6 +22,12 @@ export type Client = {
   // The authenticated user's profile pseudo, resolved at the WS upgrade and
   // fixed for the connection, null when the user has not set one yet.
   pseudo: string | null;
+  // Group ids this connection currently holds: added on a winning grab, removed
+  // on the drop that ends the hold. Lets disconnect cleanup release in O(held)
+  // instead of scanning the whole board. Entries can be stale (a held group
+  // merged away before disconnect), so the release re-checks ownership under the
+  // group's queue.
+  held: Set<number>;
 };
 
 // WebSocket close code 1013 ("Try Again Later") for slow consumers whose
