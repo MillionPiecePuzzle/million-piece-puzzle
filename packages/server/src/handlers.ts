@@ -415,8 +415,10 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
   }
   switch (msg.t) {
     case "hello":
-      // Reads the whole board for the initial snapshot; the global barrier keeps
-      // it from observing a half-applied merge.
+      // Reads the whole board for the initial state; the global barrier keeps
+      // it from observing a half-applied merge, because a contributor builds and
+      // plays on this read. The periodic spectator snapshot deliberately skips
+      // the barrier (see DECISIONS: spectator snapshot reads off the write queue).
       await ctx.queue.runGlobal("hello", () => handleHello(ctx, client, msg));
       return;
     case "grab":

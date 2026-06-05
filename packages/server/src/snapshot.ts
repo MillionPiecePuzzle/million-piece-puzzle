@@ -12,6 +12,15 @@ export type SnapshotSource = {
   activity: () => Promise<ActivityItem[]>;
 };
 
+// Reads the board off the per-group dispatch queue, and `readAllPieces` /
+// `readAllGroups` are independent pipelines (not a MULTI), so the snapshot can
+// capture a merge mid-apply: a piece reassigned to its new group before that
+// group is repositioned, or pointing to a group already deleted. This is by
+// design (see DECISIONS: spectator snapshot reads off the write queue): forcing
+// consistency would stall the write path on a full-board read every tick. The
+// artifact is cosmetic and self-healing (the client tolerates a missing group;
+// the next tick recovers). The `hello` path, where a contributor builds and
+// plays on the result, is the one read kept merge-consistent via the queue.
 export async function buildSnapshot(source: SnapshotSource): Promise<Snapshot> {
   const puzzleId = source.puzzleId();
   const totalPieces = source.totalPieces();
