@@ -91,7 +91,12 @@ function snapActor(msg: SSnap): string {
 
 function recordSnap(msg: SSnap): void {
   const prev = lockedCount.value;
-  lockedCount.value = msg.lockedCount;
+  // lockedCount is the server's cumulative total and only ever grows. Concurrent
+  // anchoring merges on disjoint groups broadcast their snaps in an order not
+  // tied to the Redis INCRBY order, so a lower count can arrive after a higher
+  // one; clamp to monotonic so the count never regresses (which at completion
+  // would leave the session reading not-yet-complete).
+  lockedCount.value = Math.max(prev, msg.lockedCount);
   if (!msg.anchored) return;
   const pieceCount = msg.lockedCount - prev;
   if (pieceCount <= 0) return;
