@@ -840,8 +840,13 @@ export class PuzzleStage {
   applyGrabOk(groupId: number, userId: string): void {
     const node = this.groups.get(groupId);
     if (!node) return;
-    if (userId === this.localUserId && this.held && this.held.groupId === groupId) {
-      this.held.confirmed = true;
+    if (userId === this.localUserId) {
+      // Our own grab. If we still hold it, confirm. If we already released it
+      // before the ack arrived (grab->release faster than the RTT), the release
+      // flow has parked it at rest; falling through to the remote-grab branch
+      // would strand it in remoteHeldLayer (one layer too high, forced live off
+      // the LOD) until the next event happened to touch it.
+      if (this.held && this.held.groupId === groupId) this.held.confirmed = true;
       return;
     }
     // Remote grab: keep group visible on top while held by someone else, and
