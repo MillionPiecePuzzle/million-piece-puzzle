@@ -18,6 +18,15 @@ ENV MPP_PUZZLE_ID=test-puzzle-10k
 ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
 ENV MPP_DEV_ENABLED=1
 
+# Spectator stream cadence (keyframe + event-log windows). Baked as the prod
+# source of truth: keyframe regenerated at most every 300s while live, 3s event
+# windows, 6s interpolation delay, 900s event retention, 15s idle keyframe cache.
+ENV MPP_KEYFRAME_INTERVAL_MS=300000
+ENV MPP_EVENT_WINDOW_MS=3000
+ENV MPP_INTERP_DELAY_MS=6000
+ENV MPP_EVENT_RETENTION_MS=900000
+ENV MPP_KEYFRAME_IDLE_TTL_MS=15000
+
 # Non-secret prod config (auth host/cookie/origin + WS Origin allowlist). The
 # secrets (AUTH_SECRET, AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET) are set in the
 # Coolify service environment, never here. docker-compose.override.yml overrides

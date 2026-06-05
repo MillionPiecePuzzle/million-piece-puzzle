@@ -237,29 +237,106 @@ export type SError = {
   message: string;
 };
 
-// HTTP snapshot for spectator mode. Served by the server at GET /snapshot and
-// cached at the CDN edge with a short TTL. Mirrors what `welcome` + `state`
-// carry on the WebSocket so a consumer can render the canvas without opening a
-// WebSocket. Cursors, drags, and presence are deliberately absent: spectators
-// get a delayed, position-only view (see ROADMAP backlog for a future
-// keyframe + event-log stream that brings interpolation back).
-export type Snapshot = {
+// Spectator stream for the read-only view, an HTTP keyframe plus a tail of
+// immutable event windows (see DECISIONS: spectator keyframe + event log). The
+// keyframe is the full board state at a logical timestamp; the client loads it,
+// then tails event windows a few seconds behind live, interpolating group
+// positions between drops and replaying snap animations in order. The per-tick
+// payload becomes proportional to the events in the interval, independent of
+// piece count, so it scales to 1M pieces where a full snapshot per tick does not.
+
+// Full board state, served at GET /keyframe and regenerated only while the event
+// is live. Mirrors what `welcome` + `state` + the standings carry on the
+// WebSocket so the stage can build from it, plus the stream parameters the
+// client needs to tail windows.
+export type SpectatorKeyframe = {
+  // SPECTATOR_FORMAT_VERSION at build time; client re-bases or errors on a bump.
+  v: number;
   puzzleId: string;
+  // ms; the state's logical timestamp, the re-base anchor (the client applies a
+  // fresh keyframe exactly when its render clock reaches this, so no visual jump).
   generatedAt: number;
+  // Event-log stream id at build time. The client skips events with id <= cursor
+  // (already folded into this keyframe), deduping the keyframe against the tail.
+  cursor: string;
+  // Window width W in ms: GET /events/<t0> covers [t0, t0+W).
+  windowMs: number;
+  // Interpolation delay budget D in ms: the client renders this far behind live.
+  delayMs: number;
+  // Server is actively regenerating the keyframe (event live). Informational;
+  // the client also derives the same gate from eventStartsAt + lockedCount.
+  live: boolean;
   lockedCount: number;
   totalPieces: number;
   playZone: PlayZone;
-  // Mirrors `welcome.eventStartsAt` so a spectator polling the snapshot can show
-  // the same countdown a contributor sees. 0 means no scheduled start.
+  // Mirrors `welcome.eventStartsAt` so a spectator shows the same countdown a
+  // contributor sees. 0 means no scheduled start.
   eventStartsAt: number;
   pieces: PieceRuntime[];
   groups: GroupRuntime[];
-  // Mirror the `leaderboard` and `activity` WS messages so spectators polling
-  // the snapshot get the same standings and recent-placement feed contributors
-  // receive on connect. Ordered like their WS counterparts (leaderboard highest
-  // first, activity newest first).
+  // Mirror the `leaderboard` and `activity` WS messages so spectators get the
+  // same standings and recent-placement feed. Ordered like their WS counterparts
+  // (leaderboard highest first, activity newest first).
   leaderboard: LeaderboardEntry[];
   activity: ActivityItem[];
+};
+
+// A non-merging drop: a cluster moved to a resting position. The client
+// interpolates the group's origin from its current position to (worldX, worldY)
+// between this event's `at` and the next drop/snap for the group.
+export type SpectatorDropEvent = {
+  k: "drop";
+  // Redis stream id (`<ms>-<n>`): monotonic, unique, the dedup and ordering key.
+  seq: string;
+  at: number;
+  groupId: number;
+  worldX: number;
+  worldY: number;
+};
+
+// A merge (cluster lock). Mirrors `SSnap` so the client reuses `applySnap` and
+// the existing lockedCount + activity-ticker handling unchanged.
+export type SpectatorSnapEvent = {
+  k: "snap";
+  seq: string;
+  at: number;
+  mergeId: string;
+  newGroupId: number;
+  addedPieceIds: number[];
+  worldX: number;
+  worldY: number;
+  anchored: boolean;
+  userId: string;
+  pseudo: string | null;
+  lockedCount: number;
+};
+
+export type SpectatorEvent = SpectatorDropEvent | SpectatorSnapEvent;
+
+// Order two spectator event `seq` values (Redis stream ids, "<ms>-<n>"). Stream
+// ids are not lexicographically ordered ("100-0" precedes "99-0" as strings), so
+// both parts are parsed: the ms component first, then the per-ms counter. Used
+// client-side to dedup events against a keyframe cursor and to order the pending
+// buffer. Returns a negative number, zero, or a positive number like a comparator.
+export function compareSpectatorSeq(a: string, b: string): number {
+  const da = a.indexOf("-");
+  const ams = da < 0 ? Number(a) : Number(a.slice(0, da));
+  const aseq = da < 0 ? 0 : Number(a.slice(da + 1));
+  const db = b.indexOf("-");
+  const bms = db < 0 ? Number(b) : Number(b.slice(0, db));
+  const bseq = db < 0 ? 0 : Number(b.slice(db + 1));
+  if (ams !== bms) return ams - bms;
+  return aseq - bseq;
+}
+
+// One sealed event window, served at GET /events/<t0> with `t0 = floor(t/W)*W`.
+// Immutable once `now >= t0 + W`, so the CDN can cache it for a year. Events are
+// ordered by `seq`.
+export type SpectatorEventWindow = {
+  v: number;
+  t0: number;
+  windowMs: number;
+  events: SpectatorEvent[];
 };
 
 export type ServerMessage =

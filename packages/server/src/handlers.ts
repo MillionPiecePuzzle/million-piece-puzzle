@@ -13,6 +13,7 @@ import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
+import type { EventLog } from "./eventLog.js";
 import type { GroupQueue } from "./queue.js";
 import { detectSnap } from "./snap.js";
 
@@ -26,6 +27,9 @@ export type Context = {
   meta: PuzzleMeta;
   puzzleId: string;
   mongo: MongoLogger;
+  // Ordered log of spectator-visible drops and snaps, recorded at the
+  // authoritative emission points so the spectator stream replays them in order.
+  eventLog: EventLog;
   devEnabled: boolean;
   eventStartsAt: number;
   queue: GroupQueue;
@@ -267,6 +271,13 @@ export async function handleDrop(
       msg.worldX,
       msg.worldY,
     );
+    // Spectator stream: a non-merging drop is broadcast only and not persisted in
+    // Redis history, so log it for the event window the spectator interpolates.
+    await ctx.eventLog.recordDrop({
+      groupId: msg.groupId,
+      worldX: msg.worldX,
+      worldY: msg.worldY,
+    });
     return;
   }
 
@@ -367,6 +378,22 @@ async function applyMerge(
     userId: client.userId,
     pseudo: client.pseudo,
     at: at.getTime(),
+    lockedCount,
+  });
+
+  // Spectator stream: mirror the snap into the event log so spectators replay it
+  // in order (animation, locked count, activity ticker). Same fields as the WS
+  // snap so the client reuses applySnap + recordSnap unchanged.
+  await ctx.eventLog.recordSnap({
+    at: at.getTime(),
+    mergeId,
+    newGroupId: newId,
+    addedPieceIds,
+    worldX: targetWorldX,
+    worldY: targetWorldY,
+    anchored: willBeLocked,
+    userId: client.userId,
+    pseudo: client.pseudo,
     lockedCount,
   });
 

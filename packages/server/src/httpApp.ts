@@ -1,8 +1,8 @@
 // Express HTTP layer: auth routes, the pseudo-profile route, the spectator
-// snapshot, and a credentialed-CORS + per-IP rate-limit boundary in front of
-// the SPA-facing routes. The WebSocket upgrade attaches to the same server in
-// index.ts. Helpers are exported so they can be unit tested without booting the
-// process (index.ts runs main() on import).
+// stream (keyframe + event windows), and a credentialed-CORS + per-IP
+// rate-limit boundary in front of the SPA-facing routes. The WebSocket upgrade
+// attaches to the same server in index.ts. Helpers are exported so they can be
+// unit tested without booting the process (index.ts runs main() on import).
 
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { ExpressAuth, getSession, type ExpressAuthConfig } from "@auth/express";
@@ -22,9 +22,11 @@ export type CreateAppDeps = {
   signupLimiter: RedisFixedWindow;
   appOrigin: string;
   devEnabled: boolean;
-  // GET /snapshot handler from snapshot.ts: writes the response and returns
-  // whether it handled the path (always true here, the route is path-scoped).
-  handleSnapshot: (req: IncomingMessage, res: ServerResponse) => boolean;
+  // Spectator stream handlers from keyframe.ts: each writes the response and
+  // returns whether it handled the path (always true here, the routes are
+  // path-scoped). The events handler serves its sealed-window body asynchronously.
+  handleKeyframe: (req: IncomingMessage, res: ServerResponse) => boolean;
+  handleEvents: (req: IncomingMessage, res: ServerResponse) => boolean;
 };
 
 export function createApp(deps: CreateAppDeps): Express {
@@ -32,12 +34,15 @@ export function createApp(deps: CreateAppDeps): Express {
   app.set("trust proxy", true);
   app.disable("x-powered-by");
 
-  // Spectator snapshot: anonymous read-only state, wildcard-CORS and CDN-fronted
-  // (handled inside handleSnapshot), so it sits outside the credentialed-CORS
-  // and auth rate-limit boundary. app.all keeps req.url intact for the handler's
-  // own path/method checks (app.use would strip the mount prefix).
-  app.all("/snapshot", (req, res) => {
-    deps.handleSnapshot(req, res);
+  // Spectator stream: anonymous read-only state, wildcard-CORS and CDN-fronted
+  // (handled inside the handlers), so it sits outside the credentialed-CORS and
+  // auth rate-limit boundary. app.all keeps req.url intact for the handlers' own
+  // path/method checks (app.use would strip the mount prefix).
+  app.all("/keyframe", (req, res) => {
+    deps.handleKeyframe(req, res);
+  });
+  app.all("/events/*", (req, res) => {
+    deps.handleEvents(req, res);
   });
 
   // Credentialed CORS for the SPA, then the per-IP auth-route window.

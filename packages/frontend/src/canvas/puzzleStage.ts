@@ -10,6 +10,7 @@ import {
 } from "pixi.js";
 import {
   GRID_WORLD_CELL,
+  compareSpectatorSeq,
   generatePieceGeometry,
   piecePath,
   seedFromString,
@@ -18,6 +19,9 @@ import {
   type PieceGeometry,
   type PieceRuntime,
   type PlayZone,
+  type SpectatorEvent,
+  type SpectatorKeyframe,
+  type SpectatorSnapEvent,
 } from "@mpp/shared";
 import { applyPath } from "./applyPath";
 import { Tweener, peak, easeOutCubic } from "./tween";
@@ -148,6 +152,21 @@ const HYDRATE_MAX_INFLIGHT = 128;
 // bursts, so building up to 1M group nodes never freezes the main thread and the
 // loading cover can paint determinate "build" progress.
 const BUILD_CHUNK_BUDGET_MS = 8;
+
+// Spectator stream interpolation. A non-merging drop is the end of an unseen
+// drag, so the spectator eases the cluster from its previous resting position to
+// the dropped position over this long instead of teleporting (snaps keep their
+// instant lock + bump). Short enough to read as a settle.
+const SPECTATOR_GLIDE_MS = 450;
+
+// Caps how many event windows a single catch-up burst requests. A normal join
+// replays from a keyframe up to the keyframe interval old (~100 windows at a 300s
+// interval and 3s windows), so the cap sits comfortably above that and below the
+// 900s retention: a real join replays fully, and only a pathological anchor (a
+// tab backgrounded for many minutes, where the render clock and the keyframe
+// refetch both stalled) is bounded, its gap healed by the next keyframe re-base.
+const SPECTATOR_MAX_CATCHUP_WINDOWS = 256;
+
 const SNAP_BUMP_SCALE = 1.08;
 const SNAP_BUMP_MS = 240;
 const SNAP_FLASH_ALPHA = 0.55;
@@ -302,6 +321,32 @@ export class PuzzleStage {
     tick: (ticker: { deltaMS: number }) => void;
   } | null = null;
 
+  // Spectator stream driver (keyframe + event-log diffs). Active only in
+  // spectator mode after startSpectatorStream. tickSpectator advances renderClock
+  // to delayMs behind live each frame, applies due buffered events in seq order
+  // (snaps animate, drops glide), re-bases onto a freshly fetched keyframe at the
+  // render time it represents, and asks for the next sealed window via
+  // onNeedWindow. renderClock, appliedCursor and the event times are all in the
+  // server's ms epoch, which assumes the client clock roughly agrees (the delay
+  // budget absorbs normal skew); a grossly wrong client clock degrades to a
+  // lagged or fast-forwarded view, self-healed by the next keyframe re-base.
+  private specActive = false;
+  private specTailing = false;
+  private renderClock = 0;
+  private specWindowMs = 3000;
+  private specDelayMs = 6000;
+  private appliedCursor = "0-0";
+  private pendingEvents: SpectatorEvent[] = [];
+  private pendingKeyframe: SpectatorKeyframe | null = null;
+  private specInterp = new Map<
+    number,
+    { fromX: number; fromY: number; toX: number; toY: number; startAt: number }
+  >();
+  private nextWindowT0 = 0;
+  onNeedWindow: ((t0: number) => void) | null = null;
+  onSpectatorSnap: ((e: SpectatorSnapEvent) => void) | null = null;
+  private readonly tickSpectatorBound = (): void => this.tickSpectator();
+
   setMode(mode: Mode): void {
     this.mode = mode;
     for (const node of this.groups.values()) {
@@ -353,6 +398,7 @@ export class PuzzleStage {
     app.ticker.add(this.tickPeerCursors);
     app.ticker.add(this.tickDragFlush);
     app.ticker.add(this.tickLod);
+    app.ticker.add(this.tickSpectatorBound);
     this.attachWheelZoom(app.canvas);
   }
 
@@ -638,6 +684,10 @@ export class PuzzleStage {
     this.app?.ticker.remove(this.tickPeerCursors);
     this.app?.ticker.remove(this.tickDragFlush);
     this.app?.ticker.remove(this.tickLod);
+    this.app?.ticker.remove(this.tickSpectatorBound);
+    this.resetSpectatorStream();
+    this.onNeedWindow = null;
+    this.onSpectatorSnap = null;
     this.peerCursors?.destroy();
     this.peerCursors = null;
     this.lodLayer?.destroy();
@@ -712,6 +762,7 @@ export class PuzzleStage {
       this.world.y = 0;
       this.world.scale.set(1);
     }
+    this.resetSpectatorStream();
     this.lodLayer?.destroy();
     this.lodLayer = null;
     this.lodActive = false;
@@ -745,11 +796,11 @@ export class PuzzleStage {
     this.onCameraChange?.(this.camera);
   }
 
-  // Apply a fresh snapshot (same puzzleId) without rebuilding the stage: update
-  // group positions and locked state in place, fold any merged groups into the
-  // surviving host (their pieces reparent), and drop groups that no longer
-  // exist. Used by spectator mode polling /snapshot. A held local cluster is
-  // skipped so an active drag is not yanked by an in-flight snapshot.
+  // Apply a fresh full-board state (same puzzleId) without rebuilding the stage:
+  // update group positions and locked state in place, fold any merged groups into
+  // the surviving host (their pieces reparent), and drop groups that no longer
+  // exist. Used by the spectator keyframe re-base. A held local cluster is skipped
+  // so an active drag is not yanked (no held clusters in spectator mode).
   applySnapshot(pieces: PieceRuntime[], groups: GroupRuntime[]): void {
     if (!this.world) return;
     const snapGroupIds = new Set<number>();
@@ -833,6 +884,189 @@ export class PuzzleStage {
     // out for the new layout before refreshing tile visibility.
     this.updateResidency();
     if (this.lodActive) this.refreshLodVisibility();
+  }
+
+  // ----- spectator stream (keyframe + event-log diffs) -----
+
+  // Begin driving the read-only view from a keyframe. The board has already been
+  // built from the same keyframe (the session synthesizes welcome + state), so
+  // this only initializes the render clock delayMs behind live, the dedup cursor,
+  // and the window anchor. Window tailing then fills the gap from the keyframe to
+  // now: ingestEvents applies past events instantly and buffers the rest.
+  startSpectatorStream(keyframe: SpectatorKeyframe): void {
+    this.specWindowMs = keyframe.windowMs > 0 ? keyframe.windowMs : this.specWindowMs;
+    this.specDelayMs = keyframe.delayMs >= 0 ? keyframe.delayMs : this.specDelayMs;
+    this.renderClock = Date.now() - this.specDelayMs;
+    this.appliedCursor = keyframe.cursor;
+    this.pendingEvents = [];
+    this.pendingKeyframe = null;
+    this.specInterp.clear();
+    this.anchorWindows(keyframe);
+    this.specActive = true;
+  }
+
+  // Controls whether the tick requests event windows. The session gates this on
+  // the event being live (started, not completed); while not tailing the board is
+  // the frozen keyframe and no windows are fetched.
+  setSpectatorTailing(tailing: boolean): void {
+    this.specTailing = tailing;
+  }
+
+  // Hold a freshly fetched keyframe for re-base. The tick applies it once the
+  // render clock reaches its logical time, so there is no visual jump. The session
+  // version-checks before calling, so a held keyframe is always the current format.
+  ingestKeyframe(keyframe: SpectatorKeyframe): void {
+    if (!this.specActive) return;
+    if (this.pendingKeyframe && keyframe.generatedAt <= this.pendingKeyframe.generatedAt) return;
+    this.pendingKeyframe = keyframe;
+  }
+
+  // Fold a fetched window's events into the stream: skip anything already applied
+  // (seq <= cursor), apply events already in the past instantly (no animation,
+  // drops jump), and buffer the rest in seq order for the tick to play in time.
+  ingestEvents(events: readonly SpectatorEvent[]): void {
+    if (!this.specActive) return;
+    for (const e of events) {
+      if (compareSpectatorSeq(e.seq, this.appliedCursor) <= 0) continue;
+      if (e.at <= this.renderClock) this.applySpectatorEvent(e, false);
+      else this.insertPending(e);
+    }
+  }
+
+  private tickSpectator(): void {
+    if (!this.specActive) return;
+    this.renderClock = Date.now() - this.specDelayMs;
+
+    // Re-base: apply the held keyframe at exactly the render time it represents,
+    // then drop buffered events it already folded in and re-anchor the window
+    // cursor. This heals a restart gap, drift, or missed windows with no jump.
+    if (this.pendingKeyframe && this.renderClock >= this.pendingKeyframe.generatedAt) {
+      const kf = this.pendingKeyframe;
+      this.pendingKeyframe = null;
+      this.applySnapshot(kf.pieces, kf.groups);
+      this.appliedCursor = kf.cursor;
+      this.pendingEvents = this.pendingEvents.filter(
+        (e) => compareSpectatorSeq(e.seq, kf.cursor) > 0,
+      );
+      this.specInterp.clear();
+      this.anchorWindows(kf, true);
+    }
+
+    while (this.pendingEvents.length > 0) {
+      const e = this.pendingEvents[0]!;
+      if (e.at > this.renderClock) break;
+      this.pendingEvents.shift();
+      if (compareSpectatorSeq(e.seq, this.appliedCursor) <= 0) continue;
+      this.applySpectatorEvent(e, true);
+    }
+
+    for (const [gid, it] of this.specInterp) {
+      const node = this.groups.get(gid);
+      if (!node) {
+        this.specInterp.delete(gid);
+        continue;
+      }
+      const span = this.renderClock - it.startAt;
+      const t = span <= 0 ? 0 : span >= SPECTATOR_GLIDE_MS ? 1 : span / SPECTATOR_GLIDE_MS;
+      this.setSpectatorGroupPos(
+        node,
+        it.fromX + (it.toX - it.fromX) * t,
+        it.fromY + (it.toY - it.fromY) * t,
+      );
+      if (t >= 1) this.specInterp.delete(gid);
+    }
+
+    this.requestNeededWindows();
+  }
+
+  // Apply one spectator event. A snap reuses applySnap (the same path as the WS
+  // snap) and notifies the session for the locked count, activity ticker and
+  // completion. A drop glides to its target when animated (live tail) or jumps to
+  // it when not (join catch-up / events already in the past).
+  private applySpectatorEvent(e: SpectatorEvent, animate: boolean): void {
+    if (e.k === "drop") {
+      const node = this.groups.get(e.groupId);
+      if (node) {
+        if (animate) {
+          this.specInterp.set(e.groupId, {
+            fromX: node.worldX,
+            fromY: node.worldY,
+            toX: e.worldX,
+            toY: e.worldY,
+            startAt: this.renderClock,
+          });
+        } else {
+          this.specInterp.delete(e.groupId);
+          this.setSpectatorGroupPos(node, e.worldX, e.worldY);
+        }
+      }
+    } else {
+      this.applySnap(e.newGroupId, e.addedPieceIds, e.worldX, e.worldY, e.anchored, animate);
+      this.specInterp.delete(e.newGroupId);
+      this.onSpectatorSnap?.(e);
+    }
+    this.advanceAppliedCursor(e.seq);
+  }
+
+  // Move a gliding cluster and keep its tiles hot so it renders live over the LOD
+  // while it moves, settling back into a baked tile once the glide ends.
+  private setSpectatorGroupPos(node: GroupNode, x: number, y: number): void {
+    this.markTilesDirty(this.worldAabb(node));
+    this.moveGroup(node, x, y);
+    this.markTilesDirty(this.worldAabb(node));
+  }
+
+  private advanceAppliedCursor(seq: string): void {
+    if (compareSpectatorSeq(seq, this.appliedCursor) > 0) this.appliedCursor = seq;
+  }
+
+  // Set the next window to request from a keyframe's cursor (or its generatedAt
+  // when the log is empty). On re-base the anchor only moves forward.
+  private anchorWindows(keyframe: SpectatorKeyframe, forward = false): void {
+    const cm = seqMs(keyframe.cursor);
+    const startMs = cm > 0 ? cm : keyframe.generatedAt;
+    const w0 = Math.floor(startMs / this.specWindowMs) * this.specWindowMs;
+    this.nextWindowT0 = forward ? Math.max(this.nextWindowT0, w0) : w0;
+  }
+
+  // Request every sealed window from the anchor up to delayMs behind live, in
+  // order. A stale anchor (long idle, a gap) jumps forward to the catch-up cap so
+  // a few keyframe re-bases heal the gap rather than replaying hundreds of windows.
+  private requestNeededWindows(): void {
+    if (!this.specTailing || !this.onNeedWindow) return;
+    const W = this.specWindowMs;
+    const upTo = Math.floor((Date.now() - this.specDelayMs) / W) * W;
+    const floorT0 = upTo - SPECTATOR_MAX_CATCHUP_WINDOWS * W;
+    if (this.nextWindowT0 < floorT0) this.nextWindowT0 = floorT0;
+    while (this.nextWindowT0 <= upTo) {
+      this.onNeedWindow(this.nextWindowT0);
+      this.nextWindowT0 += W;
+    }
+  }
+
+  // Insert into the seq-sorted pending buffer, skipping a duplicate (windows are
+  // immutable and fetched once, but a re-base could re-deliver one).
+  private insertPending(e: SpectatorEvent): void {
+    let lo = 0;
+    let hi = this.pendingEvents.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const c = compareSpectatorSeq(this.pendingEvents[mid]!.seq, e.seq);
+      if (c === 0) return;
+      if (c < 0) lo = mid + 1;
+      else hi = mid;
+    }
+    this.pendingEvents.splice(lo, 0, e);
+  }
+
+  private resetSpectatorStream(): void {
+    this.specActive = false;
+    this.specTailing = false;
+    this.pendingEvents = [];
+    this.pendingKeyframe = null;
+    this.specInterp.clear();
+    this.appliedCursor = "0-0";
+    this.nextWindowT0 = 0;
   }
 
   // ----- incoming server messages -----
@@ -927,6 +1161,10 @@ export class PuzzleStage {
     worldX: number,
     worldY: number,
     anchored: boolean,
+    // The spectator join fast-forward applies catch-up snaps with animate=false
+    // so the board lands in its current state without a burst of bump/flash
+    // animations; live snaps (WS and tailing) animate.
+    animate = true,
   ): void {
     const host = this.groups.get(newGroupId);
     if (!host) return;
@@ -996,9 +1234,11 @@ export class PuzzleStage {
       this.held = null;
     }
 
-    for (const piece of host.pieces) {
-      if (preLockedPieceIds.has(piece.id)) continue;
-      if (addedSet.has(piece.id) || host.locked) this.playSnapAnimation(piece);
+    if (animate) {
+      for (const piece of host.pieces) {
+        if (preLockedPieceIds.has(piece.id)) continue;
+        if (addedSet.has(piece.id) || host.locked) this.playSnapAnimation(piece);
+      }
     }
   }
 
@@ -2085,6 +2325,14 @@ function yieldToEventLoop(): Promise<void> {
 function joinUrl(base: string, rel: string): string {
   if (/^https?:\/\//.test(rel) || rel.startsWith("/")) return rel;
   return base.endsWith("/") ? `${base}${rel}` : `${base}/${rel}`;
+}
+
+// Milliseconds component of a Redis stream id ("<ms>-<n>"), the window key the
+// spectator stream anchors its event-window requests on. 0 for the empty-log
+// sentinel "0-0".
+function seqMs(seq: string): number {
+  const dash = seq.indexOf("-");
+  return dash < 0 ? Number(seq) : Number(seq.slice(0, dash));
 }
 
 function clamp(v: number, lo: number, hi: number): number {

@@ -17,7 +17,17 @@ export type ServerConfig = {
   wsRateBurst: number;
   wsMaxConnectionsPerIp: number;
   wsBufferedAmountLimitBytes: number;
-  snapshotIntervalMs: number;
+  // Spectator stream cadence (see DECISIONS: spectator keyframe + event log).
+  // The keyframe is regenerated at most this often while the event is live; the
+  // event window W and interpolation delay D set how the client tails the log;
+  // retention bounds how far back a joining client can replay; the idle TTL is
+  // the short edge cache used while the keyframe is frozen (pre-event / complete)
+  // so the start transition is seen promptly.
+  keyframeIntervalMs: number;
+  eventWindowMs: number;
+  interpDelayMs: number;
+  eventRetentionMs: number;
+  keyframeIdleTtlMs: number;
   // Unix ms of the event start, carried in welcome and the snapshot so clients
   // sync the entrance cascade. 0 (default) means no scheduled start.
   eventStartsAt: number;
@@ -113,7 +123,11 @@ export async function loadConfig(): Promise<ServerConfig> {
     wsRateBurst: int("MPP_WS_RATE_BURST", 400),
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
-    snapshotIntervalMs: int("MPP_SNAPSHOT_INTERVAL_MS", 2000),
+    keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
+    eventWindowMs: int("MPP_EVENT_WINDOW_MS", 3000),
+    interpDelayMs: int("MPP_INTERP_DELAY_MS", 6000),
+    eventRetentionMs: int("MPP_EVENT_RETENTION_MS", 900000),
+    keyframeIdleTtlMs: int("MPP_KEYFRAME_IDLE_TTL_MS", 15000),
     eventStartsAt: int("MPP_EVENT_STARTS_AT", 0),
     authUrl,
     authSecure: authUrl.startsWith("https:"),

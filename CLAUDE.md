@@ -35,7 +35,7 @@ A community-built online jigsaw puzzle: 1,000,000 pieces on a single shared canv
 ## Architecture
 
 Read/write split for scaling:
-- Passive viewers receive cached snapshots via CDN (refreshed every ~2s)
+- Passive viewers load a CDN-cached keyframe and tail immutable event-log windows a few seconds behind live, interpolating between them (per-tick payload independent of piece count)
 - Active solvers connect via WebSocket for real-time updates
 
 Three-tier event hierarchy:
@@ -136,7 +136,7 @@ GitHub Organization: `MillionPiecePuzzle`
 ## User Flow
 
 Landing page
-- "Enter the canvas": Spectator mode (no auth, read-only, polls `GET /snapshot`)
+- "Enter the canvas": Spectator mode (no auth, read-only, loads `GET /keyframe` then tails `GET /events/<t0>` windows)
 - "Become a contributor": Auth.js Google sign-in, then pseudo onboarding, then Player mode (can drag/drop pieces)
 
 Mandatory authentication for contribution: the WebSocket upgrade requires a valid session, so anonymous connections are rejected. Pseudo stored in Mongo and shown publicly for snap attribution.

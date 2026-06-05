@@ -55,6 +55,7 @@ function makeCtx() {
     meta,
     puzzleId: "test",
     mongo: { logMerge: vi.fn() },
+    eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastNear, tryAcquireGroup, readGroup };
@@ -359,6 +360,7 @@ function makeDropCtx() {
     meta: dropMeta,
     puzzleId: "test",
     mongo: { logMerge, leaderboard },
+    eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastNear, logMerge, leaderboard, state };
@@ -496,6 +498,7 @@ describe("handleDrop", () => {
       meta: onePieceMeta,
       puzzleId: "test",
       mongo: { logMerge, leaderboard },
+      eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
       lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);

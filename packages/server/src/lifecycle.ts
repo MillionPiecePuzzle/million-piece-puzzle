@@ -14,12 +14,20 @@ export const ACTIVITY_BACKFILL_LIMIT = 6;
 export class PuzzleLifecycle {
   private resetting = false;
   private readonly playZone: PlayZone;
+  // Set after construction (the publisher is created later in index.ts). A
+  // reset/complete transition forces a fresh keyframe so the frozen body reflects
+  // the new board immediately rather than at the next interval.
+  private keyframePublisher: { regenerate: (force?: boolean) => Promise<void> } | null = null;
 
   constructor(
     private readonly ctx: Context,
     private readonly manifest: ImageManifest,
   ) {
     this.playZone = playZoneForManifest(manifest);
+  }
+
+  attachKeyframePublisher(publisher: { regenerate: (force?: boolean) => Promise<void> }): void {
+    this.keyframePublisher = publisher;
   }
 
   currentManifest(): ImageManifest {
@@ -63,9 +71,13 @@ export class PuzzleLifecycle {
       // The leaderboard and activity feed are derived from the merge log, so the
       // fresh board must start with an empty log, not just empty Redis state.
       await this.ctx.mongo.clearPuzzle(this.ctx.puzzleId);
+      // The spectator stream replays drops and snaps; clear the event log too so
+      // the fresh board's keyframe cursor starts at an empty stream.
+      await this.ctx.eventLog.clear();
       const meta = await forceInitPuzzle(this.ctx.state, this.manifest);
       this.ctx.meta = meta;
       await this.broadcastFreshState();
+      await this.keyframePublisher?.regenerate(true);
     } finally {
       this.resetting = false;
     }
@@ -104,6 +116,9 @@ export class PuzzleLifecycle {
     });
     await this.markCompleted();
     await this.broadcastFreshState();
+    // forceComplete sets state directly (no per-group snaps), so the assembled
+    // board only reaches the frozen keyframe through a forced regeneration.
+    await this.keyframePublisher?.regenerate(true);
   }
 
   private async broadcastFreshState(): Promise<void> {

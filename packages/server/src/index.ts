@@ -13,7 +13,8 @@ import { GroupQueue } from "./queue.js";
 import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
 import { initPuzzleIfEmpty } from "./init.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
-import { SnapshotPublisher, makeSnapshotHandler } from "./snapshot.js";
+import { KeyframePublisher, makeKeyframeHandler, makeEventsHandler } from "./keyframe.js";
+import { EventLog } from "./eventLog.js";
 import { buildAuthConfig, resolveSessionUser } from "./auth.js";
 import { createApp } from "./httpApp.js";
 
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
 
   const manifest = config.manifest;
   const state = new RedisState(redis, manifest.puzzleId);
+  const eventLog = new EventLog(redis, manifest.puzzleId);
   const meta = await initPuzzleIfEmpty(state, manifest);
 
   const hub = new Hub(config.wsBufferedAmountLimitBytes);
@@ -56,6 +58,7 @@ async function main(): Promise<void> {
     meta,
     puzzleId: manifest.puzzleId,
     mongo,
+    eventLog,
     devEnabled: config.devEnabled,
     eventStartsAt: config.eventStartsAt,
     queue,
@@ -90,23 +93,47 @@ async function main(): Promise<void> {
     appOrigin: config.appOrigin,
   });
 
-  // Periodic snapshot for spectator mode, served via HTTP and cached by the
-  // CDN edge. The publisher keeps the latest body in memory; the HTTP handler
-  // serves it without re-querying Redis on each request.
-  const snapshotPublisher = new SnapshotPublisher(config.snapshotIntervalMs, {
+  // Spectator stream: a keyframe (full state, regenerated only while the event is
+  // live) plus an ordered event log of drops and snaps addressed as immutable
+  // wall-clock windows. The publisher keeps the latest keyframe body in memory;
+  // the HTTP handlers serve it and the sealed windows without re-querying Redis on
+  // a keyframe hit. Both endpoints are CDN-fronted (see DECISIONS).
+  const keyframePublisher = new KeyframePublisher(config.keyframeIntervalMs, {
     state,
+    eventLog,
     puzzleId: () => ctx.puzzleId,
     totalPieces: () => ctx.meta.totalPieces,
     playZone: () => lifecycle.currentPlayZone(),
     eventStartsAt: () => ctx.eventStartsAt,
+    status: () => ctx.meta.status,
     leaderboard: () => mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT),
     activity: () => mongo.recentAnchoredMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
+    windowMs: config.eventWindowMs,
+    delayMs: config.interpDelayMs,
   });
-  snapshotPublisher.start();
-  const handleSnapshot = makeSnapshotHandler(snapshotPublisher, config.snapshotIntervalMs);
+  lifecycle.attachKeyframePublisher(keyframePublisher);
+  keyframePublisher.start();
+  const handleKeyframe = makeKeyframeHandler(keyframePublisher, {
+    intervalMs: config.keyframeIntervalMs,
+    idleTtlMs: config.keyframeIdleTtlMs,
+  });
+  const handleEvents = makeEventsHandler({
+    eventLog,
+    windowMs: config.eventWindowMs,
+    retentionMs: config.eventRetentionMs,
+  });
 
-  // Express hosts the auth routes, the pseudo-profile route, and the snapshot.
-  // The WebSocket upgrade attaches to the same http.Server below.
+  // Trim the event log to its retention horizon on the keyframe cadence. Only the
+  // live event adds entries, so trimming at the (slow) keyframe interval keeps the
+  // stream bounded without a dedicated fast timer.
+  const trimTimer = setInterval(() => {
+    void eventLog.trim(config.eventRetentionMs).catch((e: unknown) => {
+      console.error("[events] trim failed:", (e as Error).message);
+    });
+  }, config.keyframeIntervalMs);
+
+  // Express hosts the auth routes, the pseudo-profile route, and the spectator
+  // stream. The WebSocket upgrade attaches to the same http.Server below.
   const app = createApp({
     authConfig,
     pseudoStore: mongo,
@@ -119,7 +146,8 @@ async function main(): Promise<void> {
     ),
     appOrigin: config.appOrigin,
     devEnabled: config.devEnabled,
-    handleSnapshot,
+    handleKeyframe,
+    handleEvents,
   });
   const httpServer = createServer(app);
 
@@ -162,7 +190,7 @@ async function main(): Promise<void> {
   });
   httpServer.listen(config.port, () => {
     console.log(
-      `[http] listening on ${config.port} (ws upgrade + /auth + /profile + GET /snapshot, snapshot interval ${config.snapshotIntervalMs}ms)`,
+      `[http] listening on ${config.port} (ws upgrade + /auth + /profile + GET /keyframe + GET /events/<t0>, keyframe interval ${config.keyframeIntervalMs}ms, window ${config.eventWindowMs}ms, delay ${config.interpDelayMs}ms)`,
     );
   });
 
@@ -230,7 +258,8 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     console.log("[shutdown] closing");
-    snapshotPublisher.stop();
+    keyframePublisher.stop();
+    clearInterval(trimTimer);
     wss.close();
     httpServer.close();
     await redis.quit();
@@ -262,6 +291,9 @@ async function releaseHeldGroups(ctx: Context, client: Client, hub: Hub): Promis
         g.worldX,
         g.worldY,
       );
+      // The disconnect-drop is a real position change, so it joins the spectator
+      // event log like a normal non-merging drop.
+      await ctx.eventLog.recordDrop({ groupId: id, worldX: g.worldX, worldY: g.worldY });
     }
   });
 }
