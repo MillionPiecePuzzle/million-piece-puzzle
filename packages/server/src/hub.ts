@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import type { ServerMessage } from "@mpp/shared";
 import type { TokenBucket } from "./limits.js";
+import { type Aabb, cellsForRect } from "./worldGrid.js";
 
 // Visible world rectangle last reported by a client, used to scope drag and
 // drop broadcasts. Width and height are non-negative.
@@ -28,33 +29,75 @@ export type Client = {
   // merged away before disconnect), so the release re-checks ownership under the
   // group's queue.
   held: Set<number>;
+  // Broadcast-grid cells this client's viewport currently overlaps. Empty means
+  // the client is a global subscriber (no viewport yet, or a viewport larger than
+  // the cell cap), which receives every scoped broadcast (fail-open). Maintained
+  // by the Hub; the invariant `cells.size === 0` iff global subscriber holds.
+  cells: Set<number>;
 };
 
 // WebSocket close code 1013 ("Try Again Later") for slow consumers whose
 // outbound buffer has grown past the configured limit.
 const CLOSE_TRY_AGAIN_LATER = 1013;
 
-function viewportContains(viewport: Viewport | null, worldX: number, worldY: number): boolean {
-  if (viewport === null) return true;
-  return (
-    worldX >= viewport.worldX &&
-    worldX <= viewport.worldX + viewport.worldW &&
-    worldY >= viewport.worldY &&
-    worldY <= viewport.worldY + viewport.worldH
-  );
+function viewportAabb(v: Viewport): Aabb {
+  return { minX: v.worldX, minY: v.worldY, maxX: v.worldX + v.worldW, maxY: v.worldY + v.worldH };
 }
 
 export class Hub {
   private readonly clients = new Set<Client>();
+  // Spatial broadcast index: a cell key maps to the clients whose viewport
+  // overlaps that cell, plus a global set for clients with no bounded viewport. A
+  // client sits in exactly one side (cells non-empty XOR globalSubscribers), so a
+  // scoped broadcast walks only the cells an event touches instead of every
+  // connected client.
+  private readonly cellSubscribers = new Map<number, Set<Client>>();
+  private readonly globalSubscribers = new Set<Client>();
 
-  constructor(private readonly bufferedAmountLimitBytes: number) {}
+  constructor(
+    private readonly bufferedAmountLimitBytes: number,
+    private readonly cellSize: number,
+    private readonly maxCells: number,
+  ) {}
 
   add(client: Client): void {
     this.clients.add(client);
+    // No viewport reported yet, so the client is a global subscriber (fail-open)
+    // until its first `viewport` message moves it into cells.
+    this.globalSubscribers.add(client);
   }
 
   remove(client: Client): void {
     this.clients.delete(client);
+    this.globalSubscribers.delete(client);
+    for (const cell of client.cells) this.removeFromCell(cell, client);
+    client.cells.clear();
+  }
+
+  // Recompute a client's cell subscription from its current viewport, diffing
+  // against its existing cells so the update is O(cells), not O(clients). A null
+  // viewport, or one overlapping more than maxCells cells, makes the client a
+  // global subscriber.
+  updateSubscription(client: Client): void {
+    const cells =
+      client.viewport === null
+        ? null
+        : cellsForRect(viewportAabb(client.viewport), this.cellSize, this.maxCells);
+    if (cells === null) {
+      for (const cell of client.cells) this.removeFromCell(cell, client);
+      client.cells.clear();
+      this.globalSubscribers.add(client);
+      return;
+    }
+    this.globalSubscribers.delete(client);
+    const next = new Set(cells);
+    for (const cell of client.cells) {
+      if (!next.has(cell)) this.removeFromCell(cell, client);
+    }
+    for (const cell of next) {
+      if (!client.cells.has(cell)) this.addToCell(cell, client);
+    }
+    client.cells = next;
   }
 
   send(client: Client, msg: ServerMessage): void {
@@ -69,16 +112,51 @@ export class Hub {
     }
   }
 
-  // Scoped broadcast for drag and drop: reaches only clients whose reported
-  // viewport contains the event point. Clients with no viewport yet are
-  // included (see Client.viewport). Snap stays a global broadcast.
-  broadcastNear(msg: ServerMessage, worldX: number, worldY: number, except?: Client): void {
+  // Scoped broadcast for drag, drop and cursor: reaches the global subscribers
+  // plus the clients subscribed to any cell the event AABB overlaps. Scoping is by
+  // the dragged cluster's world AABB (a cursor passes a zero-size rect), so a peer
+  // whose viewport excludes the cluster origin but overlaps its body still
+  // receives it. A cluster larger than the cell cap fans out to every client (the
+  // same fail-open bound a far-zoomed viewport gets). Snap stays a global
+  // broadcast.
+  broadcastOverlapping(msg: ServerMessage, aabb: Aabb, except?: Client): void {
+    const cells = cellsForRect(aabb, this.cellSize, this.maxCells);
+    if (cells === null) {
+      this.broadcast(msg, except);
+      return;
+    }
     const payload = JSON.stringify(msg);
-    for (const c of this.clients) {
+    const seen = new Set<Client>();
+    for (const c of this.globalSubscribers) {
       if (c === except) continue;
-      if (!viewportContains(c.viewport, worldX, worldY)) continue;
+      seen.add(c);
       this.write(c, payload);
     }
+    for (const cell of cells) {
+      const set = this.cellSubscribers.get(cell);
+      if (!set) continue;
+      for (const c of set) {
+        if (c === except || seen.has(c)) continue;
+        seen.add(c);
+        this.write(c, payload);
+      }
+    }
+  }
+
+  private addToCell(cell: number, client: Client): void {
+    let set = this.cellSubscribers.get(cell);
+    if (!set) {
+      set = new Set();
+      this.cellSubscribers.set(cell, set);
+    }
+    set.add(client);
+  }
+
+  private removeFromCell(cell: number, client: Client): void {
+    const set = this.cellSubscribers.get(cell);
+    if (!set) return;
+    set.delete(client);
+    if (set.size === 0) this.cellSubscribers.delete(cell);
   }
 
   private write(client: Client, payload: string): void {

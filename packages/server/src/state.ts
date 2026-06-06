@@ -1,6 +1,15 @@
 import type { Redis } from "ioredis";
 import type { GroupRuntime, PieceRuntime } from "@mpp/shared";
 import * as keys from "./redis/keys.js";
+import type { Aabb } from "./worldGrid.js";
+
+// A group as stored server-side: the wire `GroupRuntime` plus its group-local
+// AABB (relative to the origin), persisted so the drag hot path scopes by the
+// cluster's full extent without a per-frame piece scan. `localAabb` is null for a
+// group written before AABBs were stored (caller falls back to point scoping).
+// The AABB never crosses the wire: `readAllGroups` (state + keyframe) returns
+// plain `GroupRuntime`.
+export type StoredGroup = GroupRuntime & { localAabb: Aabb | null };
 
 export type PuzzleMeta = {
   totalPieces: number;
@@ -22,6 +31,16 @@ function parseGroup(id: number, h: Record<string, string>): GroupRuntime | null 
     locked: h.locked === "1",
     size: Number(h.size),
     heldBy: h.heldBy === "" || h.heldBy === undefined ? null : h.heldBy,
+  };
+}
+
+function parseLocalAabb(h: Record<string, string>): Aabb | null {
+  if (h.aabbMinX === undefined) return null;
+  return {
+    minX: Number(h.aabbMinX),
+    minY: Number(h.aabbMinY),
+    maxX: Number(h.aabbMaxX),
+    maxY: Number(h.aabbMaxY),
   };
 }
 
@@ -98,19 +117,28 @@ export class RedisState {
     return v === null ? null : Number(v);
   }
 
-  async writeGroup(g: GroupRuntime): Promise<void> {
-    await this.r.hset(keys.group(this.puzzleId, g.id), {
+  async writeGroup(g: StoredGroup): Promise<void> {
+    const fields: Record<string, string | number> = {
       worldX: g.worldX,
       worldY: g.worldY,
       locked: g.locked ? 1 : 0,
       size: g.size,
       heldBy: g.heldBy ?? "",
-    });
+    };
+    if (g.localAabb) {
+      fields.aabbMinX = g.localAabb.minX;
+      fields.aabbMinY = g.localAabb.minY;
+      fields.aabbMaxX = g.localAabb.maxX;
+      fields.aabbMaxY = g.localAabb.maxY;
+    }
+    await this.r.hset(keys.group(this.puzzleId, g.id), fields);
   }
 
-  async readGroup(id: number): Promise<GroupRuntime | null> {
+  async readGroup(id: number): Promise<StoredGroup | null> {
     const h = await this.r.hgetall(keys.group(this.puzzleId, id));
-    return parseGroup(id, h);
+    const g = parseGroup(id, h);
+    if (!g) return null;
+    return { ...g, localAabb: parseLocalAabb(h) };
   }
 
   async deleteGroup(id: number): Promise<void> {
@@ -142,11 +170,13 @@ export class RedisState {
     await this.r.hset(keys.group(this.puzzleId, id), "heldBy", "");
   }
 
-  async writeInitialPieces(entries: { pieceId: number; group: GroupRuntime }[]): Promise<void> {
+  async writeInitialPieces(
+    entries: { pieceId: number; group: GroupRuntime; localAabb: Aabb }[],
+  ): Promise<void> {
     const CHUNK = 1000;
     for (let start = 0; start < entries.length; start += CHUNK) {
       const pipe = this.r.pipeline();
-      for (const { pieceId, group } of entries.slice(start, start + CHUNK)) {
+      for (const { pieceId, group, localAabb } of entries.slice(start, start + CHUNK)) {
         pipe.hset(keys.piece(this.puzzleId, pieceId), {
           groupId: group.id,
           rotation: 0,
@@ -157,6 +187,10 @@ export class RedisState {
           locked: group.locked ? 1 : 0,
           size: group.size,
           heldBy: group.heldBy ?? "",
+          aabbMinX: localAabb.minX,
+          aabbMinY: localAabb.minY,
+          aabbMaxX: localAabb.maxX,
+          aabbMaxY: localAabb.maxY,
         });
         pipe.sadd(keys.groupPieces(this.puzzleId, group.id), String(pieceId));
       }

@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket, type VerifyClientCallbackAsync } from 
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import { loadConfig } from "./config.js";
 import { Hub, type Client } from "./hub.js";
+import { worldAabbFor } from "./worldGrid.js";
 import { RedisState } from "./state.js";
 import { MongoLogger, ensureIndexes } from "./mongo.js";
 import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
@@ -47,7 +48,13 @@ async function main(): Promise<void> {
   const eventLog = new EventLog(redis, manifest.puzzleId);
   const meta = await initPuzzleIfEmpty(state, manifest);
 
-  const hub = new Hub(config.wsBufferedAmountLimitBytes);
+  // Scoped broadcasts are routed through a spatial index whose world grid cell is
+  // sized from the puzzle's pieceSize (see DECISIONS: spatial broadcast index).
+  const hub = new Hub(
+    config.wsBufferedAmountLimitBytes,
+    meta.pieceSize * config.broadcastCellPieces,
+    config.broadcastMaxCells,
+  );
   // Per-group dispatch queues: messages for different groups run concurrently,
   // a group's own messages stay ordered, and a merge serializes against every
   // group it joins (see DECISIONS: per-group dispatch queues).
@@ -225,6 +232,7 @@ async function main(): Promise<void> {
       viewport: null,
       pseudo: authed.pseudo,
       held: new Set(),
+      cells: new Set(),
     };
     void mongo.touchLastSeen(authed.id).catch((e: unknown) => {
       console.error("[lastSeen]", (e as Error).message);
@@ -286,10 +294,9 @@ async function releaseHeldGroups(ctx: Context, client: Client, hub: Hub): Promis
       const g = await ctx.state.readGroup(id);
       if (!g || g.heldBy !== userId) continue;
       await ctx.state.releaseGroup(id);
-      hub.broadcastNear(
+      hub.broadcastOverlapping(
         { t: "drop", groupId: id, worldX: g.worldX, worldY: g.worldY, userId },
-        g.worldX,
-        g.worldY,
+        worldAabbFor(g.localAabb, g.worldX, g.worldY),
       );
       // The disconnect-drop is a real position change, so it joins the spectator
       // event log like a normal non-merging drop.

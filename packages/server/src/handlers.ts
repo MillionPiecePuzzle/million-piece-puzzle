@@ -16,6 +16,7 @@ import type { MongoLogger } from "./mongo.js";
 import type { EventLog } from "./eventLog.js";
 import type { GroupQueue } from "./queue.js";
 import { detectSnap } from "./snap.js";
+import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
 
 // Cap on leaderboard entries derived on completion. Generous for the closed
 // alpha (5 to 20 contributors); bounds the payload once the puzzle scales up.
@@ -168,9 +169,11 @@ export async function handleDrag(ctx: Context, client: Client, msg: CDrag): Prom
     return;
   }
   // Drag is transient: broadcast only, never persisted. The authoritative
-  // position is written on drop. Scoped to clients whose viewport covers the
-  // event point so a drag does not fan out to the whole canvas.
-  ctx.hub.broadcastNear(
+  // position is written on drop. Scoped to clients whose viewport overlaps the
+  // cluster's world AABB (local AABB translated by the live drag position) so a
+  // drag does not fan out to the whole canvas, yet reaches a peer the body covers
+  // even when the origin is off their screen.
+  ctx.hub.broadcastOverlapping(
     {
       t: "drag",
       groupId: msg.groupId,
@@ -178,28 +181,29 @@ export async function handleDrag(ctx: Context, client: Client, msg: CDrag): Prom
       worldY: msg.worldY,
       userId: client.userId,
     },
-    msg.worldX,
-    msg.worldY,
+    worldAabbFor(g.localAabb, msg.worldX, msg.worldY),
     client,
   );
 }
 
-export function handleViewport(client: Client, msg: CViewport): void {
+export function handleViewport(ctx: Context, client: Client, msg: CViewport): void {
   client.viewport = {
     worldX: msg.worldX,
     worldY: msg.worldY,
     worldW: msg.worldW,
     worldH: msg.worldH,
   };
+  // Move the client to the cells its new viewport overlaps (or the global set if
+  // it has none yet / overlaps too many), diffing in O(cells).
+  ctx.hub.updateSubscription(client);
 }
 
 export function handleCursor(ctx: Context, client: Client, msg: CCursor): void {
-  // Transient awareness: relayed only, never persisted. Scoped to viewport
-  // neighbors like drag so a pointer does not fan out to the whole canvas.
-  ctx.hub.broadcastNear(
+  // Transient awareness: relayed only, never persisted. Stays point-based (a
+  // zero-size rect) so a pointer does not fan out to the whole canvas.
+  ctx.hub.broadcastOverlapping(
     { t: "cursor", userId: client.userId, worldX: msg.worldX, worldY: msg.worldY },
-    msg.worldX,
-    msg.worldY,
+    { minX: msg.worldX, minY: msg.worldY, maxX: msg.worldX, maxY: msg.worldY },
     client,
   );
 }
@@ -260,7 +264,7 @@ export async function handleDrop(
 
   if (!frameAnchor && !match) {
     await ctx.state.releaseGroup(msg.groupId);
-    ctx.hub.broadcastNear(
+    ctx.hub.broadcastOverlapping(
       {
         t: "drop",
         groupId: msg.groupId,
@@ -268,8 +272,7 @@ export async function handleDrop(
         worldY: msg.worldY,
         userId: client.userId,
       },
-      msg.worldX,
-      msg.worldY,
+      worldAabbFor(g.localAabb, msg.worldX, msg.worldY),
     );
     // Spectator stream: a non-merging drop is broadcast only and not persisted in
     // Redis history, so log it for the event window the spectator interpolates.
@@ -337,6 +340,9 @@ async function applyMerge(
   }
 
   await ctx.state.addGroupPieces(newId, allPieces);
+  // The merged cluster's footprint changes here, so recompute its group-local
+  // AABB once from the union of member pieces and store it on the group. The drag
+  // hot path then reads it with the group, no per-frame piece scan.
   await ctx.state.writeGroup({
     id: newId,
     worldX: targetWorldX,
@@ -344,6 +350,7 @@ async function applyMerge(
     size: allPieces.length,
     locked: willBeLocked,
     heldBy: null,
+    localAabb: localAabbForPieces(allPieces, ctx.meta.gridCols, ctx.meta.pieceSize),
   });
 
   let lockedCount = await ctx.state.getLockedCount();
@@ -486,7 +493,7 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
         err(ctx, client, "bad_message", "invalid viewport");
         return;
       }
-      handleViewport(client, msg);
+      handleViewport(ctx, client, msg);
       return;
     case "cursor":
       if (!isFiniteCoord(msg.worldX) || !isFiniteCoord(msg.worldY)) {

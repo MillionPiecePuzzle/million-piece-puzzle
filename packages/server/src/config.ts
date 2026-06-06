@@ -17,6 +17,13 @@ export type ServerConfig = {
   wsRateBurst: number;
   wsMaxConnectionsPerIp: number;
   wsBufferedAmountLimitBytes: number;
+  // Spatial broadcast index (see DECISIONS: spatial broadcast index). The world
+  // grid cell is `pieceSize * broadcastCellPieces` wide, sized so a zoomed-in
+  // viewport overlaps ~1-4 cells; a viewport (or dragged cluster) overlapping more
+  // than broadcastMaxCells cells is treated as global, bounding the subscription
+  // set and the per-event cell walk.
+  broadcastCellPieces: number;
+  broadcastMaxCells: number;
   // Spectator stream cadence (see DECISIONS: spectator keyframe + event log).
   // The keyframe is regenerated at most this often while the event is live; the
   // event window W and interpolation delay D set how the client tails the log;
@@ -123,6 +130,8 @@ export async function loadConfig(): Promise<ServerConfig> {
     wsRateBurst: int("MPP_WS_RATE_BURST", 400),
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
+    broadcastCellPieces: int("MPP_BROADCAST_CELL_PIECES", 16),
+    broadcastMaxCells: int("MPP_BROADCAST_MAX_CELLS", 256),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
     eventWindowMs: int("MPP_EVENT_WINDOW_MS", 3000),
     interpDelayMs: int("MPP_INTERP_DELAY_MS", 6000),

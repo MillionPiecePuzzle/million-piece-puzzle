@@ -46,11 +46,12 @@ async function waitFor(predicate: () => boolean, tries = 50): Promise<void> {
 function makeCtx() {
   const send = vi.fn();
   const broadcast = vi.fn();
-  const broadcastNear = vi.fn();
+  const broadcastOverlapping = vi.fn();
+  const updateSubscription = vi.fn();
   const tryAcquireGroup = vi.fn();
   const readGroup = vi.fn();
   const ctx = {
-    hub: { send, broadcast, broadcastNear },
+    hub: { send, broadcast, broadcastOverlapping, updateSubscription },
     state: { tryAcquireGroup, readGroup },
     meta,
     puzzleId: "test",
@@ -58,7 +59,15 @@ function makeCtx() {
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
   } as unknown as Context;
-  return { ctx, send, broadcast, broadcastNear, tryAcquireGroup, readGroup };
+  return {
+    ctx,
+    send,
+    broadcast,
+    broadcastOverlapping,
+    updateSubscription,
+    tryAcquireGroup,
+    readGroup,
+  };
 }
 
 describe("dispatch validation", () => {
@@ -175,19 +184,19 @@ describe("dispatch validation", () => {
   });
 
   it("rejects a cursor with non-finite coordinates", async () => {
-    const { ctx, send, broadcastNear } = makeCtx();
+    const { ctx, send, broadcastOverlapping } = makeCtx();
     await dispatch(ctx, client, '{"t":"cursor","worldX":1e999,"worldY":0}');
-    expect(broadcastNear).not.toHaveBeenCalled();
+    expect(broadcastOverlapping).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith(client, badMessage());
   });
 
   it("relays a valid cursor to viewport-neighbor peers, excepting the sender", async () => {
-    const { ctx, broadcastNear } = makeCtx();
+    const { ctx, broadcastOverlapping } = makeCtx();
     await dispatch(ctx, client, JSON.stringify({ t: "cursor", worldX: 30, worldY: 40 }));
-    expect(broadcastNear).toHaveBeenCalledWith(
+    // Cursor stays point-based: scoped by a zero-size rect at the pointer.
+    expect(broadcastOverlapping).toHaveBeenCalledWith(
       expect.objectContaining({ t: "cursor", userId: "u1", worldX: 30, worldY: 40 }),
-      30,
-      40,
+      { minX: 30, minY: 40, maxX: 30, maxY: 40 },
       client,
     );
   });
@@ -350,12 +359,12 @@ const dropMeta: PuzzleMeta = {
 function makeDropCtx() {
   const send = vi.fn();
   const broadcast = vi.fn();
-  const broadcastNear = vi.fn();
+  const broadcastOverlapping = vi.fn();
   const logMerge = vi.fn();
   const leaderboard = vi.fn().mockResolvedValue([]);
   const state = new FakeState();
   const ctx = {
-    hub: { send, broadcast, broadcastNear },
+    hub: { send, broadcast, broadcastOverlapping },
     state,
     meta: dropMeta,
     puzzleId: "test",
@@ -363,7 +372,7 @@ function makeDropCtx() {
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
   } as unknown as Context;
-  return { ctx, send, broadcast, broadcastNear, logMerge, leaderboard, state };
+  return { ctx, send, broadcast, broadcastOverlapping, logMerge, leaderboard, state };
 }
 
 const dropped = (id: number, worldX: number, worldY: number): GroupRuntime => ({
@@ -396,14 +405,15 @@ describe("handleDrop", () => {
   });
 
   it("releases the group and broadcasts a drop when nothing snaps", async () => {
-    const { ctx, broadcastNear, state } = makeDropCtx();
+    const { ctx, broadcastOverlapping, state } = makeDropCtx();
     state.place(dropped(4, 500, 500), [4]);
     await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
     expect(state.groups.get(4)?.heldBy).toBeNull();
-    expect(broadcastNear).toHaveBeenCalledWith(
+    // FakeState groups carry no stored AABB, so scoping falls back to the drop
+    // point (a zero-size rect): the broadcast still goes out scoped, not global.
+    expect(broadcastOverlapping).toHaveBeenCalledWith(
       expect.objectContaining({ t: "drop", groupId: 4 }),
-      500,
-      500,
+      { minX: 500, minY: 500, maxX: 500, maxY: 500 },
     );
   });
 
@@ -486,14 +496,14 @@ describe("handleDrop", () => {
   it("broadcasts a leaderboard and marks the puzzle completed when the final piece is anchored", async () => {
     const send = vi.fn();
     const broadcast = vi.fn();
-    const broadcastNear = vi.fn();
+    const broadcastOverlapping = vi.fn();
     const logMerge = vi.fn();
     const leaderboard = vi.fn().mockResolvedValue([{ userId: "u1", pieces: 1 }]);
     const markCompleted = vi.fn().mockResolvedValue(undefined);
     const state = new FakeState();
     const onePieceMeta: PuzzleMeta = { ...dropMeta, totalPieces: 1, gridRows: 1, gridCols: 1 };
     const ctx = {
-      hub: { send, broadcast, broadcastNear },
+      hub: { send, broadcast, broadcastOverlapping },
       state,
       meta: onePieceMeta,
       puzzleId: "test",

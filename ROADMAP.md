@@ -67,7 +67,8 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [ ] Event-start cascade entrance: synchronized across clients at `eventStartsAt`, pieces fall into their shuffled positions, late joiners skip it
 
 ### `backend-realtime`
-- [ ] Viewport sharding for broadcasts at scale
+- [x] Viewport sharding for broadcasts: spatial broadcast index + cluster-AABB scoping
+- [ ] Viewport sharding for broadcasts: group index + partial-state resync on pan
 - [x] Spectator stream scales to 1M: a CDN-cached keyframe (regenerated only while the event is live) plus immutable wall-clock event-log windows (`GET /keyframe` + `GET /events/<t0>`, retiring `GET /snapshot`). The client loads the keyframe, tails windows a few seconds behind live, interpolates group positions between drops and replays snaps in order, and re-bases onto fresh keyframes with no jump, so the per-tick payload is proportional to the events in the interval, not the piece count. Absorbs the snapshot cadence tuning (keyframe interval + idle gate)
 - [ ] Anti-abuse for public traffic beyond the Phase 1 per-IP rate limit
 

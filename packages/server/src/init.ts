@@ -8,6 +8,7 @@ import {
   type PlayZone,
 } from "@mpp/shared";
 import type { RedisState, PuzzleMeta } from "./state.js";
+import { localAabbForPieces } from "./worldGrid.js";
 
 const SCATTER_DOMAIN = 2;
 
@@ -144,6 +145,7 @@ export async function forceInitPuzzle(
       locked: false,
       heldBy: null,
     },
+    localAabb: localAabbForPieces([p.id], geom.cols, geom.pieceSize),
   }));
   await state.writeInitialPieces(entries);
 
