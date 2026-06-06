@@ -2,7 +2,7 @@ import type { ImageManifest, PlayZone } from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import { LEADERBOARD_LIMIT, type Context } from "./handlers.js";
-import { forceInitPuzzle, playZoneForManifest } from "./init.js";
+import { forceInitPuzzle, playZoneForManifest, rebuildGroupIndex } from "./init.js";
 
 // Anchoring entries sent to seed a connecting client's activity ticker. Matches
 // the ticker's display capacity on the frontend.
@@ -76,6 +76,9 @@ export class PuzzleLifecycle {
       await this.ctx.eventLog.clear();
       const meta = await forceInitPuzzle(this.ctx.state, this.manifest);
       this.ctx.meta = meta;
+      // Fresh scattered board: rebuild the group index off the new Redis state so
+      // resyncs reflect the reset, not the old positions.
+      await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, meta.totalPieces);
       await this.broadcastFreshState();
       await this.keyframePublisher?.regenerate(true);
     } finally {
@@ -115,6 +118,10 @@ export class PuzzleLifecycle {
       at: new Date(),
     });
     await this.markCompleted();
+    // Every group is now anchored at the frame origin; rebuild the index so its
+    // positions match the assembled board (force-complete moves groups directly,
+    // outside the per-group drop/merge paths that maintain the index).
+    await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, total);
     await this.broadcastFreshState();
     // forceComplete sets state directly (no per-group snaps), so the assembled
     // board only reaches the frozen keyframe through a forced regeneration.

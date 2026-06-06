@@ -237,6 +237,19 @@ export type SError = {
   message: string;
 };
 
+// Partial region state, sent when a client's `viewport` brings new broadcast
+// cells into view. It carries the server's current resting position for the
+// groups in those newly entered cells, so a client panning into a region picks
+// up non-merging drops it missed while looking elsewhere (those drops are scoped
+// broadcasts and are not persisted, unlike globally broadcast snaps). The client
+// applies a position only to a group it is not the live authority for (see the
+// ordering guard in the stage): one it is holding, a peer is holding, or one it
+// just dropped and is awaiting confirmation of keeps its local position.
+export type SRegionState = {
+  t: "region_state";
+  groups: { groupId: number; worldX: number; worldY: number }[];
+};
+
 // Spectator stream for the read-only view, an HTTP keyframe plus a tail of
 // immutable event windows (see DECISIONS: spectator keyframe + event log). The
 // keyframe is the full board state at a logical timestamp; the client loads it,
@@ -353,4 +366,5 @@ export type ServerMessage =
   | SJoin
   | SLeave
   | SCursor
-  | SError;
+  | SError
+  | SRegionState;

@@ -227,6 +227,36 @@ export class RedisState {
     return groups;
   }
 
+  // Body top-left (world AABB min) of every existing group, for rebuilding the
+  // in-process group index at boot and after a reset (Redis survives a restart,
+  // the index does not). The stored local AABB min translated by the origin is
+  // the same point the runtime drop/merge paths index by; a group written before
+  // AABBs were stored falls back to its origin, like the broadcast scoping.
+  async readAllGroupPoints(totalPieces: number): Promise<{ id: number; x: number; y: number }[]> {
+    const pipe = this.r.pipeline();
+    for (let i = 0; i < totalPieces; i++) {
+      pipe.hgetall(keys.group(this.puzzleId, i));
+    }
+    const results = await pipe.exec();
+    const points: { id: number; x: number; y: number }[] = [];
+    if (!results) return points;
+    for (let i = 0; i < results.length; i++) {
+      const entry = results[i];
+      if (!entry) continue;
+      const h = entry[1] as Record<string, string>;
+      if (!h || !h.size) continue;
+      const worldX = Number(h.worldX);
+      const worldY = Number(h.worldY);
+      const local = parseLocalAabb(h);
+      points.push({
+        id: i,
+        x: local ? worldX + local.minX : worldX,
+        y: local ? worldY + local.minY : worldY,
+      });
+    }
+    return points;
+  }
+
   async readAllPieces(totalPieces: number): Promise<PieceRuntime[]> {
     const pipe = this.r.pipeline();
     for (let i = 0; i < totalPieces; i++) {

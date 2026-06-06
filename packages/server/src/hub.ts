@@ -77,8 +77,12 @@ export class Hub {
   // Recompute a client's cell subscription from its current viewport, diffing
   // against its existing cells so the update is O(cells), not O(clients). A null
   // viewport, or one overlapping more than maxCells cells, makes the client a
-  // global subscriber.
-  updateSubscription(client: Client): void {
+  // global subscriber. Returns the cells newly added to the client's
+  // subscription, so the caller can resync region state for exactly those (a
+  // client moving from global to scoped enters all of its viewport cells; one
+  // panning enters only the leading band). Empty when nothing new is entered or
+  // the client becomes a global subscriber.
+  updateSubscription(client: Client): number[] {
     const cells =
       client.viewport === null
         ? null
@@ -87,17 +91,22 @@ export class Hub {
       for (const cell of client.cells) this.removeFromCell(cell, client);
       client.cells.clear();
       this.globalSubscribers.add(client);
-      return;
+      return [];
     }
     this.globalSubscribers.delete(client);
     const next = new Set(cells);
     for (const cell of client.cells) {
       if (!next.has(cell)) this.removeFromCell(cell, client);
     }
+    const entered: number[] = [];
     for (const cell of next) {
-      if (!client.cells.has(cell)) this.addToCell(cell, client);
+      if (!client.cells.has(cell)) {
+        this.addToCell(cell, client);
+        entered.push(cell);
+      }
     }
     client.cells = next;
+    return entered;
   }
 
   send(client: Client, msg: ServerMessage): void {

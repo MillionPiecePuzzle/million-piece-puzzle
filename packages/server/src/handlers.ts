@@ -15,6 +15,7 @@ import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
 import type { EventLog } from "./eventLog.js";
 import type { GroupQueue } from "./queue.js";
+import type { GroupIndex } from "./groupIndex.js";
 import { detectSnap } from "./snap.js";
 import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
 
@@ -34,6 +35,10 @@ export type Context = {
   devEnabled: boolean;
   eventStartsAt: number;
   queue: GroupQueue;
+  // In-process spatial index of group positions, keyed on the broadcast cell
+  // grid. Maintained on every committed position change (drop, merge) and read by
+  // handleViewport to resync a client panning into new cells.
+  groupIndex: GroupIndex;
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.
@@ -195,7 +200,16 @@ export function handleViewport(ctx: Context, client: Client, msg: CViewport): vo
   };
   // Move the client to the cells its new viewport overlaps (or the global set if
   // it has none yet / overlaps too many), diffing in O(cells).
-  ctx.hub.updateSubscription(client);
+  const entered = ctx.hub.updateSubscription(client);
+  if (entered.length === 0) return;
+  // Resync the groups now in view but whose scoped non-merging drops the client
+  // missed while looking elsewhere. Only the newly entered cells are gathered, so
+  // a cell the client already held is not re-sent. The gather is a pure in-memory
+  // read of the group index; the client's ordering guard ignores entries for
+  // groups it is the live authority for.
+  const groups = ctx.groupIndex.collect(entered);
+  if (groups.length === 0) return;
+  send(ctx, client, { t: "region_state", groups });
 }
 
 export function handleCursor(ctx: Context, client: Client, msg: CCursor): void {
@@ -264,6 +278,12 @@ export async function handleDrop(
 
   if (!frameAnchor && !match) {
     await ctx.state.releaseGroup(msg.groupId);
+    // The group's resting position changed without a merge: update the group
+    // index so a peer panning into the new region resyncs to it. Done before the
+    // broadcast so a concurrent viewport read never sees a stale position for a
+    // group whose drop has already gone out.
+    const rest = worldAabbFor(g.localAabb, msg.worldX, msg.worldY);
+    ctx.groupIndex.set(msg.groupId, rest.minX, rest.minY);
     ctx.hub.broadcastOverlapping(
       {
         t: "drop",
@@ -337,12 +357,15 @@ async function applyMerge(
       await ctx.state.setPieceGroup(p, newId);
     }
     await ctx.state.deleteGroup(oldId);
+    // The merged-away group no longer exists, so drop it from the group index.
+    ctx.groupIndex.remove(oldId);
   }
 
   await ctx.state.addGroupPieces(newId, allPieces);
   // The merged cluster's footprint changes here, so recompute its group-local
   // AABB once from the union of member pieces and store it on the group. The drag
   // hot path then reads it with the group, no per-frame piece scan.
+  const mergedLocalAabb = localAabbForPieces(allPieces, ctx.meta.gridCols, ctx.meta.pieceSize);
   await ctx.state.writeGroup({
     id: newId,
     worldX: targetWorldX,
@@ -350,8 +373,13 @@ async function applyMerge(
     size: allPieces.length,
     locked: willBeLocked,
     heldBy: null,
-    localAabb: localAabbForPieces(allPieces, ctx.meta.gridCols, ctx.meta.pieceSize),
+    localAabb: mergedLocalAabb,
   });
+  // Re-key the surviving group to its new footprint and position in the index. A
+  // merge is globally broadcast, so a peer already learns of it; indexing it
+  // keeps the read model consistent (and harmlessly idempotent) for later resyncs.
+  const mergedRest = worldAabbFor(mergedLocalAabb, targetWorldX, targetWorldY);
+  ctx.groupIndex.set(newId, mergedRest.minX, mergedRest.minY);
 
   let lockedCount = await ctx.state.getLockedCount();
   const lockedDelta = willBeLocked ? Math.max(0, allPieces.length - lockedSizeBefore) : 0;

@@ -8,6 +8,7 @@ import {
   type PlayZone,
 } from "@mpp/shared";
 import type { RedisState, PuzzleMeta } from "./state.js";
+import type { GroupIndex } from "./groupIndex.js";
 import { localAabbForPieces } from "./worldGrid.js";
 
 const SCATTER_DOMAIN = 2;
@@ -150,4 +151,18 @@ export async function forceInitPuzzle(
   await state.writeInitialPieces(entries);
 
   return meta;
+}
+
+// Rebuild the in-process group index from current Redis state. The index is a
+// read model held in process memory; Redis survives a restart and a reset writes
+// fresh groups, so the index is reconstructed from Redis rather than maintained
+// across those boundaries. One bulk read, used at boot and after a reset.
+export async function rebuildGroupIndex(
+  groupIndex: GroupIndex,
+  state: RedisState,
+  totalPieces: number,
+): Promise<void> {
+  groupIndex.clear();
+  const points = await state.readAllGroupPoints(totalPieces);
+  for (const p of points) groupIndex.set(p.id, p.x, p.y);
 }

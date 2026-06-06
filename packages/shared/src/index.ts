@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // Wire format version of the spectator stream (keyframe + event windows),
 // independent of PROTOCOL_VERSION: the spectator HTTP path can change without

@@ -30,6 +30,7 @@ import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
 import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
+import { resyncShouldApply } from "./resync";
 
 export type Mode = "spectator" | "contributor";
 
@@ -235,6 +236,12 @@ export class PuzzleStage {
   };
 
   private held: HeldState | null = null;
+  // Groups this client dropped locally but for which the server's authoritative
+  // drop/snap has not yet arrived. A pan resync carries the server's last
+  // committed resting position, which is older than this in-flight drop, so it
+  // must not rewind these (the ordering guard). Cleared when the drop/snap/
+  // rollback for the group lands. See resyncShouldApply.
+  private pendingDrops = new Set<number>();
   // Last drag origin produced this frame while a cluster is held. moveGroup has
   // already applied it locally; this only defers the broadcast so tickDragFlush
   // emits at most one drag per frame. Null on frames with no movement, so idle
@@ -716,6 +723,7 @@ export class PuzzleStage {
     this.textureBase = "";
     this.held = null;
     this.pendingDrag = null;
+    this.pendingDrops.clear();
   }
 
   // Unloads every resident piece texture from the Assets cache. Sprites are freed
@@ -783,6 +791,7 @@ export class PuzzleStage {
     this.fileById = new Map();
     this.manifest = null;
     this.textureBase = "";
+    this.pendingDrops.clear();
     this.worldSize = null;
     this.playZone = null;
     this.frame = null;
@@ -1090,6 +1099,9 @@ export class PuzzleStage {
   }
 
   applyGrabDenied(groupId: number): void {
+    // A denied grab means an optimistic drop that followed it will be rejected by
+    // the server, so lift the in-flight guard rather than leaving it stuck.
+    this.pendingDrops.delete(groupId);
     if (!this.held || this.held.groupId !== groupId) return;
     const node = this.groups.get(groupId);
     if (node) {
@@ -1112,6 +1124,9 @@ export class PuzzleStage {
   }
 
   applyRemoteDrop(groupId: number, userId: string, worldX: number, worldY: number): void {
+    // Authoritative drop: confirms our own optimistic drop (no `except` on the
+    // server's drop broadcast) or relays a peer's, so the in-flight guard lifts.
+    this.pendingDrops.delete(groupId);
     const node = this.groups.get(groupId);
     if (!node) return;
     // The drop can relocate a cluster that was never locally held (joined
@@ -1126,6 +1141,7 @@ export class PuzzleStage {
   }
 
   applyRollback(groupId: number, worldX: number, worldY: number): void {
+    this.pendingDrops.delete(groupId);
     const node = this.groups.get(groupId);
     if (!node) return;
     this.markTilesDirty(this.worldAabb(node));
@@ -1135,6 +1151,32 @@ export class PuzzleStage {
       this.held = null;
     }
     this.releaseGroupHeld(groupId);
+  }
+
+  // Apply a pan resync (region_state): set each group's resting position from the
+  // server, except where the client is the live authority for it (holding it, or
+  // an in-flight local drop), so a stale resync never rewinds a newer live
+  // update. Only a changed position dirties tiles and pages residency, so the
+  // common redundant resync (unchanged singletons) costs nothing.
+  applyRegionState(entries: readonly { groupId: number; worldX: number; worldY: number }[]): void {
+    if (!this.world) return;
+    const localHeldId = this.held?.groupId ?? null;
+    let any = false;
+    for (const e of entries) {
+      if (!resyncShouldApply(e.groupId, localHeldId, this.heldGroupIds, this.pendingDrops))
+        continue;
+      const node = this.groups.get(e.groupId);
+      if (!node) continue;
+      if (node.worldX === e.worldX && node.worldY === e.worldY) continue;
+      this.markTilesDirty(this.worldAabb(node));
+      this.moveGroup(node, e.worldX, e.worldY);
+      this.markTilesDirty(this.worldAabb(node));
+      any = true;
+    }
+    if (any) {
+      this.updateResidency();
+      if (this.lodActive) this.refreshLodVisibility();
+    }
   }
 
   // ----- collaborator cursors -----
@@ -1229,6 +1271,10 @@ export class PuzzleStage {
     this.applyGroupInteractivity(host);
 
     this.heldGroupIds.delete(newGroupId);
+    // The merge confirms whichever side this client dropped, so lift the
+    // in-flight guard for the host and every group folded into it.
+    this.pendingDrops.delete(newGroupId);
+    for (const gid of sourceGroupIds) this.pendingDrops.delete(gid);
 
     if (this.held && (this.held.groupId === newGroupId || sourceGroupIds.has(this.held.groupId))) {
       this.held = null;
@@ -1419,6 +1465,9 @@ export class PuzzleStage {
     if (!this.callbacks) return;
     if (node.locked) return;
     ev.stopPropagation();
+    // Re-grabbing supersedes any in-flight drop of the same group; the held-skip
+    // now guards it, so drop the pending entry.
+    this.pendingDrops.delete(node.id);
     const world = this.screenToWorld(ev.global.x, ev.global.y);
     this.held = {
       groupId: node.id,
@@ -1480,6 +1529,10 @@ export class PuzzleStage {
         );
         this.moveGroup(node, nx, ny);
         this.setGroupHeldVisual(node, false);
+        // The server's authoritative drop/snap has not landed yet, so guard the
+        // group against a resync rewinding it to its pre-drop position until it
+        // does (cleared in applyRemoteDrop/applySnap/applyRollback).
+        this.pendingDrops.add(node.id);
         this.callbacks.onDrop(node.id, nx, ny);
         this.releaseGroupHeld(node.id);
       }

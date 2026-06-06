@@ -160,6 +160,9 @@ function routeMessage(msg: ServerMessage): void {
     case "cursor":
       stage.setPeerCursor(msg.userId, msg.worldX, msg.worldY);
       break;
+    case "region_state":
+      stage.applyRegionState(msg.groups);
+      break;
     default:
       break;
   }

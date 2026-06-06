@@ -12,7 +12,8 @@ import { MongoLogger, ensureIndexes } from "./mongo.js";
 import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { GroupQueue } from "./queue.js";
 import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
-import { initPuzzleIfEmpty } from "./init.js";
+import { initPuzzleIfEmpty, rebuildGroupIndex } from "./init.js";
+import { GroupIndex } from "./groupIndex.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { KeyframePublisher, makeKeyframeHandler, makeEventsHandler } from "./keyframe.js";
 import { EventLog } from "./eventLog.js";
@@ -50,11 +51,12 @@ async function main(): Promise<void> {
 
   // Scoped broadcasts are routed through a spatial index whose world grid cell is
   // sized from the puzzle's pieceSize (see DECISIONS: spatial broadcast index).
-  const hub = new Hub(
-    config.wsBufferedAmountLimitBytes,
-    meta.pieceSize * config.broadcastCellPieces,
-    config.broadcastMaxCells,
-  );
+  const cellSize = meta.pieceSize * config.broadcastCellPieces;
+  const hub = new Hub(config.wsBufferedAmountLimitBytes, cellSize, config.broadcastMaxCells);
+  // Group position read model on the same cell grid, rebuilt from Redis at boot
+  // (and on reset). Drives the pan resync (see DECISIONS: group index + resync).
+  const groupIndex = new GroupIndex(cellSize);
+  await rebuildGroupIndex(groupIndex, state, meta.totalPieces);
   // Per-group dispatch queues: messages for different groups run concurrently,
   // a group's own messages stay ordered, and a merge serializes against every
   // group it joins (see DECISIONS: per-group dispatch queues).
@@ -69,6 +71,7 @@ async function main(): Promise<void> {
     devEnabled: config.devEnabled,
     eventStartsAt: config.eventStartsAt,
     queue,
+    groupIndex,
   };
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
   ctx.lifecycle = lifecycle;

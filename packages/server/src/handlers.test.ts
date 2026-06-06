@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { dispatch, handleGrab, handleDrop, handleDevPlace } from "./handlers.js";
+import { dispatch, handleGrab, handleDrop, handleDevPlace, handleViewport } from "./handlers.js";
 import type { Context } from "./handlers.js";
-import type { Client } from "./hub.js";
+import { Hub, type Client } from "./hub.js";
 import type { PuzzleMeta } from "./state.js";
-import type { GroupRuntime } from "@mpp/shared";
+import type { GroupRuntime, ServerMessage } from "@mpp/shared";
 import { GroupQueue } from "./queue.js";
+import { GroupIndex } from "./groupIndex.js";
+import { cellKey } from "./worldGrid.js";
 
 const meta: PuzzleMeta = {
   totalPieces: 100,
@@ -47,7 +49,7 @@ function makeCtx() {
   const send = vi.fn();
   const broadcast = vi.fn();
   const broadcastOverlapping = vi.fn();
-  const updateSubscription = vi.fn();
+  const updateSubscription = vi.fn(() => [] as number[]);
   const tryAcquireGroup = vi.fn();
   const readGroup = vi.fn();
   const ctx = {
@@ -58,6 +60,7 @@ function makeCtx() {
     mongo: { logMerge: vi.fn() },
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
+    groupIndex: new GroupIndex(meta.pieceSize * 16),
   } as unknown as Context;
   return {
     ctx,
@@ -371,6 +374,7 @@ function makeDropCtx() {
     mongo: { logMerge, leaderboard },
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
+    groupIndex: new GroupIndex(dropMeta.pieceSize * 16),
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastOverlapping, logMerge, leaderboard, state };
 }
@@ -509,6 +513,8 @@ describe("handleDrop", () => {
       puzzleId: "test",
       mongo: { logMerge, leaderboard },
       eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
+      queue: new GroupQueue(),
+      groupIndex: new GroupIndex(onePieceMeta.pieceSize * 16),
       lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);
@@ -620,5 +626,154 @@ describe("cross-group merge ordering", () => {
     await Promise.all([dropDone, neighbour]);
     expect(neighbourRan).toBe(true);
     expect(state.groups.get(1)?.size).toBe(2);
+  });
+});
+
+// FakeState groups carry no stored AABB, so the index keys groups by the bare
+// drop/target point here (worldAabbFor falls back to a zero-size rect). The index
+// cell of a world point at this cellSize.
+const INDEX_CELL = dropMeta.pieceSize * 16;
+const cellAt = (x: number, y: number): number =>
+  cellKey(Math.floor(x / INDEX_CELL), Math.floor(y / INDEX_CELL));
+
+describe("group index maintenance", () => {
+  it("re-keys a group to its new cell on a non-merging drop", async () => {
+    const { ctx, state } = makeDropCtx();
+    state.place(dropped(4, 500, 500), [4]);
+    ctx.groupIndex.set(4, 500, 500);
+    const oldCell = cellAt(500, 500);
+
+    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 50000, worldY: 50000 });
+
+    expect(ctx.groupIndex.collect([oldCell])).toEqual([]);
+    expect(ctx.groupIndex.collect([cellAt(50000, 50000)])).toEqual([
+      { groupId: 4, worldX: 50000, worldY: 50000 },
+    ]);
+  });
+
+  it("drops merged-away groups and keeps the surviving group on a merge", async () => {
+    const { ctx, state } = makeDropCtx();
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place(dropped(4, 200, 200), [4]);
+    ctx.groupIndex.set(1, 200, 200);
+    ctx.groupIndex.set(4, 200, 200);
+
+    await dispatch(
+      ctx,
+      client,
+      JSON.stringify({ t: "drop", groupId: 4, worldX: 200, worldY: 200 }),
+    );
+
+    expect(ctx.groupIndex.cellOf(4)).toBeUndefined();
+    // The surviving group 1 keeps exactly one index entry at its merged footprint.
+    const all = ctx.groupIndex.collect([cellAt(0, 0)]);
+    expect(all.map((g) => g.groupId)).toEqual([1]);
+  });
+
+  it("re-keys a group to the frame origin cell when it anchors", async () => {
+    const { ctx, state } = makeDropCtx();
+    // Drop near the origin so it frame-anchors; the merged group lands at (0,0)
+    // and its body footprint sits in the origin cell.
+    state.place(dropped(4, 3, -4), [4]);
+    ctx.groupIndex.set(4, 3, -4);
+
+    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 3, worldY: -4 });
+
+    expect(state.groups.get(4)?.locked).toBe(true);
+    expect(ctx.groupIndex.collect([cellAt(0, 0)]).map((g) => g.groupId)).toEqual([4]);
+  });
+});
+
+class FakeWs {
+  readonly OPEN = 1;
+  readyState = 1;
+  bufferedAmount = 0;
+  readonly sent: string[] = [];
+  send(payload: string): void {
+    this.sent.push(payload);
+  }
+  close(): void {
+    this.readyState = 3;
+  }
+}
+
+const VIEWPORT_CELL = 1000;
+
+function makeViewportCtx() {
+  const hub = new Hub(1 << 20, VIEWPORT_CELL, 256);
+  const groupIndex = new GroupIndex(VIEWPORT_CELL);
+  const ctx = { hub, groupIndex } as unknown as Context;
+  return { ctx, hub, groupIndex };
+}
+
+function viewportClient(): { client: Client; ws: FakeWs } {
+  const ws = new FakeWs();
+  const client = {
+    userId: "u",
+    ws,
+    viewport: null,
+    cells: new Set<number>(),
+  } as unknown as Client;
+  return { client, ws };
+}
+
+function lastRegionState(ws: FakeWs): { groupId: number; worldX: number; worldY: number }[] | null {
+  for (let i = ws.sent.length - 1; i >= 0; i--) {
+    const msg = JSON.parse(ws.sent[i]!) as ServerMessage;
+    if (msg.t === "region_state") return msg.groups;
+  }
+  return null;
+}
+
+describe("handleViewport resync", () => {
+  it("sends region state for the groups in the entered cells", () => {
+    const { ctx, groupIndex } = makeViewportCtx();
+    groupIndex.set(5, 1500, 1500); // cell (1,1)
+    const { client, ws } = viewportClient();
+
+    handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 1000,
+      worldY: 1000,
+      worldW: 500,
+      worldH: 500,
+    });
+
+    expect(lastRegionState(ws)).toEqual([{ groupId: 5, worldX: 1500, worldY: 1500 }]);
+  });
+
+  it("resyncs only newly entered cells, not cells the client already had", () => {
+    const { ctx, groupIndex } = makeViewportCtx();
+    groupIndex.set(5, 1500, 1500); // cell (1,1)
+    groupIndex.set(6, 2500, 1500); // cell (2,1)
+    const { client, ws } = viewportClient();
+
+    // First viewport covers cell (1,1): resyncs group 5.
+    handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 1000,
+      worldY: 1000,
+      worldW: 500,
+      worldH: 500,
+    });
+    expect(lastRegionState(ws)?.map((g) => g.groupId)).toEqual([5]);
+
+    // Widen to also cover cell (2,1): only the newly entered cell is resynced, so
+    // group 6 is sent and group 5 (already subscribed) is not re-sent.
+    handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 1000,
+      worldY: 1000,
+      worldW: 1500,
+      worldH: 500,
+    });
+    expect(lastRegionState(ws)?.map((g) => g.groupId)).toEqual([6]);
+  });
+
+  it("sends nothing when the entered cells hold no groups", () => {
+    const { ctx } = makeViewportCtx();
+    const { client, ws } = viewportClient();
+    handleViewport(ctx, client, { t: "viewport", worldX: 0, worldY: 0, worldW: 500, worldH: 500 });
+    expect(lastRegionState(ws)).toBeNull();
   });
 });
