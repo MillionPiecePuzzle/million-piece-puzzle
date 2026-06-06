@@ -53,12 +53,15 @@ export function buildAuthConfig(opts: AuthConfigOptions): ExpressAuthConfig {
         if (url.startsWith("/")) return `${baseUrl}${url}`;
         return opts.appOrigin;
       },
-      // Database strategy: surface the user id and pseudo so GET /auth/session
-      // can drive the forced-pseudo onboarding and snap attribution.
+      // Database strategy: surface the user id, pseudo and country so
+      // GET /auth/session can drive the forced onboarding steps and snap
+      // attribution.
       session({ session, user }) {
         session.user.id = user.id;
         (session.user as { pseudo?: string | null }).pseudo =
           (user as { pseudo?: string | null }).pseudo ?? null;
+        (session.user as { country?: string | null }).country =
+          (user as { country?: string | null }).country ?? null;
         return session;
       },
     },

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { LeaderboardRow } from "../data/leaderboard";
+import { flagUrl } from "../data/flags";
 
 const props = withDefaults(defineProps<{ row: LeaderboardRow; rankWidth?: string }>(), {
   rankWidth: "22px",
@@ -17,7 +18,16 @@ function fmt(n: number): string {
     :style="{ gridTemplateColumns: `${props.rankWidth} 22px 1fr auto` }"
   >
     <span class="rk" :class="{ top: props.row.rank <= 3 }">{{ props.row.rank }}</span>
-    <span class="av" :style="{ background: props.row.color }">{{ props.row.initials }}</span>
+    <img
+      v-if="props.row.country"
+      class="av av-flag"
+      :src="flagUrl(props.row.country)"
+      :alt="props.row.country"
+      :title="props.row.country.toUpperCase()"
+      width="22"
+      height="22"
+    />
+    <span v-else class="av" :style="{ background: props.row.color }">{{ props.row.initials }}</span>
     <span class="nm">
       {{ props.row.name }}
       <span v-if="props.row.you" class="you-tag">you</span>
@@ -58,6 +68,10 @@ function fmt(n: number): string {
   font-size: 10px;
   font-weight: 600;
   color: #fff;
+}
+.av-flag {
+  object-fit: cover;
+  box-shadow: inset 0 0 0 1px rgba(21, 20, 15, 0.12);
 }
 .nm {
   font-size: 13px;

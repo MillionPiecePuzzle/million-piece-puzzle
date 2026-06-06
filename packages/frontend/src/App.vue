@@ -3,11 +3,12 @@ import { onMounted } from "vue";
 import { RouterView } from "vue-router";
 import AuthModal from "./components/AuthModal.vue";
 import PseudoModal from "./components/PseudoModal.vue";
+import NationalityModal from "./components/NationalityModal.vue";
 import { useAuth } from "./composables/useAuth";
 
 // Resolve the session once on boot. This also runs on return from the OAuth
-// redirect, routing a freshly signed-in user into pseudo onboarding or
-// contributor mode.
+// redirect, routing a freshly signed-in user into the forced onboarding steps
+// (pseudo then nationality) or contributor mode.
 onMounted(() => {
   void useAuth().bootstrap();
 });
@@ -17,4 +18,5 @@ onMounted(() => {
   <RouterView />
   <AuthModal />
   <PseudoModal />
+  <NationalityModal />
 </template>

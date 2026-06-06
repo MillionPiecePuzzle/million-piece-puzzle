@@ -154,6 +154,7 @@ async function main(): Promise<void> {
   const app = createApp({
     authConfig,
     pseudoStore: mongo,
+    countryStore: mongo,
     authLimiter: new RedisFixedWindow(redis, "auth", config.authRateMax, config.authRateWindowSec),
     signupLimiter: new RedisFixedWindow(
       redis,

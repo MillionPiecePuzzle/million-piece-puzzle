@@ -1,18 +1,21 @@
 import { computed, ref } from "vue";
 import { useMode } from "./useMode";
 import { usePseudoModal } from "./usePseudoModal";
+import { useNationalityModal } from "./useNationalityModal";
 import { authBaseUrl } from "../data/authBaseUrl";
 
-// The authenticated contributor as exposed by GET /auth/session. pseudo is null
-// until the user completes the forced onboarding modal.
+// The authenticated contributor as exposed by GET /auth/session. pseudo and
+// country are null until the user completes the forced onboarding steps.
 export type SessionUser = {
   id: string;
   name?: string | null;
   image?: string | null;
   pseudo: string | null;
+  country: string | null;
 };
 
 export type PseudoResult = { ok: true } | { ok: false; reason: "taken" | "invalid" | "error" };
+export type CountryResult = { ok: true } | { ok: false; reason: "invalid" | "error" };
 
 const user = ref<SessionUser | null>(null);
 const ready = ref(false);
@@ -96,14 +99,37 @@ async function submitPseudo(pseudo: string): Promise<PseudoResult> {
   }
 }
 
+async function submitCountry(country: string): Promise<CountryResult> {
+  try {
+    const res = await fetch(`${authBaseUrl()}/profile/country`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ country }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { user: SessionUser };
+      user.value = data.user;
+      return { ok: true };
+    }
+    if (res.status === 400) return { ok: false, reason: "invalid" };
+    return { ok: false, reason: "error" };
+  } catch {
+    return { ok: false, reason: "error" };
+  }
+}
+
 // App boot and return-from-redirect: resolve the session, then route the user.
-// Signed in with no pseudo -> forced onboarding modal. Signed in with a pseudo
-// -> contributor mode, so entering /play opens the authenticated WebSocket.
+// The forced onboarding runs in order: pseudo first, then nationality. Only a
+// user with both set enters contributor mode, so entering /play opens the
+// authenticated WebSocket.
 async function bootstrap(): Promise<void> {
   const u = await getSession();
   if (!u) return;
   if (u.pseudo === null) {
     usePseudoModal().show("forced");
+  } else if (u.country === null) {
+    useNationalityModal().show("forced");
   } else {
     useMode().setMode("contributor");
   }
@@ -117,6 +143,7 @@ export function useAuth() {
     signIn,
     signOut,
     submitPseudo,
+    submitCountry,
     bootstrap,
   };
 }

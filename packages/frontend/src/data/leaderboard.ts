@@ -8,6 +8,9 @@ export type LeaderboardRow = {
   name: string;
   initials: string;
   color: string;
+  // ISO 3166-1 alpha-2 code, rendered as a round flag avatar. Null falls back to
+  // the colored initials circle (backfilled rows, users without a country).
+  country: string | null;
   pieces: number;
   online: boolean;
   you?: boolean;
@@ -47,6 +50,7 @@ export function toLeaderboardRows(
       name,
       initials: initials(name),
       color: you ? "var(--accent)" : palette[i % palette.length]!,
+      country: entry.country ?? null,
       pieces: entry.pieces,
       online: false,
       you,

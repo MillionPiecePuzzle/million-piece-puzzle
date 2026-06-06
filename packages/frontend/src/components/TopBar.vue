@@ -5,10 +5,13 @@ import BrandMark from "./BrandMark.vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useAuth } from "../composables/useAuth";
 import { usePseudoModal } from "../composables/usePseudoModal";
+import { useNationalityModal } from "../composables/useNationalityModal";
+import { flagUrl } from "../data/flags";
 
 const { puzzleName, totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
 const { show: showPseudoModal } = usePseudoModal();
+const { show: showNationalityModal } = useNationalityModal();
 
 const progressPct = computed(() =>
   totalPieces.value > 0 ? (lockedCount.value / totalPieces.value) * 100 : 0,
@@ -36,6 +39,15 @@ const progressPct = computed(() =>
     <div class="top-right">
       <div v-if="user && user.pseudo" class="presence">
         <span class="dot" aria-label="Connected"></span>
+        <button
+          v-if="user.country"
+          type="button"
+          class="flag"
+          :title="`Nationality: ${user.country.toUpperCase()}. Click to change.`"
+          @click="showNationalityModal('edit')"
+        >
+          <img :src="flagUrl(user.country)" :alt="user.country" width="18" height="18" />
+        </button>
         <button
           type="button"
           class="pseudo"
@@ -139,6 +151,16 @@ const progressPct = computed(() =>
   border-radius: 99px;
   background: #2ecc71;
   box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.2);
+}
+.presence .flag {
+  display: inline-flex;
+  cursor: pointer;
+  border-radius: 50%;
+  line-height: 0;
+}
+.presence .flag img {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(21, 20, 15, 0.12);
 }
 .presence .pseudo {
   font-size: 13px;

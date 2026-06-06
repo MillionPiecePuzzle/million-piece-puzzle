@@ -147,6 +147,9 @@ export type SActivity = {
 export type LeaderboardEntry = {
   userId: string;
   pseudo?: string | null;
+  // ISO 3166-1 alpha-2 code, resolved from the user profile (null when unset).
+  // Rendered as a flag avatar in the leaderboard.
+  country?: string | null;
   pieces: number;
 };
 

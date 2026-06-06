@@ -64,6 +64,9 @@ coverage/
 generated/
 *.dzi
 
+# Flag assets (copied from circle-flags by predev/prebuild, not tracked)
+/packages/frontend/public/flags/
+
 # Source images (user-provided, not tracked)
 samples/source/*
 !samples/source/.gitkeep

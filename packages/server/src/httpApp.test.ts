@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Request, Response } from "express";
-import { makeProfilePseudoHandler, makeCors, makeRateLimit } from "./httpApp.js";
+import {
+  makeProfilePseudoHandler,
+  makeProfileCountryHandler,
+  makeCors,
+  makeRateLimit,
+} from "./httpApp.js";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
 import { RedisFixedWindow } from "./limits.js";
 import type { Redis } from "ioredis";
@@ -37,7 +42,7 @@ function fakeRes() {
   return r;
 }
 
-const profile: UserProfile = { id: "u1", name: "N", image: null, pseudo: "Alice" };
+const profile: UserProfile = { id: "u1", name: "N", image: null, pseudo: "Alice", country: "fr" };
 
 describe("makeProfilePseudoHandler", () => {
   it("401 when no session user", async () => {
@@ -102,6 +107,59 @@ describe("makeProfilePseudoHandler", () => {
     });
     const res = fakeRes();
     await handler({ body: { pseudo: "Alice" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(500);
+  });
+});
+
+describe("makeProfileCountryHandler", () => {
+  it("401 when no session user", async () => {
+    const setCountry = vi.fn();
+    const handler = makeProfileCountryHandler({
+      getUserId: async () => null,
+      countryStore: { setCountry },
+    });
+    const res = fakeRes();
+    await handler({ body: { country: "fr" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(401);
+    expect(setCountry).not.toHaveBeenCalled();
+  });
+
+  it("400 when the country is invalid", async () => {
+    const setCountry = vi.fn();
+    const handler = makeProfileCountryHandler({
+      getUserId: async () => "u1",
+      countryStore: { setCountry },
+    });
+    const res = fakeRes();
+    await handler({ body: { country: "zz" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(setCountry).not.toHaveBeenCalled();
+  });
+
+  it("200 with the updated profile, normalizing the code", async () => {
+    const setCountry = vi.fn(async () => profile);
+    const handler = makeProfileCountryHandler({
+      getUserId: async () => "u1",
+      countryStore: { setCountry },
+    });
+    const res = fakeRes();
+    await handler({ body: { country: "FR" } } as Request, res);
+    expect(setCountry).toHaveBeenCalledWith("u1", "fr");
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(200);
+    expect((res as unknown as { body: unknown }).body).toEqual({ user: profile });
+  });
+
+  it("500 on an unexpected store error", async () => {
+    const handler = makeProfileCountryHandler({
+      getUserId: async () => "u1",
+      countryStore: {
+        setCountry: async () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    const res = fakeRes();
+    await handler({ body: { country: "fr" } } as Request, res);
     expect((res as unknown as { statusCode: number }).statusCode).toBe(500);
   });
 });

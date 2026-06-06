@@ -1,4 +1,4 @@
-// Express HTTP layer: auth routes, the pseudo-profile route, the spectator
+// Express HTTP layer: auth routes, the profile routes (pseudo, country), the spectator
 // stream (keyframe + event windows), and a credentialed-CORS + per-IP
 // rate-limit boundary in front of the SPA-facing routes. The WebSocket upgrade
 // attaches to the same server in index.ts. Helpers are exported so they can be
@@ -7,7 +7,7 @@
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { ExpressAuth, getSession, type ExpressAuthConfig } from "@auth/express";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { normalizePseudo } from "@mpp/shared";
+import { normalizeCountry, normalizePseudo } from "@mpp/shared";
 import { clientIp, type RedisFixedWindow } from "./limits.js";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
 
@@ -15,9 +15,14 @@ export type PseudoStore = {
   setPseudo: (userId: string, pseudo: string) => Promise<UserProfile>;
 };
 
+export type CountryStore = {
+  setCountry: (userId: string, country: string) => Promise<UserProfile>;
+};
+
 export type CreateAppDeps = {
   authConfig: ExpressAuthConfig;
   pseudoStore: PseudoStore;
+  countryStore: CountryStore;
   authLimiter: RedisFixedWindow;
   signupLimiter: RedisFixedWindow;
   appOrigin: string;
@@ -60,6 +65,15 @@ export function createApp(deps: CreateAppDeps): Express {
     makeProfilePseudoHandler({
       getUserId: (req) => sessionUserId(req, deps.authConfig),
       pseudoStore: deps.pseudoStore,
+    }),
+  );
+
+  app.post(
+    "/profile/country",
+    express.json(),
+    makeProfileCountryHandler({
+      getUserId: (req) => sessionUserId(req, deps.authConfig),
+      countryStore: deps.countryStore,
     }),
   );
 
@@ -133,6 +147,33 @@ export function makeProfilePseudoHandler(deps: ProfilePseudoDeps) {
         return;
       }
       console.error("[profile/pseudo]", (e as Error).message);
+      res.status(500).json({ error: "server" });
+    }
+  };
+}
+
+export type ProfileCountryDeps = {
+  getUserId: (req: Request) => Promise<string | null>;
+  countryStore: CountryStore;
+};
+
+export function makeProfileCountryHandler(deps: ProfileCountryDeps) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const userId = await deps.getUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "unauthenticated" });
+      return;
+    }
+    const country = normalizeCountry((req.body as { country?: unknown } | undefined)?.country);
+    if (country === null) {
+      res.status(400).json({ error: "invalid_country" });
+      return;
+    }
+    try {
+      const profile = await deps.countryStore.setCountry(userId, country);
+      res.status(200).json({ user: profile });
+    } catch (e) {
+      console.error("[profile/country]", (e as Error).message);
       res.status(500).json({ error: "server" });
     }
   };

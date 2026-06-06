@@ -32,9 +32,10 @@ export type Puzzle = {
 };
 
 // Authenticated contributor. The OAuth profile fields (email, name, image) are
-// written by the Auth.js adapter on first sign-in; pseudo is set later through
-// the forced onboarding modal and is null until then. pseudo is the only
-// public-facing identity, shown for snap attribution.
+// written by the Auth.js adapter on first sign-in; pseudo and country are set
+// later through the forced onboarding modals and are null until then. pseudo is
+// the public-facing identity shown for snap attribution; country is an ISO
+// 3166-1 alpha-2 code shown as a flag avatar in the leaderboard.
 export type User = {
   _id: string;
   email: string;
@@ -42,6 +43,7 @@ export type User = {
   image?: string | null;
   emailVerified?: Date | null;
   pseudo: string | null;
+  country: string | null;
   createdAt: Date;
   lastSeenAt: Date;
 };

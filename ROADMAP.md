@@ -92,7 +92,7 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [ ] License attributions page generated from dependencies
 
 ### `complementary`
-- (none yet)
+- [x] Contributor nationality: required onboarding step after the pseudo (forced `NationalityModal` over the shared `COUNTRIES` list, validated by `normalizeCountry`), stored on the user profile and exposed via `GET /auth/session` and `POST /profile/country`. The leaderboard avatar is the contributor's round country flag (self-hosted from circle-flags, copied to `public/flags` by the predev/prebuild hooks), falling back to the initials circle for rows without a country. Does not close the broader `frontend-shell` onboarding task
 
 ---
 

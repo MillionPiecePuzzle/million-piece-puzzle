@@ -4,23 +4,26 @@ import type { ActivityItem, ClusterMerge, LeaderboardEntry } from "@mpp/shared";
 export type ClusterMergeDoc = Omit<ClusterMerge, "_id">;
 
 // User document as written by the Auth.js Mongo adapter (OAuth profile) plus the
-// fields this app adds: pseudo (set through onboarding), createdAt, lastSeenAt.
+// fields this app adds: pseudo and country (set through onboarding), createdAt,
+// lastSeenAt.
 type UserDoc = {
   _id: ObjectId;
   email?: string;
   name?: string | null;
   image?: string | null;
   pseudo?: string | null;
+  country?: string | null;
   createdAt?: Date;
   lastSeenAt?: Date;
 };
 
-// Public-facing profile returned to the SPA after a pseudo update.
+// Public-facing profile returned to the SPA after a pseudo or country update.
 export type UserProfile = {
   id: string;
   name: string | null;
   image: string | null;
   pseudo: string | null;
+  country: string | null;
 };
 
 // Thrown by setPseudo when the chosen pseudo is already taken (Mongo duplicate
@@ -34,10 +37,10 @@ export class DuplicatePseudoError extends Error {
 
 const MONGO_DUPLICATE_KEY = 11000;
 
-// Resolve a user id string to its pseudo, tolerant of ids that are not valid
-// ObjectIds (dev/test data): a non-castable id simply yields no match instead of
-// throwing inside the aggregation.
-const pseudoLookup = (localField: string) => ({
+// Resolve a user id string to its public profile fields (pseudo, country),
+// tolerant of ids that are not valid ObjectIds (dev/test data): a non-castable
+// id simply yields no match instead of throwing inside the aggregation.
+const profileLookup = (localField: string) => ({
   $lookup: {
     from: "users",
     let: { uid: `$${localField}` },
@@ -52,7 +55,7 @@ const pseudoLookup = (localField: string) => ({
           },
         },
       },
-      { $project: { _id: 0, pseudo: 1 } },
+      { $project: { _id: 0, pseudo: 1, country: 1 } },
     ],
     as: "u",
   },
@@ -93,7 +96,7 @@ export class MongoLogger {
         { $match: { puzzleId, anchored: true } },
         { $sort: { at: -1 } },
         { $limit: limit },
-        pseudoLookup("userId"),
+        profileLookup("userId"),
       ])
       .toArray();
     return docs.map((d) => {
@@ -121,7 +124,7 @@ export class MongoLogger {
       .aggregate<{
         _id: string;
         pieces: number;
-        u: { pseudo?: string | null }[];
+        u: { pseudo?: string | null; country?: string | null }[];
       }>([
         { $match: { puzzleId } },
         { $sort: { at: 1 } },
@@ -130,10 +133,15 @@ export class MongoLogger {
         { $group: { _id: "$userId", pieces: { $sum: 1 } } },
         { $sort: { pieces: -1, _id: 1 } },
         { $limit: limit },
-        pseudoLookup("_id"),
+        profileLookup("_id"),
       ])
       .toArray();
-    return rows.map((r) => ({ userId: r._id, pseudo: r.u[0]?.pseudo ?? null, pieces: r.pieces }));
+    return rows.map((r) => ({
+      userId: r._id,
+      pseudo: r.u[0]?.pseudo ?? null,
+      country: r.u[0]?.country ?? null,
+      pieces: r.pieces,
+    }));
   }
 
   // Set a contributor's pseudo, enforcing global uniqueness through the
@@ -153,6 +161,18 @@ export class MongoLogger {
     }
   }
 
+  // Set a contributor's country (ISO 3166-1 alpha-2). No uniqueness constraint:
+  // many contributors share a country.
+  async setCountry(userId: string, country: string): Promise<UserProfile> {
+    const doc = await this.users.findOneAndUpdate(
+      { _id: new ObjectId(userId) },
+      { $set: { country } },
+      { returnDocument: "after" },
+    );
+    if (!doc) throw new Error(`user ${userId} not found`);
+    return toProfile(doc);
+  }
+
   // Fire-and-forget liveness stamp, written on each WS upgrade.
   async touchLastSeen(userId: string): Promise<void> {
     await this.users.updateOne({ _id: new ObjectId(userId) }, { $set: { lastSeenAt: new Date() } });
@@ -165,6 +185,7 @@ function toProfile(doc: UserDoc): UserProfile {
     name: doc.name ?? null,
     image: doc.image ?? null,
     pseudo: doc.pseudo ?? null,
+    country: doc.country ?? null,
   };
 }
 

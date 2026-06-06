@@ -1,52 +1,52 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { PSEUDO_MAX_LENGTH, PSEUDO_MIN_LENGTH, normalizePseudo } from "@mpp/shared";
-import { usePseudoModal } from "../composables/usePseudoModal";
+import { COUNTRIES } from "@mpp/shared";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
+import { useMode } from "../composables/useMode";
+import { flagUrl } from "../data/flags";
 
-const { open, mode, hide } = usePseudoModal();
-const { show: showNationality } = useNationalityModal();
-const { user, submitPseudo } = useAuth();
+const { open, mode, hide } = useNationalityModal();
+const { user, submitCountry } = useAuth();
+const { setMode } = useMode();
 
 const draft = ref("");
 const error = ref<string | null>(null);
 const saving = ref(false);
-const inputEl = ref<HTMLInputElement | null>(null);
+const selectEl = ref<HTMLSelectElement | null>(null);
 
-const normalized = computed(() => normalizePseudo(draft.value));
-const valid = computed(() => normalized.value !== null);
+const valid = computed(() => draft.value !== "");
 const dismissible = computed(() => mode.value === "edit");
 
-const title = computed(() => (mode.value === "edit" ? "Change your pseudo" : "Choose your pseudo"));
+const title = computed(() =>
+  mode.value === "edit" ? "Change your nationality" : "Choose your nationality",
+);
 const lede = computed(() =>
   mode.value === "edit"
-    ? "Pick a new pseudo. It is shown to other builders next to the pieces you place."
-    : "Pick a pseudo before you start placing pieces. It is shown to other builders.",
+    ? "Pick a new country. Its flag is shown next to your pseudo in the leaderboard."
+    : "Pick your country. Its flag is shown next to your pseudo in the leaderboard.",
 );
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
-  draft.value = mode.value === "edit" ? (user.value?.pseudo ?? "") : "";
+  draft.value = mode.value === "edit" ? (user.value?.country ?? "") : "";
   error.value = null;
-  void nextTick(() => inputEl.value?.focus());
+  void nextTick(() => selectEl.value?.focus());
 });
 
 async function save() {
-  const name = normalized.value;
-  if (name === null || saving.value) return;
+  const code = draft.value;
+  if (code === "" || saving.value) return;
   saving.value = true;
   error.value = null;
-  const res = await submitPseudo(name);
+  const res = await submitCountry(code);
   saving.value = false;
   if (!res.ok) {
-    error.value =
-      res.reason === "taken" ? "That pseudo is already taken." : "Could not save, try again.";
+    error.value = "Could not save, try again.";
     return;
   }
-  // First-time onboarding chains into the required nationality step, which is
-  // what actually unlocks contribution. An edit just updates the name.
-  if (mode.value === "forced") showNationality("forced");
+  // The nationality step completes onboarding and unlocks contribution.
+  if (mode.value === "forced") setMode("contributor");
   hide();
 }
 
@@ -57,30 +57,35 @@ function onBackdrop() {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="pseudo-backdrop" @click.self="onBackdrop">
-      <div class="pseudo-modal" role="dialog" aria-modal="true" aria-labelledby="pseudo-title">
+    <div v-if="open" class="nat-backdrop" @click.self="onBackdrop">
+      <div class="nat-modal" role="dialog" aria-modal="true" aria-labelledby="nat-title">
         <header>
-          <h2 id="pseudo-title">{{ title }}</h2>
+          <h2 id="nat-title">{{ title }}</h2>
           <button v-if="dismissible" class="close" aria-label="Close" @click="hide">×</button>
         </header>
 
         <p class="lede">{{ lede }}</p>
 
-        <input
-          ref="inputEl"
-          v-model="draft"
-          class="field"
-          type="text"
-          :maxlength="PSEUDO_MAX_LENGTH"
-          placeholder="your pseudo"
-          aria-label="Pseudo"
-          autocomplete="off"
-          @keyup.enter="save"
-        />
-        <p class="hint">
-          {{ PSEUDO_MIN_LENGTH }} to {{ PSEUDO_MAX_LENGTH }} characters: letters, digits, spaces,
-          hyphens and underscores.
-        </p>
+        <div class="picker">
+          <img
+            class="preview"
+            :src="flagUrl(draft || null)"
+            :alt="draft || 'no country selected'"
+            width="28"
+            height="28"
+          />
+          <select
+            ref="selectEl"
+            v-model="draft"
+            class="field"
+            aria-label="Country"
+            @keyup.enter="save"
+          >
+            <option value="" disabled>Select your country...</option>
+            <option v-for="c in COUNTRIES" :key="c.code" :value="c.code">{{ c.name }}</option>
+          </select>
+        </div>
+
         <p v-if="error" class="error" role="alert">{{ error }}</p>
 
         <button class="save" :disabled="!valid || saving" @click="save">
@@ -92,16 +97,16 @@ function onBackdrop() {
 </template>
 
 <style scoped>
-.pseudo-backdrop {
+.nat-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 110;
+  z-index: 111;
   background: rgba(21, 20, 15, 0.35);
   backdrop-filter: blur(2px);
   display: grid;
   place-items: center;
 }
-.pseudo-modal {
+.nat-modal {
   width: min(380px, calc(100vw - 32px));
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--line);
@@ -140,8 +145,19 @@ h2 {
   font-size: 13px;
   line-height: 1.5;
 }
+.picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.preview {
+  flex: none;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(21, 20, 15, 0.12);
+}
 .field {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-btn);
@@ -153,20 +169,15 @@ h2 {
   outline: none;
   border-color: var(--ink-3);
 }
-.hint {
-  margin: 8px 0 14px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-4);
-}
 .error {
-  margin: -6px 0 12px;
+  margin: 12px 0 0;
   font-family: var(--mono);
   font-size: 12px;
   color: oklch(0.55 0.18 30);
 }
 .save {
   width: 100%;
+  margin-top: 16px;
   padding: 10px 14px;
   border-radius: var(--radius-btn);
   border: 1px solid var(--ink);
