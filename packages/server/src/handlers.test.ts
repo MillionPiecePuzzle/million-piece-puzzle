@@ -640,14 +640,14 @@ describe("group index maintenance", () => {
   it("re-keys a group to its new cell on a non-merging drop", async () => {
     const { ctx, state } = makeDropCtx();
     state.place(dropped(4, 500, 500), [4]);
-    ctx.groupIndex.set(4, 500, 500);
+    ctx.groupIndex.set(4, 500, 500, { originX: 500, originY: 500, size: 1, locked: false });
     const oldCell = cellAt(500, 500);
 
     await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 50000, worldY: 50000 });
 
     expect(ctx.groupIndex.collect([oldCell])).toEqual([]);
     expect(ctx.groupIndex.collect([cellAt(50000, 50000)])).toEqual([
-      { groupId: 4, worldX: 50000, worldY: 50000 },
+      { groupId: 4, worldX: 50000, worldY: 50000, size: 1, locked: false },
     ]);
   });
 
@@ -655,8 +655,8 @@ describe("group index maintenance", () => {
     const { ctx, state } = makeDropCtx();
     state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
-    ctx.groupIndex.set(1, 200, 200);
-    ctx.groupIndex.set(4, 200, 200);
+    ctx.groupIndex.set(1, 200, 200, { originX: 200, originY: 200, size: 1, locked: false });
+    ctx.groupIndex.set(4, 200, 200, { originX: 200, originY: 200, size: 1, locked: false });
 
     await dispatch(
       ctx,
@@ -675,7 +675,7 @@ describe("group index maintenance", () => {
     // Drop near the origin so it frame-anchors; the merged group lands at (0,0)
     // and its body footprint sits in the origin cell.
     state.place(dropped(4, 3, -4), [4]);
-    ctx.groupIndex.set(4, 3, -4);
+    ctx.groupIndex.set(4, 3, -4, { originX: 3, originY: -4, size: 1, locked: false });
 
     await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 3, worldY: -4 });
 
@@ -702,9 +702,13 @@ const VIEWPORT_CELL = 1000;
 function makeViewportCtx() {
   const hub = new Hub(1 << 20, VIEWPORT_CELL, 256);
   const groupIndex = new GroupIndex(VIEWPORT_CELL);
-  const ctx = { hub, groupIndex } as unknown as Context;
-  return { ctx, hub, groupIndex };
+  const getGroupPieces = vi.fn(async (id: number) => [id, id + 100]);
+  const ctx = { hub, groupIndex, state: { getGroupPieces } } as unknown as Context;
+  return { ctx, hub, groupIndex, getGroupPieces };
 }
+
+// A singleton index payload: origin equals body min, size 1, unlocked.
+const single = (x: number, y: number) => ({ originX: x, originY: y, size: 1, locked: false });
 
 function viewportClient(): { client: Client; ws: FakeWs } {
   const ws = new FakeWs();
@@ -717,21 +721,30 @@ function viewportClient(): { client: Client; ws: FakeWs } {
   return { client, ws };
 }
 
-function lastRegionState(ws: FakeWs): { groupId: number; worldX: number; worldY: number }[] | null {
+type RegionGroupMsg = {
+  groupId: number;
+  worldX: number;
+  worldY: number;
+  size: number;
+  locked: boolean;
+  pieceIds: number[];
+};
+
+function lastRegionState(ws: FakeWs): RegionGroupMsg[] | null {
   for (let i = ws.sent.length - 1; i >= 0; i--) {
     const msg = JSON.parse(ws.sent[i]!) as ServerMessage;
-    if (msg.t === "region_state") return msg.groups;
+    if (msg.t === "region_state") return msg.groups as RegionGroupMsg[];
   }
   return null;
 }
 
-describe("handleViewport resync", () => {
-  it("sends region state for the groups in the entered cells", () => {
-    const { ctx, groupIndex } = makeViewportCtx();
-    groupIndex.set(5, 1500, 1500); // cell (1,1)
+describe("handleViewport region_state construction", () => {
+  it("streams construction data for the groups in the entered cells", async () => {
+    const { ctx, groupIndex, getGroupPieces } = makeViewportCtx();
+    groupIndex.set(5, 1500, 1500, single(1500, 1500)); // cell (1,1)
     const { client, ws } = viewportClient();
 
-    handleViewport(ctx, client, {
+    await handleViewport(ctx, client, {
       t: "viewport",
       worldX: 1000,
       worldY: 1000,
@@ -739,17 +752,40 @@ describe("handleViewport resync", () => {
       worldH: 500,
     });
 
-    expect(lastRegionState(ws)).toEqual([{ groupId: 5, worldX: 1500, worldY: 1500 }]);
+    // A singleton's pieceIds is its own id, derived without a Redis read.
+    expect(lastRegionState(ws)).toEqual([
+      { groupId: 5, worldX: 1500, worldY: 1500, size: 1, locked: false, pieceIds: [5] },
+    ]);
+    expect(getGroupPieces).not.toHaveBeenCalled();
   });
 
-  it("resyncs only newly entered cells, not cells the client already had", () => {
-    const { ctx, groupIndex } = makeViewportCtx();
-    groupIndex.set(5, 1500, 1500); // cell (1,1)
-    groupIndex.set(6, 2500, 1500); // cell (2,1)
+  it("reads the member piece ids from Redis for a size > 1 group", async () => {
+    const { ctx, groupIndex, getGroupPieces } = makeViewportCtx();
+    groupIndex.set(8, 1500, 1500, { originX: 1500, originY: 1500, size: 2, locked: true });
     const { client, ws } = viewportClient();
 
-    // First viewport covers cell (1,1): resyncs group 5.
-    handleViewport(ctx, client, {
+    await handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 1000,
+      worldY: 1000,
+      worldW: 500,
+      worldH: 500,
+    });
+
+    expect(getGroupPieces).toHaveBeenCalledWith(8);
+    expect(lastRegionState(ws)).toEqual([
+      { groupId: 8, worldX: 1500, worldY: 1500, size: 2, locked: true, pieceIds: [8, 108] },
+    ]);
+  });
+
+  it("streams only newly entered cells, not cells the client already had", async () => {
+    const { ctx, groupIndex } = makeViewportCtx();
+    groupIndex.set(5, 1500, 1500, single(1500, 1500)); // cell (1,1)
+    groupIndex.set(6, 2500, 1500, single(2500, 1500)); // cell (2,1)
+    const { client, ws } = viewportClient();
+
+    // First viewport covers cell (1,1): streams group 5.
+    await handleViewport(ctx, client, {
       t: "viewport",
       worldX: 1000,
       worldY: 1000,
@@ -758,9 +794,9 @@ describe("handleViewport resync", () => {
     });
     expect(lastRegionState(ws)?.map((g) => g.groupId)).toEqual([5]);
 
-    // Widen to also cover cell (2,1): only the newly entered cell is resynced, so
+    // Widen to also cover cell (2,1): only the newly entered cell is streamed, so
     // group 6 is sent and group 5 (already subscribed) is not re-sent.
-    handleViewport(ctx, client, {
+    await handleViewport(ctx, client, {
       t: "viewport",
       worldX: 1000,
       worldY: 1000,
@@ -770,10 +806,16 @@ describe("handleViewport resync", () => {
     expect(lastRegionState(ws)?.map((g) => g.groupId)).toEqual([6]);
   });
 
-  it("sends nothing when the entered cells hold no groups", () => {
+  it("sends nothing when the entered cells hold no groups", async () => {
     const { ctx } = makeViewportCtx();
     const { client, ws } = viewportClient();
-    handleViewport(ctx, client, { t: "viewport", worldX: 0, worldY: 0, worldW: 500, worldH: 500 });
+    await handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 0,
+      worldY: 0,
+      worldW: 500,
+      worldH: 500,
+    });
     expect(lastRegionState(ws)).toBeNull();
   });
 });

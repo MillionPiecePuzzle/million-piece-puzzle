@@ -48,6 +48,8 @@ function makeSource(opts: SourceOpts = {}): KeyframeSource {
     eventLog: eventLog as unknown as EventLog,
     puzzleId: () => "puzzle-1",
     totalPieces: () => 2,
+    gridCols: () => 2,
+    pieceSize: () => 80,
     playZone: () => zone,
     eventStartsAt: () => opts.eventStartsAt ?? 0,
     status: () => opts.status ?? "active",
@@ -108,6 +110,17 @@ describe("buildKeyframe", () => {
     expect(kf.activity).toEqual(activityItems);
     expect(kf.generatedAt).toBeGreaterThanOrEqual(before);
     expect(kf.generatedAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("includes a minimap grid binning the board into loose and locked counts", async () => {
+    const kf = await buildKeyframe(makeSource(), true);
+    const grid = kf.minimapGrid;
+    expect(grid.cols * grid.rows).toBe(grid.loose.length);
+    expect(grid.loose.length).toBe(grid.locked.length);
+    // Piece 0 is in the locked group, piece 1 in the loose group.
+    const sum = (a: number[]): number => a.reduce((s, v) => s + v, 0);
+    expect(sum(grid.locked)).toBe(1);
+    expect(sum(grid.loose)).toBe(1);
   });
 });
 

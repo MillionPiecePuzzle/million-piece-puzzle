@@ -20,6 +20,7 @@
 
 import type { GroupRuntime, PieceRuntime } from "./piece.js";
 import type { PlayZone } from "./playzone.js";
+import type { MinimapGrid } from "./minimap.js";
 
 // Client -> Server
 
@@ -237,17 +238,41 @@ export type SError = {
   message: string;
 };
 
-// Partial region state, sent when a client's `viewport` brings new broadcast
-// cells into view. It carries the server's current resting position for the
-// groups in those newly entered cells, so a client panning into a region picks
-// up non-merging drops it missed while looking elsewhere (those drops are scoped
-// broadcasts and are not persisted, unlike globally broadcast snaps). The client
-// applies a position only to a group it is not the live authority for (see the
-// ordering guard in the stage): one it is holding, a peer is holding, or one it
-// just dropped and is awaiting confirmation of keeps its local position.
+// Construction data for one group in a region_state stream: its ORIGIN
+// (worldX, worldY), locked state, member count, and member piece ids. The client
+// upserts it: build the group when unknown, or reposition and additively
+// reconcile membership/locked when known.
+export type RegionGroup = {
+  groupId: number;
+  worldX: number;
+  worldY: number;
+  locked: boolean;
+  size: number;
+  pieceIds: number[];
+};
+
+// Viewport-scoped region state. `welcome` carries no board (protocol v3); instead
+// a client's first bounded `viewport` (and every later pan that enters new
+// broadcast cells) triggers this with construction data for the groups in those
+// cells, so the join payload is bounded by the viewport, not the piece count. A
+// default fit viewport is a global subscription and streams nothing by design;
+// the minimap carries the zoomed-out overview meanwhile. The client builds an
+// unknown group and, for a known one, applies the origin only when it is not the
+// live authority for it (the ordering guard: holding it, a peer holding it, or an
+// in-flight local drop keep their newer local position) while always reconciling
+// membership and locked state.
 export type SRegionState = {
   t: "region_state";
-  groups: { groupId: number; worldX: number; worldY: number }[];
+  groups: RegionGroup[];
+};
+
+// Downsampled board density grid for the minimap overview. Broadcast to
+// contributors periodically (tied to the keyframe cadence) plus once on join, so
+// a contributor renders the global overview without downloading the full board;
+// spectators read the same grid from the keyframe.
+export type SMinimap = {
+  t: "minimap";
+  grid: MinimapGrid;
 };
 
 // Spectator stream for the read-only view, an HTTP keyframe plus a tail of
@@ -292,6 +317,9 @@ export type SpectatorKeyframe = {
   // (leaderboard highest first, activity newest first).
   leaderboard: LeaderboardEntry[];
   activity: ActivityItem[];
+  // Downsampled board density grid the spectator minimap renders from, the same
+  // grid contributors receive over the WS `minimap` message.
+  minimapGrid: MinimapGrid;
 };
 
 // A non-merging drop: a cluster moved to a resting position. The client
@@ -367,4 +395,5 @@ export type ServerMessage =
   | SLeave
   | SCursor
   | SError
-  | SRegionState;
+  | SRegionState
+  | SMinimap;

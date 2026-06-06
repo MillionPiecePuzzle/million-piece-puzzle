@@ -71,6 +71,36 @@ function draw(): void {
   ctx.fillStyle = "#f4f1ea";
   ctx.fillRect(toX(zone.minX), toY(zone.minY), zoneW * scale, zoneH * scale);
 
+  // Server-computed density grid: the global overview, decoupled from the
+  // (partial) local board. Loose cells in a light ink, locked cells darker on
+  // top, alpha scaled by per-cell count so denser cells read stronger. The local
+  // known-region overlay is drawn on top of this afterwards. A +1 px on each cell
+  // closes hairline seams between neighbours.
+  const grid = snap.grid;
+  if (grid && grid.cols > 0 && grid.rows > 0) {
+    let maxCount = 1;
+    for (let i = 0; i < grid.cols * grid.rows; i++) {
+      const t = (grid.loose[i] ?? 0) + (grid.locked[i] ?? 0);
+      if (t > maxCount) maxCount = t;
+    }
+    const cw = grid.cellW * scale + 1;
+    const ch = grid.cellH * scale + 1;
+    const paint = (counts: number[], base: number, span: number) => {
+      for (let r = 0; r < grid.rows; r++) {
+        for (let c = 0; c < grid.cols; c++) {
+          const n = counts[r * grid.cols + c] ?? 0;
+          if (n <= 0) continue;
+          const x = toX(grid.originX + c * grid.cellW);
+          const y = toY(grid.originY + r * grid.cellH);
+          ctx.fillStyle = `rgba(21,20,15,${(base + span * (n / maxCount)).toFixed(3)})`;
+          ctx.fillRect(x, y, cw, ch);
+        }
+      }
+    };
+    paint(grid.loose, 0.08, 0.32);
+    paint(grid.locked, 0.2, 0.55);
+  }
+
   // Puzzle frame.
   const fx = toX(0);
   const fy = toY(0);
@@ -82,7 +112,10 @@ function draw(): void {
   ctx.lineWidth = Math.max(1, dpr);
   ctx.strokeRect(fx, fy, fw, fh);
 
-  // Pieces, one pixel dot each. Loose first, locked on top so progress reads.
+  // Local known-region overlay: one dot per known piece (the visited regions the
+  // client has fresh positions for), refining the coarse grid. Loose first,
+  // locked on top so progress reads. Empty for a contributor's far-zoomed fit
+  // (no regions built yet), where the grid alone carries the overview.
   const dot = Math.max(1, 1.4 * dpr);
   const half = dot / 2;
   ctx.fillStyle = "rgba(21,20,15,0.22)";

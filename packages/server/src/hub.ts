@@ -109,6 +109,18 @@ export class Hub {
     return entered;
   }
 
+  // Drop a client back to the global-subscriber state it joined in: clear its
+  // cells so its next `viewport` re-enters all of them and re-streams region_state.
+  // Used on a server-driven rebuild (welcome resent on reset/force-complete),
+  // where the connection persists but the client has discarded its board, so an
+  // unchanged viewport would otherwise enter no new cells and the board would
+  // never re-stream. A no-op for a fresh connection (cells already empty).
+  resetSubscription(client: Client): void {
+    for (const cell of client.cells) this.removeFromCell(cell, client);
+    client.cells.clear();
+    this.globalSubscribers.add(client);
+  }
+
   send(client: Client, msg: ServerMessage): void {
     this.write(client, JSON.stringify(msg));
   }

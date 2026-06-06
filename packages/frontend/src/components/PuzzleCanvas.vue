@@ -163,6 +163,9 @@ function routeMessage(msg: ServerMessage): void {
     case "region_state":
       stage.applyRegionState(msg.groups);
       break;
+    case "minimap":
+      stage.setMinimapGrid(msg.grid);
+      break;
     default:
       break;
   }
@@ -260,6 +263,9 @@ onMounted(async () => {
   };
   unsubscribeKeyframe = onKeyframe((kf) => {
     latestSpectatorKeyframe = kf;
+    // The spectator minimap renders from the keyframe's grid (the contributor
+    // gets the same grid over the WS `minimap` message).
+    stage?.setMinimapGrid(kf.minimapGrid);
     // The first keyframe builds the stage (buildStage starts the stream); later
     // keyframes for the same build feed the re-base.
     if (stage && spectatorStreamEpoch > 0 && spectatorStreamEpoch === builtEpoch) {
@@ -310,6 +316,7 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   // (render clock delayMs behind live, window tailing per the idle gate). The
   // contributor path keeps the stream inactive.
   if (transport.value === "spectator" && latestSpectatorKeyframe) {
+    stage.setMinimapGrid(latestSpectatorKeyframe.minimapGrid);
     stage.startSpectatorStream(latestSpectatorKeyframe);
     stage.setSpectatorTailing(shouldTail.value);
     spectatorStreamEpoch = builtEpoch;

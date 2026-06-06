@@ -1,4 +1,4 @@
-import type { ImageManifest, PlayZone } from "@mpp/shared";
+import type { ImageManifest, PlayZone, SpectatorKeyframe } from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import { LEADERBOARD_LIMIT, type Context } from "./handlers.js";
@@ -16,8 +16,12 @@ export class PuzzleLifecycle {
   private readonly playZone: PlayZone;
   // Set after construction (the publisher is created later in index.ts). A
   // reset/complete transition forces a fresh keyframe so the frozen body reflects
-  // the new board immediately rather than at the next interval.
-  private keyframePublisher: { regenerate: (force?: boolean) => Promise<void> } | null = null;
+  // the new board immediately rather than at the next interval; `latest` also
+  // gives `sendWelcome` the current minimap grid without a per-join board read.
+  private keyframePublisher: {
+    regenerate: (force?: boolean) => Promise<void>;
+    latest: () => { keyframe: SpectatorKeyframe } | null;
+  } | null = null;
 
   constructor(
     private readonly ctx: Context,
@@ -26,7 +30,10 @@ export class PuzzleLifecycle {
     this.playZone = playZoneForManifest(manifest);
   }
 
-  attachKeyframePublisher(publisher: { regenerate: (force?: boolean) => Promise<void> }): void {
+  attachKeyframePublisher(publisher: {
+    regenerate: (force?: boolean) => Promise<void>;
+    latest: () => { keyframe: SpectatorKeyframe } | null;
+  }): void {
     this.keyframePublisher = publisher;
   }
 
@@ -38,8 +45,16 @@ export class PuzzleLifecycle {
     return this.playZone;
   }
 
-  async sendWelcomeAndState(client: Client): Promise<void> {
+  // Protocol v3: welcome carries no board. The client builds an empty board and
+  // streams groups per viewport via region_state, so this sends only welcome,
+  // the activity backfill, the leaderboard, and one minimap grid (so a fresh
+  // contributor has the overview before the first periodic broadcast). The
+  // client's cell subscription is reset so its next viewport re-streams its
+  // region, which matters on a rebuild (welcome resent) where the connection
+  // persists but the board was discarded.
+  async sendWelcome(client: Client): Promise<void> {
     const lockedCount = await this.ctx.state.getLockedCount();
+    this.ctx.hub.resetSubscription(client);
     this.ctx.hub.send(client, {
       t: "welcome",
       userId: client.userId,
@@ -49,11 +64,6 @@ export class PuzzleLifecycle {
       playZone: this.playZone,
       eventStartsAt: this.ctx.eventStartsAt,
     });
-    const [pieces, groups] = await Promise.all([
-      this.ctx.state.readAllPieces(this.ctx.meta.totalPieces),
-      this.ctx.state.readAllGroups(this.ctx.meta.totalPieces),
-    ]);
-    this.ctx.hub.send(client, { t: "state", pieces, groups });
     const items = await this.ctx.mongo.recentAnchoredMerges(
       this.ctx.puzzleId,
       ACTIVITY_BACKFILL_LIMIT,
@@ -61,6 +71,11 @@ export class PuzzleLifecycle {
     this.ctx.hub.send(client, { t: "activity", items });
     const entries = await this.ctx.mongo.leaderboard(this.ctx.puzzleId, LEADERBOARD_LIMIT);
     this.ctx.hub.send(client, { t: "leaderboard", entries });
+    // The minimap grid is reused from the latest keyframe (computed on the
+    // keyframe cadence), so a join costs no extra full-board read. None yet at
+    // the very first boot tick: the next periodic minimap broadcast fills it.
+    const grid = this.keyframePublisher?.latest()?.keyframe.minimapGrid;
+    if (grid) this.ctx.hub.send(client, { t: "minimap", grid });
   }
 
   async resetCurrent(): Promise<void> {
@@ -79,8 +94,10 @@ export class PuzzleLifecycle {
       // Fresh scattered board: rebuild the group index off the new Redis state so
       // resyncs reflect the reset, not the old positions.
       await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, meta.totalPieces);
-      await this.broadcastFreshState();
+      // Regenerate before resending welcome so the welcome's minimap grid (read
+      // from the latest keyframe) reflects the fresh scatter, not the old board.
       await this.keyframePublisher?.regenerate(true);
+      await this.broadcastFreshState();
     } finally {
       this.resetting = false;
     }
@@ -122,17 +139,22 @@ export class PuzzleLifecycle {
     // positions match the assembled board (force-complete moves groups directly,
     // outside the per-group drop/merge paths that maintain the index).
     await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, total);
-    await this.broadcastFreshState();
     // forceComplete sets state directly (no per-group snaps), so the assembled
-    // board only reaches the frozen keyframe through a forced regeneration.
+    // board only reaches the frozen keyframe through a forced regeneration;
+    // regenerate before resending welcome so its minimap grid is the assembled one.
     await this.keyframePublisher?.regenerate(true);
+    await this.broadcastFreshState();
   }
 
+  // Resend welcome to every client after a reset/force-complete so each rebuilds
+  // an empty board and re-streams its region from its next viewport. The fresh
+  // keyframe is forced by the callers, so the welcome's minimap grid reflects the
+  // new board.
   private async broadcastFreshState(): Promise<void> {
     const hub: Hub = this.ctx.hub;
     const clients = hub.allClients();
     for (const c of clients) {
-      await this.sendWelcomeAndState(c);
+      await this.sendWelcome(c);
     }
   }
 }

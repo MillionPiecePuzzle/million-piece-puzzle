@@ -113,6 +113,8 @@ async function main(): Promise<void> {
     eventLog,
     puzzleId: () => ctx.puzzleId,
     totalPieces: () => ctx.meta.totalPieces,
+    gridCols: () => ctx.meta.gridCols,
+    pieceSize: () => ctx.meta.pieceSize,
     playZone: () => lifecycle.currentPlayZone(),
     eventStartsAt: () => ctx.eventStartsAt,
     status: () => ctx.meta.status,
@@ -121,6 +123,11 @@ async function main(): Promise<void> {
     windowMs: config.eventWindowMs,
     delayMs: config.interpDelayMs,
   });
+  // Broadcast the minimap grid to contributors after each keyframe regenerate
+  // (periodic while live, forced on reset/complete), so the contributor minimap
+  // refreshes on the keyframe cadence without a second full-board read. The grid
+  // is also sent once per contributor on join (see lifecycle.sendWelcome).
+  keyframePublisher.onRegenerated = (kf) => hub.broadcast({ t: "minimap", grid: kf.minimapGrid });
   lifecycle.attachKeyframePublisher(keyframePublisher);
   keyframePublisher.start();
   const handleKeyframe = makeKeyframeHandler(keyframePublisher, {

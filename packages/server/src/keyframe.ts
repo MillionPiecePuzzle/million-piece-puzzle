@@ -6,13 +6,15 @@ import type {
   SpectatorEvent,
   SpectatorKeyframe,
 } from "@mpp/shared";
-import { SPECTATOR_FORMAT_VERSION } from "@mpp/shared";
+import { SPECTATOR_FORMAT_VERSION, buildMinimapGrid } from "@mpp/shared";
 import type { RedisState } from "./state.js";
 import type { EventLog } from "./eventLog.js";
 
 export type KeyframeSource = {
   puzzleId: () => string;
   totalPieces: () => number;
+  gridCols: () => number;
+  pieceSize: () => number;
   playZone: () => PlayZone;
   eventStartsAt: () => number;
   // Current puzzle status, read live (reset reassigns ctx.meta), so the idle gate
@@ -50,6 +52,7 @@ export async function buildKeyframe(
     source.leaderboard(),
     source.activity(),
   ]);
+  const playZone = source.playZone();
   return {
     v: SPECTATOR_FORMAT_VERSION,
     puzzleId,
@@ -60,12 +63,16 @@ export async function buildKeyframe(
     live,
     lockedCount,
     totalPieces,
-    playZone: source.playZone(),
+    playZone,
     eventStartsAt: source.eventStartsAt(),
     pieces,
     groups,
     leaderboard,
     activity,
+    // Downsampled density grid for the minimap, computed off the same already-read
+    // board so the spectator keyframe and the periodic contributor minimap
+    // broadcast share one builder and no extra full-board read.
+    minimapGrid: buildMinimapGrid(pieces, groups, source.gridCols(), source.pieceSize(), playZone),
   };
 }
 
@@ -85,6 +92,11 @@ export class KeyframePublisher {
   private latestKeyframe: SpectatorKeyframe | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private regenerating = false;
+  // Called after every successful regenerate with the new keyframe. index.ts
+  // wires it to broadcast the minimap grid to contributors, so the contributor
+  // minimap cadence is tied to the keyframe interval (and its idle gate) with no
+  // second full-board read.
+  onRegenerated: ((keyframe: SpectatorKeyframe) => void) | null = null;
 
   constructor(
     private readonly intervalMs: number,
@@ -126,6 +138,7 @@ export class KeyframePublisher {
       const kf = await buildKeyframe(this.source, this.isLive());
       this.latestKeyframe = kf;
       this.latestBody = JSON.stringify(kf);
+      this.onRegenerated?.(kf);
     } catch (e) {
       console.error("[keyframe] regenerate failed:", (e as Error).message);
     } finally {

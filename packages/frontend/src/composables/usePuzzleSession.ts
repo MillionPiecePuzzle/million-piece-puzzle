@@ -205,6 +205,12 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   } else if (manifest) {
     state.value = { kind: "syncing", manifest, welcome };
   }
+  // Contributor (protocol v3): welcome carries no board, so build an empty board
+  // now and let groups stream in per viewport via region_state. The spectator path
+  // drives applyState from the keyframe instead, so it is left untouched here.
+  if (transport.value === "ws" && manifest && welcome) {
+    applyState({ t: "state", pieces: [], groups: [] });
+  }
 }
 
 // The connection is open by the time welcome arrives, so any dev message queued
@@ -228,13 +234,6 @@ async function startContributor(): Promise<void> {
   client.on((msg: ServerMessage) => {
     if (msg.t === "welcome") {
       void handleWelcome(msg);
-    } else if (msg.t === "state") {
-      if (!welcome) return;
-      if (!manifest) {
-        pendingState = msg;
-        return;
-      }
-      applyState(msg);
     } else if (msg.t === "snap") {
       recordSnap(msg);
     } else if (msg.t === "activity") {

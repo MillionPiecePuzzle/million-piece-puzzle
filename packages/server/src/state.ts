@@ -227,18 +227,37 @@ export class RedisState {
     return groups;
   }
 
-  // Body top-left (world AABB min) of every existing group, for rebuilding the
-  // in-process group index at boot and after a reset (Redis survives a restart,
-  // the index does not). The stored local AABB min translated by the origin is
-  // the same point the runtime drop/merge paths index by; a group written before
+  // Every existing group's index entry, for rebuilding the in-process group index
+  // at boot and after a reset (Redis survives a restart, the index does not). `x`
+  // and `y` are the body top-left (world AABB min) the index keys by; `originX` /
+  // `originY` are the group origin the index reports for construction. The body min
+  // is the stored local AABB min translated by the origin; a group written before
   // AABBs were stored falls back to its origin, like the broadcast scoping.
-  async readAllGroupPoints(totalPieces: number): Promise<{ id: number; x: number; y: number }[]> {
+  async readAllGroupPoints(totalPieces: number): Promise<
+    {
+      id: number;
+      x: number;
+      y: number;
+      originX: number;
+      originY: number;
+      size: number;
+      locked: boolean;
+    }[]
+  > {
     const pipe = this.r.pipeline();
     for (let i = 0; i < totalPieces; i++) {
       pipe.hgetall(keys.group(this.puzzleId, i));
     }
     const results = await pipe.exec();
-    const points: { id: number; x: number; y: number }[] = [];
+    const points: {
+      id: number;
+      x: number;
+      y: number;
+      originX: number;
+      originY: number;
+      size: number;
+      locked: boolean;
+    }[] = [];
     if (!results) return points;
     for (let i = 0; i < results.length; i++) {
       const entry = results[i];
@@ -252,6 +271,10 @@ export class RedisState {
         id: i,
         x: local ? worldX + local.minX : worldX,
         y: local ? worldY + local.minY : worldY,
+        originX: worldX,
+        originY: worldY,
+        size: Number(h.size),
+        locked: h.locked === "1",
       });
     }
     return points;

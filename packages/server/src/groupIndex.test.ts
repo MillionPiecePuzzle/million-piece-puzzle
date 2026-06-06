@@ -6,42 +6,72 @@ const CELL = 100;
 // Cell key for the cell containing a world point, the way the index keys groups.
 const keyAt = (x: number, y: number): number => cellKey(Math.floor(x / CELL), Math.floor(y / CELL));
 
+// Default payload helper: a singleton whose origin equals its body min.
+const at = (
+  x: number,
+  y: number,
+  locked = false,
+): { originX: number; originY: number; size: number; locked: boolean } => ({
+  originX: x,
+  originY: y,
+  size: 1,
+  locked,
+});
+
 describe("GroupIndex", () => {
-  it("places a group in the cell of its world point and returns it on collect", () => {
+  it("keys by the body min and reports the origin payload on collect", () => {
     const idx = new GroupIndex(CELL);
-    idx.set(7, 250, 350);
+    idx.set(7, 250, 350, at(250, 350));
     expect(idx.cellOf(7)).toBe(keyAt(250, 350));
-    expect(idx.collect([keyAt(250, 350)])).toEqual([{ groupId: 7, worldX: 250, worldY: 350 }]);
+    expect(idx.collect([keyAt(250, 350)])).toEqual([
+      { groupId: 7, worldX: 250, worldY: 350, size: 1, locked: false },
+    ]);
+  });
+
+  it("keys by the body min but reports the (different) origin", () => {
+    const idx = new GroupIndex(CELL);
+    // Body min sits in cell (2,3); the origin a canonical offset away in cell (0,0).
+    idx.set(7, 250, 350, { originX: 50, originY: 50, size: 4, locked: true });
+    expect(idx.cellOf(7)).toBe(keyAt(250, 350));
+    // The origin's cell holds nothing; collect reports the origin from the body cell.
+    expect(idx.collect([keyAt(50, 50)])).toEqual([]);
+    expect(idx.collect([keyAt(250, 350)])).toEqual([
+      { groupId: 7, worldX: 50, worldY: 50, size: 4, locked: true },
+    ]);
   });
 
   it("does not return a group from a cell it is not in", () => {
     const idx = new GroupIndex(CELL);
-    idx.set(7, 250, 350);
+    idx.set(7, 250, 350, at(250, 350));
     expect(idx.collect([keyAt(0, 0)])).toEqual([]);
   });
 
   it("moves a group between cells, leaving the old cell empty", () => {
     const idx = new GroupIndex(CELL);
-    idx.set(7, 250, 350);
+    idx.set(7, 250, 350, at(250, 350));
     const oldKey = keyAt(250, 350);
-    idx.set(7, 1050, 1050);
+    idx.set(7, 1050, 1050, at(1050, 1050));
     expect(idx.cellOf(7)).toBe(keyAt(1050, 1050));
     expect(idx.collect([oldKey])).toEqual([]);
-    expect(idx.collect([keyAt(1050, 1050)])).toEqual([{ groupId: 7, worldX: 1050, worldY: 1050 }]);
+    expect(idx.collect([keyAt(1050, 1050)])).toEqual([
+      { groupId: 7, worldX: 1050, worldY: 1050, size: 1, locked: false },
+    ]);
   });
 
-  it("refreshes the stored position without churning the cell when it stays in cell", () => {
+  it("refreshes the stored payload without churning the cell when it stays in cell", () => {
     const idx = new GroupIndex(CELL);
-    idx.set(7, 250, 350);
+    idx.set(7, 250, 350, at(250, 350));
     const cell = idx.cellOf(7);
-    idx.set(7, 299, 399); // same cell, new position
+    idx.set(7, 299, 399, { originX: 299, originY: 399, size: 2, locked: true }); // same cell, new payload
     expect(idx.cellOf(7)).toBe(cell);
-    expect(idx.collect([cell!])).toEqual([{ groupId: 7, worldX: 299, worldY: 399 }]);
+    expect(idx.collect([cell!])).toEqual([
+      { groupId: 7, worldX: 299, worldY: 399, size: 2, locked: true },
+    ]);
   });
 
   it("removes a group from its cell and the index", () => {
     const idx = new GroupIndex(CELL);
-    idx.set(7, 250, 350);
+    idx.set(7, 250, 350, at(250, 350));
     idx.remove(7);
     expect(idx.cellOf(7)).toBeUndefined();
     expect(idx.collect([keyAt(250, 350)])).toEqual([]);
@@ -50,17 +80,17 @@ describe("GroupIndex", () => {
 
   it("collects every group across the requested cells, one entry per group", () => {
     const idx = new GroupIndex(CELL);
-    idx.set(1, 10, 10); // cell (0,0)
-    idx.set(2, 20, 20); // cell (0,0)
-    idx.set(3, 150, 10); // cell (1,0)
+    idx.set(1, 10, 10, at(10, 10)); // cell (0,0)
+    idx.set(2, 20, 20, at(20, 20)); // cell (0,0)
+    idx.set(3, 150, 10, at(150, 10)); // cell (1,0)
     const got = idx.collect([keyAt(10, 10), keyAt(150, 10)]);
     expect(got.map((g) => g.groupId).sort()).toEqual([1, 2, 3]);
   });
 
   it("clear empties the index", () => {
     const idx = new GroupIndex(CELL);
-    idx.set(1, 10, 10);
-    idx.set(2, 500, 500);
+    idx.set(1, 10, 10, at(10, 10));
+    idx.set(2, 500, 500, at(500, 500));
     idx.clear();
     expect(idx.size).toBe(0);
     expect(idx.collect([keyAt(10, 10), keyAt(500, 500)])).toEqual([]);

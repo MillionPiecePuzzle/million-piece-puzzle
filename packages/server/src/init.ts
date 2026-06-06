@@ -164,5 +164,12 @@ export async function rebuildGroupIndex(
 ): Promise<void> {
   groupIndex.clear();
   const points = await state.readAllGroupPoints(totalPieces);
-  for (const p of points) groupIndex.set(p.id, p.x, p.y);
+  for (const p of points) {
+    groupIndex.set(p.id, p.x, p.y, {
+      originX: p.originX,
+      originY: p.originY,
+      size: p.size,
+      locked: p.locked,
+    });
+  }
 }

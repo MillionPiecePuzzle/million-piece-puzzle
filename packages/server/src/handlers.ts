@@ -43,7 +43,7 @@ export type Context = {
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.
   lifecycle?: {
-    sendWelcomeAndState: (client: Client) => Promise<void>;
+    sendWelcome: (client: Client) => Promise<void>;
     resetCurrent: () => Promise<void>;
     markCompleted: () => Promise<void>;
     forceComplete: (userId: string) => Promise<void>;
@@ -88,7 +88,7 @@ export async function handleHello(ctx: Context, client: Client, msg: CHello): Pr
     err(ctx, client, "bad_message", "server not ready");
     return;
   }
-  await ctx.lifecycle.sendWelcomeAndState(client);
+  await ctx.lifecycle.sendWelcome(client);
 }
 
 export async function handleDevReset(ctx: Context, client: Client): Promise<void> {
@@ -191,7 +191,7 @@ export async function handleDrag(ctx: Context, client: Client, msg: CDrag): Prom
   );
 }
 
-export function handleViewport(ctx: Context, client: Client, msg: CViewport): void {
+export async function handleViewport(ctx: Context, client: Client, msg: CViewport): Promise<void> {
   client.viewport = {
     worldX: msg.worldX,
     worldY: msg.worldY,
@@ -199,17 +199,32 @@ export function handleViewport(ctx: Context, client: Client, msg: CViewport): vo
     worldH: msg.worldH,
   };
   // Move the client to the cells its new viewport overlaps (or the global set if
-  // it has none yet / overlaps too many), diffing in O(cells).
+  // it has none yet / overlaps too many), diffing in O(cells). A global
+  // subscriber (the default fit viewport at scale) enters no cells and streams
+  // nothing by design: sending it the whole board is exactly the full-state push
+  // protocol v3 removes; the minimap carries its overview meanwhile.
   const entered = ctx.hub.updateSubscription(client);
   if (entered.length === 0) return;
-  // Resync the groups now in view but whose scoped non-merging drops the client
-  // missed while looking elsewhere. Only the newly entered cells are gathered, so
-  // a cell the client already held is not re-sent. The gather is a pure in-memory
-  // read of the group index; the client's ordering guard ignores entries for
-  // groups it is the live authority for.
+  // Build the region_state construction stream for the groups in the newly
+  // entered cells (a cell the client already held is not re-sent). Position,
+  // size and locked come from the in-memory index; piece ids are the singleton's
+  // own id when size === 1 (a size-1 group never merged, so it holds exactly the
+  // piece whose id equals the group id) and a Redis read for the few size > 1
+  // groups, so the common singleton case needs no read. The client builds an
+  // unknown group and additively reconciles a known one (see the stage upsert).
   const groups = ctx.groupIndex.collect(entered);
   if (groups.length === 0) return;
-  send(ctx, client, { t: "region_state", groups });
+  const construction = await Promise.all(
+    groups.map(async (g) => ({
+      groupId: g.groupId,
+      worldX: g.worldX,
+      worldY: g.worldY,
+      locked: g.locked,
+      size: g.size,
+      pieceIds: g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId),
+    })),
+  );
+  send(ctx, client, { t: "region_state", groups: construction });
 }
 
 export function handleCursor(ctx: Context, client: Client, msg: CCursor): void {
@@ -279,11 +294,17 @@ export async function handleDrop(
   if (!frameAnchor && !match) {
     await ctx.state.releaseGroup(msg.groupId);
     // The group's resting position changed without a merge: update the group
-    // index so a peer panning into the new region resyncs to it. Done before the
+    // index so a peer panning into the new region resyncs to it. The cell is
+    // keyed by the body min, the payload reports the origin. Done before the
     // broadcast so a concurrent viewport read never sees a stale position for a
     // group whose drop has already gone out.
     const rest = worldAabbFor(g.localAabb, msg.worldX, msg.worldY);
-    ctx.groupIndex.set(msg.groupId, rest.minX, rest.minY);
+    ctx.groupIndex.set(msg.groupId, rest.minX, rest.minY, {
+      originX: msg.worldX,
+      originY: msg.worldY,
+      size: g.size,
+      locked: false,
+    });
     ctx.hub.broadcastOverlapping(
       {
         t: "drop",
@@ -377,9 +398,15 @@ async function applyMerge(
   });
   // Re-key the surviving group to its new footprint and position in the index. A
   // merge is globally broadcast, so a peer already learns of it; indexing it
-  // keeps the read model consistent (and harmlessly idempotent) for later resyncs.
+  // keeps the read model consistent (and harmlessly idempotent) for later resyncs,
+  // and serves the construction payload when a client pans into its cell.
   const mergedRest = worldAabbFor(mergedLocalAabb, targetWorldX, targetWorldY);
-  ctx.groupIndex.set(newId, mergedRest.minX, mergedRest.minY);
+  ctx.groupIndex.set(newId, mergedRest.minX, mergedRest.minY, {
+    originX: targetWorldX,
+    originY: targetWorldY,
+    size: allPieces.length,
+    locked: willBeLocked,
+  });
 
   let lockedCount = await ctx.state.getLockedCount();
   const lockedDelta = willBeLocked ? Math.max(0, allPieces.length - lockedSizeBefore) : 0;
@@ -482,11 +509,11 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
   }
   switch (msg.t) {
     case "hello":
-      // Reads the whole board for the initial state; the global barrier keeps
-      // it from observing a half-applied merge, because a contributor builds and
-      // plays on this read. The periodic spectator snapshot deliberately skips
-      // the barrier (see DECISIONS: spectator snapshot reads off the write queue).
-      await ctx.queue.runGlobal("hello", () => handleHello(ctx, client, msg));
+      // Protocol v3: welcome carries no board, so hello no longer reads all
+      // groups and needs no global barrier. It only reads lockedCount plus the
+      // Mongo activity/leaderboard and the latest minimap grid; the board streams
+      // per viewport via region_state.
+      await handleHello(ctx, client, msg);
       return;
     case "grab":
       if (!isValidGroupId(msg.groupId, ctx.meta.totalPieces)) {
@@ -521,7 +548,7 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
         err(ctx, client, "bad_message", "invalid viewport");
         return;
       }
-      handleViewport(ctx, client, msg);
+      await handleViewport(ctx, client, msg);
       return;
     case "cursor":
       if (!isFiniteCoord(msg.worldX) || !isFiniteCoord(msg.worldY)) {

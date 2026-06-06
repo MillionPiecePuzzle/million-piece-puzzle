@@ -18,14 +18,33 @@
 // straddling a cell boundary is indexed only by its min-corner cell; its live
 // drops still reach every overlapped cell through the broadcast index, and a
 // continued pan or its next drop heals the residual.
+//
+// The cell key is derived from the body top-left, but the stored payload is the
+// group ORIGIN (plus its size and locked state): a client positions a group's
+// container at the origin and places each piece at its canonical offset inside,
+// so `collect` reports the origin while keying still uses the body-min the client
+// sees. The viewport handler turns this into the region_state construction stream.
 
 import { cellKey } from "./worldGrid.js";
 
-export type GroupPosition = { groupId: number; worldX: number; worldY: number };
+// Reportable payload for a group: its origin (what the client positions the
+// container at), its member count, and whether it is locked.
+export type GroupPayload = { originX: number; originY: number; size: number; locked: boolean };
+
+export type RegionGroup = {
+  groupId: number;
+  worldX: number;
+  worldY: number;
+  size: number;
+  locked: boolean;
+};
 
 export class GroupIndex {
   private readonly cells = new Map<number, Set<number>>();
-  private readonly groups = new Map<number, { x: number; y: number; cell: number }>();
+  private readonly groups = new Map<
+    number,
+    { cell: number; originX: number; originY: number; size: number; locked: boolean }
+  >();
 
   constructor(private readonly cellSize: number) {}
 
@@ -33,11 +52,12 @@ export class GroupIndex {
     return cellKey(Math.floor(worldX / this.cellSize), Math.floor(worldY / this.cellSize));
   }
 
-  // Insert or move a group to the cell containing (worldX, worldY), its body
-  // top-left. Idempotent: re-setting the same cell only refreshes the stored
-  // position, so the per-frame drop path stays cheap.
-  set(groupId: number, worldX: number, worldY: number): void {
-    const cell = this.cellFor(worldX, worldY);
+  // Insert or move a group keyed by the cell containing (bodyMinX, bodyMinY), its
+  // body top-left, while storing the reportable payload (origin, size, locked).
+  // Idempotent: re-setting the same cell only refreshes the payload, so the
+  // per-frame drop path stays cheap.
+  set(groupId: number, bodyMinX: number, bodyMinY: number, payload: GroupPayload): void {
+    const cell = this.cellFor(bodyMinX, bodyMinY);
     const existing = this.groups.get(groupId);
     if (existing) {
       if (existing.cell !== cell) {
@@ -45,12 +65,14 @@ export class GroupIndex {
         this.addToCell(cell, groupId);
         existing.cell = cell;
       }
-      existing.x = worldX;
-      existing.y = worldY;
+      existing.originX = payload.originX;
+      existing.originY = payload.originY;
+      existing.size = payload.size;
+      existing.locked = payload.locked;
       return;
     }
     this.addToCell(cell, groupId);
-    this.groups.set(groupId, { x: worldX, y: worldY, cell });
+    this.groups.set(groupId, { cell, ...payload });
   }
 
   remove(groupId: number): void {
@@ -60,17 +82,26 @@ export class GroupIndex {
     this.groups.delete(groupId);
   }
 
-  // Current positions of every group sitting in any of the given cells. Each
-  // group lives in exactly one cell, so distinct cells yield disjoint groups (no
-  // dedup needed). Used to build the resync for a client's newly entered cells.
-  collect(cellKeys: Iterable<number>): GroupPosition[] {
-    const out: GroupPosition[] = [];
+  // Reportable state (origin, size, locked) of every group sitting in any of the
+  // given cells. Each group lives in exactly one cell, so distinct cells yield
+  // disjoint groups (no dedup needed). The viewport handler attaches piece ids to
+  // build the region_state construction stream for a client's newly entered cells.
+  collect(cellKeys: Iterable<number>): RegionGroup[] {
+    const out: RegionGroup[] = [];
     for (const key of cellKeys) {
       const set = this.cells.get(key);
       if (!set) continue;
       for (const groupId of set) {
         const g = this.groups.get(groupId);
-        if (g) out.push({ groupId, worldX: g.x, worldY: g.y });
+        if (g) {
+          out.push({
+            groupId,
+            worldX: g.originX,
+            worldY: g.originY,
+            size: g.size,
+            locked: g.locked,
+          });
+        }
       }
     }
     return out;

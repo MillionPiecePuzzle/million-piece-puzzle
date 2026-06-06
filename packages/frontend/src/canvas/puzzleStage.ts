@@ -16,9 +16,11 @@ import {
   seedFromString,
   type GroupRuntime,
   type ImageManifest,
+  type MinimapGrid,
   type PieceGeometry,
   type PieceRuntime,
   type PlayZone,
+  type RegionGroup,
   type SpectatorEvent,
   type SpectatorKeyframe,
   type SpectatorSnapEvent,
@@ -31,6 +33,7 @@ import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport 
 import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
 import { resyncShouldApply } from "./resync";
+import { resolveSnap } from "./membership";
 
 export type Mode = "spectator" | "contributor";
 
@@ -42,10 +45,15 @@ export type ViewportRect = Viewport;
 // its cluster is locked to the frame.
 export type MinimapPiece = { x: number; y: number; locked: boolean };
 
-// Everything the minimap needs to draw, pulled from the stage on demand.
+// Everything the minimap needs to draw, pulled from the stage on demand. `grid`
+// is the server-computed global density overview (decoupled from the now-partial
+// local board); `pieces` is the live overlay of the locally known groups (the
+// visited regions the client has fresh positions for), drawn on top to refine the
+// coarse grid. Null grid degrades to the overlay alone until one arrives.
 export type MinimapSnapshot = {
   playZone: PlayZone;
   frame: { w: number; h: number };
+  grid: MinimapGrid | null;
   pieces: MinimapPiece[];
   viewport: Viewport | null;
 };
@@ -307,6 +315,11 @@ export class PuzzleStage {
   private genBase = 0;
   private geomById = new Map<number, PieceGeometry>();
   private textureBase = "";
+  // Latest server-computed minimap density grid (contributor: the periodic WS
+  // `minimap` message and one on join; spectator: the keyframe's grid). The
+  // minimap renders this global overview plus a live overlay of the locally known
+  // groups, so it stays complete while the local board is partial.
+  private minimapGrid: MinimapGrid | null = null;
   // Incremented at the start of build(), and in clearWorld()/destroy(). Each
   // build()'s chunked passes capture it and bail when it changes, so a teardown
   // or rebuild mid-construction stops the in-flight passes.
@@ -363,6 +376,13 @@ export class PuzzleStage {
 
   setLocalUserId(userId: string | null): void {
     this.localUserId = userId;
+  }
+
+  // Store the latest server minimap grid (WS `minimap` for a contributor, the
+  // keyframe grid for a spectator). The minimap panel reads it via the next
+  // getMinimapSnapshot.
+  setMinimapGrid(grid: MinimapGrid): void {
+    this.minimapGrid = grid;
   }
 
   setCallbacks(cb: StageCallbacks): void {
@@ -491,7 +511,8 @@ export class PuzzleStage {
       return;
     buildBase += manifest.pieces.length;
 
-    // Pass B: piece -> group mapping and group -> piece-ids membership.
+    // Pass B: group -> piece-ids membership. The piece -> group map is set per
+    // group by constructGroup in Pass C, so this only buckets ids by group.
     const idsByGroup = new Map<number, number[]>();
     if (
       !(await this.chunkedPass(
@@ -499,7 +520,6 @@ export class PuzzleStage {
         initialPieces.length,
         (i) => {
           const piece = initialPieces[i]!;
-          this.pieceToGroup.set(piece.id, piece.groupId);
           let ids = idsByGroup.get(piece.groupId);
           if (!ids) {
             ids = [];
@@ -514,35 +534,23 @@ export class PuzzleStage {
     buildBase += initialPieces.length;
 
     // Pass C: one dehydrated container per group (empty container, no textures
-    // fetched) plus its spatial-index entry. localBounds and the index cell set
-    // are derived from geometry alone (canonical offsets), so the index is fully
-    // populated for the on-demand stream without an O(board) texture fetch.
+    // fetched) plus its spatial-index entry, via the shared constructGroup. The
+    // spectator passes the full keyframe board here; a contributor passes empty
+    // arrays (protocol v3), so this loop is a no-op and groups stream in later via
+    // applyRegionState, which reuses the same constructGroup.
     if (
       !(await this.chunkedPass(
         token,
         initialGroups.length,
         (i) => {
           const group = initialGroups[i]!;
-          const gc = new Container();
-          gc.x = group.worldX;
-          gc.y = group.worldY;
-          const pieceIds = idsByGroup.get(group.id) ?? [];
-          const node: GroupNode = {
-            id: group.id,
-            container: gc,
-            pieceIds,
-            pieces: [],
-            hydrated: false,
-            hydrating: false,
-            locked: group.locked,
+          this.constructGroup({
+            groupId: group.id,
             worldX: group.worldX,
             worldY: group.worldY,
-            localBounds: this.boundsForIds(pieceIds),
-          };
-          (group.locked ? this.lockedLayer! : this.unlockedLayer!).addChild(gc);
-          this.groups.set(group.id, node);
-          this.groupGrid.upsert(node.id, this.worldAabb(node));
-          this.applyGroupInteractivity(node);
+            locked: group.locked,
+            pieceIds: idsByGroup.get(group.id) ?? [],
+          });
         },
         reportBuild,
       ))
@@ -625,6 +633,67 @@ export class PuzzleStage {
       boxes.push(pieceLocalBounds(off.x, off.y, this.manifest.pieceSize, this.manifest.margin));
     }
     return unionBounds(boxes);
+  }
+
+  // Build one dehydrated group node from construction data: an empty container at
+  // the group ORIGIN (pieces render at their canonical offset inside it), its
+  // membership and geometry-derived bounds, the locked/unlocked layer, the
+  // spatial-index entry, interactivity, and the piece -> group map. No textures
+  // are fetched; the streaming engine hydrates the pieces when in view. Shared by
+  // build() (the spectator's whole-board pass and a contributor's empty no-op) and
+  // applyRegionState (each unknown group in a viewport-scoped construction stream).
+  private constructGroup(spec: {
+    groupId: number;
+    worldX: number;
+    worldY: number;
+    locked: boolean;
+    pieceIds: number[];
+  }): GroupNode {
+    const gc = new Container();
+    gc.x = spec.worldX;
+    gc.y = spec.worldY;
+    const node: GroupNode = {
+      id: spec.groupId,
+      container: gc,
+      pieceIds: spec.pieceIds,
+      pieces: [],
+      hydrated: false,
+      hydrating: false,
+      locked: spec.locked,
+      worldX: spec.worldX,
+      worldY: spec.worldY,
+      localBounds: this.boundsForIds(spec.pieceIds),
+    };
+    (spec.locked ? this.lockedLayer! : this.unlockedLayer!).addChild(gc);
+    this.groups.set(spec.groupId, node);
+    for (const pieceId of spec.pieceIds) this.pieceToGroup.set(pieceId, spec.groupId);
+    this.groupGrid.upsert(node.id, this.worldAabb(node));
+    this.applyGroupInteractivity(node);
+    return node;
+  }
+
+  // Move one piece's membership to a host group: update the piece -> group map and
+  // the host's id list unconditionally (authoritative even when the source group
+  // was never built on a partial board), then reparent the built node only when
+  // the source group and the piece node both exist. Shared by applySnap and the
+  // additive reconcile in applyRegionState.
+  private movePieceMembership(pieceId: number, host: GroupNode): void {
+    const fromGid = this.pieceToGroup.get(pieceId);
+    if (fromGid === host.id) return;
+    this.pieceToGroup.set(pieceId, host.id);
+    if (!host.pieceIds.includes(pieceId)) host.pieceIds.push(pieceId);
+    if (fromGid === undefined) return;
+    const from = this.groups.get(fromGid);
+    if (!from) return;
+    from.pieceIds = from.pieceIds.filter((id) => id !== pieceId);
+    const piece = from.pieces.find((p) => p.id === pieceId);
+    if (!piece) return;
+    from.container.removeChild(piece.container);
+    from.pieces = from.pieces.filter((p) => p.id !== pieceId);
+    piece.container.x = piece.geometry.canonicalOffset.x;
+    piece.container.y = piece.geometry.canonicalOffset.y;
+    host.container.addChild(piece.container);
+    host.pieces.push(piece);
   }
 
   private playZonePadding(): number {
@@ -721,6 +790,7 @@ export class PuzzleStage {
     this.fileById = new Map();
     this.manifest = null;
     this.textureBase = "";
+    this.minimapGrid = null;
     this.held = null;
     this.pendingDrag = null;
     this.pendingDrops.clear();
@@ -1153,25 +1223,65 @@ export class PuzzleStage {
     this.releaseGroupHeld(groupId);
   }
 
-  // Apply a pan resync (region_state): set each group's resting position from the
-  // server, except where the client is the live authority for it (holding it, or
-  // an in-flight local drop), so a stale resync never rewinds a newer live
-  // update. Only a changed position dirties tiles and pages residency, so the
-  // common redundant resync (unchanged singletons) costs nothing.
-  applyRegionState(entries: readonly { groupId: number; worldX: number; worldY: number }[]): void {
+  // Apply a viewport-scoped region_state (protocol v3): an upsert over the
+  // construction entries for the groups in the client's newly entered cells.
+  // Unknown group: build it wholesale (the join/pan stream for a partial board).
+  // Known group: apply the origin only when this client is not the live authority
+  // for it (the ordering guard, so a stale resync never rewinds a newer local
+  // update), and always additively reconcile membership and locked state, the
+  // heal channel a partial board needs (a snap that arrived while the host was
+  // unknown, or membership the client under-counts).
+  applyRegionState(entries: readonly RegionGroup[]): void {
     if (!this.world) return;
     const localHeldId = this.held?.groupId ?? null;
+    const now = performance.now();
     let any = false;
     for (const e of entries) {
-      if (!resyncShouldApply(e.groupId, localHeldId, this.heldGroupIds, this.pendingDrops))
-        continue;
       const node = this.groups.get(e.groupId);
-      if (!node) continue;
-      if (node.worldX === e.worldX && node.worldY === e.worldY) continue;
-      this.markTilesDirty(this.worldAabb(node));
-      this.moveGroup(node, e.worldX, e.worldY);
-      this.markTilesDirty(this.worldAabb(node));
-      any = true;
+      if (!node) {
+        const built = this.constructGroup({
+          groupId: e.groupId,
+          worldX: e.worldX,
+          worldY: e.worldY,
+          locked: e.locked,
+          pieceIds: e.pieceIds,
+        });
+        this.cullGroup(built);
+        this.reconcileGroupResidency(built, now);
+        if (this.lodActive) this.applyGroupLodVisibility(built);
+        any = true;
+        continue;
+      }
+      let changed = false;
+      if (
+        resyncShouldApply(e.groupId, localHeldId, this.heldGroupIds, this.pendingDrops) &&
+        (node.worldX !== e.worldX || node.worldY !== e.worldY)
+      ) {
+        this.markTilesDirty(this.worldAabb(node));
+        this.moveGroup(node, e.worldX, e.worldY);
+        this.markTilesDirty(this.worldAabb(node));
+        changed = true;
+      }
+      let membershipChanged = false;
+      for (const pieceId of e.pieceIds) {
+        if (this.pieceToGroup.get(pieceId) === e.groupId) continue;
+        this.movePieceMembership(pieceId, node);
+        membershipChanged = true;
+      }
+      if (e.locked !== node.locked) {
+        node.locked = e.locked;
+        this.placeGroupInLayer(node, this.restingLayer(node));
+        this.applyGroupInteractivity(node);
+        membershipChanged = true;
+      }
+      if (membershipChanged) {
+        node.localBounds = this.boundsForIds(node.pieceIds);
+        node.hydrated = node.pieces.length >= node.pieceIds.length;
+        this.markTilesDirty(this.worldAabb(node));
+        this.groupGrid.upsert(node.id, this.worldAabb(node));
+        changed = true;
+      }
+      if (changed) any = true;
     }
     if (any) {
       this.updateResidency();
@@ -1208,15 +1318,34 @@ export class PuzzleStage {
     // animations; live snaps (WS and tailing) animate.
     animate = true,
   ): void {
+    // Partial-board-safe: under protocol v3 a contributor only builds visited
+    // regions, so a remote merge can straddle the boundary. resolveSnap classifies
+    // the host (known/unknown) and the KNOWN source groups to remove, from the
+    // current membership.
+    const plan = resolveSnap(newGroupId, addedPieceIds, this.groups, this.pieceToGroup);
     const host = this.groups.get(newGroupId);
-    if (!host) return;
 
-    const sourceGroupIds = new Set<number>();
-    for (const pieceId of addedPieceIds) {
-      const gid = this.pieceToGroup.get(pieceId);
-      if (gid !== undefined && gid !== newGroupId) sourceGroupIds.add(gid);
+    if (!host) {
+      // Host unknown (its cell was never visited): the merged cluster is built
+      // wholesale by the next region_state for its cell. Do not build it from a
+      // snap (its full membership is unknown). Just keep the model consistent:
+      // reassign the added pieces to the host id, and remove every KNOWN source
+      // group so no phantom (a group the server merged away) survives.
+      for (const pieceId of addedPieceIds) this.pieceToGroup.set(pieceId, newGroupId);
+      for (const gid of plan.removeGroups) this.destroyGroup(gid);
+      this.heldGroupIds.delete(newGroupId);
+      this.pendingDrops.delete(newGroupId);
+      for (const gid of plan.removeGroups) this.pendingDrops.delete(gid);
+      if (
+        this.held &&
+        (this.held.groupId === newGroupId || plan.removeGroups.includes(this.held.groupId))
+      ) {
+        this.held = null;
+      }
+      return;
     }
 
+    const sourceGroupIds = plan.removeGroups;
     const hostOldRect = this.worldAabb(host);
     const preLockedPieceIds = new Set<number>();
     if (host.locked) for (const p of host.pieces) preLockedPieceIds.add(p.id);
@@ -1227,27 +1356,11 @@ export class PuzzleStage {
     const addedSet = new Set(addedPieceIds);
 
     // Reparent each added piece into the host, preserving its world position.
-    // Membership (pieceIds, pieceToGroup) moves unconditionally; the built node
-    // moves only when the source piece is hydrated, so a merge of off-screen
-    // (dehydrated) clusters still updates the model. Canonical offsets are
-    // globally consistent, so the piece's local position is its canonical
-    // offset; the host is moved to (worldX, worldY) below.
-    for (const pieceId of addedPieceIds) {
-      const fromGroupId = this.pieceToGroup.get(pieceId);
-      if (fromGroupId === undefined || fromGroupId === newGroupId) continue;
-      const from = this.groups.get(fromGroupId);
-      this.pieceToGroup.set(pieceId, newGroupId);
-      if (from) from.pieceIds = from.pieceIds.filter((id) => id !== pieceId);
-      if (!host.pieceIds.includes(pieceId)) host.pieceIds.push(pieceId);
-      const piece = from?.pieces.find((p) => p.id === pieceId);
-      if (!from || !piece) continue;
-      from.container.removeChild(piece.container);
-      from.pieces = from.pieces.filter((p) => p.id !== pieceId);
-      piece.container.x = piece.geometry.canonicalOffset.x;
-      piece.container.y = piece.geometry.canonicalOffset.y;
-      host.container.addChild(piece.container);
-      host.pieces.push(piece);
-    }
+    // Membership (pieceIds, pieceToGroup) moves unconditionally even when the
+    // source group was never visited, so a KNOWN host ends up with complete
+    // membership and correct localBounds; the built node moves only when the
+    // source piece is hydrated. The host is moved to (worldX, worldY) below.
+    for (const pieceId of addedPieceIds) this.movePieceMembership(pieceId, host);
 
     host.localBounds = this.boundsForIds(host.pieceIds);
     host.hydrated = host.pieces.length >= host.pieceIds.length;
@@ -1258,15 +1371,7 @@ export class PuzzleStage {
     this.markTilesDirty(this.worldAabb(host));
     this.reconcileGroupResidency(host, performance.now());
 
-    for (const gid of sourceGroupIds) {
-      const dead = this.groups.get(gid);
-      if (!dead) continue;
-      this.markTilesDirty(this.worldAabb(dead));
-      this.dehydrateGroup(dead);
-      this.forgetGroup(gid);
-      dead.container.destroy({ children: true });
-      this.groups.delete(gid);
-    }
+    for (const gid of sourceGroupIds) this.destroyGroup(gid);
 
     this.applyGroupInteractivity(host);
 
@@ -1276,7 +1381,10 @@ export class PuzzleStage {
     this.pendingDrops.delete(newGroupId);
     for (const gid of sourceGroupIds) this.pendingDrops.delete(gid);
 
-    if (this.held && (this.held.groupId === newGroupId || sourceGroupIds.has(this.held.groupId))) {
+    if (
+      this.held &&
+      (this.held.groupId === newGroupId || sourceGroupIds.includes(this.held.groupId))
+    ) {
       this.held = null;
     }
 
@@ -1286,6 +1394,19 @@ export class PuzzleStage {
         if (addedSet.has(piece.id) || host.locked) this.playSnapAnimation(piece);
       }
     }
+  }
+
+  // Frees and forgets a group entirely: dirties its tiles, dehydrates its
+  // textures, drops it from every index, destroys its container, and removes it
+  // from the group map. Used wherever a merge removes a source group.
+  private destroyGroup(gid: number): void {
+    const dead = this.groups.get(gid);
+    if (!dead) return;
+    this.markTilesDirty(this.worldAabb(dead));
+    this.dehydrateGroup(dead);
+    this.forgetGroup(gid);
+    dead.container.destroy({ children: true });
+    this.groups.delete(gid);
   }
 
   playEndOfPuzzle(): void {
@@ -1622,8 +1743,11 @@ export class PuzzleStage {
 
   getMinimapSnapshot(): MinimapSnapshot | null {
     if (!this.playZone || !this.worldSize || !this.manifest) return null;
-    // Dots come from group membership and geometry, not built nodes, so the map
-    // stays complete while most pieces are dehydrated (their textures unloaded).
+    // The global overview is the server `grid`; on top, an overlay of the locally
+    // known groups (the visited regions, bounded by the partial board, not the
+    // whole 1M board) refines it with the client's fresher live positions. Dots
+    // come from group membership and geometry, not built nodes, so the overlay
+    // stays correct while most pieces are dehydrated (textures unloaded).
     const half = this.manifest.pieceSize / 2;
     const pieces: MinimapPiece[] = [];
     for (const group of this.groups.values()) {
@@ -1639,6 +1763,7 @@ export class PuzzleStage {
     return {
       playZone: this.playZone,
       frame: { w: this.worldSize.w, h: this.worldSize.h },
+      grid: this.minimapGrid,
       pieces,
       viewport: this.viewport,
     };

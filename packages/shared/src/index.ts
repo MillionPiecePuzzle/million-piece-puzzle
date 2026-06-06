@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // Wire format version of the spectator stream (keyframe + event windows),
 // independent of PROTOCOL_VERSION: the spectator HTTP path can change without
@@ -11,6 +11,7 @@ export * from "./piece.js";
 export * from "./session.js";
 export * from "./protocol.js";
 export * from "./playzone.js";
+export * from "./minimap.js";
 export * from "./manifest.js";
 export * from "./generator/edge.js";
 export * from "./generator/generate.js";
