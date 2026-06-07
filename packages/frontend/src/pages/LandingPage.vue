@@ -59,6 +59,10 @@ function submitPasscode(): void {
 
     <footer class="landing-foot">
       <span>Phase 1 · Closed Alpha</span>
+      <span class="legal-links">
+        <RouterLink to="/privacy">Privacy</RouterLink>
+        <RouterLink to="/legal">Legal notice</RouterLink>
+      </span>
     </footer>
 
     <Transition name="modal">
@@ -167,12 +171,27 @@ h1 {
   cursor: default;
 }
 .landing-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
   padding: 20px 24px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-4);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+.legal-links {
+  display: inline-flex;
+  gap: 16px;
+}
+.legal-links a {
+  color: var(--ink-4);
+  transition: color 150ms ease;
+}
+.legal-links a:hover {
+  color: var(--ink-2);
 }
 
 .modal-backdrop {

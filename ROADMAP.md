@@ -86,9 +86,9 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [ ] Soak test with simulated traffic at target scale passes without state corruption
 
 ### `legal`
-- [ ] Privacy policy published
+- [x] Privacy policy published: a public `/privacy` page (data controller, data collected, purposes, sub-processors, retention, rights, cookies), linked discreetly from the landing footer
 - [ ] Terms of use published
-- [ ] GDPR notes added (data collected, retention, contact)
+- [x] GDPR notes added (data collected, retention, contact): folded into the `/privacy` page (data collected, retention, and the right of access/erasure/portability with a Discord contact). A `/legal` notice page (publisher, host, IP/MIT, liability) ships alongside it, also linked from the footer
 - [ ] License attributions page generated from dependencies
 
 ### `complementary`
