@@ -3,6 +3,7 @@
 
 import { Bot } from "./bot.js";
 import { Counter, Histogram } from "./metrics.js";
+import { seedSessions, sessionCookie } from "./sessions.js";
 
 export type Metrics = {
   grabSent: Counter;
@@ -55,6 +56,18 @@ export type RunnerConfig = {
   spawnIntervalMs: number;
   seed: number;
   verbose: boolean;
+  // Mongo connection the seeder writes test sessions to (must be the same
+  // database the target server reads). For prod, where Mongo is not publicly
+  // exposed, point this at a tunnel.
+  mongoUrl: string;
+  mongoDb: string;
+  // Selects the session cookie name (__Secure- prefix when true). Derived from a
+  // wss target by the CLI, matching the server's https-only Secure cookie.
+  secure: boolean;
+  // Viewport span as a fraction of the play zone, forwarded to each bot.
+  viewportFrac: number;
+  // Skip teardown of the seeded users/sessions (leave them for inspection).
+  keepSessions: boolean;
 };
 
 export class Runner {
@@ -69,32 +82,58 @@ export class Runner {
     console.log(
       `[runner] target=${this.cfg.url} puzzle=${this.cfg.puzzleId} bots=${this.cfg.bots} duration=${this.cfg.durationMs}ms`,
     );
-    for (let i = 0; i < this.cfg.bots; i++) {
-      const bot = new Bot({
-        id: i,
-        url: this.cfg.url,
-        puzzleId: this.cfg.puzzleId,
-        origin: this.cfg.origin,
-        metrics: this.metrics,
-        rng: makeRng(this.cfg.seed + i * 1000003),
-        verbose: this.cfg.verbose,
-      });
-      this.bots.push(bot);
-      bot.start();
-      if (i < this.cfg.bots - 1) {
-        await new Promise((r) => setTimeout(r, this.cfg.spawnIntervalMs));
+
+    // The WS upgrade rejects anonymous connections, so seed one session per bot
+    // before connecting. Session TTL covers the run with headroom for a slow
+    // teardown.
+    const ttlMs = Math.max(this.cfg.durationMs * 2, 3_600_000);
+    console.log(`[runner] seeding ${this.cfg.bots} sessions in ${this.cfg.mongoDb}...`);
+    const seed = await seedSessions({
+      mongoUrl: this.cfg.mongoUrl,
+      mongoDb: this.cfg.mongoDb,
+      count: this.cfg.bots,
+      ttlMs,
+    });
+
+    try {
+      for (let i = 0; i < this.cfg.bots; i++) {
+        const session = seed.sessions[i];
+        if (!session) throw new Error(`missing seeded session for bot ${i}`);
+        const bot = new Bot({
+          id: i,
+          url: this.cfg.url,
+          puzzleId: this.cfg.puzzleId,
+          origin: this.cfg.origin,
+          cookie: sessionCookie(session.sessionToken, this.cfg.secure),
+          viewportFrac: this.cfg.viewportFrac,
+          metrics: this.metrics,
+          rng: makeRng(this.cfg.seed + i * 1000003),
+          verbose: this.cfg.verbose,
+        });
+        this.bots.push(bot);
+        bot.start();
+        if (i < this.cfg.bots - 1) {
+          await new Promise((r) => setTimeout(r, this.cfg.spawnIntervalMs));
+        }
+      }
+
+      this.progressTimer = setInterval(() => this.printProgress(), 5000);
+
+      await new Promise((r) => setTimeout(r, this.cfg.durationMs));
+
+      if (this.progressTimer) clearInterval(this.progressTimer);
+      console.log("[runner] stopping bots...");
+      for (const b of this.bots) b.stop();
+      await new Promise((r) => setTimeout(r, 500));
+      this.printFinal();
+    } finally {
+      if (this.cfg.keepSessions) {
+        console.log("[runner] keeping seeded sessions (--keep-sessions)");
+      } else {
+        console.log("[runner] tearing down seeded sessions...");
+        await seed.cleanup();
       }
     }
-
-    this.progressTimer = setInterval(() => this.printProgress(), 5000);
-
-    await new Promise((r) => setTimeout(r, this.cfg.durationMs));
-
-    if (this.progressTimer) clearInterval(this.progressTimer);
-    console.log("[runner] stopping bots...");
-    for (const b of this.bots) b.stop();
-    await new Promise((r) => setTimeout(r, 500));
-    this.printFinal();
   }
 
   private printProgress(): void {

@@ -1,8 +1,10 @@
 // Local mirror of authoritative server state for one bot.
 //
-// Updated from SState (initial) and from broadcasts (SGrabOk, SDrag, SDrop,
-// SSnap). Lets a bot pick a non-held, non-locked group to grab and know where
-// it currently is in world space.
+// Protocol v3: `welcome` carries no board, so the world starts empty and is
+// filled incrementally from the region_state construction stream the server
+// sends for the cells a bot's viewport enters. It is then updated from
+// broadcasts (SGrabOk, SDrag, SDrop, SSnap). Lets a bot pick a non-held,
+// non-locked group to grab and know where it currently is in world space.
 
 import type {
   GroupRuntime,
@@ -11,8 +13,8 @@ import type {
   SDrag,
   SDrop,
   SGrabOk,
+  SRegionState,
   SSnap,
-  SState,
 } from "@mpp/shared";
 
 export class World {
@@ -20,11 +22,36 @@ export class World {
   readonly groups = new Map<number, GroupRuntime>();
   playZone: PlayZone = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
-  loadState(state: SState): void {
-    this.pieces.clear();
-    this.groups.clear();
-    for (const p of state.pieces) this.pieces.set(p.id, { ...p });
-    for (const g of state.groups) this.groups.set(g.id, { ...g });
+  // Upsert the groups in a region_state window. An unknown group is built; a
+  // known one has its membership, size and locked state reconciled, and its
+  // position adopted only when nobody holds it (a held group's live drag/drop is
+  // the authority, so a later resync must not rewind it).
+  applyRegionState(msg: SRegionState): void {
+    for (const rg of msg.groups) {
+      const existing = this.groups.get(rg.groupId);
+      if (!existing) {
+        this.groups.set(rg.groupId, {
+          id: rg.groupId,
+          worldX: rg.worldX,
+          worldY: rg.worldY,
+          size: rg.size,
+          locked: rg.locked,
+          heldBy: null,
+        });
+      } else {
+        if (existing.heldBy === null) {
+          existing.worldX = rg.worldX;
+          existing.worldY = rg.worldY;
+        }
+        existing.size = rg.size;
+        existing.locked = rg.locked;
+      }
+      for (const pieceId of rg.pieceIds) {
+        const p = this.pieces.get(pieceId);
+        if (p) p.groupId = rg.groupId;
+        else this.pieces.set(pieceId, { id: pieceId, groupId: rg.groupId, rotation: 0 });
+      }
+    }
   }
 
   applyGrabOk(msg: SGrabOk): void {

@@ -6,7 +6,27 @@ and cursor presence. Records grab latency, drag/drop throughput, server
 errors, and backpressure closes; emits a PASS/FAIL verdict at the end.
 
 The bot uses the same `@mpp/shared` types as the real client, so the wire
-format is exact.
+format is exact. It follows protocol v3: `welcome` carries no board, so each bot
+streams its region in via `region_state` for the cells its (bounded) viewport
+enters, then grabs from what it has learned.
+
+## Sessions
+
+The WS upgrade rejects anonymous connections: it resolves the session cookie
+against Mongo via the Auth.js adapter. Sign-in is Google OAuth only with no
+programmatic path, so the harness seeds one disposable user + session per bot
+directly in Mongo (in the adapter's document shape) and sends the matching
+session cookie on each upgrade. Seeded docs are tagged `loadTest: true` with a
+per-run `runId` and use `@loadtest.invalid` emails; they are deleted at the end
+of the run (pass `--keep-sessions` to leave them, e.g. for inspection or to
+clean a crashed run with `db.users.deleteMany({ loadTest: true })`).
+
+This means the harness needs a Mongo connection to the **same database the
+target server reads**. Locally, `docker-compose.override.yml` exposes Mongo on
+`localhost:27017`. In prod Mongo is not publicly exposed, so point `--mongo` at a
+tunnel (or run the harness on the VPS). No auth secrets are required: database
+sessions are an opaque token looked up in Mongo, so the gate accepts a seeded
+session even when `AUTH_SECRET` is unset.
 
 ## Usage
 
@@ -16,28 +36,39 @@ npm run start -w @mpp/load-test -- \
   --target ws://localhost:8080 \
   --puzzle test-puzzle-10k \
   --origin http://localhost:5173 \
-  --bots 20 --duration 300
+  --mongo mongodb://localhost:27017 --mongo-db mpp \
+  --bots 5 --duration 300
 
-# Prod.
+# Prod (Mongo reached over a tunnel, wss target selects the __Secure- cookie).
 npm run start -w @mpp/load-test -- \
   --target wss://ws.millionpiecepuzzle.com \
   --puzzle test-puzzle-10k \
   --origin https://app.millionpiecepuzzle.com \
-  --bots 20 --duration 300
+  --mongo mongodb://localhost:27017 --mongo-db mpp \
+  --bots 5 --duration 300
 ```
+
+All bots from one host share one IP, so the server's per-IP concurrent
+connection cap (`MPP_WS_MAX_CONNECTIONS_PER_IP`, default 10) bounds how many
+connect from a single machine: raise it on the server, or spread bots across
+hosts, to run more than that without `1013` closes.
 
 ## Flags
 
-| Flag                | Default                  | Meaning                                                |
-| ------------------- | ------------------------ | ------------------------------------------------------ |
-| `--target`          | (required)               | WS URL (`ws://...` or `wss://...`)                     |
-| `--puzzle`          | (required)               | Puzzle id sent in `hello`                              |
-| `--origin`          | `http://localhost:5173`  | `Origin` header, must match `MPP_ALLOWED_ORIGINS`      |
-| `--bots`            | `20`                     | Concurrent simulated clients                           |
-| `--duration`        | `300` (sec)              | Total run length                                       |
-| `--spawn-interval`  | `250` (ms)               | Delay between bot connects, to avoid a thundering herd |
-| `--seed`            | `42`                     | Seed for the per-bot RNG (reproducible runs)           |
-| `--verbose`         | off                      | Log per-bot server errors and ws errors                |
+| Flag                | Default                     | Meaning                                                       |
+| ------------------- | --------------------------- | ------------------------------------------------------------ |
+| `--target`          | (required)                  | WS URL (`ws://...` or `wss://...`); `wss` selects the `__Secure-` cookie |
+| `--puzzle`          | (required)                  | Puzzle id sent in `hello`                                     |
+| `--origin`          | `http://localhost:5173`     | `Origin` header, must match `MPP_ALLOWED_ORIGINS`            |
+| `--mongo`           | `mongodb://127.0.0.1:27017` | Mongo URL the seeder writes test sessions to                 |
+| `--mongo-db`        | `mpp`                       | Mongo database name (must match the server's `MPP_MONGO_DB`) |
+| `--bots`            | `20`                        | Concurrent simulated clients                                 |
+| `--duration`        | `300` (sec)                 | Total run length                                              |
+| `--spawn-interval`  | `250` (ms)                  | Delay between bot connects, to avoid a thundering herd        |
+| `--viewport-frac`   | `0.1`                       | Bot viewport span as a fraction of the play zone (keep small so it stays a scoped subscriber) |
+| `--seed`            | `42`                        | Seed for the per-bot RNG (reproducible runs)                 |
+| `--keep-sessions`   | off                         | Skip teardown of the seeded users/sessions                   |
+| `--verbose`         | off                         | Log per-bot server errors and ws errors                      |
 
 ## Verdict
 

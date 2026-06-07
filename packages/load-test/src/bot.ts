@@ -19,6 +19,14 @@ export type BotConfig = {
   url: string;
   puzzleId: string;
   origin: string;
+  // Full Cookie header value carrying this bot's seeded session, so the WS
+  // upgrade's session gate accepts the connection.
+  cookie: string;
+  // Fraction of the play-zone span the bot's viewport covers. Kept small so the
+  // viewport stays under the server's broadcast cell cap and gets a scoped
+  // region_state stream (a too-large viewport is treated as a global subscriber
+  // and streams no board, leaving the bot with nothing to grab).
+  viewportFrac: number;
   metrics: Metrics;
   rng: () => number;
   verbose: boolean;
@@ -43,7 +51,9 @@ export class Bot {
   constructor(private readonly cfg: BotConfig) {}
 
   start(): void {
-    const ws = new WebSocket(this.cfg.url, { headers: { Origin: this.cfg.origin } });
+    const ws = new WebSocket(this.cfg.url, {
+      headers: { Origin: this.cfg.origin, Cookie: this.cfg.cookie },
+    });
     this.ws = ws;
     ws.on("open", () => {
       this.send({ t: "hello", protocolVersion: PROTOCOL_VERSION, puzzleId: this.cfg.puzzleId });
@@ -100,10 +110,13 @@ export class Bot {
       case "welcome":
         this.userId = msg.userId;
         this.world.playZone = msg.playZone;
-        return;
-      case "state":
-        this.world.loadState(msg);
+        // Protocol v3: no board arrives on join. Start the viewport/cursor
+        // presence and the grab loop now; the board fills in from the
+        // region_state stream the first viewport triggers.
         this.startTimers();
+        return;
+      case "region_state":
+        this.world.applyRegionState(msg);
         return;
       case "grab_ok": {
         this.world.applyGrabOk(msg);
@@ -236,8 +249,8 @@ export class Bot {
 
   private sendViewport(): void {
     const z = this.world.playZone;
-    const w = (z.maxX - z.minX) * 0.4;
-    const h = (z.maxY - z.minY) * 0.4;
+    const w = (z.maxX - z.minX) * this.cfg.viewportFrac;
+    const h = (z.maxY - z.minY) * this.cfg.viewportFrac;
     const x = z.minX + this.cfg.rng() * Math.max(0, z.maxX - z.minX - w);
     const y = z.minY + this.cfg.rng() * Math.max(0, z.maxY - z.minY - h);
     this.send({ t: "viewport", worldX: x, worldY: y, worldW: w, worldH: h });

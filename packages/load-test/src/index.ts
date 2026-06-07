@@ -5,6 +5,7 @@
 //     --target ws://localhost:8080 \
 //     --puzzle test-puzzle-10k \
 //     --origin http://localhost:5173 \
+//     --mongo mongodb://localhost:27017 --mongo-db mpp \
 //     --bots 20 --duration 300 --spawn-interval 250
 
 import { Runner } from "./runner.js";
@@ -18,6 +19,10 @@ type Args = {
   spawnIntervalMs: number;
   seed: number;
   verbose: boolean;
+  mongoUrl: string;
+  mongoDb: string;
+  viewportFrac: number;
+  keepSessions: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -48,6 +53,11 @@ function parseArgs(argv: string[]): Args {
       typeof args["spawn-interval"] === "string" ? parseInt(args["spawn-interval"], 10) : 250,
     seed: typeof args["seed"] === "string" ? parseInt(args["seed"], 10) : 42,
     verbose: args["verbose"] === true,
+    mongoUrl: typeof args["mongo"] === "string" ? args["mongo"] : "mongodb://127.0.0.1:27017",
+    mongoDb: typeof args["mongo-db"] === "string" ? args["mongo-db"] : "mpp",
+    viewportFrac:
+      typeof args["viewport-frac"] === "string" ? parseFloat(args["viewport-frac"]) : 0.1,
+    keepSessions: args["keep-sessions"] === true,
   };
 }
 
@@ -62,6 +72,13 @@ async function main(): Promise<void> {
     spawnIntervalMs: args.spawnIntervalMs,
     seed: args.seed,
     verbose: args.verbose,
+    mongoUrl: args.mongoUrl,
+    mongoDb: args.mongoDb,
+    // The server marks the session cookie Secure only over https (auth host),
+    // which a wss target implies; match that name so the upgrade reads the cookie.
+    secure: args.target.startsWith("wss"),
+    viewportFrac: args.viewportFrac,
+    keepSessions: args.keepSessions,
   });
   await runner.run();
 }

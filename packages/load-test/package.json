@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@mpp/shared": "*",
+    "mongodb": "^6.12.0",
     "ws": "^8.20.1"
   },
   "devDependencies": {

@@ -82,7 +82,7 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [ ] Production hardening: backups (Redis snapshot, Mongo dump), secrets management, DDoS posture verified
 
 ### `qa-and-load`
-- [ ] Load-test bots authenticate past the WS session gate (seed test sessions and send the session cookie on the upgrade) so the harness can run now that anonymous WS upgrades are rejected
+- [x] Load-test bots authenticate past the WS session gate: the harness seeds one disposable user + database session per bot directly in Mongo (Auth.js adapter shape, tagged `loadTest`/`runId`, `@loadtest.invalid` emails, torn down on exit) and sends the matching session cookie on each upgrade (cookie name follows the target scheme). The bot was also brought to protocol v3 (welcome carries no board: it streams its region in via `region_state` from a bounded viewport, then grabs from what it learned) since auth alone would connect but generate no load. Needs Mongo reachable from the harness (`--mongo`, a tunnel in prod) and no auth secret (database sessions are an opaque token). Verified against the local 10 000-piece stack: anonymous upgrade rejected (401), seeded bots accepted and sustained ~160 drag/s with zero ws/server errors and zero backpressure closes, seeded docs cleaned up after the run. See DECISIONS: harness seeds sessions by direct Mongo write
 - [ ] Soak test with simulated traffic at target scale passes without state corruption
 
 ### `legal`
