@@ -39,5 +39,20 @@ import LegalDocument from "../components/LegalDocument.vue";
       Million Piece Puzzle is provided "as is", without any warranty. The publisher cannot be held
       responsible for service interruptions, data loss or any damage resulting from use of the site.
     </p>
+
+    <h2>Open-source licenses</h2>
+    <p>
+      The site is built with open-source libraries that remain the property of their respective
+      authors, used here under their licenses: Vue and Vue Router (MIT), PixiJS (MIT) and
+      OpenSeadragon (BSD-3-Clause). The complete dependency tree and the full text of each license
+      are available in the
+      <a
+        href="https://github.com/MillionPiecePuzzle/million-piece-puzzle"
+        target="_blank"
+        rel="noopener"
+      >
+        source repository</a
+      >.
+    </p>
   </LegalDocument>
 </template>

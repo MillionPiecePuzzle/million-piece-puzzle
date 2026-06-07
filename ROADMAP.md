@@ -87,9 +87,8 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 
 ### `legal`
 - [x] Privacy policy published: a public `/privacy` page (data controller, data collected, purposes, sub-processors, retention, rights, cookies), linked discreetly from the landing footer
-- [ ] Terms of use published
 - [x] GDPR notes added (data collected, retention, contact): folded into the `/privacy` page (data collected, retention, and the right of access/erasure/portability with a Discord contact). A `/legal` notice page (publisher, host, IP/MIT, liability) ships alongside it, also linked from the footer
-- [ ] License attributions page generated from dependencies
+- [x] License attributions: an Open-source licenses section appended to the `/legal` notice (Vue, Vue Router, PixiJS, OpenSeadragon with their licenses), pointing to the repo for the full dependency tree. Terms of use intentionally dropped: non-commercial, no chat, permanent pieces (griefing designed out), so the liability disclaimer on the legal notice covers it
 
 ### `complementary`
 - [x] Contributor nationality: required onboarding step after the pseudo (forced `NationalityModal` over the shared `COUNTRIES` list, validated by `normalizeCountry`), stored on the user profile and exposed via `GET /auth/session` and `POST /profile/country`. The leaderboard avatar is the contributor's round country flag (self-hosted from circle-flags, copied to `public/flags` by the predev/prebuild hooks), falling back to the initials circle for rows without a country. Does not close the broader `frontend-shell` onboarding task
