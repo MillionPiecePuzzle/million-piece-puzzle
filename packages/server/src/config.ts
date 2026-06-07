@@ -61,6 +61,12 @@ export type ServerConfig = {
   // chokepoint.
   signupMaxPerIp: number;
   signupWindowSec: number;
+  // Per-IP fixed window on the anonymous spectator stream (/keyframe + /events/*),
+  // the public read path. Sized well above a legitimate spectator's origin rate
+  // (most reads hit the CDN edge; the origin sees only cache misses) so it trips
+  // on a flood, not on a NAT of honest viewers.
+  spectatorRateMax: number;
+  spectatorRateWindowSec: number;
 };
 
 function int(name: string, fallback: number): number {
@@ -146,6 +152,8 @@ export async function loadConfig(): Promise<ServerConfig> {
     authRateWindowSec: int("MPP_AUTH_RATE_WINDOW_SEC", 60),
     signupMaxPerIp: int("MPP_SIGNUP_MAX_PER_IP", 10),
     signupWindowSec: int("MPP_SIGNUP_WINDOW_SEC", 3600),
+    spectatorRateMax: int("MPP_SPECTATOR_RATE_MAX", 120),
+    spectatorRateWindowSec: int("MPP_SPECTATOR_RATE_WINDOW_SEC", 60),
   };
 }
 

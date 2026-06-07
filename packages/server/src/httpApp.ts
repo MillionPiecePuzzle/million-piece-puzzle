@@ -25,6 +25,7 @@ export type CreateAppDeps = {
   countryStore: CountryStore;
   authLimiter: RedisFixedWindow;
   signupLimiter: RedisFixedWindow;
+  spectatorLimiter: RedisFixedWindow;
   appOrigin: string;
   devEnabled: boolean;
   // Spectator stream handlers from keyframe.ts: each writes the response and
@@ -41,8 +42,11 @@ export function createApp(deps: CreateAppDeps): Express {
 
   // Spectator stream: anonymous read-only state, wildcard-CORS and CDN-fronted
   // (handled inside the handlers), so it sits outside the credentialed-CORS and
-  // auth rate-limit boundary. app.all keeps req.url intact for the handlers' own
-  // path/method checks (app.use would strip the mount prefix).
+  // auth rate-limit boundary. Its own boundary (per-IP rate limit + query-string
+  // rejection) runs first; the handlers then serve the cached body. app.all keeps
+  // req.url intact for the handlers' own path/method checks (app.use would strip
+  // the mount prefix).
+  app.all(["/keyframe", "/events/*"], makeSpectatorGuard(deps.spectatorLimiter, deps.devEnabled));
   app.all("/keyframe", (req, res) => {
     deps.handleKeyframe(req, res);
   });
@@ -118,6 +122,53 @@ export function makeRateLimit(limiter: RedisFixedWindow, devEnabled: boolean) {
       console.error("[ratelimit]", (e as Error).message);
       next();
     }
+  };
+}
+
+// Boundary in front of the anonymous spectator stream. A preflight passes
+// straight to the handler (which answers 204 with wildcard CORS). Every other
+// request is counted against a per-IP fixed window first, so a flood of any
+// request class (including cache-busting GETs) is capped per IP; survivors must
+// carry a clean URL. A query string is rejected because the edge keys its cache
+// by the full URL, so a random `?cb=` would miss the cache and hit the origin on
+// every request (the client never sends one). Rejections carry wildcard CORS so
+// a browser fetch can read the status and `no-store` so the CDN never caches a
+// 400/429. Fail-open on a Redis error: a transient outage must not take the
+// public read path down.
+export function makeSpectatorGuard(limiter: RedisFixedWindow, devEnabled: boolean) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (req.method === "OPTIONS") {
+      next();
+      return;
+    }
+    try {
+      if (!(await limiter.allow(clientIp(req, devEnabled)))) {
+        res
+          .status(429)
+          .set({
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
+            "Retry-After": "1",
+          })
+          .type("application/json; charset=utf-8")
+          .send('{"error":"rate_limited"}');
+        return;
+      }
+    } catch (e) {
+      console.error("[spectator ratelimit]", (e as Error).message);
+      next();
+      return;
+    }
+    const query = req.query as Record<string, unknown> | undefined;
+    if (query && Object.keys(query).length > 0) {
+      res
+        .status(400)
+        .set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" })
+        .type("application/json; charset=utf-8")
+        .send('{"error":"unexpected_query"}');
+      return;
+    }
+    next();
   };
 }
 

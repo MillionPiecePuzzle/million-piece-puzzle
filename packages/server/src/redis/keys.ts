@@ -31,5 +31,5 @@ export const events = (puzzleId: string) => `puzzle:${puzzleId}:events`;
 /** Hash: userId -> viewportX, viewportY, zoom, lastSeenAt. */
 export const presence = (puzzleId: string) => `puzzle:${puzzleId}:presence`;
 
-/** Integer with TTL: per-IP fixed-window counter for an auth-route rate bucket. */
-export const authRate = (bucket: string, ip: string) => `ratelimit:${bucket}:${ip}`;
+/** Integer with TTL: per-IP fixed-window counter for a named rate bucket (auth routes, spectator stream). */
+export const rateLimit = (bucket: string, ip: string) => `ratelimit:${bucket}:${ip}`;

@@ -162,6 +162,12 @@ async function main(): Promise<void> {
       config.signupMaxPerIp,
       config.signupWindowSec,
     ),
+    spectatorLimiter: new RedisFixedWindow(
+      redis,
+      "spectator",
+      config.spectatorRateMax,
+      config.spectatorRateWindowSec,
+    ),
     appOrigin: config.appOrigin,
     devEnabled: config.devEnabled,
     handleKeyframe,

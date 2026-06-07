@@ -5,6 +5,7 @@ import {
   makeProfileCountryHandler,
   makeCors,
   makeRateLimit,
+  makeSpectatorGuard,
 } from "./httpApp.js";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
 import { RedisFixedWindow } from "./limits.js";
@@ -39,6 +40,10 @@ function fakeRes() {
     res.headers[k] = v;
     return r;
   }) as unknown as Response["setHeader"];
+  r.set = vi.fn((h: Record<string, string>) => {
+    Object.assign(res.headers, h);
+    return r;
+  }) as unknown as Response["set"];
   return r;
 }
 
@@ -231,6 +236,83 @@ describe("makeRateLimit", () => {
     const res = fakeRes();
     const next = vi.fn();
     await mw({ headers: {}, socket: { remoteAddress: "1.1.1.1" } } as Request, res, next);
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+describe("makeSpectatorGuard", () => {
+  function spectatorReq(over: Partial<Request> = {}): Request {
+    return {
+      method: "GET",
+      headers: {},
+      socket: { remoteAddress: "1.1.1.1" },
+      query: {},
+      ...over,
+    } as unknown as Request;
+  }
+
+  it("lets a clean request under budget through", async () => {
+    const guard = makeSpectatorGuard(
+      new RedisFixedWindow(fakeRedisAllowing(true), "spectator", 120, 60),
+      true,
+    );
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(spectatorReq(), res, next);
+    expect(next).toHaveBeenCalled();
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(0);
+  });
+
+  it("passes a preflight through without consuming the budget", async () => {
+    const redis = fakeRedisAllowing(true);
+    const guard = makeSpectatorGuard(new RedisFixedWindow(redis, "spectator", 120, 60), true);
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(spectatorReq({ method: "OPTIONS" }), res, next);
+    expect(next).toHaveBeenCalled();
+    expect((redis as unknown as { incr: ReturnType<typeof vi.fn> }).incr).not.toHaveBeenCalled();
+  });
+
+  it("429s a request over budget with wildcard CORS and no-store", async () => {
+    const guard = makeSpectatorGuard(
+      new RedisFixedWindow(fakeRedisAllowing(false), "spectator", 120, 60),
+      true,
+    );
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(spectatorReq(), res, next);
+    const r = res as unknown as { statusCode: number; headers: Record<string, string> };
+    expect(r.statusCode).toBe(429);
+    expect(r.headers["Access-Control-Allow-Origin"]).toBe("*");
+    expect(r.headers["Cache-Control"]).toBe("no-store");
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("400s a cache-busting query string after counting it against the budget", async () => {
+    const redis = fakeRedisAllowing(true);
+    const guard = makeSpectatorGuard(new RedisFixedWindow(redis, "spectator", 120, 60), true);
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(spectatorReq({ query: { cb: "1" } as unknown as Request["query"] }), res, next);
+    const r = res as unknown as { statusCode: number; headers: Record<string, string> };
+    expect(r.statusCode).toBe(400);
+    expect(r.headers["Access-Control-Allow-Origin"]).toBe("*");
+    expect(r.headers["Cache-Control"]).toBe("no-store");
+    expect((redis as unknown as { incr: ReturnType<typeof vi.fn> }).incr).toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("fails open when Redis errors", async () => {
+    const redis = {
+      incr: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+      expire: vi.fn(),
+    } as unknown as Redis;
+    const guard = makeSpectatorGuard(new RedisFixedWindow(redis, "spectator", 120, 60), true);
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(spectatorReq(), res, next);
     expect(next).toHaveBeenCalled();
   });
 });
