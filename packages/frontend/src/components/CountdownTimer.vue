@@ -1,10 +1,7 @@
 <script setup lang="ts">
-import { toRef } from "vue";
-import { useCountdown } from "../composables/useCountdown";
+import type { CountdownParts } from "../composables/useCountdown";
 
-const props = defineProps<{ eventStartsAt: number }>();
-
-const { scheduled, parts } = useCountdown(toRef(props, "eventStartsAt"));
+defineProps<{ scheduled: boolean; parts: CountdownParts }>();
 
 const PLACEHOLDER = "--";
 </script>

@@ -19,7 +19,7 @@ const submitting = ref(false);
 
 // Once the start is reached the single CTA flips from "I'm interested" to "Enter
 // the canvas"; until then there is no way into /play from the landing.
-const { launched } = useCountdown(eventStartsAt);
+const { launched, scheduled, parts } = useCountdown(eventStartsAt);
 
 type LandingData = { eventStartsAt: number; interested: { count: number; me: boolean } };
 type InterestedData = { count: number; me: boolean };
@@ -102,7 +102,7 @@ onMounted(async () => {
         and place your piece of it.
       </p>
 
-      <CountdownTimer v-if="!launched" class="hero-countdown" :event-starts-at="eventStartsAt" />
+      <CountdownTimer v-if="!launched" class="hero-countdown" :scheduled="scheduled" :parts="parts" />
 
       <div class="actions">
         <button v-if="launched" type="button" class="cta primary" @click="enterCanvas">
