@@ -27,3 +27,8 @@ services:
       - ./packages/frontend/src:/repo/packages/frontend/src:ro
       - ./packages/frontend/index.html:/repo/packages/frontend/index.html:ro
       - ./packages/frontend/vite.config.ts:/repo/packages/frontend/vite.config.ts:ro
+
+  # No R2 creds locally, so idle the backup loop instead of failing every pass.
+  backup:
+    environment:
+      MPP_BACKUP_ENABLED: "0"

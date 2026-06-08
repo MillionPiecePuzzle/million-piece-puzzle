@@ -17,6 +17,11 @@ export type ServerConfig = {
   wsRateBurst: number;
   wsMaxConnectionsPerIp: number;
   wsBufferedAmountLimitBytes: number;
+  // Application-level WS ping cadence. The Cloudflare proxy (once ws.* is
+  // proxied) drops a WebSocket idle for ~100s, so the server pings every
+  // interval and terminates a socket that missed the previous pong, keeping idle
+  // contributors connected and reaping half-open sockets.
+  wsHeartbeatIntervalMs: number;
   // Spatial broadcast index (see DECISIONS: spatial broadcast index). The world
   // grid cell is `pieceSize * broadcastCellPieces` wide, sized so a zoomed-in
   // viewport overlaps ~1-4 cells; a viewport (or dragged cluster) overlapping more
@@ -136,6 +141,7 @@ export async function loadConfig(): Promise<ServerConfig> {
     wsRateBurst: int("MPP_WS_RATE_BURST", 400),
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
+    wsHeartbeatIntervalMs: int("MPP_WS_HEARTBEAT_INTERVAL_MS", 30000),
     broadcastCellPieces: int("MPP_BROADCAST_CELL_PIECES", 16),
     broadcastMaxCells: int("MPP_BROADCAST_MAX_CELLS", 256),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),

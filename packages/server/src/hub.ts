@@ -34,6 +34,9 @@ export type Client = {
   // the cell cap), which receives every scoped broadcast (fail-open). Maintained
   // by the Hub; the invariant `cells.size === 0` iff global subscriber holds.
   cells: Set<number>;
+  // Heartbeat liveness: set true on every pong, cleared when a ping is sent. A
+  // client still false at the next heartbeat tick missed its pong and is dropped.
+  alive: boolean;
 };
 
 // WebSocket close code 1013 ("Try Again Later") for slow consumers whose

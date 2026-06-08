@@ -260,7 +260,11 @@ async function main(): Promise<void> {
       pseudo: authed.pseudo,
       held: new Set(),
       cells: new Set(),
+      alive: true,
     };
+    ws.on("pong", () => {
+      client.alive = true;
+    });
     void mongo.touchLastSeen(authed.id).catch((e: unknown) => {
       console.error("[lastSeen]", (e as Error).message);
     });
@@ -291,10 +295,29 @@ async function main(): Promise<void> {
     });
   });
 
+  // Keep connections warm through the Cloudflare proxy (which drops a WS idle for
+  // ~100s) and reap half-open sockets: a client that did not pong since the last
+  // tick is terminated, which fires `close` and the normal cleanup above.
+  const heartbeatTimer = setInterval(() => {
+    for (const c of hub.allClients()) {
+      if (!c.alive) {
+        c.ws.terminate();
+        continue;
+      }
+      c.alive = false;
+      try {
+        c.ws.ping();
+      } catch {
+        c.ws.terminate();
+      }
+    }
+  }, config.wsHeartbeatIntervalMs);
+
   const shutdown = async () => {
     console.log("[shutdown] closing");
     keyframePublisher.stop();
     clearInterval(trimTimer);
+    clearInterval(heartbeatTimer);
     wss.close();
     httpServer.close();
     await redis.quit();

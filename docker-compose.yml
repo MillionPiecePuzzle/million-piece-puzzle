@@ -59,6 +59,38 @@ services:
     expose:
       - "5173"
 
+  # Off-host backups: a gzipped Mongo dump + Redis RDB pushed to a private R2
+  # bucket every 6h, kept to the newest 3 (see DECISIONS: scheduled backups to a
+  # private R2 bucket). docker-compose.override.yml disables the loop for local
+  # dev (no R2 creds there).
+  backup:
+    build:
+      context: .
+      dockerfile: docker/backup/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - mongo
+    environment:
+      MPP_REDIS_URL: "redis://redis:6379"
+      MPP_MONGO_URL: "mongodb://mongo:27017"
+      MPP_MONGO_DB: "mpp"
+      # Cadence and retention: non-secret, baked here as the prod source.
+      MPP_BACKUP_INTERVAL_SEC: "21600"
+      MPP_BACKUP_KEEP: "3"
+      MPP_BACKUP_REMOTE: "r2"
+      RCLONE_CONFIG_R2_TYPE: "s3"
+      RCLONE_CONFIG_R2_PROVIDER: "Cloudflare"
+      RCLONE_CONFIG_R2_ACL: "private"
+      # Bucket + R2 credentials for the private backup target come from the
+      # Coolify service env, never committed: the endpoint carries the account id
+      # and the keys are secrets. Without them the backup loop logs failures and
+      # the app is unaffected.
+      MPP_BACKUP_BUCKET: "${MPP_BACKUP_BUCKET:-mpp-backups}"
+      RCLONE_CONFIG_R2_ENDPOINT: "${RCLONE_CONFIG_R2_ENDPOINT:-}"
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: "${RCLONE_CONFIG_R2_ACCESS_KEY_ID:-}"
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: "${RCLONE_CONFIG_R2_SECRET_ACCESS_KEY:-}"
+
 volumes:
   redis-data:
   mongo-data:
