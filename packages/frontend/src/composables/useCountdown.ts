@@ -44,6 +44,9 @@ export function useCountdown(eventStartsAt: Ref<number>, now: () => number = () 
   }
 
   const scheduled = computed(() => eventStartsAt.value > 0 && current.value < eventStartsAt.value);
+  // True once a real start has been reached. Flips on the tick that crosses the
+  // start, so the landing can swap its CTA without a reload.
+  const launched = computed(() => eventStartsAt.value > 0 && current.value >= eventStartsAt.value);
   const remainingMs = computed(() => Math.max(0, eventStartsAt.value - current.value));
   const parts = computed(() => formatCountdown(remainingMs.value));
 
@@ -59,5 +62,5 @@ export function useCountdown(eventStartsAt: Ref<number>, now: () => number = () 
 
   onUnmounted(stop);
 
-  return { scheduled, remainingMs, parts };
+  return { scheduled, launched, remainingMs, parts };
 }

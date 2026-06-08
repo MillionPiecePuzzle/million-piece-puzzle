@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import BrandMark from "../components/BrandMark.vue";
 import CountdownTimer from "../components/CountdownTimer.vue";
 import { useMode } from "../composables/useMode";
+import { useCountdown } from "../composables/useCountdown";
 import { landingUrl, interestedUrl } from "../data/spectatorUrl";
 
 const router = useRouter();
@@ -15,6 +16,10 @@ const eventStartsAt = ref(0);
 const interested = ref(false);
 const count = ref<number | null>(null);
 const submitting = ref(false);
+
+// Once the start is reached the single CTA flips from "I'm interested" to "Enter
+// the canvas"; until then there is no way into /play from the landing.
+const { launched } = useCountdown(eventStartsAt);
 
 type LandingData = { eventStartsAt: number; interested: { count: number; me: boolean } };
 type InterestedData = { count: number; me: boolean };
@@ -97,14 +102,16 @@ onMounted(async () => {
         and place your piece of it.
       </p>
 
-      <CountdownTimer class="hero-countdown" :event-starts-at="eventStartsAt" />
+      <CountdownTimer v-if="!launched" class="hero-countdown" :event-starts-at="eventStartsAt" />
 
       <div class="actions">
-        <button type="button" class="cta primary" @click="enterCanvas">Enter the canvas</button>
+        <button v-if="launched" type="button" class="cta primary" @click="enterCanvas">
+          Enter the canvas
+        </button>
         <button
-          v-if="!interested"
+          v-else-if="!interested"
           type="button"
-          class="cta secondary"
+          class="cta primary"
           :disabled="submitting"
           @click="markInterested"
         >
@@ -113,7 +120,7 @@ onMounted(async () => {
         <span v-else class="interested-badge">You're on the list</span>
       </div>
 
-      <p v-if="count !== null" class="interest-count">{{ interestLabel() }}</p>
+      <p v-if="!launched && count !== null" class="interest-count">{{ interestLabel() }}</p>
     </main>
 
     <footer class="landing-foot">
@@ -204,14 +211,6 @@ h1 {
 }
 .cta.primary:hover {
   background: var(--ink-2);
-}
-.cta.secondary {
-  background: transparent;
-  color: var(--ink-2);
-}
-.cta.secondary:hover {
-  border-color: var(--ink-3);
-  color: var(--ink);
 }
 .cta:disabled {
   opacity: 0.6;

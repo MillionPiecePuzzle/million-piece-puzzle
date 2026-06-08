@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { formatCountdown } from "./useCountdown";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { ref } from "vue";
+import { formatCountdown, useCountdown } from "./useCountdown";
 
 const SEC = 1000;
 const MIN = 60 * SEC;
@@ -40,5 +41,38 @@ describe("formatCountdown", () => {
       minutes: "59",
       seconds: "59",
     });
+  });
+});
+
+describe("useCountdown state", () => {
+  // The immediate watcher may schedule a 1s ticker; fake timers keep it from
+  // leaking past the test (the static states are read synchronously at creation).
+  afterEach(() => vi.useRealTimers());
+
+  it("is neither scheduled nor launched with no date", () => {
+    vi.useFakeTimers();
+    const { scheduled, launched } = useCountdown(ref(0), () => 1000);
+    expect(scheduled.value).toBe(false);
+    expect(launched.value).toBe(false);
+  });
+
+  it("is scheduled but not launched before a future start", () => {
+    vi.useFakeTimers();
+    const { scheduled, launched } = useCountdown(ref(5000), () => 1000);
+    expect(scheduled.value).toBe(true);
+    expect(launched.value).toBe(false);
+  });
+
+  it("is launched but not scheduled once the start is reached", () => {
+    vi.useFakeTimers();
+    const { scheduled, launched } = useCountdown(ref(1000), () => 1000);
+    expect(launched.value).toBe(true);
+    expect(scheduled.value).toBe(false);
+  });
+
+  it("treats a start already in the past as launched", () => {
+    vi.useFakeTimers();
+    const { launched } = useCountdown(ref(500), () => 1000);
+    expect(launched.value).toBe(true);
   });
 });
