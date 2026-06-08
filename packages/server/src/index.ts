@@ -19,6 +19,7 @@ import { KeyframePublisher, makeKeyframeHandler, makeEventsHandler } from "./key
 import { EventLog } from "./eventLog.js";
 import { buildAuthConfig, resolveSessionUser } from "./auth.js";
 import { createApp } from "./httpApp.js";
+import { RedisInterested } from "./interested.js";
 
 // WebSocket close code 1013 ("Try Again Later"), used to refuse a connection
 // that exceeds the per-IP concurrent-connection cap.
@@ -168,6 +169,15 @@ async function main(): Promise<void> {
       config.spectatorRateMax,
       config.spectatorRateWindowSec,
     ),
+    // The interested-IP hash is keyed by AUTH_SECRET (already a per-deployment
+    // secret in process.env, kept out of config). Dev runs without it fall back to
+    // a fixed salt so the dedup stays stable across restarts locally.
+    interested: new RedisInterested(
+      redis,
+      manifest.puzzleId,
+      process.env.AUTH_SECRET || "mpp-interested-dev-salt",
+    ),
+    eventStartsAt: config.eventStartsAt,
     appOrigin: config.appOrigin,
     devEnabled: config.devEnabled,
     handleKeyframe,

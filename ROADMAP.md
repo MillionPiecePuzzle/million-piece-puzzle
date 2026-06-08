@@ -55,8 +55,8 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [ ] Gigapixel source processed end to end (Deep Zoom + per-piece AVIF, pre-masked alpha-cut server-side) and hosted on R2
 
 ### `frontend-shell`
-- [ ] Final landing copy, contributor onboarding flow (login + pseudo creation)
-- [ ] Countdown timer on landing while waiting for `eventStartsAt`
+- [x] Final landing copy, contributor onboarding flow (login + pseudo creation): the public landing ships finished hero copy and a single "Enter the canvas" CTA that enters spectator mode and routes straight to `/play`. The closed-alpha passcode gate is gone (modal, `useAlphaGate`, and the `/play` `beforeEnter` guard removed), so `/play` is publicly reachable in spectator mode. The contributor onboarding (AuthModal -> Google -> pseudo -> nationality) was delivered under `auth-and-accounts`
+- [x] Countdown timer on landing while waiting for `eventStartsAt`: a big DD:HH:MM:SS countdown (zero-padded, days uncapped) is the landing centerpiece, driven by a `useCountdown` composable and a `Countdown` component off the `eventStartsAt` from `GET /landing` (no keyframe fetch). With no date set (`eventStartsAt` 0 or already past, the current default) it shows a polished `--:--:--:--` "Launching soon" placeholder and keeps the interested CTA prominent
 - [ ] Auth modal wires Auth.js providers
 
 ### `frontend-canvas`
@@ -91,6 +91,7 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [x] License attributions: an Open-source licenses section appended to the `/legal` notice (Vue, Vue Router, PixiJS, OpenSeadragon with their licenses), pointing to the repo for the full dependency tree. Terms of use intentionally dropped: non-commercial, no chat, permanent pieces (griefing designed out), so the liability disclaimer on the legal notice covers it
 
 ### `complementary`
+- [x] Landing interested counter: an explicit opt-in button registers the visitor and shows the public count. Two anonymous endpoints, wildcard-CORS and no-store, behind the spectator per-IP guard: `GET /landing` (`eventStartsAt` + interested count + this IP's opt-in state) and `POST /interested` (no body). Dedup per IP via a Redis SET of HMAC-hashed IPs (SADD then SCARD, SISMEMBER for "me"), fail-open on Redis errors; the frontend caches the opt-in in `localStorage` for instant UI with the server as source of truth. See DECISIONS: interested counter dedup by hashed-IP set
 - [x] Contributor nationality: required onboarding step after the pseudo (forced `NationalityModal` over the shared `COUNTRIES` list, validated by `normalizeCountry`), stored on the user profile and exposed via `GET /auth/session` and `POST /profile/country`. The leaderboard avatar is the contributor's round country flag (self-hosted from circle-flags, copied to `public/flags` by the predev/prebuild hooks), falling back to the initials circle for rows without a country. Does not close the broader `frontend-shell` onboarding task
 
 ---

@@ -19,6 +19,11 @@ export type CountryStore = {
   setCountry: (userId: string, country: string) => Promise<UserProfile>;
 };
 
+export type InterestedStore = {
+  add: (ip: string) => Promise<{ count: number; me: true }>;
+  status: (ip: string) => Promise<{ count: number; me: boolean }>;
+};
+
 export type CreateAppDeps = {
   authConfig: ExpressAuthConfig;
   pseudoStore: PseudoStore;
@@ -26,6 +31,8 @@ export type CreateAppDeps = {
   authLimiter: RedisFixedWindow;
   signupLimiter: RedisFixedWindow;
   spectatorLimiter: RedisFixedWindow;
+  interested: InterestedStore;
+  eventStartsAt: number;
   appOrigin: string;
   devEnabled: boolean;
   // Spectator stream handlers from keyframe.ts: each writes the response and
@@ -53,6 +60,26 @@ export function createApp(deps: CreateAppDeps): Express {
   app.all("/events/*", (req, res) => {
     deps.handleEvents(req, res);
   });
+
+  // Landing data: the event start (for the countdown) plus the interested count
+  // and whether this IP already opted in. Both endpoints are anonymous, share the
+  // spectator per-IP guard, and answer with wildcard CORS + no-store. GET /landing
+  // sends no query string and POST /interested no body, so both stay CORS simple
+  // requests with no preflight (a body or query would draw a preflight, and the
+  // guard rejects query strings).
+  app.all(["/landing", "/interested"], makeSpectatorGuard(deps.spectatorLimiter, deps.devEnabled));
+  app.get(
+    "/landing",
+    makeLandingHandler({
+      interested: deps.interested,
+      eventStartsAt: deps.eventStartsAt,
+      devEnabled: deps.devEnabled,
+    }),
+  );
+  app.post(
+    "/interested",
+    makeInterestedHandler({ interested: deps.interested, devEnabled: deps.devEnabled }),
+  );
 
   // Credentialed CORS for the SPA, then the per-IP auth-route window.
   app.use(["/auth", "/profile"], makeCors(deps.appOrigin));
@@ -169,6 +196,53 @@ export function makeSpectatorGuard(limiter: RedisFixedWindow, devEnabled: boolea
       return;
     }
     next();
+  };
+}
+
+const PUBLIC_NO_STORE = {
+  "Access-Control-Allow-Origin": "*",
+  "Cache-Control": "no-store",
+} as const;
+
+export type LandingDeps = {
+  interested: InterestedStore;
+  eventStartsAt: number;
+  devEnabled: boolean;
+};
+
+// GET /landing: the event start plus the interested count and this IP's opt-in
+// state. Fail-open on a Redis error (same posture as the spectator guard): a
+// transient outage still serves the landing, just with a zeroed interested block.
+export function makeLandingHandler(deps: LandingDeps) {
+  return async (req: Request, res: Response): Promise<void> => {
+    let interested = { count: 0, me: false };
+    try {
+      interested = await deps.interested.status(clientIp(req, deps.devEnabled));
+    } catch (e) {
+      console.error("[landing]", (e as Error).message);
+    }
+    res.status(200).set(PUBLIC_NO_STORE).json({ eventStartsAt: deps.eventStartsAt, interested });
+  };
+}
+
+export type InterestedDeps = {
+  interested: InterestedStore;
+  devEnabled: boolean;
+};
+
+// POST /interested (no body): registers this IP and returns the live count. The
+// SADD is idempotent per IP, so a repeat click does not double-count. Fail-open on
+// a Redis error: report the optimistic me=true the caller already assumes, with a
+// zero count the next successful GET /landing corrects.
+export function makeInterestedHandler(deps: InterestedDeps) {
+  return async (req: Request, res: Response): Promise<void> => {
+    let result: { count: number; me: true } = { count: 0, me: true };
+    try {
+      result = await deps.interested.add(clientIp(req, deps.devEnabled));
+    } catch (e) {
+      console.error("[interested]", (e as Error).message);
+    }
+    res.status(200).set(PUBLIC_NO_STORE).json(result);
   };
 }
 

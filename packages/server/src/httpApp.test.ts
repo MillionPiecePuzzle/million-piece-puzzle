@@ -6,6 +6,9 @@ import {
   makeCors,
   makeRateLimit,
   makeSpectatorGuard,
+  makeLandingHandler,
+  makeInterestedHandler,
+  type InterestedStore,
 } from "./httpApp.js";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
 import { RedisFixedWindow } from "./limits.js";
@@ -314,5 +317,82 @@ describe("makeSpectatorGuard", () => {
     const next = vi.fn();
     await guard(spectatorReq(), res, next);
     expect(next).toHaveBeenCalled();
+  });
+});
+
+function landingReq(): Request {
+  return { headers: {}, socket: { remoteAddress: "1.1.1.1" } } as unknown as Request;
+}
+
+describe("makeLandingHandler", () => {
+  it("returns the event start and interested status with wildcard CORS + no-store", async () => {
+    const interested: InterestedStore = {
+      add: vi.fn(),
+      status: vi.fn(async () => ({ count: 7, me: true })),
+    };
+    const handler = makeLandingHandler({ interested, eventStartsAt: 12345, devEnabled: true });
+    const res = fakeRes();
+    await handler(landingReq(), res);
+    const r = res as unknown as {
+      statusCode: number;
+      body: unknown;
+      headers: Record<string, string>;
+    };
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toEqual({ eventStartsAt: 12345, interested: { count: 7, me: true } });
+    expect(r.headers["Access-Control-Allow-Origin"]).toBe("*");
+    expect(r.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("fails open with a zeroed interested block when the store throws", async () => {
+    const interested: InterestedStore = {
+      add: vi.fn(),
+      status: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+    };
+    const handler = makeLandingHandler({ interested, eventStartsAt: 0, devEnabled: true });
+    const res = fakeRes();
+    await handler(landingReq(), res);
+    const r = res as unknown as { statusCode: number; body: unknown };
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toEqual({ eventStartsAt: 0, interested: { count: 0, me: false } });
+  });
+});
+
+describe("makeInterestedHandler", () => {
+  it("registers the IP and returns the count with me=true", async () => {
+    const interested: InterestedStore = {
+      add: vi.fn(async () => ({ count: 3, me: true })),
+      status: vi.fn(),
+    };
+    const handler = makeInterestedHandler({ interested, devEnabled: true });
+    const res = fakeRes();
+    await handler(landingReq(), res);
+    const r = res as unknown as {
+      statusCode: number;
+      body: unknown;
+      headers: Record<string, string>;
+    };
+    expect(interested.add).toHaveBeenCalledWith("1.1.1.1");
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toEqual({ count: 3, me: true });
+    expect(r.headers["Access-Control-Allow-Origin"]).toBe("*");
+    expect(r.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("fails open with an optimistic me=true when the store throws", async () => {
+    const interested: InterestedStore = {
+      add: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+      status: vi.fn(),
+    };
+    const handler = makeInterestedHandler({ interested, devEnabled: true });
+    const res = fakeRes();
+    await handler(landingReq(), res);
+    const r = res as unknown as { statusCode: number; body: unknown };
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toEqual({ count: 0, me: true });
   });
 });

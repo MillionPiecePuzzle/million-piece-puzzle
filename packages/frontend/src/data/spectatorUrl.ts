@@ -28,3 +28,14 @@ export function keyframeUrl(): string {
 export function eventsUrl(t0: number): string {
   return `${spectatorBaseUrl()}/events/${t0}`;
 }
+
+// Landing data (event start + interested count), served from the same host as the
+// spectator stream. Kept separate from the keyframe so the landing never fetches a
+// full board just to read the countdown date.
+export function landingUrl(): string {
+  return `${spectatorBaseUrl()}/landing`;
+}
+
+export function interestedUrl(): string {
+  return `${spectatorBaseUrl()}/interested`;
+}

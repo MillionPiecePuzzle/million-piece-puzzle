@@ -33,3 +33,11 @@ export const presence = (puzzleId: string) => `puzzle:${puzzleId}:presence`;
 
 /** Integer with TTL: per-IP fixed-window counter for a named rate bucket (auth routes, spectator stream). */
 export const rateLimit = (bucket: string, ip: string) => `ratelimit:${bucket}:${ip}`;
+
+/**
+ * Set: one HMAC-hashed visitor IP per "I'm interested" opt-in. The count is the
+ * set cardinality (SCARD), inherently unique per IP with no separate counter, and
+ * "me" is a membership check (SISMEMBER). IPs are hashed, not stored raw, because
+ * this set has no TTL (unlike the per-IP rate-limit keys above).
+ */
+export const interested = (puzzleId: string) => `puzzle:${puzzleId}:interested`;

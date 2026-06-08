@@ -1,44 +1,84 @@
 <script setup lang="ts">
-import { nextTick, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import BrandMark from "../components/BrandMark.vue";
+import CountdownTimer from "../components/CountdownTimer.vue";
 import { useMode } from "../composables/useMode";
-import { tryUnlockAlpha } from "../composables/useAlphaGate";
+import { landingUrl, interestedUrl } from "../data/spectatorUrl";
 
 const router = useRouter();
 const { setMode } = useMode();
 
-const passcode = ref("");
-const errorMessage = ref<string | null>(null);
+const INTERESTED_KEY = "mpp.interested";
+
+const eventStartsAt = ref(0);
+const interested = ref(false);
+const count = ref<number | null>(null);
 const submitting = ref(false);
-const modalOpen = ref(false);
-const passcodeInput = ref<HTMLInputElement | null>(null);
 
-async function openModal(): Promise<void> {
-  modalOpen.value = true;
-  errorMessage.value = null;
-  await nextTick();
-  passcodeInput.value?.focus();
-}
+type LandingData = { eventStartsAt: number; interested: { count: number; me: boolean } };
+type InterestedData = { count: number; me: boolean };
 
-function closeModal(): void {
-  modalOpen.value = false;
-  submitting.value = false;
-  passcode.value = "";
-  errorMessage.value = null;
-}
-
-function submitPasscode(): void {
-  errorMessage.value = null;
-  submitting.value = true;
-  if (!tryUnlockAlpha(passcode.value)) {
-    errorMessage.value = "Wrong passcode.";
-    submitting.value = false;
-    return;
+function cachedInterested(): boolean {
+  try {
+    return localStorage.getItem(INTERESTED_KEY) === "1";
+  } catch {
+    return false;
   }
+}
+
+function rememberInterested(): void {
+  try {
+    localStorage.setItem(INTERESTED_KEY, "1");
+  } catch {
+    // best effort: the server stays the source of truth
+  }
+}
+
+function enterCanvas(): void {
   setMode("spectator");
   void router.push("/play");
 }
+
+async function markInterested(): Promise<void> {
+  if (interested.value || submitting.value) return;
+  submitting.value = true;
+  try {
+    const res = await fetch(interestedUrl(), { method: "POST" });
+    if (!res.ok) return;
+    const data = (await res.json()) as InterestedData;
+    count.value = data.count;
+    interested.value = true;
+    rememberInterested();
+  } catch {
+    // leave the button available to retry on a transient failure
+  } finally {
+    submitting.value = false;
+  }
+}
+
+function interestLabel(): string {
+  if (count.value === null) return "";
+  if (count.value === 0) return "Be the first to follow along";
+  const noun = count.value === 1 ? "person" : "people";
+  return `${count.value.toLocaleString()} ${noun} interested`;
+}
+
+onMounted(async () => {
+  interested.value = cachedInterested();
+  try {
+    const res = await fetch(landingUrl());
+    if (!res.ok) return;
+    const data = (await res.json()) as LandingData;
+    eventStartsAt.value = data.eventStartsAt;
+    count.value = data.interested.count;
+    interested.value = data.interested.me;
+    if (data.interested.me) rememberInterested();
+  } catch {
+    // the landing still works offline: countdown shows its placeholder and the
+    // interested button can be retried
+  }
+});
 </script>
 
 <template>
@@ -52,51 +92,36 @@ function submitPasscode(): void {
 
     <main class="hero">
       <h1>Million Piece Puzzle</h1>
-      <p class="tagline">A community puzzle, one million pieces, one canvas.</p>
+      <p class="tagline">
+        One million pieces on a single shared canvas. Watch the picture come together, or join in
+        and place your piece of it.
+      </p>
 
-      <button type="button" class="cta primary" @click="openModal">Enter the canvas</button>
+      <CountdownTimer class="hero-countdown" :event-starts-at="eventStartsAt" />
+
+      <div class="actions">
+        <button type="button" class="cta primary" @click="enterCanvas">Enter the canvas</button>
+        <button
+          v-if="!interested"
+          type="button"
+          class="cta secondary"
+          :disabled="submitting"
+          @click="markInterested"
+        >
+          I'm interested
+        </button>
+        <span v-else class="interested-badge">You're on the list</span>
+      </div>
+
+      <p v-if="count !== null" class="interest-count">{{ interestLabel() }}</p>
     </main>
 
     <footer class="landing-foot">
-      <span>Phase 1 · Closed Alpha</span>
       <span class="legal-links">
         <RouterLink to="/privacy">Privacy</RouterLink>
         <RouterLink to="/legal">Legal notice</RouterLink>
       </span>
     </footer>
-
-    <Transition name="modal">
-      <div
-        v-if="modalOpen"
-        class="modal-backdrop"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="alpha-modal-title"
-        @click.self="closeModal"
-        @keydown.esc="closeModal"
-      >
-        <div class="modal">
-          <button type="button" class="modal-close" aria-label="Close" @click="closeModal">
-            ×
-          </button>
-          <p id="alpha-modal-title" class="modal-title">Alpha passcode</p>
-          <form class="modal-form" @submit.prevent="submitPasscode">
-            <input
-              ref="passcodeInput"
-              v-model="passcode"
-              type="password"
-              autocomplete="off"
-              class="passcode"
-              placeholder="Passcode"
-              aria-label="Alpha passcode"
-            />
-            <button class="cta primary" type="submit" :disabled="submitting">Enter</button>
-          </form>
-          <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
-          <p class="alpha-note">Closed alpha. Passcode required.</p>
-        </div>
-      </div>
-    </Transition>
   </div>
 </template>
 
@@ -129,9 +154,12 @@ function submitPasscode(): void {
 .hero {
   align-self: center;
   justify-self: center;
-  max-width: 640px;
+  max-width: 720px;
   padding: 0 24px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 h1 {
   margin: 0 0 12px;
@@ -142,10 +170,20 @@ h1 {
   letter-spacing: -0.02em;
 }
 .tagline {
-  margin: 0 0 32px;
+  margin: 0 0 40px;
+  max-width: 480px;
   color: var(--ink-3);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
+}
+.hero-countdown {
+  margin-bottom: 40px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
 }
 .cta {
   padding: 12px 22px;
@@ -155,7 +193,8 @@ h1 {
   border: 1px solid var(--line);
   transition:
     background 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    border-color 160ms ease;
   cursor: pointer;
 }
 .cta.primary {
@@ -166,13 +205,38 @@ h1 {
 .cta.primary:hover {
   background: var(--ink-2);
 }
-.cta.primary:disabled {
+.cta.secondary {
+  background: transparent;
+  color: var(--ink-2);
+}
+.cta.secondary:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.cta:disabled {
   opacity: 0.6;
   cursor: default;
 }
+.interested-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 12px 22px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+.interest-count {
+  margin: 16px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
 .landing-foot {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 16px;
   padding: 20px 24px;
@@ -192,104 +256,5 @@ h1 {
 }
 .legal-links a:hover {
   color: var(--ink-2);
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgba(21, 20, 15, 0.32);
-  backdrop-filter: blur(4px);
-  z-index: 50;
-  padding: 24px;
-}
-.modal {
-  position: relative;
-  width: min(420px, 100%);
-  padding: 32px 32px 24px;
-  background: rgba(255, 255, 255, 0.98);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  box-shadow: 0 24px 64px rgba(21, 20, 15, 0.24);
-  text-align: center;
-}
-.modal-close {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  appearance: none;
-  background: none;
-  border: none;
-  padding: 4px 8px;
-  font-size: 22px;
-  line-height: 1;
-  color: var(--ink-4);
-  cursor: pointer;
-  transition: color 150ms ease;
-}
-.modal-close:hover {
-  color: var(--ink);
-}
-.modal-title {
-  margin: 0 0 18px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-}
-.modal-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.passcode {
-  padding: 11px 16px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--line);
-  font-size: 14px;
-  font-family: var(--mono);
-  letter-spacing: 0.02em;
-  background: var(--paper);
-  color: var(--ink);
-  text-align: center;
-}
-.passcode:focus {
-  outline: none;
-  border-color: var(--ink-3);
-}
-.error {
-  margin: 14px 0 0;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: oklch(0.55 0.18 30);
-}
-.alpha-note {
-  margin: 18px 0 0;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-}
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 180ms ease;
-}
-.modal-enter-active .modal,
-.modal-leave-active .modal {
-  transition:
-    opacity 180ms ease,
-    transform 180ms ease;
-}
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-.modal-enter-from .modal,
-.modal-leave-to .modal {
-  opacity: 0;
-  transform: translateY(8px);
 }
 </style>
