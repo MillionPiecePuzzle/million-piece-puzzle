@@ -102,7 +102,12 @@ onMounted(async () => {
         and place your piece of it.
       </p>
 
-      <CountdownTimer v-if="!launched" class="hero-countdown" :scheduled="scheduled" :parts="parts" />
+      <CountdownTimer
+        v-if="!launched"
+        class="hero-countdown"
+        :scheduled="scheduled"
+        :parts="parts"
+      />
 
       <div class="actions">
         <button v-if="launched" type="button" class="cta primary" @click="enterCanvas">
