@@ -3,7 +3,9 @@
  *
  * Stands in for a real gigapixel raster: any world-space window is rendered on
  * demand as an SVG, and `materialize` writes those windows into a real tiled
- * pyramidal TIFF the slicer treats exactly like a final photo. The pattern is
+ * BigTIFF the slicer treats exactly like a final photo (flat and tiled like a
+ * camera raster, not pyramidal: the slicer reads windows by random access and
+ * builds its own reference pyramid). The pattern is
  * position-dependent (a global gradient, a grid on piece boundaries, per-cell
  * coordinate labels, a center crosshair). Detail is gated by the output scale,
  * so a fully zoomed-out tile stays bounded while a 1:1 piece tile still shows
@@ -142,58 +144,89 @@ const TIFF_TILE = 512;
 const MAX_CHUNK = 16384;
 const DEFAULT_CHUNK = 8192;
 
-// Write the synthetic pattern as a real tiled pyramidal TIFF at the full world
-// size. Each chunk is rendered at 1:1 and saved to a temp file (peak RAM is one
-// chunk), then libvips composites the chunk files onto a full-size canvas and
-// writes the tiled pyramid, spilling the oversize intermediate to a disc-backed
-// temporary so RAM stays bounded by the tile cache, not the gigapixel raster.
+// Write the synthetic pattern as a real tiled BigTIFF at the full world size.
+//
+// A single `composite` over every chunk wants all inputs decoded at once
+// (gigapixels of RGBA), which overruns RAM on a modest machine. Assembly is
+// instead banded so the live decoded set stays bounded by one band, never the
+// whole raster:
+//   1. render each chunk (1:1, peak RAM one chunk) to a tiled temp TIFF;
+//   2. composite a row of chunks into one full-width tiled strip TIFF;
+//   3. stack the strips into the final tiled BigTIFF.
+// Every intermediate is *tiled* so a region read costs one 512 px tile, not a
+// whole strip: as each output sweeps tile by tile, only the overlapping
+// chunk/strip materializes. BigTIFF (64-bit offsets) is required past the 4 GB
+// classic-TIFF limit a gigapixel raster crosses; the source is flat, not
+// pyramidal, because the slicer reads windows by random access and builds its
+// own reference Deep Zoom pyramid, so a source pyramid would be wasted work.
+// The codec is lossless deflate: libvips caps a JPEG-compressed image at
+// 65500 px on an axis regardless of tiling, which a gigapixel source exceeds.
 export async function materializeSyntheticSource(
   spec: SyntheticSpec,
   outPath: string,
-  opts: { chunk?: number; quality?: number } = {},
+  opts: { chunk?: number } = {},
 ): Promise<{ width: number; height: number }> {
   const { width, height } = syntheticWorldSize(spec);
   const chunk = Math.min(opts.chunk ?? DEFAULT_CHUNK, MAX_CHUNK);
-  const quality = opts.quality ?? 90;
+
+  const tiled = { tile: true, tileWidth: TIFF_TILE, tileHeight: TIFF_TILE } as const;
+
+  // Disable the libvips operation cache so a finished composite releases its
+  // input TIFFs at once; otherwise Windows refuses to unlink the still-open
+  // chunk/strip intermediates (EBUSY).
+  sharp.cache(false);
 
   await mkdir(path.dirname(outPath), { recursive: true });
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "mpp-synthetic-"));
   try {
-    const composites: sharp.OverlayOptions[] = [];
     const cols = Math.ceil(width / chunk);
     const rows = Math.ceil(height / chunk);
-    let done = 0;
+    const strips: sharp.OverlayOptions[] = [];
+    let band = 0;
     for (let top = 0; top < height; top += chunk) {
+      const bandHeight = Math.min(chunk, height - top);
+      const chunks: sharp.OverlayOptions[] = [];
       for (let left = 0; left < width; left += chunk) {
         const w = Math.min(chunk, width - left);
-        const h = Math.min(chunk, height - top);
         const file = path.join(tmpDir, `chunk-${left}-${top}.tif`);
-        await renderSyntheticWindow(spec, { left, top, width: w, height: h }, w, h)
+        await renderSyntheticWindow(
+          spec,
+          { left, top, width: w, height: bandHeight },
+          w,
+          bandHeight,
+        )
           .removeAlpha()
-          .tiff({ compression: "deflate" })
+          .tiff({ ...tiled, compression: "deflate" })
           .toFile(file);
-        composites.push({ input: file, left, top });
+        chunks.push({ input: file, left, top: 0, limitInputPixels: false });
       }
-      done++;
-      console.log(`rendered chunk row ${done}/${rows} (${cols} chunks each)`);
+      const stripFile = path.join(tmpDir, `strip-${top}.tif`);
+      await sharp({
+        create: { width, height: bandHeight, channels: 3, background: { r: 0, g: 0, b: 0 } },
+        limitInputPixels: false,
+      })
+        .composite(chunks)
+        .removeAlpha()
+        .tiff({ ...tiled, compression: "deflate" })
+        .toFile(stripFile);
+      for (const c of chunks) await rm(c.input as string, { force: true }).catch(() => {});
+      strips.push({ input: stripFile, left: 0, top, limitInputPixels: false });
+      band++;
+      console.log(`assembled strip ${band}/${rows} (${cols} chunks)`);
     }
 
     await sharp({
       create: { width, height, channels: 3, background: { r: 0, g: 0, b: 0 } },
       limitInputPixels: false,
     })
-      .composite(composites)
-      .tiff({
-        tile: true,
-        tileWidth: TIFF_TILE,
-        tileHeight: TIFF_TILE,
-        pyramid: true,
-        compression: "jpeg",
-        quality,
-      })
+      .composite(strips)
+      .removeAlpha()
+      .tiff({ ...tiled, bigtiff: true, compression: "deflate" })
       .toFile(outPath);
   } finally {
-    await rm(tmpDir, { recursive: true, force: true });
+    await rm(tmpDir, { recursive: true, force: true }).catch((err) => {
+      console.warn(`could not remove temp dir ${tmpDir}: ${err?.message ?? err}`);
+    });
   }
   return { width, height };
 }
@@ -239,7 +272,6 @@ async function runMaterialize(argv: string[]): Promise<void> {
   const rows = Number(flag(argv, "rows") ?? 200);
   const pieceSize = Number(flag(argv, "piece-size") ?? 80);
   const chunk = flag(argv, "chunk") ? Number(flag(argv, "chunk")) : undefined;
-  const quality = flag(argv, "quality") ? Number(flag(argv, "quality")) : undefined;
   if (!(cols > 0 && rows > 0 && pieceSize > 0)) {
     throw new Error("cols, rows and piece-size must be positive");
   }
@@ -249,7 +281,7 @@ async function runMaterialize(argv: string[]): Promise<void> {
     `materializing ${cols}x${rows} cells @ ${pieceSize}px -> ${width}x${height}px tiled TIFF at ${out}`,
   );
   const t0 = Date.now();
-  await materializeSyntheticSource(spec, out, { chunk, quality });
+  await materializeSyntheticSource(spec, out, { chunk });
   console.log(`wrote ${out} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }
 
