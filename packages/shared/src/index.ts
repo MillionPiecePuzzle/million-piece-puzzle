@@ -16,5 +16,6 @@ export * from "./minimap.js";
 export * from "./manifest.js";
 export * from "./generator/edge.js";
 export * from "./generator/generate.js";
+export * from "./generator/validate.js";
 export * from "./generator/path.js";
 export * from "./generator/prng.js";

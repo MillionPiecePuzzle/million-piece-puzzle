@@ -21,6 +21,20 @@ export type GenerateOptions = {
 const HORIZONTAL_DOMAIN = 0;
 const VERTICAL_DOMAIN = 1;
 
+// Seed of one shared edge, keyed by its position in the grid of edges.
+// `"h"` is a horizontal edge between rows `line` and `line + 1` at column
+// `index`; `"v"` is a vertical edge between columns `index` and `index + 1` at
+// row `line`. Both pieces sharing the edge derive their params from this seed,
+// so the keying lives here once for the generator and any validator.
+export function sharedEdgeSeed(
+  base: number,
+  orientation: "h" | "v",
+  line: number,
+  index: number,
+): number {
+  return subseed(base, orientation === "h" ? HORIZONTAL_DOMAIN : VERTICAL_DOMAIN, line, index);
+}
+
 const lerp = (rng: () => number, lo: number, hi: number) => lo + (hi - lo) * rng();
 
 function curvedEdge(edgeSeed: number, flipped: boolean): Edge {
@@ -56,17 +70,13 @@ export function generatePieceGeometry(
   const row = Math.floor(id / cols);
   const col = id % cols;
   const top: Edge =
-    row === 0 ? { type: "flat" } : curvedEdge(subseed(base, HORIZONTAL_DOMAIN, row - 1, col), true);
+    row === 0 ? { type: "flat" } : curvedEdge(sharedEdgeSeed(base, "h", row - 1, col), true);
   const bottom: Edge =
-    row === rows - 1
-      ? { type: "flat" }
-      : curvedEdge(subseed(base, HORIZONTAL_DOMAIN, row, col), false);
+    row === rows - 1 ? { type: "flat" } : curvedEdge(sharedEdgeSeed(base, "h", row, col), false);
   const left: Edge =
-    col === 0 ? { type: "flat" } : curvedEdge(subseed(base, VERTICAL_DOMAIN, row, col - 1), true);
+    col === 0 ? { type: "flat" } : curvedEdge(sharedEdgeSeed(base, "v", row, col - 1), true);
   const right: Edge =
-    col === cols - 1
-      ? { type: "flat" }
-      : curvedEdge(subseed(base, VERTICAL_DOMAIN, row, col), false);
+    col === cols - 1 ? { type: "flat" } : curvedEdge(sharedEdgeSeed(base, "v", row, col), false);
   return {
     id,
     row,

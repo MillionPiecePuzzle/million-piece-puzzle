@@ -19,6 +19,7 @@
     "dev:frontend": "npm run dev -w @mpp/frontend",
     "dev:server": "npm run dev -w @mpp/server",
     "materialize": "tsx scripts/synthetic-source.ts materialize",
+    "validate:generation": "tsx scripts/validate-generation.ts",
     "slice": "tsx scripts/slice-image.ts",
     "upload": "tsx scripts/upload-puzzle.ts",
     "test": "vitest run",
