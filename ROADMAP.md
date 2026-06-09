@@ -52,7 +52,7 @@ Performance pulled forward from Phase 2, built as the real solution and kept at 
 - [ ] Generation pipeline produces and validates 1 000 000 unique pieces
 
 ### `image-pipeline`
-- [ ] Gigapixel source processed end to end (Deep Zoom + per-piece AVIF, pre-masked alpha-cut server-side) and hosted on R2
+- [~] Gigapixel source processed end to end (Deep Zoom + per-piece AVIF, pre-masked alpha-cut server-side) and hosted on R2. In progress: pre-cut alpha confirmed (bezier params frozen), and a procedural synthetic source (`scripts/synthetic-source.ts`) renders any world-space window LOD-bounded, to fabricate a real test image file standing in for the final gigapixel photo. Pending: synthetic-to-tiled-TIFF materializer, slicer rewrite (per-piece window extract + alpha bake + dzsave on the real file), manifest `premasked` flag, and the frontend dropping its render-time mask
 
 ### `frontend-shell`
 - [x] Final landing copy, contributor onboarding flow (login + pseudo creation): the public landing ships finished hero copy and a single CTA that gates entry on the event start: "I'm interested" until launch, flipping automatically to "Enter the canvas" (spectator mode -> `/play`) the moment the countdown reaches `eventStartsAt`. The closed-alpha passcode gate is gone (modal, `useAlphaGate`, and the `/play` `beforeEnter` guard removed), so `/play` stays publicly reachable in spectator mode by direct URL. The contributor onboarding (AuthModal -> Google -> pseudo -> nationality) was delivered under `auth-and-accounts`
