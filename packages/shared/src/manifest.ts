@@ -4,8 +4,9 @@
  *
  * Each piece tile is a square of `tileSize = pieceSize + 2 * margin` pixels,
  * centered on the piece's grid cell. Tiles include the neighboring image area
- * where tabs may extend. The bezier silhouette mask is applied at render time
- * by the frontend, not baked into the AVIF.
+ * where tabs may extend. When `premasked` is set the bezier silhouette is baked
+ * into the AVIF alpha by the slicer, so the frontend shows the tile as-is; the
+ * piece geometry is still derived from the seed for layout and snap math.
  *
  * Tile world position: `(col * pieceSize - margin, row * pieceSize - margin)`.
  * Row and col are derived from `id`: `row = id / cols`, `col = id % cols`.
@@ -31,6 +32,10 @@ export type ImageManifest = {
   pieceSize: number;
   margin: number;
   tileSize: number;
+  // When true, each piece AVIF already has the bezier silhouette cut into its
+  // alpha (server-side bake), so consumers render the tile as-is and skip any
+  // render-time silhouette mask.
+  premasked: boolean;
   source: {
     dzi: string;
     width: number;

@@ -72,6 +72,10 @@ async function main(): Promise<void> {
     "sync",
     src,
     dest,
+    // Compare by checksum, not mtime: a re-slice rewrites every file with a fresh
+    // mtime, so without this an identical output would re-upload in full (and a
+    // 1M-piece push is ~1.1M Class A ops). With it, unchanged tiles are skipped.
+    "--checksum",
     "--transfers=64",
     "--checkers=128",
     "--fast-list",

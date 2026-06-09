@@ -18,6 +18,7 @@
     "clean": "npm run clean --workspaces --if-present",
     "dev:frontend": "npm run dev -w @mpp/frontend",
     "dev:server": "npm run dev -w @mpp/server",
+    "materialize": "tsx scripts/synthetic-source.ts materialize",
     "slice": "tsx scripts/slice-image.ts",
     "upload": "tsx scripts/upload-puzzle.ts",
     "test": "vitest run",

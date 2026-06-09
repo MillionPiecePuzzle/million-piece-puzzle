@@ -2462,19 +2462,23 @@ function buildPieceNode(
 
   const path = piecePath(geometry, manifest.pieceSize);
 
-  const mask = new Graphics();
-  applyPath(mask, path);
-  mask.fill({ color: 0xffffff });
-
   const flash = new Graphics();
   applyPath(flash, path);
   flash.fill({ color: 0xffffff });
   flash.alpha = 0;
 
   inner.addChild(sprite);
-  inner.addChild(mask);
+  // A premasked tile already has the silhouette cut into its alpha, so it shows
+  // as-is. Otherwise the rectangular tile is masked to the piece outline at
+  // render time. The snap flash overlay uses the silhouette path either way.
+  if (!manifest.premasked) {
+    const mask = new Graphics();
+    applyPath(mask, path);
+    mask.fill({ color: 0xffffff });
+    inner.addChild(mask);
+    sprite.mask = mask;
+  }
   inner.addChild(flash);
-  sprite.mask = mask;
 
   container.addChild(inner);
 
