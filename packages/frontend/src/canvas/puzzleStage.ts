@@ -1278,7 +1278,12 @@ export class PuzzleStage {
         });
         this.cullGroup(built);
         this.reconcileGroupResidency(built, now);
-        if (this.lodActive) this.applyGroupLodVisibility(built);
+        // Dirty the new group's tiles: a cell entered at a deep zoom-out is baked
+        // (empty) before its region_state arrives, so without this the group would
+        // be hidden behind a blank ready tile that never re-bakes. markTilesDirty
+        // invalidates that tile and (while active) flips the group live until the
+        // bake queue refreshes it.
+        this.markTilesDirty(this.worldAabb(built));
         any = true;
         continue;
       }
