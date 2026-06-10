@@ -156,6 +156,30 @@ const HYDRATE_MARGIN_FRAC = 0.3;
 const DEHYDRATE_MARGIN_FRAC = 0.9;
 const HYDRATE_MAX_INFLIGHT = 128;
 
+// A piece texture is a few KB, so any load this slow is a stalled connection,
+// not a slow one. Without a deadline a hung fetch pins its in-flight hydrate
+// slot forever; enough of them saturate HYDRATE_MAX_INFLIGHT and the whole
+// loader wedges. A timed-out or failed load is retried a bounded number of
+// times, then skipped so the group still completes and the slot frees.
+const TEXTURE_LOAD_TIMEOUT_MS = 10000;
+const TEXTURE_LOAD_RETRIES = 1;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`load timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 // Post-download construction (the map/group/index passes in build()) runs in
 // bursts of at most this many milliseconds, yielding to the event loop between
 // bursts, so building up to 1M group nodes never freezes the main thread and the
@@ -1928,6 +1952,22 @@ export class PuzzleStage {
     return joinUrl(this.textureBase, file);
   }
 
+  // Loads one piece texture with a deadline so a stalled CDN connection cannot
+  // pin its hydrate slot forever. Retries a bounded number of times, then
+  // returns null: the caller skips the piece and the group still completes.
+  private async loadPieceTexture(url: string): Promise<Texture | null> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return (await withTimeout(Assets.load(url), TEXTURE_LOAD_TIMEOUT_MS)) as Texture;
+      } catch (e) {
+        if (attempt >= TEXTURE_LOAD_RETRIES) {
+          console.warn("[stage] texture load failed", url, e);
+          return null;
+        }
+      }
+    }
+  }
+
   // Viewport rectangle grown by a fraction of its size on every side. The hydrate
   // ring decides what to load ahead of the camera; the wider keep ring decides
   // what to retain (hysteresis), so a piece at the edge does not thrash.
@@ -1996,13 +2036,8 @@ export class PuzzleStage {
         if (node.pieces.some((p) => p.id === pieceId)) return;
         const url = this.pieceUrl(pieceId);
         if (!url) return;
-        let texture: Texture;
-        try {
-          texture = (await Assets.load(url)) as Texture;
-        } catch (e) {
-          console.warn("[stage] failed to load", url, e);
-          return;
-        }
+        const texture = await this.loadPieceTexture(url);
+        if (!texture) return;
         const stillMine =
           this.resident.has(node.id) &&
           this.groups.get(node.id) === node &&
