@@ -2177,9 +2177,15 @@ export class PuzzleStage {
     if (!ring) return { loaded: 0, total: 0, done: false };
     let total = 0;
     let loaded = 0;
+    // queryRect is cell-coarse: it returns every group whose grid cell overlaps
+    // the ring, including ones whose actual bounds fall outside it. Hydration only
+    // enqueues groups passing the precise groupInRing test (see
+    // reconcileGroupResidency), so count over that same predicate. Counting the
+    // coarse candidates would inflate total with groups that are never hydrated,
+    // leaving loaded < total forever and wedging the loading cover at a cold start.
     for (const gid of this.groupGrid.queryRect(ring)) {
       const node = this.groups.get(gid);
-      if (!node) continue;
+      if (!node || !this.groupInRing(node, HYDRATE_MARGIN_FRAC)) continue;
       total++;
       if (node.hydrated) loaded++;
     }
