@@ -119,19 +119,28 @@ async function submitCountry(country: string): Promise<CountryResult> {
   }
 }
 
-// App boot and return-from-redirect: resolve the session, then route the user.
-// The forced onboarding runs in order: pseudo first, then nationality. Only a
-// user with both set enters contributor mode, so entering /play opens the
-// authenticated WebSocket.
+// App boot and return-from-redirect: resolve the session and, for a user who
+// already finished onboarding, restore contributor mode. The forced onboarding
+// itself is deferred to startOnboardingIfNeeded, which the app only runs on
+// /play.
 async function bootstrap(): Promise<void> {
   const u = await getSession();
+  if (!u) return;
+  if (u.pseudo !== null && u.country !== null) {
+    useMode().setMode("contributor");
+  }
+}
+
+// Forced onboarding (pseudo first, then nationality) belongs to the contribution
+// flow, so the caller gates it to /play: a user who signs in from another page
+// is prompted only once they reach the canvas.
+function startOnboardingIfNeeded(): void {
+  const u = user.value;
   if (!u) return;
   if (u.pseudo === null) {
     usePseudoModal().show("forced");
   } else if (u.country === null) {
     useNationalityModal().show("forced");
-  } else {
-    useMode().setMode("contributor");
   }
 }
 
@@ -145,5 +154,6 @@ export function useAuth() {
     submitPseudo,
     submitCountry,
     bootstrap,
+    startOnboardingIfNeeded,
   };
 }
