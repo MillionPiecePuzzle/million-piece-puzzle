@@ -1,5 +1,6 @@
 import {
   Application,
+  Assets,
   Container,
   Graphics,
   Rectangle,
@@ -33,7 +34,6 @@ import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, type CellKey } from "./grou
 import { LodTileLayer } from "./lodTiles";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap } from "./membership";
-import { loadPieceTexture, releasePieceTexture } from "./textureLoader";
 
 export type Mode = "spectator" | "contributor";
 
@@ -155,6 +155,30 @@ const LOD_COLD_SWEEP_FRAMES = 6;
 const HYDRATE_MARGIN_FRAC = 0.3;
 const DEHYDRATE_MARGIN_FRAC = 0.9;
 const HYDRATE_MAX_INFLIGHT = 128;
+
+// A piece texture is a few KB, so any load this slow is a stalled connection,
+// not a slow one. Without a deadline a hung fetch pins its in-flight hydrate
+// slot forever; enough of them saturate HYDRATE_MAX_INFLIGHT and the whole
+// loader wedges. A timed-out or failed load is retried a bounded number of
+// times, then skipped so the group still completes and the slot frees.
+const TEXTURE_LOAD_TIMEOUT_MS = 10000;
+const TEXTURE_LOAD_RETRIES = 1;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`load timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
 
 // Post-download construction (the map/group/index passes in build()) runs in
 // bursts of at most this many milliseconds, yielding to the event loop between
@@ -802,14 +826,14 @@ export class PuzzleStage {
     this.pendingDrops.clear();
   }
 
-  // Releases every resident piece texture. Sprites are freed by the container
-  // teardown; this destroys the cached textures so a rebuild or unmount does not
-  // leak them.
+  // Unloads every resident piece texture from the Assets cache. Sprites are freed
+  // by the container teardown; this releases the shared textures the cache still
+  // holds so a rebuild or unmount does not leak them.
   private releaseAllTextures(): void {
     for (const node of this.groups.values()) {
       for (const piece of node.pieces) {
         const url = this.pieceUrl(piece.id);
-        if (url) releasePieceTexture(url);
+        if (url) void Assets.unload(url);
       }
     }
   }
@@ -1928,6 +1952,22 @@ export class PuzzleStage {
     return joinUrl(this.textureBase, file);
   }
 
+  // Loads one piece texture with a deadline so a stalled CDN connection cannot
+  // pin its hydrate slot forever. Retries a bounded number of times, then
+  // returns null: the caller skips the piece and the group still completes.
+  private async loadPieceTexture(url: string): Promise<Texture | null> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return (await withTimeout(Assets.load(url), TEXTURE_LOAD_TIMEOUT_MS)) as Texture;
+      } catch (e) {
+        if (attempt >= TEXTURE_LOAD_RETRIES) {
+          console.warn("[stage] texture load failed", url, e);
+          return null;
+        }
+      }
+    }
+  }
+
   // Viewport rectangle grown by a fraction of its size on every side. The hydrate
   // ring decides what to load ahead of the camera; the wider keep ring decides
   // what to retain (hysteresis), so a piece at the edge does not thrash.
@@ -1996,14 +2036,14 @@ export class PuzzleStage {
         if (node.pieces.some((p) => p.id === pieceId)) return;
         const url = this.pieceUrl(pieceId);
         if (!url) return;
-        const texture = await loadPieceTexture(url);
+        const texture = await this.loadPieceTexture(url);
         if (!texture) return;
         const stillMine =
           this.resident.has(node.id) &&
           this.groups.get(node.id) === node &&
           this.pieceToGroup.get(pieceId) === node.id;
         if (!stillMine || node.pieces.some((p) => p.id === pieceId)) {
-          releasePieceTexture(url);
+          void Assets.unload(url);
           return;
         }
         if (!this.manifest) return;
@@ -2040,7 +2080,7 @@ export class PuzzleStage {
       const url = this.pieceUrl(piece.id);
       node.container.removeChild(piece.container);
       piece.container.destroy({ children: true });
-      if (url) releasePieceTexture(url);
+      if (url) void Assets.unload(url);
       // Evict the cached edge geometry with the node: a re-hydration regenerates
       // it deterministically via geomFor, so the cache stays bounded by the
       // currently resident pieces rather than every piece ever hydrated.
