@@ -29,6 +29,11 @@ export type ServerConfig = {
   // set and the per-event cell walk.
   broadcastCellPieces: number;
   broadcastMaxCells: number;
+  // Per-tile piece cap, as a multiple of a cell's solved density
+  // (`broadcastCellPieces` squared). A non-merging drop that would push the
+  // destination cell past this many pieces is rejected, so a zoomed-out LOD tile
+  // never bakes an unbounded pile (which would defeat the LOD).
+  tilePieceCapMultiplier: number;
   // Spectator stream cadence (see DECISIONS: spectator keyframe + event log).
   // The keyframe is regenerated at most this often while the event is live; the
   // event window W and interpolation delay D set how the client tails the log;
@@ -144,6 +149,7 @@ export async function loadConfig(): Promise<ServerConfig> {
     wsHeartbeatIntervalMs: int("MPP_WS_HEARTBEAT_INTERVAL_MS", 30000),
     broadcastCellPieces: int("MPP_BROADCAST_CELL_PIECES", 16),
     broadcastMaxCells: int("MPP_BROADCAST_MAX_CELLS", 256),
+    tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
     eventWindowMs: int("MPP_EVENT_WINDOW_MS", 3000),
     interpDelayMs: int("MPP_INTERP_DELAY_MS", 6000),

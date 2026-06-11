@@ -39,6 +39,9 @@ export type Context = {
   // grid. Maintained on every committed position change (drop, merge) and read by
   // handleViewport to resync a client panning into new cells.
   groupIndex: GroupIndex;
+  // Max pieces allowed to rest in one broadcast cell. A non-merging drop that
+  // would push the destination cell past this is rejected (see handleDrop).
+  tilePieceCap: number;
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.
@@ -274,6 +277,11 @@ export async function handleDrop(
     return;
   }
 
+  // The pre-drag resting position (drags are transient and never persisted, so
+  // Redis still holds it), kept as the rollback target if the drop is rejected.
+  const prevX = g.worldX;
+  const prevY = g.worldY;
+
   // Detection only: position is set in memory so detectSnap sees the drop point,
   // but nothing is persisted until we know all involved groups are locked.
   g.worldX = msg.worldX;
@@ -300,6 +308,34 @@ export async function handleDrop(
   // The hold ends here whether the drop just releases the group or merges it
   // away, so drop it from the connection's held set (see Client.held).
   client.held.delete(msg.groupId);
+
+  // Per-tile piece cap: reject a non-merging drop that would push the destination
+  // cell past the cap, so a zoomed-out LOD tile never has to bake an unbounded
+  // pile (which defeats the LOD). Merges and frame anchors are exempt: a merge
+  // removes a loose cluster and an anchor locks to the frame. Checked before the
+  // position is persisted, so a rejected drop leaves Redis untouched.
+  if (!frameAnchor && !match) {
+    const rest = worldAabbFor(g.localAabb, msg.worldX, msg.worldY);
+    const cellPieces = ctx.groupIndex.cellPieceCount(rest.minX, rest.minY, msg.groupId);
+    if (cellPieces + g.size > ctx.tilePieceCap) {
+      await ctx.state.releaseGroup(msg.groupId);
+      // Bounce the cluster back: the dropper learns why (flash + toast), the
+      // neighbours who watched the drag get a plain position correction.
+      send(ctx, client, {
+        t: "rollback",
+        groupId: msg.groupId,
+        worldX: prevX,
+        worldY: prevY,
+        reason: "tile_full",
+      });
+      ctx.hub.broadcastOverlapping(
+        { t: "rollback", groupId: msg.groupId, worldX: prevX, worldY: prevY },
+        rest,
+        client,
+      );
+      return;
+    }
+  }
 
   await ctx.state.setGroupPosition(msg.groupId, msg.worldX, msg.worldY);
 

@@ -268,6 +268,9 @@ export class PuzzleStage {
   onCameraChange: ((camera: { x: number; y: number; zoom: number }) => void) | null = null;
   onViewportChange: ((viewport: ViewportRect) => void) | null = null;
   onCursorMove: ((worldX: number, worldY: number) => void) | null = null;
+  // A user-facing notice the canvas cannot render itself (a DOM toast). Currently
+  // only "tile_full": a drop the server rejected for exceeding the per-tile cap.
+  onNotice: ((kind: "tile_full") => void) | null = null;
 
   private peerCursors: PeerCursorLayer | null = null;
   private readonly tickPeerCursors = (ticker: { deltaMS: number }): void => {
@@ -1263,10 +1266,16 @@ export class PuzzleStage {
     this.releaseGroupHeld(groupId);
   }
 
-  applyRollback(groupId: number, worldX: number, worldY: number): void {
+  applyRollback(groupId: number, worldX: number, worldY: number, reason?: "tile_full"): void {
     this.pendingDrops.delete(groupId);
     const node = this.groups.get(groupId);
     if (!node) return;
+    // The cluster still sits at the rejected drop point here (the local client
+    // placed it there optimistically), so flash that tile before bouncing it back.
+    if (reason === "tile_full") {
+      this.flashRejectedTile(this.worldAabb(node));
+      this.onNotice?.("tile_full");
+    }
     this.markTilesDirty(this.worldAabb(node));
     this.moveGroup(node, worldX, worldY);
     if (this.held && this.held.groupId === groupId) {
@@ -1274,6 +1283,37 @@ export class PuzzleStage {
       this.held = null;
     }
     this.releaseGroupHeld(groupId);
+  }
+
+  // Brief red outline over the tile a drop was rejected on (its piece cap would be
+  // exceeded), keyed by the cluster's body-min cell so it lands on the tile the
+  // server checked. Fades out and self-destructs via the tweener.
+  private flashRejectedTile(box: Aabb): void {
+    if (!this.world || !this.tweener) return;
+    const key = cellKeysForRect(box, LOD_TILE_WORLD)[0];
+    if (key === undefined) return;
+    const { cx, cy } = unpackCell(key);
+    const inset = LOD_TILE_WORLD * 0.02;
+    const g = new Graphics();
+    g.eventMode = "none";
+    g.roundRect(
+      cx * LOD_TILE_WORLD + inset,
+      cy * LOD_TILE_WORLD + inset,
+      LOD_TILE_WORLD - 2 * inset,
+      LOD_TILE_WORLD - 2 * inset,
+      LOD_TILE_WORLD * 0.03,
+    )
+      .fill({ color: 0xff4d4d, alpha: 0.12 })
+      .stroke({ color: 0xff4d4d, alpha: 0.9, width: LOD_TILE_WORLD * 0.01 });
+    this.world.addChild(g);
+    this.tweener.add({
+      duration: 900,
+      easing: easeOutCubic,
+      onUpdate: (eased) => {
+        g.alpha = 1 - eased;
+      },
+      onDone: () => g.destroy(),
+    });
   }
 
   // Apply a viewport-scoped region_state (protocol v3): an upsert over the

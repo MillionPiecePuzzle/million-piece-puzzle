@@ -208,6 +208,11 @@ export type SRollback = {
   groupId: number;
   worldX: number;
   worldY: number;
+  // Why the drop was reverted, when it was the server rejecting it rather than a
+  // lost grab. "tile_full": the destination tile is at its piece cap, so the
+  // client flashes that tile and toasts. Absent for a plain position correction
+  // (e.g. the rollback sent to neighbours, or a lost-grab bounce).
+  reason?: "tile_full";
 };
 
 // Presence, server to client. join is sent to a connecting client once per peer

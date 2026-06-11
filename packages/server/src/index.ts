@@ -58,6 +58,10 @@ async function main(): Promise<void> {
   // (and on reset). Drives the pan resync (see DECISIONS: group index + resync).
   const groupIndex = new GroupIndex(cellSize);
   await rebuildGroupIndex(groupIndex, state, meta.totalPieces);
+  // Per-tile piece cap = a cell's solved density (cellPieces squared) times the
+  // configured multiple, so the cap scales with the cell size.
+  const tilePieceCap =
+    config.broadcastCellPieces * config.broadcastCellPieces * config.tilePieceCapMultiplier;
   // Per-group dispatch queues: messages for different groups run concurrently,
   // a group's own messages stay ordered, and a merge serializes against every
   // group it joins (see DECISIONS: per-group dispatch queues).
@@ -73,6 +77,7 @@ async function main(): Promise<void> {
     eventStartsAt: config.eventStartsAt,
     queue,
     groupIndex,
+    tilePieceCap,
   };
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
   ctx.lifecycle = lifecycle;

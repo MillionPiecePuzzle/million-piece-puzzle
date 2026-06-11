@@ -107,6 +107,20 @@ export class GroupIndex {
     return out;
   }
 
+  // Total member count of the groups resting in the cell of (bodyMinX, bodyMinY),
+  // excluding one group (the one being dropped, which may already be indexed in
+  // that cell when it is not changing cells). Drives the per-tile piece cap.
+  cellPieceCount(bodyMinX: number, bodyMinY: number, excludeGroupId: number): number {
+    const set = this.cells.get(this.cellFor(bodyMinX, bodyMinY));
+    if (!set) return 0;
+    let total = 0;
+    for (const id of set) {
+      if (id === excludeGroupId) continue;
+      total += this.groups.get(id)?.size ?? 0;
+    }
+    return total;
+  }
+
   clear(): void {
     this.cells.clear();
     this.groups.clear();

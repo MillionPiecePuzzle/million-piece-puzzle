@@ -375,6 +375,7 @@ function makeDropCtx() {
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
     groupIndex: new GroupIndex(dropMeta.pieceSize * 16),
+    tilePieceCap: 2048,
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastOverlapping, logMerge, leaderboard, state };
 }
@@ -427,6 +428,48 @@ describe("handleDrop", () => {
     const c = { userId: "u1", held: new Set<number>([4]) } as unknown as Client;
     await handleDrop(ctx, c, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
     expect(c.held.has(4)).toBe(false);
+  });
+
+  it("rejects a non-merging drop that would overflow the destination tile", async () => {
+    const { ctx, send, broadcastOverlapping, state } = makeDropCtx();
+    ctx.tilePieceCap = 4;
+    // The destination cell (drop at 500,500 maps to cell 0,0 at cellSize 1600)
+    // already holds a cluster at the cap; the dropped group rests elsewhere.
+    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 4, locked: false });
+    state.place(dropped(4, 5000, 5000), [4]);
+    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
+
+    // Bounced back to its pre-drag rest: a reason for the dropper, a plain
+    // correction (excluding the dropper) for the neighbours who saw the drag.
+    expect(send).toHaveBeenCalledWith(client, {
+      t: "rollback",
+      groupId: 4,
+      worldX: 5000,
+      worldY: 5000,
+      reason: "tile_full",
+    });
+    expect(broadcastOverlapping).toHaveBeenCalledWith(
+      { t: "rollback", groupId: 4, worldX: 5000, worldY: 5000 },
+      { minX: 500, minY: 500, maxX: 500, maxY: 500 },
+      client,
+    );
+    // The rejected position is never persisted and the hold is released.
+    expect(state.groups.get(4)?.worldX).toBe(5000);
+    expect(state.groups.get(4)?.heldBy).toBeNull();
+  });
+
+  it("allows a non-merging drop that stays within the tile cap", async () => {
+    const { ctx, broadcastOverlapping, state } = makeDropCtx();
+    ctx.tilePieceCap = 4;
+    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 3, locked: false });
+    state.place(dropped(4, 5000, 5000), [4]);
+    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
+    // 3 resident + 1 dropped == cap, so the drop commits normally.
+    expect(state.groups.get(4)?.worldX).toBe(500);
+    expect(broadcastOverlapping).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "drop", groupId: 4 }),
+      expect.anything(),
+    );
   });
 
   it("keeps the held group when the drop reports an expand pass", async () => {

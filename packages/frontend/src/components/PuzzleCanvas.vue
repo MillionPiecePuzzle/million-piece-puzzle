@@ -47,6 +47,20 @@ let latestSpectatorKeyframe: SpectatorKeyframe | null = null;
 let spectatorStreamEpoch = 0;
 const completed = ref(false);
 const modalVisible = ref(true);
+
+// Transient bottom-center notice (e.g. a rejected drop). A new toast resets the
+// dismiss timer so repeated rejections do not stack.
+const toast = ref<string | null>(null);
+const TOAST_DURATION_MS = 2600;
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+function showToast(message: string): void {
+  toast.value = message;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.value = null;
+    toastTimer = null;
+  }, TOAST_DURATION_MS);
+}
 // True while a build() is rebuilding the board for a new epoch. Keeps the
 // loading cover up across the syncing -> ready transition and through the async
 // construction and texture load, so the previous board is hidden until the new
@@ -149,7 +163,7 @@ function routeMessage(msg: ServerMessage): void {
       }
       break;
     case "rollback":
-      stage.applyRollback(msg.groupId, msg.worldX, msg.worldY);
+      stage.applyRollback(msg.groupId, msg.worldX, msg.worldY, msg.reason);
       break;
     case "join":
       stage.addPeer(msg.userId, msg.pseudo);
@@ -241,6 +255,9 @@ onMounted(async () => {
   stage.onCameraChange = (camera) => setCamera(camera);
   stage.onViewportChange = (vp) => queueViewport(vp);
   stage.onCursorMove = (x, y) => queueCursor(x, y);
+  stage.onNotice = (kind) => {
+    if (kind === "tile_full") showToast("Too many pieces on this tile.");
+  };
   await stage.mount(host.value);
   setControls({
     zoomIn: () => stage?.zoomIn(),
@@ -374,6 +391,10 @@ onBeforeUnmount(() => {
     clearTimeout(cursorTimer);
     cursorTimer = null;
   }
+  if (toastTimer !== null) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
   setControls(null);
   setReady(false);
   setMinimapSource(null);
@@ -451,6 +472,9 @@ onBeforeUnmount(() => {
       >
         Summary
       </button>
+    </Transition>
+    <Transition name="toast">
+      <div v-if="toast" class="toast" role="status" aria-live="polite">{{ toast }}</div>
     </Transition>
   </div>
 </template>
@@ -721,5 +745,32 @@ onBeforeUnmount(() => {
 .reopen-leave-to {
   opacity: 0;
   transform: translate(-50%, -8px);
+}
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 32px;
+  transform: translateX(-50%);
+  max-width: min(90%, 360px);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(38, 16, 16, 0.92);
+  border: 1px solid #e0564f;
+  color: #f7e9e9;
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 3;
+}
+.toast-enter-active,
+.toast-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
 }
 </style>
