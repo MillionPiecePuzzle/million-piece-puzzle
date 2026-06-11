@@ -59,9 +59,12 @@ async function main(): Promise<void> {
   const groupIndex = new GroupIndex(cellSize);
   await rebuildGroupIndex(groupIndex, state, meta.totalPieces);
   // Per-tile piece cap = a cell's solved density (cellPieces squared) times the
-  // configured multiple, so the cap scales with the cell size.
+  // configured multiple, so the cap scales with the cell size. An absolute
+  // MPP_TILE_PIECE_CAP overrides it when set (testing/ops escape hatch).
   const tilePieceCap =
-    config.broadcastCellPieces * config.broadcastCellPieces * config.tilePieceCapMultiplier;
+    config.tilePieceCapAbsolute > 0
+      ? config.tilePieceCapAbsolute
+      : config.broadcastCellPieces * config.broadcastCellPieces * config.tilePieceCapMultiplier;
   // Per-group dispatch queues: messages for different groups run concurrently,
   // a group's own messages stay ordered, and a merge serializes against every
   // group it joins (see DECISIONS: per-group dispatch queues).

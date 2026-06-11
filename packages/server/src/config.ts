@@ -34,6 +34,10 @@ export type ServerConfig = {
   // destination cell past this many pieces is rejected, so a zoomed-out LOD tile
   // never bakes an unbounded pile (which would defeat the LOD).
   tilePieceCapMultiplier: number;
+  // Absolute per-cell cap that overrides the multiplier when > 0 (a testing/ops
+  // escape hatch, e.g. set it low to exercise the rejection); 0 keeps the
+  // density-relative cap above.
+  tilePieceCapAbsolute: number;
   // Spectator stream cadence (see DECISIONS: spectator keyframe + event log).
   // The keyframe is regenerated at most this often while the event is live; the
   // event window W and interpolation delay D set how the client tails the log;
@@ -150,6 +154,7 @@ export async function loadConfig(): Promise<ServerConfig> {
     broadcastCellPieces: int("MPP_BROADCAST_CELL_PIECES", 16),
     broadcastMaxCells: int("MPP_BROADCAST_MAX_CELLS", 256),
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
+    tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
     eventWindowMs: int("MPP_EVENT_WINDOW_MS", 3000),
     interpDelayMs: int("MPP_INTERP_DELAY_MS", 6000),
