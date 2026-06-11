@@ -5,7 +5,8 @@ import BrandMark from "../components/BrandMark.vue";
 import CountdownTimer from "../components/CountdownTimer.vue";
 import { useMode } from "../composables/useMode";
 import { useCountdown } from "../composables/useCountdown";
-import { landingUrl, interestedUrl } from "../data/spectatorUrl";
+import { interestedUrl } from "../data/spectatorUrl";
+import { loadLanding, type InterestState } from "../data/landing";
 
 const router = useRouter();
 const { setMode } = useMode();
@@ -20,9 +21,6 @@ const submitting = ref(false);
 // Once the start is reached the single CTA flips from "I'm interested" to "Enter
 // the canvas"; until then there is no way into /play from the landing.
 const { launched, scheduled, parts } = useCountdown(eventStartsAt);
-
-type LandingData = { eventStartsAt: number; interested: { count: number; me: boolean } };
-type InterestedData = { count: number; me: boolean };
 
 function cachedInterested(): boolean {
   try {
@@ -51,7 +49,7 @@ async function markInterested(): Promise<void> {
   try {
     const res = await fetch(interestedUrl(), { method: "POST" });
     if (!res.ok) return;
-    const data = (await res.json()) as InterestedData;
+    const data = (await res.json()) as InterestState;
     count.value = data.count;
     interested.value = true;
     rememberInterested();
@@ -71,18 +69,14 @@ function interestLabel(): string {
 
 onMounted(async () => {
   interested.value = cachedInterested();
-  try {
-    const res = await fetch(landingUrl());
-    if (!res.ok) return;
-    const data = (await res.json()) as LandingData;
-    eventStartsAt.value = data.eventStartsAt;
-    count.value = data.interested.count;
-    interested.value = data.interested.me;
-    if (data.interested.me) rememberInterested();
-  } catch {
-    // the landing still works offline: countdown shows its placeholder and the
-    // interested button can be retried
-  }
+  // loadLanding never rejects: a failed fetch resolves to null and the landing
+  // still works offline (countdown shows its placeholder, interested can retry).
+  const data = await loadLanding();
+  if (!data) return;
+  eventStartsAt.value = data.eventStartsAt;
+  count.value = data.interested.count;
+  interested.value = data.interested.me;
+  if (data.interested.me) rememberInterested();
 });
 </script>
 
