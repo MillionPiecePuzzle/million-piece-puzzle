@@ -213,18 +213,30 @@ export async function handleViewport(ctx: Context, client: Client, msg: CViewpor
   // groups, so the common singleton case needs no read. The client builds an
   // unknown group and additively reconciles a known one (see the stage upsert).
   const groups = ctx.groupIndex.collect(entered);
-  if (groups.length === 0) return;
-  const construction = await Promise.all(
-    groups.map(async (g) => ({
-      groupId: g.groupId,
-      worldX: g.worldX,
-      worldY: g.worldY,
-      locked: g.locked,
-      size: g.size,
-      pieceIds: g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId),
-    })),
-  );
-  send(ctx, client, { t: "region_state", groups: construction });
+  const construction =
+    groups.length === 0
+      ? []
+      : await Promise.all(
+          groups.map(async (g) => ({
+            groupId: g.groupId,
+            worldX: g.worldX,
+            worldY: g.worldY,
+            locked: g.locked,
+            size: g.size,
+            pieceIds: g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId),
+          })),
+        );
+  // The whole bounded viewport is subscribed now, so its area is "known" to the
+  // client even where it held no groups. Always ack it (even with an empty
+  // construction) so the client can distinguish a not-yet-streamed region from an
+  // empty one and clear its loading indicator.
+  const coverage = {
+    minX: msg.worldX,
+    minY: msg.worldY,
+    maxX: msg.worldX + msg.worldW,
+    maxY: msg.worldY + msg.worldH,
+  };
+  send(ctx, client, { t: "region_state", groups: construction, coverage });
 }
 
 export function handleCursor(ctx: Context, client: Client, msg: CCursor): void {

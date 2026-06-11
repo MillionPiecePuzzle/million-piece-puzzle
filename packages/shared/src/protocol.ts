@@ -267,6 +267,12 @@ export type RegionGroup = {
 export type SRegionState = {
   t: "region_state";
   groups: RegionGroup[];
+  // World rectangle the client's entered broadcast cells cover. An entered cell
+  // with no groups still acknowledges its area here (the message is sent even when
+  // `groups` is empty), so the client can mark its own cells "known" and tell a
+  // region that has not streamed in yet from a genuinely empty one. Absent on a
+  // global subscription, which streams nothing by design.
+  coverage?: { minX: number; minY: number; maxX: number; maxY: number };
 };
 
 // Downsampled board density grid for the minimap overview. Broadcast to

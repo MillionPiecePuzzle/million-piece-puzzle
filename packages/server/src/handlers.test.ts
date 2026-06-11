@@ -731,9 +731,14 @@ type RegionGroupMsg = {
 };
 
 function lastRegionState(ws: FakeWs): RegionGroupMsg[] | null {
+  const msg = lastRegionStateMsg(ws);
+  return msg ? (msg.groups as RegionGroupMsg[]) : null;
+}
+
+function lastRegionStateMsg(ws: FakeWs): (ServerMessage & { t: "region_state" }) | null {
   for (let i = ws.sent.length - 1; i >= 0; i--) {
     const msg = JSON.parse(ws.sent[i]!) as ServerMessage;
-    if (msg.t === "region_state") return msg.groups as RegionGroupMsg[];
+    if (msg.t === "region_state") return msg;
   }
   return null;
 }
@@ -806,7 +811,7 @@ describe("handleViewport region_state construction", () => {
     expect(lastRegionState(ws)?.map((g) => g.groupId)).toEqual([6]);
   });
 
-  it("sends nothing when the entered cells hold no groups", async () => {
+  it("acks an entered region with no groups via an empty construction plus coverage", async () => {
     const { ctx } = makeViewportCtx();
     const { client, ws } = viewportClient();
     await handleViewport(ctx, client, {
@@ -816,6 +821,18 @@ describe("handleViewport region_state construction", () => {
       worldW: 500,
       worldH: 500,
     });
-    expect(lastRegionState(ws)).toBeNull();
+    const msg = lastRegionStateMsg(ws);
+    expect(msg?.groups).toEqual([]);
+    expect(msg?.coverage).toEqual({ minX: 0, minY: 0, maxX: 500, maxY: 500 });
+  });
+
+  it("sends nothing when the viewport enters no new cells", async () => {
+    const { ctx } = makeViewportCtx();
+    const { client, ws } = viewportClient();
+    const view = { t: "viewport", worldX: 0, worldY: 0, worldW: 500, worldH: 500 } as const;
+    await handleViewport(ctx, client, view);
+    ws.sent.length = 0;
+    await handleViewport(ctx, client, view);
+    expect(lastRegionStateMsg(ws)).toBeNull();
   });
 });

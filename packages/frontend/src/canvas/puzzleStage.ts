@@ -30,8 +30,9 @@ import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
-import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, type CellKey } from "./groupGrid";
+import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, unpackCell, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
+import { LoadingOverlay } from "./loadingOverlay";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap } from "./membership";
 
@@ -315,6 +316,16 @@ export class PuzzleStage {
   // remote): excluded from bakes and drawn live on top so a piece in hand never
   // freezes into a tile.
   private lodLayer: LodTileLayer | null = null;
+  // Per-cell loading badges, drawn over viewport cells whose known content is not
+  // yet displayed (a tile not baked, or a group still hydrating).
+  private loadingOverlay: LoadingOverlay | null = null;
+  // Cells whose region_state has streamed in (their area was acked by the server's
+  // coverage rect), so a viewport cell that is in the play zone but absent here has
+  // not loaded yet. coverageSeen flips on the first ack: a viewport-streamed
+  // contributor gets one, a full-board spectator never does, so the not-yet-loaded
+  // badge applies only where the board streams in.
+  private knownCells = new Set<CellKey>();
+  private coverageSeen = false;
   private lodActive = false;
   private lodWarm = false;
   private heldGroupIds = new Set<number>();
@@ -515,6 +526,8 @@ export class PuzzleStage {
     this.lastVisible.clear();
     this.lodHidden.clear();
     this.cellDirtyMs.clear();
+    this.knownCells.clear();
+    this.coverageSeen = false;
     this.coldSweepFrame = 0;
 
     // Cumulative "build" progress across the three passes over a combined total,
@@ -591,6 +604,7 @@ export class PuzzleStage {
     world.renderable = true;
     this.redrawBackdrop();
     this.createLodLayer();
+    this.createLoadingOverlay();
     this.fitView();
 
     // Stream the first viewport in (and bake its tiles when zoomed out) before
@@ -798,6 +812,8 @@ export class PuzzleStage {
     this.peerCursors = null;
     this.lodLayer?.destroy();
     this.lodLayer = null;
+    this.loadingOverlay?.destroy();
+    this.loadingOverlay = null;
     this.releaseAllTextures();
     this.resetStreaming();
     this.app?.destroy(true, { children: true, texture: true });
@@ -814,6 +830,8 @@ export class PuzzleStage {
     this.lodHidden.clear();
     this.heldGroupIds.clear();
     this.cellDirtyMs.clear();
+    this.knownCells.clear();
+    this.coverageSeen = false;
     this.coldSweepFrame = 0;
     this.geomById = new Map();
     this.genBase = 0;
@@ -873,10 +891,15 @@ export class PuzzleStage {
     this.resetSpectatorStream();
     this.lodLayer?.destroy();
     this.lodLayer = null;
+    // The overlay's container and badges were already freed by removeChildren
+    // above (context:true), so just drop the reference for the rebuild.
+    this.loadingOverlay = null;
     this.lodActive = false;
     this.lodWarm = false;
     this.heldGroupIds.clear();
     this.cellDirtyMs.clear();
+    this.knownCells.clear();
+    this.coverageSeen = false;
     this.coldSweepFrame = 0;
     this.groupGrid.clear();
     this.lastVisible.clear();
@@ -1261,8 +1284,15 @@ export class PuzzleStage {
   // update), and always additively reconcile membership and locked state, the
   // heal channel a partial board needs (a snap that arrived while the host was
   // unknown, or membership the client under-counts).
-  applyRegionState(entries: readonly RegionGroup[]): void {
+  applyRegionState(entries: readonly RegionGroup[], coverage?: Aabb): void {
     if (!this.world) return;
+    // The acked rect covers a region whose groups have all streamed in, so every
+    // cell it spans is now "known": a cell in the play zone but not yet known has
+    // not loaded. Marked even when entries is empty (an acked but empty region).
+    if (coverage) {
+      this.coverageSeen = true;
+      for (const key of cellKeysForRect(coverage, LOD_TILE_WORLD)) this.knownCells.add(key);
+    }
     const localHeldId = this.held?.groupId ?? null;
     const now = performance.now();
     let any = false;
@@ -2001,8 +2031,15 @@ export class PuzzleStage {
     );
   }
 
+  // Dedup is on hydrated/hydrating/queued, not on resident: a resident group can
+  // be left unhydrated when a merge or membership reconcile resets `hydrated`
+  // (added piece ids whose source node was cold-swept and never built locally).
+  // Guarding on resident.has would refuse to re-enqueue it, so it would never
+  // rebuild the missing nodes and its tile would defer its bake forever (the cell
+  // stays blank at a deep zoom-out). The hydrated/hydrating guards still keep a
+  // healthy already-resident group from re-loading.
   private enqueueHydrate(gid: number): void {
-    if (this.resident.has(gid) || this.hydrateQueued.has(gid)) return;
+    if (this.hydrateQueued.has(gid)) return;
     const node = this.groups.get(gid);
     if (!node || node.hydrated || node.hydrating) return;
     this.hydrateQueued.add(gid);
@@ -2230,6 +2267,72 @@ export class PuzzleStage {
     this.lodLayer.configure(screen.width, screen.height, MIN_ZOOM);
   }
 
+  // Inserts the loading overlay just above the LOD tiles and below the held
+  // layers, so a badge covers the resting clusters or baked tile it stands in for
+  // while a piece in hand still draws on top.
+  private createLoadingOverlay(): void {
+    if (!this.world || !this.remoteHeldLayer) return;
+    const overlay = new LoadingOverlay();
+    this.world.addChildAt(overlay.container, this.world.getChildIndex(this.remoteHeldLayer));
+    this.loadingOverlay = overlay;
+  }
+
+  // Viewport cells (within the play zone) whose content should be visible but is
+  // not yet. Three states, by zoom band:
+  //  - zoom-out (LOD active): a cell with known groups whose tile has not baked
+  //    yet. An unknown or empty cell bakes blank instantly, so it never badges
+  //    here, which also keeps the zoomed-out global view (nothing streamed) clear.
+  //  - zoom-in, region not streamed in yet: a cell not in knownCells, once the
+  //    board is known to stream in (coverageSeen). The full-board spectator never
+  //    sets coverageSeen, so its cells fall through to the hydration test instead.
+  //  - zoom-in, streaming textures: a known cell with an in-ring group whose AVIF
+  //    textures are still loading.
+  private computeLoadingCells(): Set<CellKey> {
+    const out = new Set<CellKey>();
+    const v = this.viewport;
+    if (!v || !this.playZone) return out;
+    const box: Aabb = {
+      minX: v.worldX,
+      minY: v.worldY,
+      maxX: v.worldX + v.worldW,
+      maxY: v.worldY + v.worldH,
+    };
+    for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) {
+      if (!this.cellOverlapsPlayZone(key)) continue;
+      const groups = this.groupGrid.cellGroups(key);
+      if (this.lodActive) {
+        if (groups && groups.size > 0 && !this.lodLayer?.isReady(key)) out.add(key);
+        continue;
+      }
+      if (this.coverageSeen && !this.knownCells.has(key)) {
+        out.add(key);
+        continue;
+      }
+      if (!groups) continue;
+      for (const gid of groups) {
+        const node = this.groups.get(gid);
+        if (node && !node.hydrated && this.groupInRing(node, HYDRATE_MARGIN_FRAC)) {
+          out.add(key);
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
+  private cellOverlapsPlayZone(key: CellKey): boolean {
+    if (!this.playZone) return false;
+    const { cx, cy } = unpackCell(key);
+    const minX = cx * LOD_TILE_WORLD;
+    const minY = cy * LOD_TILE_WORLD;
+    return (
+      minX < this.playZone.maxX &&
+      minX + LOD_TILE_WORLD > this.playZone.minX &&
+      minY < this.playZone.maxY &&
+      minY + LOD_TILE_WORLD > this.playZone.minY
+    );
+  }
+
   // Crosses the three zoom bands. The bake queue (drained in tickLodFrame) fills
   // tiles in the background while warm, so reaching the active band does not
   // hitch; LOD_EXIT_ZOOM gives the active band hysteresis.
@@ -2359,6 +2462,7 @@ export class PuzzleStage {
       }
       this.lodLayer.cull(this.viewport);
     }
+    this.loadingOverlay?.update(this.computeLoadingCells(), performance.now());
     this.sweepColdResidents();
     this.tickInitialFill();
   }

@@ -161,7 +161,7 @@ function routeMessage(msg: ServerMessage): void {
       stage.setPeerCursor(msg.userId, msg.worldX, msg.worldY);
       break;
     case "region_state":
-      stage.applyRegionState(msg.groups);
+      stage.applyRegionState(msg.groups, msg.coverage);
       break;
     case "minimap":
       stage.setMinimapGrid(msg.grid);

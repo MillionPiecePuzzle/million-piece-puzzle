@@ -8,6 +8,7 @@
  * Usage:
  *   npm run upload -- --puzzle alpha-3
  *   npm run upload -- --puzzle alpha-3 --dry-run
+ *   npm run upload -- --puzzle alpha-3 --transfers 256
  */
 
 import { spawn } from "node:child_process";
@@ -18,6 +19,7 @@ import { fileURLToPath } from "node:url";
 type Args = {
   puzzle: string;
   dryRun: boolean;
+  transfers: number;
 };
 
 const BUCKET = "mpp-assets";
@@ -42,7 +44,11 @@ function parseArgs(argv: string[]): Args {
   if (typeof puzzle !== "string" || puzzle.length === 0) {
     throw new Error("missing required flag --puzzle <id>");
   }
-  return { puzzle, dryRun: args["dry-run"] === true };
+  const transfers = typeof args["transfers"] === "string" ? Number(args["transfers"]) : 128;
+  if (!Number.isInteger(transfers) || transfers < 1) {
+    throw new Error("--transfers must be a positive integer");
+  }
+  return { puzzle, dryRun: args["dry-run"] === true, transfers };
 }
 
 function run(cmd: string, cmdArgs: string[]): Promise<void> {
@@ -76,8 +82,12 @@ async function main(): Promise<void> {
     // mtime, so without this an identical output would re-upload in full (and a
     // 1M-piece push is ~1.1M Class A ops). With it, unchanged tiles are skipped.
     "--checksum",
-    "--transfers=64",
-    "--checkers=128",
+    // A 1M-tile push is round-trip-latency bound, not bandwidth bound (each tile
+    // is a few KB and uploads in one tick), so throughput scales with how many
+    // PUTs are in flight. Default 128 transfers; raise via --transfers for a
+    // faster link.
+    `--transfers=${args.transfers}`,
+    `--checkers=${args.transfers * 2}`,
     "--fast-list",
     "--progress",
   ];
