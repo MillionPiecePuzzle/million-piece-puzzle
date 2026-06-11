@@ -11,7 +11,9 @@
  * The bezier silhouette is baked into the tile's alpha here: the piece path from
  * `@mpp/shared` is rasterized to a mask and composited `dest-in` over the window,
  * so the AVIF is already cut to the piece shape and the frontend renders it as-is
- * (manifest `premasked: true`).
+ * (manifest `premasked: true`). The same path is then stroked over the cut tile
+ * in the shared PIECE_BORDER_* style (manifest `borderBaked: true`), so the
+ * outline ships in the tile and costs nothing at render time.
  *
  * Tiles are bucketed by hundreds: `pieces/<bucket>/<id>.avif` where
  * `bucket = floor(id / 100)` zero-padded to 4 digits.
@@ -45,6 +47,9 @@ import {
   generatePieceGeometry,
   piecePath,
   seedFromString,
+  PIECE_BORDER_WIDTH,
+  PIECE_BORDER_COLOR,
+  PIECE_BORDER_ALPHA,
   type ImageManifest,
   type PathCommand,
 } from "@mpp/shared";
@@ -99,11 +104,11 @@ function pad(n: number, width: number): string {
   return n.toString().padStart(width, "0");
 }
 
-// SVG path string for the piece silhouette in tile-local space: the piece path
-// is in piece-local coords (origin at the piece top-left), so each command is
+// SVG path `d` for the piece silhouette in tile-local space: the piece path is
+// in piece-local coords (origin at the piece top-left), so each command is
 // shifted by +margin to place the body at [margin, margin + pieceSize] inside
 // the tile, leaving the margin ring for tabs.
-function pieceMaskSvg(cmds: PathCommand[], margin: number, tileSize: number): Buffer {
+function piecePathD(cmds: PathCommand[], margin: number): string {
   const parts: string[] = [];
   for (const c of cmds) {
     if (c.t === "M") parts.push(`M${c.x + margin} ${c.y + margin}`);
@@ -114,9 +119,29 @@ function pieceMaskSvg(cmds: PathCommand[], margin: number, tileSize: number): Bu
       );
     else if (c.t === "Z") parts.push("Z");
   }
+  return parts.join(" ");
+}
+
+function svgWrap(tileSize: number, body: string): Buffer {
   return Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${tileSize}" height="${tileSize}">` +
-      `<path d="${parts.join(" ")}" fill="#fff"/></svg>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${tileSize}" height="${tileSize}">${body}</svg>`,
+  );
+}
+
+// White-filled silhouette, composited `dest-in` to cut the tile to the piece.
+function pieceMaskSvg(d: string, tileSize: number): Buffer {
+  return svgWrap(tileSize, `<path d="${d}" fill="#fff"/>`);
+}
+
+// Stroked silhouette in the shared PIECE_BORDER_* style, composited `over` the
+// already-cut tile so the outline costs nothing at render time. Centered on the
+// path like the client stroke, so its outer half lands in the (now transparent)
+// margin ring, matching the live-stroked look.
+function pieceBorderSvg(d: string, tileSize: number): Buffer {
+  const color = `#${PIECE_BORDER_COLOR.toString(16).padStart(6, "0")}`;
+  return svgWrap(
+    tileSize,
+    `<path d="${d}" fill="none" stroke="${color}" stroke-width="${PIECE_BORDER_WIDTH}" stroke-opacity="${PIECE_BORDER_ALPHA}"/>`,
   );
 }
 
@@ -208,7 +233,9 @@ async function main() {
     const padBottom = tileSize - extractHeight - padTop;
 
     const geom = generatePieceGeometry(base, args.rows, args.cols, pieceSize, id);
-    const mask = pieceMaskSvg(piecePath(geom, pieceSize), margin, tileSize);
+    const pathD = piecePathD(piecePath(geom, pieceSize), margin);
+    const mask = pieceMaskSvg(pathD, tileSize);
+    const border = pieceBorderSvg(pathD, tileSize);
 
     const idStr = pad(id, idWidth);
     const bucket = pad(Math.floor(id / 100), 4);
@@ -225,7 +252,10 @@ async function main() {
         right: padRight,
         background: { r: 0, g: 0, b: 0, alpha: 0 },
       })
-      .composite([{ input: mask, blend: "dest-in" }])
+      .composite([
+        { input: mask, blend: "dest-in" },
+        { input: border, blend: "over" },
+      ])
       .avif({ quality: args.quality, effort: 4 })
       .toFile(outPath);
 
@@ -252,6 +282,7 @@ async function main() {
     margin,
     tileSize,
     premasked: true,
+    borderBaked: true,
     source: {
       dzi: dziName,
       width: puzzleWidth,

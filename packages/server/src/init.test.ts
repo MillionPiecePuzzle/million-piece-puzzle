@@ -14,6 +14,7 @@ function manifest(rows: number, cols: number): ImageManifest {
     margin: 35,
     tileSize: pieceSize + 70,
     premasked: true,
+    borderBaked: true,
     source: { dzi: "", width: cols * pieceSize, height: rows * pieceSize },
     pieces: [],
   };

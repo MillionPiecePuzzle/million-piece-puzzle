@@ -10,6 +10,9 @@ import {
 } from "pixi.js";
 import {
   GRID_WORLD_CELL,
+  PIECE_BORDER_WIDTH,
+  PIECE_BORDER_COLOR,
+  PIECE_BORDER_ALPHA,
   compareSpectatorSeq,
   generatePieceGeometry,
   piecePath,
@@ -205,12 +208,6 @@ const SNAP_BUMP_SCALE = 1.08;
 const SNAP_BUMP_MS = 240;
 const SNAP_FLASH_ALPHA = 0.55;
 const SNAP_FLASH_MS = 260;
-
-// Per-piece silhouette outline. Drawn on every piece (not just cluster borders)
-// so seams stay visible between snapped neighbors within a cluster.
-const PIECE_BORDER_WIDTH = 1.2;
-const PIECE_BORDER_COLOR = 0x1a1a1a;
-const PIECE_BORDER_ALPHA = 0.45;
 
 const END_PULSE_SCALE = 1.06;
 const END_PULSE_MS = 280;
@@ -2675,14 +2672,19 @@ function buildPieceNode(
     sprite.mask = mask;
   }
 
-  const outline = new Graphics();
-  applyPath(outline, path);
-  outline.stroke({
-    width: PIECE_BORDER_WIDTH,
-    color: PIECE_BORDER_COLOR,
-    alpha: PIECE_BORDER_ALPHA,
-  });
-  inner.addChild(outline);
+  // A borderBaked tile already carries the silhouette outline in its alpha, so
+  // the per-piece stroke only runs for slices not baked with a border. Seams
+  // stay visible between snapped neighbors within a cluster either way.
+  if (!manifest.borderBaked) {
+    const outline = new Graphics();
+    applyPath(outline, path);
+    outline.stroke({
+      width: PIECE_BORDER_WIDTH,
+      color: PIECE_BORDER_COLOR,
+      alpha: PIECE_BORDER_ALPHA,
+    });
+    inner.addChild(outline);
+  }
 
   inner.addChild(flash);
 

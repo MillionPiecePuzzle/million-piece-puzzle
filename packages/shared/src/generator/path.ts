@@ -25,6 +25,15 @@ export type PathCommand =
   | { t: "C"; cp1x: number; cp1y: number; cp2x: number; cp2y: number; x: number; y: number }
   | { t: "Z" };
 
+// Per-piece silhouette outline style, shared by the slicer (stroked into the
+// tile alpha before AVIF encode) and the client (render-time stroke for any
+// slice not baked with a border). Keeping the values here is the single source
+// so a baked border and a live-stroked one never drift. Color is a 24-bit RGB
+// int; alpha is 0..1; width is in piece-local units (1 unit = 1 px at 1:1 zoom).
+export const PIECE_BORDER_WIDTH = 1.2;
+export const PIECE_BORDER_COLOR = 0x1a1a1a;
+export const PIECE_BORDER_ALPHA = 0.45;
+
 type Vec = { x: number; y: number };
 type CubicSeg = { cp1: Vec; cp2: Vec; end: Vec };
 
