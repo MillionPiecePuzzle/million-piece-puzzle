@@ -8,10 +8,11 @@
 import { Container, Graphics } from "pixi.js";
 import { LOD_TILE_WORLD, unpackCell, type CellKey } from "./groupGrid";
 
-// Proportional so the badge reads the same at every zoom: a gutter inside the
-// cell, a rounded corner, and the border thickness.
-const INSET_FRAC = 0.04;
-const CORNER_FRAC = 0.04;
+// Proportional so the badge reads the same at every zoom: a hairline gutter
+// inside the cell (so adjacent loading tiles read as one continuous region), a
+// slight rounded corner, and the border thickness.
+const INSET_FRAC = 0.006;
+const CORNER_FRAC = 0.02;
 const BORDER_FRAC = 0.011;
 // A dark scrim marks the tile as a placeholder; a bright border outlines it.
 const SCRIM_COLOR = 0x15140f;
