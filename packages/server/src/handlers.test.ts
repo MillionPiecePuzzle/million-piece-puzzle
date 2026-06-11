@@ -3,7 +3,7 @@ import { dispatch, handleGrab, handleDrop, handleDevPlace, handleViewport } from
 import type { Context } from "./handlers.js";
 import { Hub, type Client } from "./hub.js";
 import type { PuzzleMeta } from "./state.js";
-import type { GroupRuntime, ServerMessage } from "@mpp/shared";
+import { WORLD_TILE_SIZE, type GroupRuntime, type ServerMessage } from "@mpp/shared";
 import { GroupQueue } from "./queue.js";
 import { GroupIndex } from "./groupIndex.js";
 import { cellKey } from "./worldGrid.js";
@@ -60,7 +60,7 @@ function makeCtx() {
     mongo: { logMerge: vi.fn() },
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
-    groupIndex: new GroupIndex(meta.pieceSize * 16),
+    groupIndex: new GroupIndex(WORLD_TILE_SIZE),
   } as unknown as Context;
   return {
     ctx,
@@ -374,7 +374,7 @@ function makeDropCtx() {
     mongo: { logMerge, leaderboard },
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
-    groupIndex: new GroupIndex(dropMeta.pieceSize * 16),
+    groupIndex: new GroupIndex(WORLD_TILE_SIZE),
     tilePieceCap: 2048,
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastOverlapping, logMerge, leaderboard, state };
@@ -433,7 +433,7 @@ describe("handleDrop", () => {
   it("rejects a non-merging drop that would overflow the destination tile", async () => {
     const { ctx, send, broadcastOverlapping, state } = makeDropCtx();
     ctx.tilePieceCap = 4;
-    // The destination cell (drop at 500,500 maps to cell 0,0 at cellSize 1600)
+    // The destination cell (drop at 500,500 maps to cell 0,0 at cellSize 2048)
     // already holds a cluster at the cap; the dropped group rests elsewhere.
     ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 4, locked: false });
     state.place(dropped(4, 5000, 5000), [4]);
@@ -557,7 +557,7 @@ describe("handleDrop", () => {
       mongo: { logMerge, leaderboard },
       eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
       queue: new GroupQueue(),
-      groupIndex: new GroupIndex(onePieceMeta.pieceSize * 16),
+      groupIndex: new GroupIndex(WORLD_TILE_SIZE),
       lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);
@@ -675,7 +675,7 @@ describe("cross-group merge ordering", () => {
 // FakeState groups carry no stored AABB, so the index keys groups by the bare
 // drop/target point here (worldAabbFor falls back to a zero-size rect). The index
 // cell of a world point at this cellSize.
-const INDEX_CELL = dropMeta.pieceSize * 16;
+const INDEX_CELL = WORLD_TILE_SIZE;
 const cellAt = (x: number, y: number): number =>
   cellKey(Math.floor(x / INDEX_CELL), Math.floor(y / INDEX_CELL));
 

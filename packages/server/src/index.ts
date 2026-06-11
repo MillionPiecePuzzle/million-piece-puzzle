@@ -3,7 +3,7 @@ import { Redis as IORedis } from "ioredis";
 import { MongoClient } from "mongodb";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import { WebSocketServer, type WebSocket, type VerifyClientCallbackAsync } from "ws";
-import { PROTOCOL_VERSION } from "@mpp/shared";
+import { PROTOCOL_VERSION, WORLD_TILE_SIZE } from "@mpp/shared";
 import { loadConfig } from "./config.js";
 import { Hub, type Client } from "./hub.js";
 import { worldAabbFor } from "./worldGrid.js";
@@ -50,21 +50,24 @@ async function main(): Promise<void> {
   const eventLog = new EventLog(redis, manifest.puzzleId);
   const meta = await initPuzzleIfEmpty(state, manifest);
 
-  // Scoped broadcasts are routed through a spatial index whose world grid cell is
-  // sized from the puzzle's pieceSize (see DECISIONS: spatial broadcast index).
-  const cellSize = meta.pieceSize * config.broadcastCellPieces;
+  // Scoped broadcasts are routed through a spatial index over the shared world
+  // grid cell, the same cell the frontend bakes LOD tiles on and the piece cap
+  // counts over (see DECISIONS: spatial broadcast index).
+  const cellSize = WORLD_TILE_SIZE;
   const hub = new Hub(config.wsBufferedAmountLimitBytes, cellSize, config.broadcastMaxCells);
   // Group position read model on the same cell grid, rebuilt from Redis at boot
   // (and on reset). Drives the pan resync (see DECISIONS: group index + resync).
   const groupIndex = new GroupIndex(cellSize);
   await rebuildGroupIndex(groupIndex, state, meta.totalPieces);
-  // Per-tile piece cap = a cell's solved density (cellPieces squared) times the
-  // configured multiple, so the cap scales with the cell size. An absolute
-  // MPP_TILE_PIECE_CAP overrides it when set (testing/ops escape hatch).
+  // Per-tile piece cap = the cell's solved density (how many pieces fill one cell
+  // when solved, (cellSize / pieceSize) squared) times the configured multiple, so
+  // the cap scales with the cell. An absolute MPP_TILE_PIECE_CAP overrides it when
+  // set (testing/ops escape hatch).
+  const solvedDensity = Math.round((cellSize / meta.pieceSize) ** 2);
   const tilePieceCap =
     config.tilePieceCapAbsolute > 0
       ? config.tilePieceCapAbsolute
-      : config.broadcastCellPieces * config.broadcastCellPieces * config.tilePieceCapMultiplier;
+      : solvedDensity * config.tilePieceCapMultiplier;
   // Per-group dispatch queues: messages for different groups run concurrently,
   // a group's own messages stay ordered, and a merge serializes against every
   // group it joins (see DECISIONS: per-group dispatch queues).

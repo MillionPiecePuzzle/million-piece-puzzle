@@ -12,6 +12,7 @@ export * from "./session.js";
 export * from "./country.js";
 export * from "./protocol.js";
 export * from "./playzone.js";
+export * from "./grid.js";
 export * from "./minimap.js";
 export * from "./manifest.js";
 export * from "./generator/edge.js";

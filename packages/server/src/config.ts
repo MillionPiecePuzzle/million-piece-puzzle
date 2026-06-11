@@ -22,17 +22,16 @@ export type ServerConfig = {
   // interval and terminates a socket that missed the previous pong, keeping idle
   // contributors connected and reaping half-open sockets.
   wsHeartbeatIntervalMs: number;
-  // Spatial broadcast index (see DECISIONS: spatial broadcast index). The world
-  // grid cell is `pieceSize * broadcastCellPieces` wide, sized so a zoomed-in
-  // viewport overlaps ~1-4 cells; a viewport (or dragged cluster) overlapping more
-  // than broadcastMaxCells cells is treated as global, bounding the subscription
-  // set and the per-event cell walk.
-  broadcastCellPieces: number;
+  // Spatial broadcast index (see DECISIONS: spatial broadcast index). Scoping runs
+  // on the shared world grid cell (`WORLD_TILE_SIZE`); a viewport (or dragged
+  // cluster) overlapping more than broadcastMaxCells cells is treated as global,
+  // bounding the subscription set and the per-event cell walk.
   broadcastMaxCells: number;
-  // Per-tile piece cap, as a multiple of a cell's solved density
-  // (`broadcastCellPieces` squared). A non-merging drop that would push the
-  // destination cell past this many pieces is rejected, so a zoomed-out LOD tile
-  // never bakes an unbounded pile (which would defeat the LOD).
+  // Per-tile piece cap, as a multiple of a cell's solved density (the pieces that
+  // fill one cell when solved, `(WORLD_TILE_SIZE / pieceSize)` squared). A
+  // non-merging drop that would push the destination cell past this many pieces is
+  // rejected, so a zoomed-out LOD tile never bakes an unbounded pile (which would
+  // defeat the LOD).
   tilePieceCapMultiplier: number;
   // Absolute per-cell cap that overrides the multiplier when > 0 (a testing/ops
   // escape hatch, e.g. set it low to exercise the rejection); 0 keeps the
@@ -151,7 +150,6 @@ export async function loadConfig(): Promise<ServerConfig> {
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
     wsHeartbeatIntervalMs: int("MPP_WS_HEARTBEAT_INTERVAL_MS", 30000),
-    broadcastCellPieces: int("MPP_BROADCAST_CELL_PIECES", 16),
     broadcastMaxCells: int("MPP_BROADCAST_MAX_CELLS", 256),
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),

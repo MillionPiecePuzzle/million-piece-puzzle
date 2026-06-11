@@ -35,12 +35,12 @@ export type Context = {
   devEnabled: boolean;
   eventStartsAt: number;
   queue: GroupQueue;
-  // In-process spatial index of group positions, keyed on the broadcast cell
-  // grid. Maintained on every committed position change (drop, merge) and read by
+  // In-process spatial index of group positions, keyed on the shared world grid
+  // cell. Maintained on every committed position change (drop, merge) and read by
   // handleViewport to resync a client panning into new cells.
   groupIndex: GroupIndex;
-  // Max pieces allowed to rest in one broadcast cell. A non-merging drop that
-  // would push the destination cell past this is rejected (see handleDrop).
+  // Max pieces allowed to rest in one world grid cell (one LOD tile). A non-merging
+  // drop that would push the destination cell past this is rejected (see handleDrop).
   tilePieceCap: number;
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any

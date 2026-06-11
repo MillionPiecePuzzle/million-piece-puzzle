@@ -4,11 +4,15 @@
 // group, and a tile bake can ask for exactly the groups overlapping one cell.
 // The grid pitch is the LOD tile size, so a cell key is also a tile key.
 
+import { WORLD_TILE_SIZE } from "@mpp/shared";
 import type { Aabb } from "./cull";
 
 // World-space grid cell, and the on-screen tile, share this size: one cell maps
 // to one zoom-out LOD tile, so a group's cells are exactly the tiles it occupies.
-export const LOD_TILE_WORLD = 2048;
+// It is the shared world grid pitch, the same cell the server scopes broadcasts
+// on and measures the per-tile piece cap over, so the tile the client sees is the
+// region the server checks.
+export const LOD_TILE_WORLD = WORLD_TILE_SIZE;
 
 // Packed (cx, cy) cell coordinate. Cell coordinates are biased into the
 // non-negative range and interleaved, so the pack is a bijection for
