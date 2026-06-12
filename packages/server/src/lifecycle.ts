@@ -27,7 +27,7 @@ export class PuzzleLifecycle {
     private readonly ctx: Context,
     private readonly manifest: ImageManifest,
   ) {
-    this.playZone = playZoneForManifest(manifest);
+    this.playZone = playZoneForManifest(manifest, ctx.generationSeed);
   }
 
   attachKeyframePublisher(publisher: {
@@ -89,7 +89,7 @@ export class PuzzleLifecycle {
       // The spectator stream replays drops and snaps; clear the event log too so
       // the fresh board's keyframe cursor starts at an empty stream.
       await this.ctx.eventLog.clear();
-      const meta = await forceInitPuzzle(this.ctx.state, this.manifest);
+      const meta = await forceInitPuzzle(this.ctx.state, this.manifest, this.ctx.generationSeed);
       this.ctx.meta = meta;
       // Fresh scattered board: rebuild the group index off the new Redis state so
       // resyncs reflect the reset, not the old positions.

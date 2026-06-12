@@ -38,14 +38,14 @@ function rayToSuperellipse(ex: number, ey: number, n: number, dx: number, dy: nu
 // scattered group origin, in piece-id order. A pure function of the manifest
 // (seed and grid), so the server can replay it to derive the play zone without
 // reading Redis.
-export function scatteredLayout(manifest: ImageManifest) {
+export function scatteredLayout(manifest: ImageManifest, seed: string) {
   const geom = generatePuzzle({
-    seed: manifest.seed,
+    seed,
     rows: manifest.rows,
     cols: manifest.cols,
     pieceSize: manifest.pieceSize,
   });
-  const base = seedFromString(manifest.seed);
+  const base = seedFromString(seed);
   const scatterRng = mulberry32(subseed(base, SCATTER_DOMAIN, 0, 0));
   const worldW = geom.cols * geom.pieceSize;
   const worldH = geom.rows * geom.pieceSize;
@@ -97,8 +97,8 @@ export function scatteredLayout(manifest: ImageManifest) {
 // at its scattered position, widened and snapped (see computePlayZone). A pure
 // function of the manifest, so it is recomputed rather than stored and every
 // server run derives the identical zone.
-export function playZoneForManifest(manifest: ImageManifest): PlayZone {
-  const { worldW, worldH, placements } = scatteredLayout(manifest);
+export function playZoneForManifest(manifest: ImageManifest, seed: string): PlayZone {
+  const { worldW, worldH, placements } = scatteredLayout(manifest, seed);
   const pieceBounds = placements.map((p) => ({
     minX: p.worldX + p.canonicalOffset.x - manifest.margin,
     minY: p.worldY + p.canonicalOffset.y - manifest.margin,
@@ -111,18 +111,20 @@ export function playZoneForManifest(manifest: ImageManifest): PlayZone {
 export async function initPuzzleIfEmpty(
   state: RedisState,
   manifest: ImageManifest,
+  seed: string,
 ): Promise<PuzzleMeta> {
   if (await state.hasMeta()) {
     return state.readMeta();
   }
-  return forceInitPuzzle(state, manifest);
+  return forceInitPuzzle(state, manifest, seed);
 }
 
 export async function forceInitPuzzle(
   state: RedisState,
   manifest: ImageManifest,
+  seed: string,
 ): Promise<PuzzleMeta> {
-  const { geom, placements } = scatteredLayout(manifest);
+  const { geom, placements } = scatteredLayout(manifest, seed);
 
   const meta: PuzzleMeta = {
     totalPieces: geom.pieces.length,
@@ -130,7 +132,7 @@ export async function forceInitPuzzle(
     gridCols: geom.cols,
     pieceSize: geom.pieceSize,
     snapTolerance: geom.snapTolerance,
-    generationSeed: manifest.seed,
+    generationSeed: seed,
     status: "active",
     startedAt: Date.now(),
   };

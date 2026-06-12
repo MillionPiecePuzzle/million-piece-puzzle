@@ -1,14 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type {
-  CCursor,
-  CDrag,
-  CDrop,
-  CGrab,
-  CHello,
-  CViewport,
-  ClientMessage,
-  ServerMessage,
-} from "@mpp/shared";
+import type { CCursor, CHello, CViewport, ClientMessage, ServerMessage } from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
@@ -18,6 +9,16 @@ import type { GroupQueue } from "./queue.js";
 import type { GroupIndex } from "./groupIndex.js";
 import { detectSnap } from "./snap.js";
 import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
+import {
+  type WireContext,
+  toWireId,
+  toGridId,
+  anchorWorldX,
+  anchorWorldY,
+  originXFromAnchor,
+  originYFromAnchor,
+  wirePieces,
+} from "./wire.js";
 
 // Cap on leaderboard entries derived on completion. Generous for the closed
 // alpha (5 to 20 contributors); bounds the payload once the puzzle scales up.
@@ -34,7 +35,15 @@ export type Context = {
   eventLog: EventLog;
   devEnabled: boolean;
   eventStartsAt: number;
+  // Server-only generation seed (never in the public manifest), used to derive the
+  // scatter and play zone on init/reset. Geometry and the id permutation both
+  // descend from it.
+  generationSeed: string;
   queue: GroupQueue;
+  // The wire boundary context (the seed permutation plus gridCols/pieceSize).
+  // Every outbound id/position is encoded through it and every inbound one decoded,
+  // so handlers run purely in grid-id + internal-origin space (see wire.ts).
+  wire: WireContext;
   // In-process spatial index of group positions, keyed on the shared world grid
   // cell. Maintained on every committed position change (drop, merge) and read by
   // handleViewport to resync a client panning into new cells.
@@ -144,52 +153,62 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
   await applyMerge(ctx, client, chosen.id, droppedPieces, match?.matchedGroupIds ?? [], 0, 0, true);
 }
 
-export async function handleGrab(ctx: Context, client: Client, msg: CGrab): Promise<void> {
-  const owner = await ctx.state.tryAcquireGroup(msg.groupId, client.userId);
+// `groupId` is the decoded grid id (dispatch maps the wire id before queueing);
+// the broadcast grab_ok/grab_denied re-encode it to the wire id every client knows.
+export async function handleGrab(ctx: Context, client: Client, groupId: number): Promise<void> {
+  const owner = await ctx.state.tryAcquireGroup(groupId, client.userId);
   if (owner === null) {
-    client.held.add(msg.groupId);
+    client.held.add(groupId);
     ctx.hub.broadcast({
       t: "grab_ok",
-      groupId: msg.groupId,
+      groupId: toWireId(ctx.wire, groupId),
       userId: client.userId,
     });
     return;
   }
   if (owner === "MISSING") {
-    err(ctx, client, "unknown_group", `group ${msg.groupId}`);
+    err(ctx, client, "unknown_group", `group ${groupId}`);
     return;
   }
   send(ctx, client, {
     t: "grab_denied",
-    groupId: msg.groupId,
+    groupId: toWireId(ctx.wire, groupId),
     heldBy: owner === "LOCKED" ? "" : owner,
   });
 }
 
-export async function handleDrag(ctx: Context, client: Client, msg: CDrag): Promise<void> {
-  const g = await ctx.state.readGroup(msg.groupId);
+// `groupId` is the decoded grid id; `originX`/`originY` are the internal origin
+// decoded from the client's anchor world position. The broadcast re-encodes both.
+export async function handleDrag(
+  ctx: Context,
+  client: Client,
+  groupId: number,
+  originX: number,
+  originY: number,
+): Promise<void> {
+  const g = await ctx.state.readGroup(groupId);
   if (!g) {
-    err(ctx, client, "unknown_group", `group ${msg.groupId}`);
+    err(ctx, client, "unknown_group", `group ${groupId}`);
     return;
   }
   if (g.heldBy !== client.userId) {
-    err(ctx, client, "not_held", `group ${msg.groupId} not held by you`);
+    err(ctx, client, "not_held", `group ${groupId} not held by you`);
     return;
   }
   // Drag is transient: broadcast only, never persisted. The authoritative
   // position is written on drop. Scoped to clients whose viewport overlaps the
-  // cluster's world AABB (local AABB translated by the live drag position) so a
+  // cluster's world AABB (local AABB translated by the live drag origin) so a
   // drag does not fan out to the whole canvas, yet reaches a peer the body covers
-  // even when the origin is off their screen.
+  // even when the anchor is off their screen.
   ctx.hub.broadcastOverlapping(
     {
       t: "drag",
-      groupId: msg.groupId,
-      worldX: msg.worldX,
-      worldY: msg.worldY,
+      groupId: toWireId(ctx.wire, groupId),
+      worldX: anchorWorldX(ctx.wire, groupId, originX),
+      worldY: anchorWorldY(ctx.wire, groupId, originY),
       userId: client.userId,
     },
-    worldAabbFor(g.localAabb, msg.worldX, msg.worldY),
+    worldAabbFor(g.localAabb, originX, originY),
     client,
   );
 }
@@ -216,18 +235,25 @@ export async function handleViewport(ctx: Context, client: Client, msg: CViewpor
   // groups, so the common singleton case needs no read. The client builds an
   // unknown group and additively reconciles a known one (see the stage upsert).
   const groups = ctx.groupIndex.collect(entered);
+  // Encode each entry to the wire: permuted group id, the anchor world position
+  // from the internal origin the index reports, and the member pieces with their
+  // grid-unit offsets from the anchor.
   const construction =
     groups.length === 0
       ? []
       : await Promise.all(
-          groups.map(async (g) => ({
-            groupId: g.groupId,
-            worldX: g.worldX,
-            worldY: g.worldY,
-            locked: g.locked,
-            size: g.size,
-            pieceIds: g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId),
-          })),
+          groups.map(async (g) => {
+            const pieceGridIds =
+              g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId);
+            return {
+              groupId: toWireId(ctx.wire, g.groupId),
+              worldX: anchorWorldX(ctx.wire, g.groupId, g.worldX),
+              worldY: anchorWorldY(ctx.wire, g.groupId, g.worldY),
+              locked: g.locked,
+              size: g.size,
+              pieces: wirePieces(ctx.wire, g.groupId, pieceGridIds),
+            };
+          }),
         );
   // The whole bounded viewport is subscribed now, so its area is "known" to the
   // client even where it held no groups. Always ack it (even with an empty
@@ -264,30 +290,32 @@ export type DropOutcome = { expand: number[] } | void;
 export async function handleDrop(
   ctx: Context,
   client: Client,
-  msg: CDrop,
+  groupId: number,
+  originX: number,
+  originY: number,
   lockedGroups?: ReadonlySet<number>,
 ): Promise<DropOutcome> {
-  const g = await ctx.state.readGroup(msg.groupId);
+  const g = await ctx.state.readGroup(groupId);
   if (!g) {
-    err(ctx, client, "unknown_group", `group ${msg.groupId}`);
+    err(ctx, client, "unknown_group", `group ${groupId}`);
     return;
   }
   if (g.heldBy !== client.userId) {
-    err(ctx, client, "not_held", `group ${msg.groupId} not held by you`);
+    err(ctx, client, "not_held", `group ${groupId} not held by you`);
     return;
   }
 
-  // The pre-drag resting position (drags are transient and never persisted, so
+  // The pre-drag resting origin (drags are transient and never persisted, so
   // Redis still holds it), kept as the rollback target if the drop is rejected.
   const prevX = g.worldX;
   const prevY = g.worldY;
 
-  // Detection only: position is set in memory so detectSnap sees the drop point,
+  // Detection only: origin is set in memory so detectSnap sees the drop point,
   // but nothing is persisted until we know all involved groups are locked.
-  g.worldX = msg.worldX;
-  g.worldY = msg.worldY;
+  g.worldX = originX;
+  g.worldY = originY;
 
-  const droppedPieces = await ctx.state.getGroupPieces(msg.groupId);
+  const droppedPieces = await ctx.state.getGroupPieces(groupId);
   const tol = ctx.meta.snapTolerance;
   const frameAnchor = Math.abs(g.worldX) <= tol && Math.abs(g.worldY) <= tol;
   const match = await detectSnap(
@@ -301,13 +329,13 @@ export async function handleDrop(
   const matchedGroupIds = match?.matchedGroupIds ?? [];
 
   if (lockedGroups) {
-    const required = [msg.groupId, ...matchedGroupIds];
+    const required = [groupId, ...matchedGroupIds];
     if (required.some((id) => !lockedGroups.has(id))) return { expand: required };
   }
 
   // The hold ends here whether the drop just releases the group or merges it
   // away, so drop it from the connection's held set (see Client.held).
-  client.held.delete(msg.groupId);
+  client.held.delete(groupId);
 
   // Per-tile piece cap: reject a non-merging drop that would push the destination
   // cell past the cap, so a zoomed-out LOD tile never has to bake an unbounded
@@ -315,21 +343,25 @@ export async function handleDrop(
   // removes a loose cluster and an anchor locks to the frame. Checked before the
   // position is persisted, so a rejected drop leaves Redis untouched.
   if (!frameAnchor && !match) {
-    const rest = worldAabbFor(g.localAabb, msg.worldX, msg.worldY);
-    const cellPieces = ctx.groupIndex.cellPieceCount(rest.minX, rest.minY, msg.groupId);
+    const rest = worldAabbFor(g.localAabb, originX, originY);
+    const cellPieces = ctx.groupIndex.cellPieceCount(rest.minX, rest.minY, groupId);
     if (cellPieces + g.size > ctx.tilePieceCap) {
-      await ctx.state.releaseGroup(msg.groupId);
-      // Bounce the cluster back: the dropper learns why (flash + toast), the
-      // neighbours who watched the drag get a plain position correction.
+      await ctx.state.releaseGroup(groupId);
+      // Bounce the cluster back to its pre-drag origin (encoded as the anchor
+      // world position): the dropper learns why (flash + toast), the neighbours
+      // who watched the drag get a plain position correction.
+      const wireId = toWireId(ctx.wire, groupId);
+      const bounceX = anchorWorldX(ctx.wire, groupId, prevX);
+      const bounceY = anchorWorldY(ctx.wire, groupId, prevY);
       send(ctx, client, {
         t: "rollback",
-        groupId: msg.groupId,
-        worldX: prevX,
-        worldY: prevY,
+        groupId: wireId,
+        worldX: bounceX,
+        worldY: bounceY,
         reason: "tile_full",
       });
       ctx.hub.broadcastOverlapping(
-        { t: "rollback", groupId: msg.groupId, worldX: prevX, worldY: prevY },
+        { t: "rollback", groupId: wireId, worldX: bounceX, worldY: bounceY },
         rest,
         client,
       );
@@ -337,38 +369,39 @@ export async function handleDrop(
     }
   }
 
-  await ctx.state.setGroupPosition(msg.groupId, msg.worldX, msg.worldY);
+  await ctx.state.setGroupPosition(groupId, originX, originY);
 
   if (!frameAnchor && !match) {
-    await ctx.state.releaseGroup(msg.groupId);
+    await ctx.state.releaseGroup(groupId);
     // The group's resting position changed without a merge: update the group
     // index so a peer panning into the new region resyncs to it. The cell is
     // keyed by the body min, the payload reports the origin. Done before the
     // broadcast so a concurrent viewport read never sees a stale position for a
     // group whose drop has already gone out.
-    const rest = worldAabbFor(g.localAabb, msg.worldX, msg.worldY);
-    ctx.groupIndex.set(msg.groupId, rest.minX, rest.minY, {
-      originX: msg.worldX,
-      originY: msg.worldY,
+    const rest = worldAabbFor(g.localAabb, originX, originY);
+    ctx.groupIndex.set(groupId, rest.minX, rest.minY, {
+      originX,
+      originY,
       size: g.size,
       locked: false,
     });
     ctx.hub.broadcastOverlapping(
       {
         t: "drop",
-        groupId: msg.groupId,
-        worldX: msg.worldX,
-        worldY: msg.worldY,
+        groupId: toWireId(ctx.wire, groupId),
+        worldX: anchorWorldX(ctx.wire, groupId, originX),
+        worldY: anchorWorldY(ctx.wire, groupId, originY),
         userId: client.userId,
       },
-      worldAabbFor(g.localAabb, msg.worldX, msg.worldY),
+      rest,
     );
     // Spectator stream: a non-merging drop is broadcast only and not persisted in
-    // Redis history, so log it for the event window the spectator interpolates.
+    // Redis history, so log it (wire-encoded) for the event window the spectator
+    // interpolates.
     await ctx.eventLog.recordDrop({
-      groupId: msg.groupId,
-      worldX: msg.worldX,
-      worldY: msg.worldY,
+      groupId: toWireId(ctx.wire, groupId),
+      worldX: anchorWorldX(ctx.wire, groupId, originX),
+      worldY: anchorWorldY(ctx.wire, groupId, originY),
     });
     return;
   }
@@ -379,7 +412,7 @@ export async function handleDrop(
   await applyMerge(
     ctx,
     client,
-    msg.groupId,
+    groupId,
     droppedPieces,
     matchedGroupIds,
     targetWorldX,
@@ -477,13 +510,22 @@ async function applyMerge(
     at,
   });
 
+  // Encode the merge for the wire once: the permuted surviving group id, the
+  // anchor world position from the internal target origin, and the added pieces
+  // with their grid-unit offsets from the new anchor. The same encoded shape feeds
+  // the live snap broadcast and the spectator event log.
+  const wireNewGroupId = toWireId(ctx.wire, newId);
+  const wireWorldX = anchorWorldX(ctx.wire, newId, targetWorldX);
+  const wireWorldY = anchorWorldY(ctx.wire, newId, targetWorldY);
+  const wireAddedPieces = wirePieces(ctx.wire, newId, addedPieceIds);
+
   ctx.hub.broadcast({
     t: "snap",
     mergeId,
-    newGroupId: newId,
-    addedPieceIds,
-    worldX: targetWorldX,
-    worldY: targetWorldY,
+    newGroupId: wireNewGroupId,
+    addedPieceIds: wireAddedPieces,
+    worldX: wireWorldX,
+    worldY: wireWorldY,
     anchored: willBeLocked,
     userId: client.userId,
     pseudo: client.pseudo,
@@ -492,15 +534,15 @@ async function applyMerge(
   });
 
   // Spectator stream: mirror the snap into the event log so spectators replay it
-  // in order (animation, locked count, activity ticker). Same fields as the WS
-  // snap so the client reuses applySnap + recordSnap unchanged.
+  // in order (animation, locked count, activity ticker). Same wire-encoded fields
+  // as the WS snap so the client reuses applySnap unchanged.
   await ctx.eventLog.recordSnap({
     at: at.getTime(),
     mergeId,
-    newGroupId: newId,
-    addedPieceIds,
-    worldX: targetWorldX,
-    worldY: targetWorldY,
+    newGroupId: wireNewGroupId,
+    addedPieceIds: wireAddedPieces,
+    worldX: wireWorldX,
+    worldY: wireWorldY,
     anchored: willBeLocked,
     userId: client.userId,
     pseudo: client.pseudo,
@@ -529,18 +571,26 @@ const MAX_MERGE_LOCK_ATTEMPTS = 8;
 // Run a drop under the per-group queue. The first pass locks only the dropped
 // group; if the snap reaches groups it does not hold, `handleDrop` reports them
 // and the drop re-runs holding the union, until the whole merge is covered.
-async function scheduleDrop(ctx: Context, client: Client, msg: CDrop): Promise<void> {
-  const locked = new Set<number>([msg.groupId]);
+// `groupId` is the decoded grid id and `originX`/`originY` the decoded internal
+// origin (dispatch translates the wire message before this runs).
+async function scheduleDrop(
+  ctx: Context,
+  client: Client,
+  groupId: number,
+  originX: number,
+  originY: number,
+): Promise<void> {
+  const locked = new Set<number>([groupId]);
   for (let attempt = 0; attempt < MAX_MERGE_LOCK_ATTEMPTS; attempt++) {
     let expand: number[] | undefined;
     await ctx.queue.run("drop", [...locked], async () => {
-      const outcome = await handleDrop(ctx, client, msg, locked);
+      const outcome = await handleDrop(ctx, client, groupId, originX, originY, locked);
       if (outcome) expand = outcome.expand;
     });
     if (!expand) return;
     for (const id of expand) locked.add(id);
   }
-  console.error(`[queue:drop] gave up expanding merge locks for group ${msg.groupId}`);
+  console.error(`[queue:drop] gave up expanding merge locks for group ${groupId}`);
 }
 
 export async function dispatch(ctx: Context, client: Client, raw: string): Promise<void> {
@@ -563,15 +613,19 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
       // per viewport via region_state.
       await handleHello(ctx, client, msg);
       return;
-    case "grab":
+    case "grab": {
+      // The wire groupId is validated in the wire id range (which equals the grid
+      // range), then decoded to the grid id the queue and handlers run on.
       if (!isValidGroupId(msg.groupId, ctx.meta.totalPieces)) {
         err(ctx, client, "bad_message", "invalid groupId");
         return;
       }
-      await ctx.queue.run("grab", [msg.groupId], () => handleGrab(ctx, client, msg));
+      const gridId = toGridId(ctx.wire, msg.groupId);
+      await ctx.queue.run("grab", [gridId], () => handleGrab(ctx, client, gridId));
       return;
+    }
     case "drag":
-    case "drop":
+    case "drop": {
       if (!isValidGroupId(msg.groupId, ctx.meta.totalPieces)) {
         err(ctx, client, "bad_message", "invalid groupId");
         return;
@@ -580,10 +634,18 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
         err(ctx, client, "bad_message", "invalid coordinates");
         return;
       }
+      // Decode: wire groupId -> grid id, and the client's anchor world position ->
+      // the internal origin handlers operate on.
+      const gridId = toGridId(ctx.wire, msg.groupId);
+      const originX = originXFromAnchor(ctx.wire, gridId, msg.worldX);
+      const originY = originYFromAnchor(ctx.wire, gridId, msg.worldY);
       if (msg.t === "drag")
-        await ctx.queue.run("drag", [msg.groupId], () => handleDrag(ctx, client, msg));
-      else await scheduleDrop(ctx, client, msg);
+        await ctx.queue.run("drag", [gridId], () =>
+          handleDrag(ctx, client, gridId, originX, originY),
+        );
+      else await scheduleDrop(ctx, client, gridId, originX, originY);
       return;
+    }
     case "viewport":
       if (
         !isFiniteCoord(msg.worldX) ||

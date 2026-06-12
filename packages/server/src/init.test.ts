@@ -2,12 +2,13 @@ import { describe, it, expect } from "vitest";
 import type { ImageManifest } from "@mpp/shared";
 import { scatteredLayout } from "./init.js";
 
+const SEED = "scatter-test";
+
 function manifest(rows: number, cols: number): ImageManifest {
   const pieceSize = 100;
   return {
     puzzleId: "test",
     name: "test",
-    seed: "scatter-test",
     rows,
     cols,
     pieceSize,
@@ -39,7 +40,7 @@ function pearson(a: number[], b: number[]): number {
 
 describe("scatter", () => {
   it("places no piece body inside the frame interior", () => {
-    const { geom, worldW, worldH, placements } = scatteredLayout(manifest(40, 60));
+    const { geom, worldW, worldH, placements } = scatteredLayout(manifest(40, 60), SEED);
     for (const p of placements) {
       const minX = p.worldX + p.canonicalOffset.x;
       const minY = p.worldY + p.canonicalOffset.y;
@@ -50,7 +51,7 @@ describe("scatter", () => {
   });
 
   it("decorrelates the scattered body from the solved cell", () => {
-    const { geom, placements } = scatteredLayout(manifest(40, 60));
+    const { geom, placements } = scatteredLayout(manifest(40, 60), SEED);
     const rows = placements.map((_, i) => geom.pieces[i].row);
     const cols = placements.map((_, i) => geom.pieces[i].col);
     const bodyY = placements.map((p) => p.worldY + p.canonicalOffset.y);
@@ -60,7 +61,7 @@ describe("scatter", () => {
   });
 
   it("detaches the cloud from the frame with an empty gap", () => {
-    const { geom, worldW, worldH, placements } = scatteredLayout(manifest(40, 60));
+    const { geom, worldW, worldH, placements } = scatteredLayout(manifest(40, 60), SEED);
     const half = geom.pieceSize / 2;
     let minGap = Infinity;
     for (const p of placements) {
@@ -75,7 +76,7 @@ describe("scatter", () => {
   });
 
   it("peaks in the middle of the band and fades to both edges", () => {
-    const { geom, worldW, worldH, placements } = scatteredLayout(manifest(40, 60));
+    const { geom, worldW, worldH, placements } = scatteredLayout(manifest(40, 60), SEED);
     const cx = worldW / 2;
     const cy = worldH / 2;
     const half = geom.pieceSize / 2;
@@ -97,8 +98,8 @@ describe("scatter", () => {
   });
 
   it("is deterministic for a given seed", () => {
-    const a = scatteredLayout(manifest(10, 10)).placements;
-    const b = scatteredLayout(manifest(10, 10)).placements;
+    const a = scatteredLayout(manifest(10, 10), SEED).placements;
+    const b = scatteredLayout(manifest(10, 10), SEED).placements;
     expect(a).toEqual(b);
   });
 });

@@ -84,7 +84,10 @@ describe("EventLog.readWindow", () => {
       at: 2999,
       mergeId: "m1",
       newGroupId: 3,
-      addedPieceIds: [4, 5],
+      addedPieceIds: [
+        { id: 4, dx: 0, dy: 0 },
+        { id: 5, dx: 1, dy: 0 },
+      ],
       worldX: 0,
       worldY: 0,
       anchored: true,
@@ -103,7 +106,11 @@ describe("EventLog.readWindow", () => {
     expect(first[0]!.groupId).toBe(7);
     expect(first[0]!.seq).toBe("1000-0");
     expect(first[1]!.k).toBe("snap");
-    if (first[1]!.k === "snap") expect(first[1]!.addedPieceIds).toEqual([4, 5]);
+    if (first[1]!.k === "snap")
+      expect(first[1]!.addedPieceIds).toEqual([
+        { id: 4, dx: 0, dy: 0 },
+        { id: 5, dx: 1, dy: 0 },
+      ]);
 
     const second = await log.readWindow(3000, W);
     expect(second.map((e) => e.k)).toEqual(["drop", "drop"]);

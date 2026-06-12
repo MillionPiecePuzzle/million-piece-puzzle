@@ -7,6 +7,7 @@ import { PROTOCOL_VERSION, WORLD_TILE_SIZE } from "@mpp/shared";
 import { loadConfig } from "./config.js";
 import { Hub, type Client } from "./hub.js";
 import { worldAabbFor } from "./worldGrid.js";
+import { buildWireContext, toWireId, anchorWorldX, anchorWorldY } from "./wire.js";
 import { RedisState } from "./state.js";
 import { MongoLogger, ensureIndexes } from "./mongo.js";
 import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
@@ -48,7 +49,17 @@ async function main(): Promise<void> {
   const manifest = config.manifest;
   const state = new RedisState(redis, manifest.puzzleId);
   const eventLog = new EventLog(redis, manifest.puzzleId);
-  const meta = await initPuzzleIfEmpty(state, manifest);
+  const meta = await initPuzzleIfEmpty(state, manifest, config.generationSeed);
+
+  // The wire boundary: the seed permutation (gridId <-> wireId) plus the grid
+  // metrics the anchor/offset encoding needs. Built once at boot from the
+  // server-only generation seed; both arrays are ~8 MB of process memory at 1M.
+  const wire = buildWireContext(
+    config.generationSeed,
+    meta.totalPieces,
+    meta.gridCols,
+    meta.pieceSize,
+  );
 
   // Scoped broadcasts are routed through a spatial index over the shared world
   // grid cell, the same cell the frontend bakes LOD tiles on and the piece cap
@@ -81,7 +92,9 @@ async function main(): Promise<void> {
     eventLog,
     devEnabled: config.devEnabled,
     eventStartsAt: config.eventStartsAt,
+    generationSeed: config.generationSeed,
     queue,
+    wire,
     groupIndex,
     tilePieceCap,
   };
@@ -127,6 +140,7 @@ async function main(): Promise<void> {
     totalPieces: () => ctx.meta.totalPieces,
     gridCols: () => ctx.meta.gridCols,
     pieceSize: () => ctx.meta.pieceSize,
+    wire: () => ctx.wire,
     playZone: () => lifecycle.currentPlayZone(),
     eventStartsAt: () => ctx.eventStartsAt,
     status: () => ctx.meta.status,
@@ -355,13 +369,18 @@ async function releaseHeldGroups(ctx: Context, client: Client, hub: Hub): Promis
       const g = await ctx.state.readGroup(id);
       if (!g || g.heldBy !== userId) continue;
       await ctx.state.releaseGroup(id);
+      // Encode the held group's grid id + internal origin to the wire (permuted id
+      // + anchor world position) for both the broadcast and the spectator log.
+      const wireId = toWireId(ctx.wire, id);
+      const wireX = anchorWorldX(ctx.wire, id, g.worldX);
+      const wireY = anchorWorldY(ctx.wire, id, g.worldY);
       hub.broadcastOverlapping(
-        { t: "drop", groupId: id, worldX: g.worldX, worldY: g.worldY, userId },
+        { t: "drop", groupId: wireId, worldX: wireX, worldY: wireY, userId },
         worldAabbFor(g.localAabb, g.worldX, g.worldY),
       );
       // The disconnect-drop is a real position change, so it joins the spectator
       // event log like a normal non-merging drop.
-      await ctx.eventLog.recordDrop({ groupId: id, worldX: g.worldX, worldY: g.worldY });
+      await ctx.eventLog.recordDrop({ groupId: wireId, worldX: wireX, worldY: wireY });
     }
   });
 }

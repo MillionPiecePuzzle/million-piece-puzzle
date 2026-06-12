@@ -16,6 +16,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV MPP_PUZZLE_ID=test-puzzle-10k
 ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
+# Server-only generation seed: drives geometry, scatter, and the wire id
+# permutation. Never in the public manifest (a client could otherwise regenerate
+# silhouettes and de-permute ids). Must match the slicer's --seed for this puzzle.
+ENV MPP_GENERATION_SEED=test-puzzle-10k-2026
 ENV MPP_DEV_ENABLED=1
 
 # Spectator stream cadence (keyframe + event-log windows). Baked as the prod

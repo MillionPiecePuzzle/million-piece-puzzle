@@ -10,6 +10,11 @@ export type ServerConfig = {
   assetsBaseUrl: string;
   manifestUrl: string;
   manifest: ImageManifest;
+  // Generation seed: drives piece geometry, the initial scatter, and the wire id
+  // permutation. Server-only and never in the public manifest, so a client cannot
+  // regenerate silhouettes or de-permute ids. Must match the slicer's --seed for
+  // this puzzle's R2 assets (the permutation and geometry both derive from it).
+  generationSeed: string;
   devEnabled: boolean;
   allowedOrigins: string[];
   wsMaxPayloadBytes: number;
@@ -142,6 +147,7 @@ export async function loadConfig(): Promise<ServerConfig> {
     assetsBaseUrl,
     manifestUrl,
     manifest,
+    generationSeed: str("MPP_GENERATION_SEED"),
     devEnabled: bool("MPP_DEV_ENABLED", false),
     allowedOrigins,
     wsMaxPayloadBytes: int("MPP_WS_MAX_PAYLOAD_BYTES", 64 * 1024),

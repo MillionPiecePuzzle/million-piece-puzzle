@@ -1,7 +1,12 @@
 import type { Redis } from "ioredis";
-import type { GroupRuntime, PieceRuntime } from "@mpp/shared";
+import type { GroupRuntime } from "@mpp/shared";
 import * as keys from "./redis/keys.js";
 import type { Aabb } from "./worldGrid.js";
+
+// A piece as stored server-side: grid id, its group id, and rotation. The wire
+// PieceRuntime additionally carries the (dx, dy) anchor offset, attached only at
+// the wire boundary (see wire.ts); the internal model never needs it.
+export type StoredPiece = { id: number; groupId: number; rotation: number };
 
 // A group as stored server-side: the wire `GroupRuntime` plus its group-local
 // AABB (relative to the origin), persisted so the drag hot path scopes by the
@@ -44,7 +49,7 @@ function parseLocalAabb(h: Record<string, string>): Aabb | null {
   };
 }
 
-function parsePiece(id: number, h: Record<string, string>): PieceRuntime {
+function parsePiece(id: number, h: Record<string, string>): StoredPiece {
   return {
     id,
     groupId: Number(h.groupId),
@@ -280,13 +285,13 @@ export class RedisState {
     return points;
   }
 
-  async readAllPieces(totalPieces: number): Promise<PieceRuntime[]> {
+  async readAllPieces(totalPieces: number): Promise<StoredPiece[]> {
     const pipe = this.r.pipeline();
     for (let i = 0; i < totalPieces; i++) {
       pipe.hgetall(keys.piece(this.puzzleId, i));
     }
     const results = await pipe.exec();
-    const pieces: PieceRuntime[] = [];
+    const pieces: StoredPiece[] = [];
     if (!results) return pieces;
     for (let i = 0; i < results.length; i++) {
       const entry = results[i];

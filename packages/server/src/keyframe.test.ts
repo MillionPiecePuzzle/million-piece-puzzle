@@ -4,11 +4,11 @@ import {
   type ActivityItem,
   type GroupRuntime,
   type LeaderboardEntry,
-  type PieceRuntime,
   type PlayZone,
 } from "@mpp/shared";
-import type { RedisState } from "./state.js";
+import type { RedisState, StoredPiece } from "./state.js";
 import type { EventLog } from "./eventLog.js";
+import type { WireContext } from "./wire.js";
 import {
   KeyframePublisher,
   buildKeyframe,
@@ -17,7 +17,9 @@ import {
   type KeyframeSource,
 } from "./keyframe.js";
 
-const pieces: PieceRuntime[] = [
+// Internal (grid-space) board: readAllPieces/readAllGroups return this, buildKeyframe
+// computes the minimap from it, then wire-encodes pieces/groups for the keyframe.
+const pieces: StoredPiece[] = [
   { id: 0, groupId: 0, rotation: 0 },
   { id: 1, groupId: 1, rotation: 0 },
 ];
@@ -25,6 +27,15 @@ const groups: GroupRuntime[] = [
   { id: 0, worldX: 0, worldY: 0, size: 1, locked: true, heldBy: null },
   { id: 1, worldX: 80, worldY: 0, size: 1, locked: false, heldBy: null },
 ];
+// Identity permutation over the 2-piece board, with the real pieceSize: the keyframe
+// asserts only board sizes and the minimap (computed pre-encode), so the encoding is
+// a structural passthrough here.
+const wire: WireContext = {
+  gridCols: 2,
+  pieceSize: 80,
+  wireForGrid: Int32Array.from([0, 1]),
+  gridForWire: Int32Array.from([0, 1]),
+};
 const leaderboardEntries: LeaderboardEntry[] = [{ userId: "u1", pieces: 3 }];
 const activityItems: ActivityItem[] = [{ id: "m1", userId: "u1", lockedDelta: 2, at: 1000 }];
 const zone: PlayZone = { minX: -100, minY: -100, maxX: 900, maxY: 900 };
@@ -33,7 +44,7 @@ type SourceOpts = {
   status?: "active" | "completed";
   eventStartsAt?: number;
   head?: () => Promise<string>;
-  readAllPieces?: () => Promise<PieceRuntime[]>;
+  readAllPieces?: () => Promise<StoredPiece[]>;
 };
 
 function makeSource(opts: SourceOpts = {}): KeyframeSource {
@@ -50,6 +61,7 @@ function makeSource(opts: SourceOpts = {}): KeyframeSource {
     totalPieces: () => 2,
     gridCols: () => 2,
     pieceSize: () => 80,
+    wire: () => wire,
     playZone: () => zone,
     eventStartsAt: () => opts.eventStartsAt ?? 0,
     status: () => opts.status ?? "active",

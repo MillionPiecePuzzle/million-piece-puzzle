@@ -9,12 +9,18 @@ import type {
 import { SPECTATOR_FORMAT_VERSION, buildMinimapGrid } from "@mpp/shared";
 import type { RedisState } from "./state.js";
 import type { EventLog } from "./eventLog.js";
+import { type WireContext, wireGroup, wirePieceRuntime } from "./wire.js";
 
 export type KeyframeSource = {
   puzzleId: () => string;
   totalPieces: () => number;
   gridCols: () => number;
   pieceSize: () => number;
+  // The wire boundary context, so the keyframe's board is encoded (permuted ids,
+  // anchor positions, per-piece offsets) before it leaves the server. The minimap
+  // grid is computed from the internal board first, since it bins by grid id and
+  // group origin.
+  wire: () => WireContext;
   playZone: () => PlayZone;
   eventStartsAt: () => number;
   // Current puzzle status, read live (reset reassigns ctx.meta), so the idle gate
@@ -53,6 +59,18 @@ export async function buildKeyframe(
     source.activity(),
   ]);
   const playZone = source.playZone();
+  // Downsampled density grid for the minimap, computed off the internal board
+  // (grid ids + group origins) before the board is wire-encoded, so the spectator
+  // keyframe and the periodic contributor minimap broadcast share one builder and
+  // no extra full-board read.
+  const minimapGrid = buildMinimapGrid(
+    pieces,
+    groups,
+    source.gridCols(),
+    source.pieceSize(),
+    playZone,
+  );
+  const wire = source.wire();
   return {
     v: SPECTATOR_FORMAT_VERSION,
     puzzleId,
@@ -65,14 +83,14 @@ export async function buildKeyframe(
     totalPieces,
     playZone,
     eventStartsAt: source.eventStartsAt(),
-    pieces,
-    groups,
+    // Wire-encoded board: permuted ids, anchor world positions, and per-piece
+    // grid-unit offsets, so a spectator receives no seed and no solved-space
+    // coordinate of an unsolved piece.
+    pieces: pieces.map((p) => wirePieceRuntime(wire, p)),
+    groups: groups.map((g) => wireGroup(wire, g)),
     leaderboard,
     activity,
-    // Downsampled density grid for the minimap, computed off the same already-read
-    // board so the spectator keyframe and the periodic contributor minimap
-    // broadcast share one builder and no extra full-board read.
-    minimapGrid: buildMinimapGrid(pieces, groups, source.gridCols(), source.pieceSize(), playZone),
+    minimapGrid,
   };
 }
 

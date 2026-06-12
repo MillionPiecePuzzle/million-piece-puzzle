@@ -3,10 +3,26 @@ import { dispatch, handleGrab, handleDrop, handleDevPlace, handleViewport } from
 import type { Context } from "./handlers.js";
 import { Hub, type Client } from "./hub.js";
 import type { PuzzleMeta } from "./state.js";
-import { WORLD_TILE_SIZE, type GroupRuntime, type ServerMessage } from "@mpp/shared";
+import {
+  WORLD_TILE_SIZE,
+  type GroupRuntime,
+  type ServerMessage,
+  type WirePiece,
+} from "@mpp/shared";
 import { GroupQueue } from "./queue.js";
 import { GroupIndex } from "./groupIndex.js";
 import { cellKey } from "./worldGrid.js";
+import type { WireContext } from "./wire.js";
+
+// A no-op wire boundary for the handler tests: identity permutation and
+// pieceSize 0, so wire ids equal grid ids and anchor positions equal origins.
+// This isolates handler logic from the encoding; the encoding math (permutation,
+// anchor offset, member dx/dy) is covered in wire.test.ts.
+function transparentWire(n: number, gridCols: number): WireContext {
+  const idmap = new Int32Array(n);
+  for (let i = 0; i < n; i++) idmap[i] = i;
+  return { gridCols, pieceSize: 0, wireForGrid: idmap, gridForWire: idmap };
+}
 
 const meta: PuzzleMeta = {
   totalPieces: 100,
@@ -60,6 +76,7 @@ function makeCtx() {
     mongo: { logMerge: vi.fn() },
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
+    wire: transparentWire(meta.totalPieces, meta.gridCols),
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
   } as unknown as Context;
   return {
@@ -215,7 +232,7 @@ describe("handleGrab", () => {
   it("sends unknown_group when the group does not exist", async () => {
     const { ctx, send, tryAcquireGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue("MISSING");
-    await handleGrab(ctx, client, { t: "grab", groupId: 5 });
+    await handleGrab(ctx, client, 5);
     expect(send).toHaveBeenCalledWith(
       client,
       expect.objectContaining({ t: "error", code: "unknown_group" }),
@@ -225,7 +242,7 @@ describe("handleGrab", () => {
   it("broadcasts grab_ok when acquisition succeeds", async () => {
     const { ctx, broadcast, tryAcquireGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue(null);
-    await handleGrab(ctx, client, { t: "grab", groupId: 5 });
+    await handleGrab(ctx, client, 5);
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "grab_ok", groupId: 5, userId: "u1" }),
     );
@@ -234,7 +251,7 @@ describe("handleGrab", () => {
   it("denies the grab with the current holder when already held", async () => {
     const { ctx, send, tryAcquireGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue("other-user");
-    await handleGrab(ctx, client, { t: "grab", groupId: 5 });
+    await handleGrab(ctx, client, 5);
     expect(send).toHaveBeenCalledWith(client, {
       t: "grab_denied",
       groupId: 5,
@@ -245,7 +262,7 @@ describe("handleGrab", () => {
   it("denies the grab with an empty holder when the group is locked", async () => {
     const { ctx, send, tryAcquireGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue("LOCKED");
-    await handleGrab(ctx, client, { t: "grab", groupId: 5 });
+    await handleGrab(ctx, client, 5);
     expect(send).toHaveBeenCalledWith(client, { t: "grab_denied", groupId: 5, heldBy: "" });
   });
 
@@ -253,7 +270,7 @@ describe("handleGrab", () => {
     const { ctx, tryAcquireGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue(null);
     const c = { userId: "u1", held: new Set<number>() } as unknown as Client;
-    await handleGrab(ctx, c, { t: "grab", groupId: 7 });
+    await handleGrab(ctx, c, 7);
     expect([...c.held]).toEqual([7]);
   });
 
@@ -261,7 +278,7 @@ describe("handleGrab", () => {
     const { ctx, tryAcquireGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue("other-user");
     const c = { userId: "u1", held: new Set<number>() } as unknown as Client;
-    await handleGrab(ctx, c, { t: "grab", groupId: 7 });
+    await handleGrab(ctx, c, 7);
     expect(c.held.size).toBe(0);
   });
 });
@@ -374,6 +391,7 @@ function makeDropCtx() {
     mongo: { logMerge, leaderboard },
     eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
     queue: new GroupQueue(),
+    wire: transparentWire(dropMeta.totalPieces, dropMeta.gridCols),
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
     tilePieceCap: 2048,
   } as unknown as Context;
@@ -392,7 +410,7 @@ const dropped = (id: number, worldX: number, worldY: number): GroupRuntime => ({
 describe("handleDrop", () => {
   it("rejects a drop on a group that does not exist", async () => {
     const { ctx, send } = makeDropCtx();
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 0, worldY: 0 });
+    await handleDrop(ctx, client, 4, 0, 0);
     expect(send).toHaveBeenCalledWith(
       client,
       expect.objectContaining({ t: "error", code: "unknown_group" }),
@@ -402,7 +420,7 @@ describe("handleDrop", () => {
   it("rejects a drop on a group held by someone else", async () => {
     const { ctx, send, state } = makeDropCtx();
     state.place({ id: 4, worldX: 0, worldY: 0, size: 1, locked: false, heldBy: "other" }, [4]);
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 0, worldY: 0 });
+    await handleDrop(ctx, client, 4, 0, 0);
     expect(send).toHaveBeenCalledWith(
       client,
       expect.objectContaining({ t: "error", code: "not_held" }),
@@ -412,7 +430,7 @@ describe("handleDrop", () => {
   it("releases the group and broadcasts a drop when nothing snaps", async () => {
     const { ctx, broadcastOverlapping, state } = makeDropCtx();
     state.place(dropped(4, 500, 500), [4]);
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
+    await handleDrop(ctx, client, 4, 500, 500);
     expect(state.groups.get(4)?.heldBy).toBeNull();
     // FakeState groups carry no stored AABB, so scoping falls back to the drop
     // point (a zero-size rect): the broadcast still goes out scoped, not global.
@@ -426,7 +444,7 @@ describe("handleDrop", () => {
     const { ctx, state } = makeDropCtx();
     state.place(dropped(4, 500, 500), [4]);
     const c = { userId: "u1", held: new Set<number>([4]) } as unknown as Client;
-    await handleDrop(ctx, c, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
+    await handleDrop(ctx, c, 4, 500, 500);
     expect(c.held.has(4)).toBe(false);
   });
 
@@ -437,7 +455,7 @@ describe("handleDrop", () => {
     // already holds a cluster at the cap; the dropped group rests elsewhere.
     ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 4, locked: false });
     state.place(dropped(4, 5000, 5000), [4]);
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
+    await handleDrop(ctx, client, 4, 500, 500);
 
     // Bounced back to its pre-drag rest: a reason for the dropper, a plain
     // correction (excluding the dropper) for the neighbours who saw the drag.
@@ -463,7 +481,7 @@ describe("handleDrop", () => {
     ctx.tilePieceCap = 4;
     ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 3, locked: false });
     state.place(dropped(4, 5000, 5000), [4]);
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 500, worldY: 500 });
+    await handleDrop(ctx, client, 4, 500, 500);
     // 3 resident + 1 dropped == cap, so the drop commits normally.
     expect(state.groups.get(4)?.worldX).toBe(500);
     expect(broadcastOverlapping).toHaveBeenCalledWith(
@@ -479,12 +497,7 @@ describe("handleDrop", () => {
     state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
     const c = { userId: "u1", held: new Set<number>([4]) } as unknown as Client;
-    const outcome = await handleDrop(
-      ctx,
-      c,
-      { t: "drop", groupId: 4, worldX: 200, worldY: 200 },
-      new Set([4]),
-    );
+    const outcome = await handleDrop(ctx, c, 4, 200, 200, new Set([4]));
     expect(outcome).toEqual({ expand: [4, 1] });
     expect(c.held.has(4)).toBe(true);
   });
@@ -492,7 +505,7 @@ describe("handleDrop", () => {
   it("anchors the group to the frame when dropped near the origin", async () => {
     const { ctx, broadcast, logMerge, state } = makeDropCtx();
     state.place(dropped(4, 3, -4), [4]);
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 3, worldY: -4 });
+    await handleDrop(ctx, client, 4, 3, -4);
     expect(state.groups.get(4)?.locked).toBe(true);
     expect(state.lockedCount).toBe(1);
     expect(broadcast).toHaveBeenCalledWith(
@@ -509,7 +522,7 @@ describe("handleDrop", () => {
     const { ctx, broadcast, logMerge, state } = makeDropCtx();
     state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 200, worldY: 200 });
+    await handleDrop(ctx, client, 4, 200, 200);
     expect(state.groups.has(4)).toBe(false);
     expect(state.groups.get(1)?.size).toBe(2);
     expect(state.groups.get(1)?.locked).toBe(false);
@@ -528,7 +541,7 @@ describe("handleDrop", () => {
     state.place({ id: 1, worldX: 100, worldY: 100, size: 1, locked: true, heldBy: null }, [1]);
     state.place(dropped(4, 100, 100), [4]);
     expect(state.lockedCount).toBe(1);
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 100, worldY: 100 });
+    await handleDrop(ctx, client, 4, 100, 100);
     expect(state.groups.get(1)?.locked).toBe(true);
     expect(state.groups.get(1)?.size).toBe(2);
     expect(state.lockedCount).toBe(2);
@@ -557,12 +570,13 @@ describe("handleDrop", () => {
       mongo: { logMerge, leaderboard },
       eventLog: { recordDrop: vi.fn(), recordSnap: vi.fn() },
       queue: new GroupQueue(),
+      wire: transparentWire(onePieceMeta.totalPieces, onePieceMeta.gridCols),
       groupIndex: new GroupIndex(WORLD_TILE_SIZE),
       lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);
 
-    await handleDrop(ctx, client, { t: "drop", groupId: 0, worldX: 2, worldY: 2 });
+    await handleDrop(ctx, client, 0, 2, 2);
 
     expect(state.lockedCount).toBe(1);
     expect(leaderboard).toHaveBeenCalledWith("test", expect.any(Number));
@@ -686,7 +700,7 @@ describe("group index maintenance", () => {
     ctx.groupIndex.set(4, 500, 500, { originX: 500, originY: 500, size: 1, locked: false });
     const oldCell = cellAt(500, 500);
 
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 50000, worldY: 50000 });
+    await handleDrop(ctx, client, 4, 50000, 50000);
 
     expect(ctx.groupIndex.collect([oldCell])).toEqual([]);
     expect(ctx.groupIndex.collect([cellAt(50000, 50000)])).toEqual([
@@ -720,7 +734,7 @@ describe("group index maintenance", () => {
     state.place(dropped(4, 3, -4), [4]);
     ctx.groupIndex.set(4, 3, -4, { originX: 3, originY: -4, size: 1, locked: false });
 
-    await handleDrop(ctx, client, { t: "drop", groupId: 4, worldX: 3, worldY: -4 });
+    await handleDrop(ctx, client, 4, 3, -4);
 
     expect(state.groups.get(4)?.locked).toBe(true);
     expect(ctx.groupIndex.collect([cellAt(0, 0)]).map((g) => g.groupId)).toEqual([4]);
@@ -746,7 +760,14 @@ function makeViewportCtx() {
   const hub = new Hub(1 << 20, VIEWPORT_CELL, 256);
   const groupIndex = new GroupIndex(VIEWPORT_CELL);
   const getGroupPieces = vi.fn(async (id: number) => [id, id + 100]);
-  const ctx = { hub, groupIndex, state: { getGroupPieces } } as unknown as Context;
+  // gridCols 100 so a piece id + 100 sits one row below the anchor (dx 0, dy 1),
+  // with the no-op pieceSize 0 keeping anchor positions equal to the origins.
+  const ctx = {
+    hub,
+    groupIndex,
+    state: { getGroupPieces },
+    wire: transparentWire(1000, 100),
+  } as unknown as Context;
   return { ctx, hub, groupIndex, getGroupPieces };
 }
 
@@ -770,7 +791,7 @@ type RegionGroupMsg = {
   worldY: number;
   size: number;
   locked: boolean;
-  pieceIds: number[];
+  pieces: WirePiece[];
 };
 
 function lastRegionState(ws: FakeWs): RegionGroupMsg[] | null {
@@ -800,9 +821,16 @@ describe("handleViewport region_state construction", () => {
       worldH: 500,
     });
 
-    // A singleton's pieceIds is its own id, derived without a Redis read.
+    // A singleton's member is its own id (dx/dy 0), derived without a Redis read.
     expect(lastRegionState(ws)).toEqual([
-      { groupId: 5, worldX: 1500, worldY: 1500, size: 1, locked: false, pieceIds: [5] },
+      {
+        groupId: 5,
+        worldX: 1500,
+        worldY: 1500,
+        size: 1,
+        locked: false,
+        pieces: [{ id: 5, dx: 0, dy: 0 }],
+      },
     ]);
     expect(getGroupPieces).not.toHaveBeenCalled();
   });
@@ -822,7 +850,17 @@ describe("handleViewport region_state construction", () => {
 
     expect(getGroupPieces).toHaveBeenCalledWith(8);
     expect(lastRegionState(ws)).toEqual([
-      { groupId: 8, worldX: 1500, worldY: 1500, size: 2, locked: true, pieceIds: [8, 108] },
+      {
+        groupId: 8,
+        worldX: 1500,
+        worldY: 1500,
+        size: 2,
+        locked: true,
+        pieces: [
+          { id: 8, dx: 0, dy: 0 },
+          { id: 108, dx: 0, dy: 1 },
+        ],
+      },
     ]);
   });
 
