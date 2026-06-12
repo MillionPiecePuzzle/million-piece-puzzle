@@ -2,9 +2,13 @@
 import type { LeaderboardRow } from "../data/leaderboard";
 import { flagUrl } from "../data/flags";
 
-const props = withDefaults(defineProps<{ row: LeaderboardRow; rankWidth?: string }>(), {
-  rankWidth: "22px",
-});
+const props = withDefaults(
+  defineProps<{ row: LeaderboardRow; rankWidth?: string; showYouTag?: boolean }>(),
+  {
+    rankWidth: "22px",
+    showYouTag: true,
+  },
+);
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US");
@@ -30,7 +34,7 @@ function fmt(n: number): string {
     <span v-else class="av" :style="{ background: props.row.color }">{{ props.row.initials }}</span>
     <span class="nm">
       {{ props.row.name }}
-      <span v-if="props.row.you" class="you-tag">you</span>
+      <span v-if="props.row.you && props.showYouTag" class="you-tag">you</span>
       <span v-else-if="props.row.online" class="live-dot" title="online"></span>
     </span>
     <span class="pc">{{ fmt(props.row.pieces) }}<small> pcs</small></span>

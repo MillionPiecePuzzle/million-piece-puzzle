@@ -71,7 +71,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
         </button>
       </div>
       <ol class="lb-list">
-        <LeaderboardRow v-for="row in pageRows" :key="row.rank" :row="row" />
+        <LeaderboardRow
+          v-for="row in pageRows"
+          :key="row.rank"
+          :row="row"
+          :show-you-tag="mode === 'people'"
+        />
       </ol>
       <div class="modal-foot">
         <button type="button" :disabled="page === 0" @click="prev">&larr; prev</button>
