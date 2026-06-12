@@ -15,8 +15,13 @@
  * in the shared PIECE_BORDER_* style (manifest `borderBaked: true`), so the
  * outline ships in the tile and costs nothing at render time.
  *
- * Tiles are bucketed by hundreds: `pieces/<bucket>/<id>.avif` where
- * `bucket = floor(id / 100)` zero-padded to 4 digits.
+ * Tiles and the manifest are keyed by the seed-permuted wire id, not the grid id:
+ * `wireId = P(gridId)` (see `buildPermutation`), so neither the public manifest
+ * nor a tile path reveals a piece's solved grid cell. The tile content is the same
+ * image either way, so relabeling is a re-name/re-bucket, not a re-encode. Tiles
+ * are bucketed by hundreds: `pieces/<bucket>/<wireId>.avif` where
+ * `bucket = floor(wireId / 100)` zero-padded to 4 digits. The seed is NOT written
+ * to the manifest (the manifest is public); the server holds it separately.
  *
  * `pieceSize` defaults to the largest integer that lets `cols * pieceSize` and
  * `rows * pieceSize` fit inside the source image. The puzzle area is
@@ -44,6 +49,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import {
+  buildPermutation,
   generatePieceGeometry,
   piecePath,
   seedFromString,
@@ -199,6 +205,10 @@ async function main() {
   const total = args.rows * args.cols;
   const idWidth = Math.max(4, String(total - 1).length);
   const base = seedFromString(args.seed);
+  // The same deterministic relabeling the server derives from the seed. Tiles and
+  // the manifest are keyed by wireId so the public asset paths carry no solved
+  // position; the tile content stays the grid-id image.
+  const { wireForGrid } = buildPermutation(args.seed, total);
 
   // Pre-create the hundred-buckets once (concurrent workers would otherwise race
   // mkdir for the same bucket).
@@ -237,8 +247,11 @@ async function main() {
     const mask = pieceMaskSvg(pathD, tileSize);
     const border = pieceBorderSvg(pathD, tileSize);
 
-    const idStr = pad(id, idWidth);
-    const bucket = pad(Math.floor(id / 100), 4);
+    // The tile content is generated from the grid id, but written under its wire
+    // id: a piece a client knows as `wireId` loads the grid-id image at that path.
+    const wireId = wireForGrid[id]!;
+    const idStr = pad(wireId, idWidth);
+    const bucket = pad(Math.floor(wireId / 100), 4);
     const fileName = `${idStr}.avif`;
     const outPath = path.join(piecesDir, bucket, fileName);
 
@@ -259,7 +272,7 @@ async function main() {
       .avif({ quality: args.quality, effort: 4 })
       .toFile(outPath);
 
-    pieces[id] = { id, file: `pieces/${bucket}/${fileName}` };
+    pieces[wireId] = { id: wireId, file: `pieces/${bucket}/${fileName}` };
   });
 
   // Deep Zoom pyramid of the cropped puzzle area, streamed from the source file
@@ -275,7 +288,6 @@ async function main() {
   const manifest: ImageManifest = {
     puzzleId,
     name: args.name ?? puzzleId,
-    seed: args.seed,
     rows: args.rows,
     cols: args.cols,
     pieceSize,
