@@ -148,6 +148,18 @@ export class MongoLogger {
     }));
   }
 
+  // First and last merge timestamps (ms) for a puzzle: two point lookups served
+  // by the `puzzleId_at` index, so cheap regardless of log size. Null when nothing
+  // has been placed yet. Drives the completed landing's recap date and event span.
+  async puzzleSpan(puzzleId: string): Promise<{ firstAt: number; lastAt: number } | null> {
+    const [first, last] = await Promise.all([
+      this.merges.find({ puzzleId }).sort({ at: 1 }).limit(1).next(),
+      this.merges.find({ puzzleId }).sort({ at: -1 }).limit(1).next(),
+    ]);
+    if (!first || !last) return null;
+    return { firstAt: first.at.getTime(), lastAt: last.at.getTime() };
+  }
+
   // Set a contributor's pseudo, enforcing global uniqueness through the
   // partial-unique index. A duplicate surfaces as DuplicatePseudoError.
   async setPseudo(userId: string, pseudo: string): Promise<UserProfile> {

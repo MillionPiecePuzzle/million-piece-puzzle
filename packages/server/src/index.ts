@@ -203,6 +203,21 @@ async function main(): Promise<void> {
       process.env.AUTH_SECRET || "mpp-interested-dev-salt",
     ),
     eventStartsAt: config.eventStartsAt,
+    // The landing's live progress/standings come from the in-memory keyframe
+    // snapshot (rebuilt on the keyframe cadence, forced on complete), so the
+    // public landing never triggers a full-board read.
+    landingSnapshot: () => {
+      const kf = keyframePublisher.latest()?.keyframe;
+      if (!kf) return null;
+      return {
+        lockedCount: kf.lockedCount,
+        totalPieces: kf.totalPieces,
+        leaderboard: kf.leaderboard,
+        activity: kf.activity,
+      };
+    },
+    puzzleStatus: () => ctx.meta.status,
+    puzzleSpan: () => mongo.puzzleSpan(ctx.puzzleId),
     appOrigin: config.appOrigin,
     devEnabled: config.devEnabled,
     handleKeyframe,

@@ -9,7 +9,9 @@ import {
   makeLandingHandler,
   makeInterestedHandler,
   type InterestedStore,
+  type LandingSnapshot,
 } from "./httpApp.js";
+import type { LandingResponse } from "@mpp/shared";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
 import { RedisFixedWindow } from "./limits.js";
 import type { Redis } from "ioredis";
@@ -324,39 +326,106 @@ function landingReq(): Request {
   return { headers: {}, socket: { remoteAddress: "1.1.1.1" } } as unknown as Request;
 }
 
+function fakeSnapshot(): LandingSnapshot {
+  return {
+    lockedCount: 120,
+    totalPieces: 1000,
+    leaderboard: [{ userId: "u1", pseudo: "Alice", country: "fr", pieces: 80 }],
+    activity: [
+      {
+        id: "m1",
+        userId: "u1",
+        pseudo: "Alice",
+        anchored: true,
+        droppedSize: 1,
+        mergedSize: 2,
+        at: 5,
+      },
+    ],
+  };
+}
+
 describe("makeLandingHandler", () => {
-  it("returns the event start and interested status with wildcard CORS + no-store", async () => {
+  it("returns the event start, interested, and live snapshot, skipping the span when active", async () => {
     const interested: InterestedStore = {
       add: vi.fn(),
       status: vi.fn(async () => ({ count: 7, me: true })),
     };
-    const handler = makeLandingHandler({ interested, eventStartsAt: 12345, devEnabled: true });
+    const span = vi.fn(async () => null);
+    const handler = makeLandingHandler({
+      interested,
+      eventStartsAt: 12345,
+      snapshot: () => fakeSnapshot(),
+      status: () => "active",
+      span,
+      devEnabled: true,
+    });
     const res = fakeRes();
     await handler(landingReq(), res);
     const r = res as unknown as {
       statusCode: number;
-      body: unknown;
+      body: LandingResponse;
       headers: Record<string, string>;
     };
     expect(r.statusCode).toBe(200);
-    expect(r.body).toEqual({ eventStartsAt: 12345, interested: { count: 7, me: true } });
+    expect(r.body.eventStartsAt).toBe(12345);
+    expect(r.body.interested).toEqual({ count: 7, me: true });
+    expect(r.body.status).toBe("active");
+    expect(r.body.progress).toEqual({ locked: 120, total: 1000 });
+    expect(r.body.leaderboard).toHaveLength(1);
+    expect(r.body.activity).toHaveLength(1);
+    expect(r.body.completion).toBeUndefined();
+    expect(span).not.toHaveBeenCalled();
     expect(r.headers["Access-Control-Allow-Origin"]).toBe("*");
     expect(r.headers["Cache-Control"]).toBe("no-store");
   });
 
-  it("fails open with a zeroed interested block when the store throws", async () => {
+  it("includes the completion span once completed", async () => {
+    const interested: InterestedStore = {
+      add: vi.fn(),
+      status: vi.fn(async () => ({ count: 0, me: false })),
+    };
+    const span = vi.fn(async () => ({ firstAt: 100, lastAt: 900 }));
+    const handler = makeLandingHandler({
+      interested,
+      eventStartsAt: 50,
+      snapshot: () => fakeSnapshot(),
+      status: () => "completed",
+      span,
+      devEnabled: true,
+    });
+    const res = fakeRes();
+    await handler(landingReq(), res);
+    const r = res as unknown as { statusCode: number; body: LandingResponse };
+    expect(span).toHaveBeenCalled();
+    expect(r.body.status).toBe("completed");
+    expect(r.body.completion).toEqual({ at: 900, startedAt: 100 });
+  });
+
+  it("fails open with a zeroed interested block and empty snapshot", async () => {
     const interested: InterestedStore = {
       add: vi.fn(),
       status: vi.fn(async () => {
         throw new Error("redis down");
       }),
     };
-    const handler = makeLandingHandler({ interested, eventStartsAt: 0, devEnabled: true });
+    const handler = makeLandingHandler({
+      interested,
+      eventStartsAt: 0,
+      snapshot: () => null,
+      status: () => "active",
+      span: vi.fn(async () => null),
+      devEnabled: true,
+    });
     const res = fakeRes();
     await handler(landingReq(), res);
-    const r = res as unknown as { statusCode: number; body: unknown };
+    const r = res as unknown as { statusCode: number; body: LandingResponse };
     expect(r.statusCode).toBe(200);
-    expect(r.body).toEqual({ eventStartsAt: 0, interested: { count: 0, me: false } });
+    expect(r.body.interested).toEqual({ count: 0, me: false });
+    expect(r.body.progress).toEqual({ locked: 0, total: 0 });
+    expect(r.body.leaderboard).toEqual([]);
+    expect(r.body.activity).toEqual([]);
+    expect(r.body.completion).toBeUndefined();
   });
 });
 

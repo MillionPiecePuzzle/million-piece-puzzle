@@ -1,7 +1,8 @@
+import type { LandingResponse } from "@mpp/shared";
 import { landingUrl } from "./spectatorUrl";
 
 export type InterestState = { count: number; me: boolean };
-export type LandingData = { eventStartsAt: number; interested: InterestState };
+export type LandingData = LandingResponse;
 
 let cached: LandingData | null = null;
 let inFlight: Promise<LandingData | null> | null = null;

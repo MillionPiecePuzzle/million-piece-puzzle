@@ -414,6 +414,23 @@ export type SpectatorEventWindow = {
   events: SpectatorEvent[];
 };
 
+// HTTP response for GET /landing: lightweight public landing data read once on
+// page load. `status` and `eventStartsAt` drive the landing phase: scheduled
+// before the start, live while active, completed once the board is done. `progress`
+// and `leaderboard` carry the live and recap figures, `activity` the live feed.
+// `completion` is present only when completed: the final placement `at` (the recap
+// date) and the first placement `startedAt`. The leaderboard and activity come from
+// the in-memory keyframe snapshot, never a full-board fetch (see SpectatorKeyframe).
+export type LandingResponse = {
+  eventStartsAt: number;
+  interested: { count: number; me: boolean };
+  status: "active" | "completed";
+  progress: { locked: number; total: number };
+  leaderboard: LeaderboardEntry[];
+  activity: ActivityItem[];
+  completion?: { at: number; startedAt: number };
+};
+
 export type ServerMessage =
   | SWelcome
   | SState

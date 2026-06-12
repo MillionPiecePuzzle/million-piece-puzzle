@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import type { ActivityItem, LeaderboardEntry } from "@mpp/shared";
 import BrandMark from "../components/BrandMark.vue";
 import CountdownTimer from "../components/CountdownTimer.vue";
+import LeaderboardRow from "../components/LeaderboardRow.vue";
 import { useMode } from "../composables/useMode";
 import { useCountdown } from "../composables/useCountdown";
 import { interestedUrl } from "../data/spectatorUrl";
 import { loadLanding, type InterestState } from "../data/landing";
+import { toLeaderboardRows } from "../data/leaderboard";
 
 const router = useRouter();
 const { setMode } = useMode();
@@ -18,9 +21,77 @@ const interested = ref(false);
 const count = ref<number | null>(null);
 const submitting = ref(false);
 
-// Once the start is reached the single CTA flips from "I'm interested" to "Enter
-// the canvas"; until then there is no way into /play from the landing.
+const status = ref<"active" | "completed">("active");
+const progress = ref<{ locked: number; total: number }>({ locked: 0, total: 0 });
+const leaderboard = ref<LeaderboardEntry[]>([]);
+const activity = ref<ActivityItem[]>([]);
+const completion = ref<{ at: number; startedAt: number } | null>(null);
+
+// Before the start the landing counts down; once the board is done it shows the
+// recap; in between it shows live progress. Completion wins over the timer so a
+// finished puzzle never falls back to the countdown.
 const { launched, scheduled, parts } = useCountdown(eventStartsAt);
+const phase = computed<"scheduled" | "live" | "completed">(() => {
+  if (status.value === "completed") return "completed";
+  return launched.value ? "live" : "scheduled";
+});
+
+const progressPct = computed(() => {
+  const { locked, total } = progress.value;
+  return total > 0 ? Math.min(100, (locked / total) * 100) : 0;
+});
+
+// Anonymous viewer, so no "you" row to highlight: pass a null user id.
+const liveLeaders = computed(() => toLeaderboardRows(leaderboard.value, null).slice(0, 6));
+const finalLeaders = computed(() => toLeaderboardRows(leaderboard.value, null).slice(0, 10));
+
+const activityLines = computed(() =>
+  activity.value.map((item) => ({
+    id: item.id,
+    actor: item.pseudo ?? "Someone",
+    rest: item.anchored
+      ? `placed ${piecePhrase(item.droppedSize)}`
+      : `connected ${piecePhrase(item.mergedSize)}`,
+    at: item.at,
+  })),
+);
+
+function piecePhrase(n: number): string {
+  return n === 1 ? "a piece" : `${n.toLocaleString()} pieces`;
+}
+
+function relativeTime(at: number): string {
+  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function formatDate(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+// Event duration: scheduled start to the final placement, falling back to the
+// first placement when no start was set (dev, eventStartsAt 0).
+function formatDuration(c: { at: number; startedAt: number }): string {
+  const from = eventStartsAt.value > 0 ? eventStartsAt.value : c.startedAt;
+  const totalSec = Math.max(0, Math.round((c.at - from) / 1000));
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0 || days > 0) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(" ");
+}
 
 function cachedInterested(): boolean {
   try {
@@ -77,6 +148,11 @@ onMounted(async () => {
   count.value = data.interested.count;
   interested.value = data.interested.me;
   if (data.interested.me) rememberInterested();
+  status.value = data.status;
+  progress.value = data.progress;
+  leaderboard.value = data.leaderboard;
+  activity.value = data.activity;
+  completion.value = data.completion ?? null;
 });
 </script>
 
@@ -90,36 +166,107 @@ onMounted(async () => {
     </header>
 
     <main class="hero">
-      <h1>Million Piece Puzzle</h1>
-      <p class="tagline">
-        One million pieces on a single shared canvas. Watch the picture come together, or join in
-        and place your piece of it.
-      </p>
+      <div class="hero-top">
+        <h1>Million Piece Puzzle</h1>
+        <p class="tagline">
+          One million pieces on a single shared canvas. Watch the picture come together, or join in
+          and place your piece of it.
+        </p>
 
-      <CountdownTimer
-        v-if="!launched"
-        class="hero-countdown"
-        :scheduled="scheduled"
-        :parts="parts"
-      />
+        <CountdownTimer
+          v-if="phase === 'scheduled'"
+          class="hero-feature"
+          :scheduled="scheduled"
+          :parts="parts"
+        />
 
-      <div class="actions">
-        <button v-if="launched" type="button" class="cta primary" @click="enterCanvas">
-          Enter the canvas
-        </button>
-        <button
-          v-else-if="!interested"
-          type="button"
-          class="cta primary"
-          :disabled="submitting"
-          @click="markInterested"
-        >
-          I'm interested
-        </button>
-        <span v-else class="interested-badge">You're on the list</span>
+        <div v-else-if="phase === 'live'" class="hero-feature progress">
+          <p class="progress-figures">
+            <span class="progress-locked">{{ progress.locked.toLocaleString() }}</span>
+            <span class="progress-total"
+              >/ {{ progress.total.toLocaleString() }} pieces locked</span
+            >
+          </p>
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
+          </div>
+          <p class="progress-pct">{{ progressPct.toFixed(progressPct < 10 ? 2 : 1) }}% complete</p>
+        </div>
+
+        <div v-else class="hero-feature completed">
+          <p class="completed-word">COMPLETED</p>
+          <p v-if="completion" class="completed-meta">
+            {{ formatDate(completion.at) }} <span class="dot" aria-hidden="true">·</span> solved in
+            {{ formatDuration(completion) }}
+          </p>
+        </div>
+
+        <div class="actions">
+          <button
+            v-if="phase !== 'scheduled'"
+            type="button"
+            class="cta primary"
+            @click="enterCanvas"
+          >
+            Enter the canvas
+          </button>
+          <button
+            v-else-if="!interested"
+            type="button"
+            class="cta primary"
+            :disabled="submitting"
+            @click="markInterested"
+          >
+            I'm interested
+          </button>
+          <span v-else class="interested-badge">You're on the list</span>
+        </div>
+
+        <p v-if="phase === 'scheduled' && count !== null" class="interest-count">
+          {{ interestLabel() }}
+        </p>
       </div>
 
-      <p v-if="!launched && count !== null" class="interest-count">{{ interestLabel() }}</p>
+      <section v-if="phase === 'live'" class="live-panels">
+        <div class="board-card">
+          <h3>Live activity</h3>
+          <ul v-if="activityLines.length > 0" class="activity-list">
+            <li v-for="line in activityLines" :key="line.id">
+              <span class="msg"
+                ><b>{{ line.actor }}</b> {{ line.rest }}</span
+              >
+              <span class="ts">{{ relativeTime(line.at) }}</span>
+            </li>
+          </ul>
+          <p v-else class="empty">No activity yet.</p>
+        </div>
+        <div class="board-card">
+          <h3>Leaderboard</h3>
+          <ol v-if="liveLeaders.length > 0" class="lb-list">
+            <LeaderboardRow
+              v-for="row in liveLeaders"
+              :key="row.rank"
+              :row="row"
+              rank-width="18px"
+              :show-you-tag="false"
+            />
+          </ol>
+          <p v-else class="empty">No standings yet.</p>
+        </div>
+      </section>
+
+      <section v-else-if="phase === 'completed'" class="final-board board-card">
+        <h3>Final leaderboard</h3>
+        <ol v-if="finalLeaders.length > 0" class="lb-list">
+          <LeaderboardRow
+            v-for="row in finalLeaders"
+            :key="row.rank"
+            :row="row"
+            :show-you-tag="false"
+          />
+        </ol>
+        <p v-else class="empty">No standings recorded.</p>
+      </section>
     </main>
 
     <footer class="landing-foot">
@@ -160,9 +307,17 @@ onMounted(async () => {
 .hero {
   align-self: center;
   justify-self: center;
-  max-width: 720px;
-  padding: 0 24px;
+  width: 100%;
+  padding: 48px 24px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+}
+.hero-top {
+  width: 100%;
+  max-width: 720px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -182,8 +337,84 @@ h1 {
   font-size: 15px;
   line-height: 1.5;
 }
-.hero-countdown {
+.hero-feature {
   margin-bottom: 40px;
+  width: 100%;
+}
+.progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 460px;
+}
+.progress-figures {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.progress-locked {
+  font-family: var(--mono);
+  font-size: clamp(36px, 7vw, 60px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.progress-total {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+}
+.progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(21, 20, 15, 0.08);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: width 400ms ease;
+}
+.progress-pct {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.completed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.completed-word {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: clamp(40px, 8vw, 72px);
+  line-height: 1;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+.completed-meta {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+.completed-meta .dot {
+  color: var(--ink-4);
+  padding: 0 4px;
 }
 .actions {
   display: flex;
@@ -231,6 +462,78 @@ h1 {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-4);
+}
+.board-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  padding: 16px 16px 12px;
+  text-align: left;
+}
+.board-card h3 {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.live-panels {
+  width: 100%;
+  max-width: 760px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.activity-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.activity-list .msg b {
+  font-weight: 500;
+  color: var(--ink);
+}
+.activity-list .ts {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+.lb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.final-board {
+  width: 100%;
+  max-width: 560px;
+}
+.empty {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
+}
+@media (max-width: 640px) {
+  .live-panels {
+    grid-template-columns: 1fr;
+  }
 }
 .landing-foot {
   display: flex;

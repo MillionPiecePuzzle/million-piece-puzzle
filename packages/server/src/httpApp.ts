@@ -8,6 +8,7 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import { ExpressAuth, getSession, type ExpressAuthConfig } from "@auth/express";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { normalizeCountry, normalizePseudo } from "@mpp/shared";
+import type { ActivityItem, LandingResponse, LeaderboardEntry } from "@mpp/shared";
 import { clientIp, type RedisFixedWindow } from "./limits.js";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
 
@@ -24,6 +25,16 @@ export type InterestedStore = {
   status: (ip: string) => Promise<{ count: number; me: boolean }>;
 };
 
+// Compact live figures for the landing, lifted from the in-memory keyframe
+// snapshot so the landing never triggers a full-board read. Null until the first
+// keyframe is built at boot.
+export type LandingSnapshot = {
+  lockedCount: number;
+  totalPieces: number;
+  leaderboard: LeaderboardEntry[];
+  activity: ActivityItem[];
+};
+
 export type CreateAppDeps = {
   authConfig: ExpressAuthConfig;
   pseudoStore: PseudoStore;
@@ -33,6 +44,9 @@ export type CreateAppDeps = {
   spectatorLimiter: RedisFixedWindow;
   interested: InterestedStore;
   eventStartsAt: number;
+  landingSnapshot: () => LandingSnapshot | null;
+  puzzleStatus: () => "active" | "completed";
+  puzzleSpan: () => Promise<{ firstAt: number; lastAt: number } | null>;
   appOrigin: string;
   devEnabled: boolean;
   // Spectator stream handlers from keyframe.ts: each writes the response and
@@ -73,6 +87,9 @@ export function createApp(deps: CreateAppDeps): Express {
     makeLandingHandler({
       interested: deps.interested,
       eventStartsAt: deps.eventStartsAt,
+      snapshot: deps.landingSnapshot,
+      status: deps.puzzleStatus,
+      span: deps.puzzleSpan,
       devEnabled: deps.devEnabled,
     }),
   );
@@ -207,12 +224,17 @@ const PUBLIC_NO_STORE = {
 export type LandingDeps = {
   interested: InterestedStore;
   eventStartsAt: number;
+  snapshot: () => LandingSnapshot | null;
+  status: () => "active" | "completed";
+  span: () => Promise<{ firstAt: number; lastAt: number } | null>;
   devEnabled: boolean;
 };
 
-// GET /landing: the event start plus the interested count and this IP's opt-in
-// state. Fail-open on a Redis error (same posture as the spectator guard): a
-// transient outage still serves the landing, just with a zeroed interested block.
+// GET /landing: the event start, the interested count and this IP's opt-in state,
+// plus the live progress/standings (from the cached keyframe snapshot) and, once
+// completed, the recap span. Fail-open on a Redis error (same posture as the
+// spectator guard): a transient outage still serves the landing, just with a
+// zeroed interested block. The span lookup is skipped unless completed.
 export function makeLandingHandler(deps: LandingDeps) {
   return async (req: Request, res: Response): Promise<void> => {
     let interested = { count: 0, me: false };
@@ -221,7 +243,25 @@ export function makeLandingHandler(deps: LandingDeps) {
     } catch (e) {
       console.error("[landing]", (e as Error).message);
     }
-    res.status(200).set(PUBLIC_NO_STORE).json({ eventStartsAt: deps.eventStartsAt, interested });
+    const snap = deps.snapshot();
+    const status = deps.status();
+    const body: LandingResponse = {
+      eventStartsAt: deps.eventStartsAt,
+      interested,
+      status,
+      progress: { locked: snap?.lockedCount ?? 0, total: snap?.totalPieces ?? 0 },
+      leaderboard: snap?.leaderboard ?? [],
+      activity: snap?.activity ?? [],
+    };
+    if (status === "completed") {
+      try {
+        const span = await deps.span();
+        if (span) body.completion = { at: span.lastAt, startedAt: span.firstAt };
+      } catch (e) {
+        console.error("[landing span]", (e as Error).message);
+      }
+    }
+    res.status(200).set(PUBLIC_NO_STORE).json(body);
   };
 }
 

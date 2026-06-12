@@ -95,6 +95,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Sticky-carry cursor offset: a carried cluster floats to the upper-right of the cursor with its bounding-box corner held a constant screen-space gap clear of the pointer (applied the instant it is grabbed), so the whole cluster stays off the cursor at any zoom; pan (drag) and zoom (wheel) work mid-carry as with an empty hand, and a double-click drop lands the cluster at the cursor. Press-drag is unchanged (piece under the cursor, no offset)
 - [x] Add a global timer on the play page
 - [x] More info in the activity panel: snap (loose merge) vs place (anchored), each as a single piece or an N-piece cluster, driven by `droppedSize`/`mergedSize` on the snap event. See DECISIONS: activity feed event types
+- [x] Landing reflects the event lifecycle: countdown before the start, live progress (locked/total bar) plus an activity + leaderboard two-column block during, and a completed recap (COMPLETED, date, event duration, full-width final leaderboard) after. Driven by `GET /landing` extended with `status`/`progress`/`leaderboard`/`activity`/`completion`; live figures come from the in-memory keyframe snapshot (no full-board fetch), the completed span from a `puzzleId_at`-indexed first/last merge lookup
 
 ---
 
