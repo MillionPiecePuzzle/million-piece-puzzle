@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
-import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { usePuzzleSession, type ActivityEntry } from "../composables/usePuzzleSession";
 
 const { activity } = usePuzzleSession();
+
+// A snap joins two groups, so it names the other side ("to another"); a place
+// locks into the puzzle and stands alone.
+function objectPhrase(entry: ActivityEntry): string {
+  const what = entry.count === 1 ? "a piece" : `a ${entry.count}-piece cluster`;
+  return entry.kind === "snap" ? `${what} to another` : what;
+}
 
 const now = ref(Date.now());
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -33,7 +40,7 @@ function relativeTime(at: number): string {
       <li v-for="entry in activity" :key="entry.id">
         <span class="msg"
           ><b>{{ entry.actor }}</b> <em>{{ entry.kind === "place" ? "placed" : "connected" }}</em>
-          {{ entry.count === 1 ? "a piece" : `a ${entry.count}-piece cluster` }}</span
+          {{ objectPhrase(entry) }}</span
         >
         <span class="ts">{{ relativeTime(entry.at) }}</span>
       </li>
