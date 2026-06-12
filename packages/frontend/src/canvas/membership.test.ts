@@ -6,13 +6,15 @@ import { resolveSnap } from "./membership";
 // knownGroups is any `has` predicate (the stage passes its groups Map); here a Set.
 const known = (...ids: number[]): Set<number> => new Set(ids);
 const p2g = (pairs: [number, number][]): Map<number, number> => new Map(pairs);
+// resolveSnap takes wire pieces; it reads only the id, so the offsets are omitted.
+const wp = (...ids: number[]): { id: number }[] => ids.map((id) => ({ id }));
 
 describe("resolveSnap", () => {
   it("host known, all sources known: reassigns the added pieces and removes the known sources", () => {
     // group 1 (piece 1) absorbs group 4 (piece 4); survivor id 1.
     const plan = resolveSnap(
       1,
-      [4],
+      wp(4),
       known(1, 4),
       p2g([
         [1, 1],
@@ -27,7 +29,7 @@ describe("resolveSnap", () => {
   it("skips an added piece already on the host", () => {
     const plan = resolveSnap(
       1,
-      [1, 4],
+      wp(1, 4),
       known(1, 4),
       p2g([
         [1, 1],
@@ -43,7 +45,7 @@ describe("resolveSnap", () => {
     // no node to remove, but membership still moves to the known host.
     const plan = resolveSnap(
       1,
-      [9],
+      wp(9),
       known(1),
       p2g([
         [1, 1],
@@ -58,7 +60,7 @@ describe("resolveSnap", () => {
   it("host known, straddling the boundary: one source known, one not", () => {
     const plan = resolveSnap(
       1,
-      [4, 9],
+      wp(4, 9),
       known(1, 4),
       p2g([
         [1, 1],
@@ -74,7 +76,7 @@ describe("resolveSnap", () => {
 
   it("host unknown: still reassigns the added pieces and removes known sources, so no phantom survives", () => {
     // Survivor id 2 was never visited; source group 4 is known and must be removed.
-    const plan = resolveSnap(2, [4], known(4), p2g([[4, 4]]));
+    const plan = resolveSnap(2, wp(4), known(4), p2g([[4, 4]]));
     expect(plan.hostKnown).toBe(false);
     expect(plan.reassign).toEqual([4]);
     expect(plan.removeGroups).toEqual([4]);
@@ -83,7 +85,7 @@ describe("resolveSnap", () => {
   it("dedups a source group spanning several added pieces", () => {
     const plan = resolveSnap(
       1,
-      [4, 5],
+      wp(4, 5),
       known(1, 4),
       p2g([
         [1, 1],

@@ -21,18 +21,19 @@ export type SnapPlan = {
 
 // `knownGroups` is any membership test over built group ids (the stage passes its
 // `groups` Map directly, so there is no per-snap allocation); `pieceToGroup` is
-// the current piece -> group map.
+// the current piece -> group map. `addedPieces` are wire pieces (the offsets are
+// not needed here, only the ids).
 export type GroupMembership = { has(groupId: number): boolean };
 
 export function resolveSnap(
   newGroupId: number,
-  addedPieceIds: readonly number[],
+  addedPieces: readonly { id: number }[],
   knownGroups: GroupMembership,
   pieceToGroup: ReadonlyMap<number, number>,
 ): SnapPlan {
   const reassign: number[] = [];
   const removeGroups = new Set<number>();
-  for (const pieceId of addedPieceIds) {
+  for (const { id: pieceId } of addedPieces) {
     const gid = pieceToGroup.get(pieceId);
     if (gid === newGroupId) continue;
     reassign.push(pieceId);

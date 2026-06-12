@@ -10,25 +10,18 @@ import {
 } from "pixi.js";
 import {
   GRID_WORLD_CELL,
-  PIECE_BORDER_WIDTH,
-  PIECE_BORDER_COLOR,
-  PIECE_BORDER_ALPHA,
   compareSpectatorSeq,
-  generatePieceGeometry,
-  piecePath,
-  seedFromString,
   type GroupRuntime,
   type ImageManifest,
   type MinimapGrid,
-  type PieceGeometry,
   type PieceRuntime,
   type PlayZone,
   type RegionGroup,
   type SpectatorEvent,
   type SpectatorKeyframe,
   type SpectatorSnapEvent,
+  type WirePiece,
 } from "@mpp/shared";
-import { applyPath } from "./applyPath";
 import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
@@ -62,23 +55,27 @@ export type MinimapSnapshot = {
   viewport: Viewport | null;
 };
 
+// Grid-unit offset of a piece from its group anchor, server-provided so the
+// client never derives a solved-space coordinate. A piece's local container
+// position is (dx * pieceSize, dy * pieceSize).
+type PieceOffset = { dx: number; dy: number };
+
 type PieceNode = {
   id: number;
   container: Container;
   inner: Container;
   flash: Graphics;
-  geometry: PieceGeometry;
   localBounds: Aabb;
 };
 
 type GroupNode = {
   id: number;
   container: Container;
-  // Membership: the piece ids this group owns, maintained independently of
-  // whether their textures and nodes are built. Drives localBounds (from
-  // geometry), the spatial index, and the minimap, so the group is fully
-  // described even while dehydrated (no textures fetched).
-  pieceIds: number[];
+  // Membership: the piece ids this group owns, each mapped to its (dx, dy) offset
+  // from the group anchor. Maintained independently of whether textures and nodes
+  // are built, so the group is fully described while dehydrated: the offsets drive
+  // localBounds, container placement, and the minimap with no geometry or seed.
+  members: Map<number, PieceOffset>;
   // Built piece nodes, present only for pieces currently hydrated. A dehydrated
   // group has an empty array and an empty container.
   pieces: PieceNode[];
@@ -348,13 +345,6 @@ export class PuzzleStage {
   // viewport is covered (tiles ready or window pieces built), keeping the loading
   // cover up over the progressive fill instead of an eager whole-board fetch.
   private manifest: ImageManifest | null = null;
-  // Lazy per-piece geometry. genBase is seedFromString(manifest.seed); full edge
-  // geometry is generated on demand (geomFor) only for pieces actually hydrated
-  // (~the visible window), and cached here. Index bounds and the minimap need
-  // only the canonical offset, which canonicalOffsetFor derives arithmetically
-  // from the id without generating any edges, so neither touches this cache.
-  private genBase = 0;
-  private geomById = new Map<number, PieceGeometry>();
   private textureBase = "";
   // Latest server-computed minimap density grid (contributor: the periodic WS
   // `minimap` message and one on join; spectator: the keyframe's grid). The
@@ -487,8 +477,6 @@ export class PuzzleStage {
     const token = ++this.buildToken;
 
     this.manifest = manifest;
-    this.genBase = seedFromString(manifest.seed);
-    this.geomById = new Map<number, PieceGeometry>();
     this.textureBase = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
 
     this.worldSize = {
@@ -554,21 +542,22 @@ export class PuzzleStage {
       return;
     buildBase += manifest.pieces.length;
 
-    // Pass B: group -> piece-ids membership. The piece -> group map is set per
-    // group by constructGroup in Pass C, so this only buckets ids by group.
-    const idsByGroup = new Map<number, number[]>();
+    // Pass B: group -> member pieces (id + anchor offset). The piece -> group map
+    // is set per group by constructGroup in Pass C, so this only buckets the wire
+    // pieces by group.
+    const piecesByGroup = new Map<number, WirePiece[]>();
     if (
       !(await this.chunkedPass(
         token,
         initialPieces.length,
         (i) => {
           const piece = initialPieces[i]!;
-          let ids = idsByGroup.get(piece.groupId);
-          if (!ids) {
-            ids = [];
-            idsByGroup.set(piece.groupId, ids);
+          let members = piecesByGroup.get(piece.groupId);
+          if (!members) {
+            members = [];
+            piecesByGroup.set(piece.groupId, members);
           }
-          ids.push(piece.id);
+          members.push({ id: piece.id, dx: piece.dx, dy: piece.dy });
         },
         reportBuild,
       ))
@@ -579,7 +568,7 @@ export class PuzzleStage {
     // Pass C: one dehydrated container per group (empty container, no textures
     // fetched) plus its spatial-index entry, via the shared constructGroup. The
     // spectator passes the full keyframe board here; a contributor passes empty
-    // arrays (protocol v3), so this loop is a no-op and groups stream in later via
+    // arrays (protocol v4), so this loop is a no-op and groups stream in later via
     // applyRegionState, which reuses the same constructGroup.
     if (
       !(await this.chunkedPass(
@@ -592,7 +581,7 @@ export class PuzzleStage {
             worldX: group.worldX,
             worldY: group.worldY,
             locked: group.locked,
-            pieceIds: idsByGroup.get(group.id) ?? [],
+            pieces: piecesByGroup.get(group.id) ?? [],
           });
         },
         reportBuild,
@@ -641,40 +630,16 @@ export class PuzzleStage {
     return true;
   }
 
-  // Full edge geometry for one piece, generated on demand and cached. Used only
-  // by hydration (buildPieceNode), so the cache holds at most the pieces ever
-  // hydrated, never the whole board.
-  private geomFor(id: number): PieceGeometry {
-    let g = this.geomById.get(id);
-    if (!g && this.manifest) {
-      g = generatePieceGeometry(
-        this.genBase,
-        this.manifest.rows,
-        this.manifest.cols,
-        this.manifest.pieceSize,
-        id,
-      );
-      this.geomById.set(id, g);
-    }
-    return g!;
-  }
-
-  // Canonical (solved) offset of a piece, derived arithmetically from the id
-  // without generating any edges. Drives the index bounds and the minimap, so
-  // neither triggers edge generation.
-  private canonicalOffsetFor(id: number): { x: number; y: number } {
-    const m = this.manifest!;
-    return { x: (id % m.cols) * m.pieceSize, y: Math.floor(id / m.cols) * m.pieceSize };
-  }
-
-  // Local AABB of a set of pieces from geometry alone (canonical offset plus one
-  // margin per piece), so a group's bounds are known without building any node.
-  private boundsForIds(ids: readonly number[]): Aabb {
-    if (!this.manifest) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  // Local AABB of a group from its members' anchor offsets (offset plus one margin
+  // per piece), so a group's bounds are known without building any node and
+  // without any geometry. A piece sits at (dx * pieceSize, dy * pieceSize) in the
+  // group container.
+  private boundsForMembers(members: ReadonlyMap<number, PieceOffset>): Aabb {
+    if (!this.manifest || members.size === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    const { pieceSize, margin } = this.manifest;
     const boxes: Aabb[] = [];
-    for (const id of ids) {
-      const off = this.canonicalOffsetFor(id);
-      boxes.push(pieceLocalBounds(off.x, off.y, this.manifest.pieceSize, this.manifest.margin));
+    for (const off of members.values()) {
+      boxes.push(pieceLocalBounds(off.dx * pieceSize, off.dy * pieceSize, pieceSize, margin));
     }
     return unionBounds(boxes);
   }
@@ -691,53 +656,61 @@ export class PuzzleStage {
     worldX: number;
     worldY: number;
     locked: boolean;
-    pieceIds: number[];
+    pieces: readonly WirePiece[];
   }): GroupNode {
     const gc = new Container();
     gc.x = spec.worldX;
     gc.y = spec.worldY;
+    const members = new Map<number, PieceOffset>();
+    for (const p of spec.pieces) members.set(p.id, { dx: p.dx, dy: p.dy });
     const node: GroupNode = {
       id: spec.groupId,
       container: gc,
-      pieceIds: spec.pieceIds,
+      members,
       pieces: [],
       hydrated: false,
       hydrating: false,
       locked: spec.locked,
       worldX: spec.worldX,
       worldY: spec.worldY,
-      localBounds: this.boundsForIds(spec.pieceIds),
+      localBounds: this.boundsForMembers(members),
     };
     (spec.locked ? this.lockedLayer! : this.unlockedLayer!).addChild(gc);
     this.groups.set(spec.groupId, node);
-    for (const pieceId of spec.pieceIds) this.pieceToGroup.set(pieceId, spec.groupId);
+    for (const pieceId of members.keys()) this.pieceToGroup.set(pieceId, spec.groupId);
     this.groupGrid.upsert(node.id, this.worldAabb(node));
     this.applyGroupInteractivity(node);
     return node;
   }
 
-  // Move one piece's membership to a host group: update the piece -> group map and
-  // the host's id list unconditionally (authoritative even when the source group
-  // was never built on a partial board), then reparent the built node only when
-  // the source group and the piece node both exist. Shared by applySnap and the
-  // additive reconcile in applyRegionState.
-  private movePieceMembership(pieceId: number, host: GroupNode): void {
+  // Move one piece's membership to a host group, placing it at its new anchor
+  // offset: update the piece -> group map and the host's member map unconditionally
+  // (authoritative even when the source group was never built on a partial board),
+  // then reparent the built node only when the source group and the piece node both
+  // exist. Shared by applySnap and the additive reconcile in applyRegionState.
+  private movePieceMembership(pieceId: number, offset: PieceOffset, host: GroupNode): void {
     const fromGid = this.pieceToGroup.get(pieceId);
     if (fromGid === host.id) return;
     this.pieceToGroup.set(pieceId, host.id);
-    if (!host.pieceIds.includes(pieceId)) host.pieceIds.push(pieceId);
+    host.members.set(pieceId, offset);
     if (fromGid === undefined) return;
     const from = this.groups.get(fromGid);
     if (!from) return;
-    from.pieceIds = from.pieceIds.filter((id) => id !== pieceId);
+    from.members.delete(pieceId);
     const piece = from.pieces.find((p) => p.id === pieceId);
     if (!piece) return;
     from.container.removeChild(piece.container);
     from.pieces = from.pieces.filter((p) => p.id !== pieceId);
-    piece.container.x = piece.geometry.canonicalOffset.x;
-    piece.container.y = piece.geometry.canonicalOffset.y;
+    this.placePieceInContainer(piece, offset);
     host.container.addChild(piece.container);
     host.pieces.push(piece);
+  }
+
+  // Position a built piece node at its anchor offset inside its group container.
+  private placePieceInContainer(piece: PieceNode, offset: PieceOffset): void {
+    const pieceSize = this.manifest?.pieceSize ?? 0;
+    piece.container.x = offset.dx * pieceSize;
+    piece.container.y = offset.dy * pieceSize;
   }
 
   private playZonePadding(): number {
@@ -833,8 +806,6 @@ export class PuzzleStage {
     this.knownCells.clear();
     this.coverageSeen = false;
     this.coldSweepFrame = 0;
-    this.geomById = new Map();
-    this.genBase = 0;
     this.fileById = new Map();
     this.manifest = null;
     this.textureBase = "";
@@ -909,8 +880,6 @@ export class PuzzleStage {
     this.held = null;
     this.pendingDrag = null;
     this.peerCursors?.clearHeld();
-    this.geomById = new Map();
-    this.genBase = 0;
     this.fileById = new Map();
     this.manifest = null;
     this.textureBase = "";
@@ -938,8 +907,8 @@ export class PuzzleStage {
     const snapGroupIds = new Set<number>();
     for (const g of groups) snapGroupIds.add(g.id);
 
-    const targetByPiece = new Map<number, number>();
-    for (const p of pieces) targetByPiece.set(p.id, p.groupId);
+    const targetByPiece = new Map<number, { groupId: number; dx: number; dy: number }>();
+    for (const p of pieces) targetByPiece.set(p.id, { groupId: p.groupId, dx: p.dx, dy: p.dy });
 
     // Targeted dirtying: only clusters that actually change (membership,
     // position, or locked) invalidate tiles, so a snapshot where nothing moved
@@ -957,22 +926,22 @@ export class PuzzleStage {
     };
 
     for (const [pieceId, currentGid] of this.pieceToGroup) {
-      const targetGid = targetByPiece.get(pieceId);
-      if (targetGid === undefined || targetGid === currentGid) continue;
-      const host = this.groups.get(targetGid);
+      const target = targetByPiece.get(pieceId);
+      if (target === undefined || target.groupId === currentGid) continue;
+      const host = this.groups.get(target.groupId);
       const from = this.groups.get(currentGid);
       if (!host || !from) continue;
       markChanged(host);
       markChanged(from);
-      this.pieceToGroup.set(pieceId, targetGid);
-      from.pieceIds = from.pieceIds.filter((id) => id !== pieceId);
-      if (!host.pieceIds.includes(pieceId)) host.pieceIds.push(pieceId);
+      const offset: PieceOffset = { dx: target.dx, dy: target.dy };
+      this.pieceToGroup.set(pieceId, target.groupId);
+      from.members.delete(pieceId);
+      host.members.set(pieceId, offset);
       const piece = from.pieces.find((n) => n.id === pieceId);
       if (!piece) continue;
       from.container.removeChild(piece.container);
       from.pieces = from.pieces.filter((n) => n.id !== pieceId);
-      piece.container.x = piece.geometry.canonicalOffset.x;
-      piece.container.y = piece.geometry.canonicalOffset.y;
+      this.placePieceInContainer(piece, offset);
       host.container.addChild(piece.container);
       host.pieces.push(piece);
     }
@@ -992,8 +961,8 @@ export class PuzzleStage {
       const moved = node.worldX !== g.worldX || node.worldY !== g.worldY;
       const becameLocked = !node.locked && g.locked;
       if (moved || node.locked !== g.locked) markChanged(node);
-      node.localBounds = this.boundsForIds(node.pieceIds);
-      node.hydrated = node.pieces.length >= node.pieceIds.length;
+      node.localBounds = this.boundsForMembers(node.members);
+      node.hydrated = node.pieces.length >= node.members.size;
       node.locked = g.locked;
       this.moveGroup(node, g.worldX, g.worldY);
       if (becameLocked) {
@@ -1341,7 +1310,7 @@ export class PuzzleStage {
           worldX: e.worldX,
           worldY: e.worldY,
           locked: e.locked,
-          pieceIds: e.pieceIds,
+          pieces: e.pieces,
         });
         this.cullGroup(built);
         this.reconcileGroupResidency(built, now);
@@ -1365,9 +1334,9 @@ export class PuzzleStage {
         changed = true;
       }
       let membershipChanged = false;
-      for (const pieceId of e.pieceIds) {
-        if (this.pieceToGroup.get(pieceId) === e.groupId) continue;
-        this.movePieceMembership(pieceId, node);
+      for (const wp of e.pieces) {
+        if (this.pieceToGroup.get(wp.id) === e.groupId) continue;
+        this.movePieceMembership(wp.id, { dx: wp.dx, dy: wp.dy }, node);
         membershipChanged = true;
       }
       if (e.locked !== node.locked) {
@@ -1377,8 +1346,8 @@ export class PuzzleStage {
         membershipChanged = true;
       }
       if (membershipChanged) {
-        node.localBounds = this.boundsForIds(node.pieceIds);
-        node.hydrated = node.pieces.length >= node.pieceIds.length;
+        node.localBounds = this.boundsForMembers(node.members);
+        node.hydrated = node.pieces.length >= node.members.size;
         this.markTilesDirty(this.worldAabb(node));
         this.groupGrid.upsert(node.id, this.worldAabb(node));
         changed = true;
@@ -1411,7 +1380,7 @@ export class PuzzleStage {
 
   applySnap(
     newGroupId: number,
-    addedPieceIds: number[],
+    addedPieceIds: WirePiece[],
     worldX: number,
     worldY: number,
     anchored: boolean,
@@ -1420,7 +1389,7 @@ export class PuzzleStage {
     // animations; live snaps (WS and tailing) animate.
     animate = true,
   ): void {
-    // Partial-board-safe: under protocol v3 a contributor only builds visited
+    // Partial-board-safe: under protocol v4 a contributor only builds visited
     // regions, so a remote merge can straddle the boundary. resolveSnap classifies
     // the host (known/unknown) and the KNOWN source groups to remove, from the
     // current membership.
@@ -1433,7 +1402,7 @@ export class PuzzleStage {
       // snap (its full membership is unknown). Just keep the model consistent:
       // reassign the added pieces to the host id, and remove every KNOWN source
       // group so no phantom (a group the server merged away) survives.
-      for (const pieceId of addedPieceIds) this.pieceToGroup.set(pieceId, newGroupId);
+      for (const wp of addedPieceIds) this.pieceToGroup.set(wp.id, newGroupId);
       for (const gid of plan.removeGroups) this.destroyGroup(gid);
       this.heldGroupIds.delete(newGroupId);
       this.pendingDrops.delete(newGroupId);
@@ -1455,17 +1424,17 @@ export class PuzzleStage {
       const src = this.groups.get(gid);
       if (src?.locked) for (const p of src.pieces) preLockedPieceIds.add(p.id);
     }
-    const addedSet = new Set(addedPieceIds);
+    const addedSet = new Set(addedPieceIds.map((p) => p.id));
 
-    // Reparent each added piece into the host, preserving its world position.
-    // Membership (pieceIds, pieceToGroup) moves unconditionally even when the
-    // source group was never visited, so a KNOWN host ends up with complete
-    // membership and correct localBounds; the built node moves only when the
-    // source piece is hydrated. The host is moved to (worldX, worldY) below.
-    for (const pieceId of addedPieceIds) this.movePieceMembership(pieceId, host);
+    // Reparent each added piece into the host at its anchor offset. Membership
+    // (members, pieceToGroup) moves unconditionally even when the source group was
+    // never visited, so a KNOWN host ends up with complete membership and correct
+    // localBounds; the built node moves only when the source piece is hydrated. The
+    // host is moved to (worldX, worldY) below.
+    for (const wp of addedPieceIds) this.movePieceMembership(wp.id, { dx: wp.dx, dy: wp.dy }, host);
 
-    host.localBounds = this.boundsForIds(host.pieceIds);
-    host.hydrated = host.pieces.length >= host.pieceIds.length;
+    host.localBounds = this.boundsForMembers(host.members);
+    host.hydrated = host.pieces.length >= host.members.size;
     this.markTilesDirty(hostOldRect);
     this.moveGroup(host, worldX, worldY);
     host.locked = host.locked || anchored;
@@ -1848,16 +1817,16 @@ export class PuzzleStage {
     // The global overview is the server `grid`; on top, an overlay of the locally
     // known groups (the visited regions, bounded by the partial board, not the
     // whole 1M board) refines it with the client's fresher live positions. Dots
-    // come from group membership and geometry, not built nodes, so the overlay
-    // stays correct while most pieces are dehydrated (textures unloaded).
-    const half = this.manifest.pieceSize / 2;
+    // come from group membership and anchor offsets, not built nodes, so the
+    // overlay stays correct while most pieces are dehydrated (textures unloaded).
+    const { pieceSize } = this.manifest;
+    const half = pieceSize / 2;
     const pieces: MinimapPiece[] = [];
     for (const group of this.groups.values()) {
-      for (const id of group.pieceIds) {
-        const off = this.canonicalOffsetFor(id);
+      for (const off of group.members.values()) {
         pieces.push({
-          x: group.worldX + off.x + half,
-          y: group.worldY + off.y + half,
+          x: group.worldX + off.dx * pieceSize + half,
+          y: group.worldY + off.dy * pieceSize + half,
           locked: group.locked,
         });
       }
@@ -2111,13 +2080,15 @@ export class PuzzleStage {
     node.hydrating = true;
     this.resident.add(node.id);
     await Promise.all(
-      node.pieceIds.map(async (pieceId) => {
+      [...node.members.keys()].map(async (pieceId) => {
         if (node.pieces.some((p) => p.id === pieceId)) return;
         const url = this.pieceUrl(pieceId);
         if (!url) return;
         const texture = await this.loadPieceTexture(url);
         if (!texture) return;
+        const offset = node.members.get(pieceId);
         const stillMine =
+          offset !== undefined &&
           this.resident.has(node.id) &&
           this.groups.get(node.id) === node &&
           this.pieceToGroup.get(pieceId) === node.id;
@@ -2126,8 +2097,7 @@ export class PuzzleStage {
           return;
         }
         if (!this.manifest) return;
-        const geometry = this.geomFor(pieceId);
-        const built = buildPieceNode(geometry, texture, this.manifest);
+        const built = buildPieceNode(pieceId, offset, texture, this.manifest);
         node.container.addChild(built.container);
         node.pieces.push(built);
       }),
@@ -2160,10 +2130,6 @@ export class PuzzleStage {
       node.container.removeChild(piece.container);
       piece.container.destroy({ children: true });
       if (url) void Assets.unload(url);
-      // Evict the cached edge geometry with the node: a re-hydration regenerates
-      // it deterministically via geomFor, so the cache stays bounded by the
-      // currently resident pieces rather than every piece ever hydrated.
-      this.geomById.delete(piece.id);
     }
     node.pieces = [];
     node.hydrated = false;
@@ -2631,77 +2597,53 @@ export class PuzzleStage {
 }
 
 function buildPieceNode(
-  geometry: PieceGeometry,
+  pieceId: number,
+  offset: PieceOffset,
   texture: Texture,
   manifest: ImageManifest,
 ): PieceNode {
+  const offsetX = offset.dx * manifest.pieceSize;
+  const offsetY = offset.dy * manifest.pieceSize;
   const container = new Container();
-  container.x = geometry.canonicalOffset.x;
-  container.y = geometry.canonicalOffset.y;
+  container.x = offsetX;
+  container.y = offsetY;
 
   // Inner container holds the visuals and pivots around the piece visual
   // center so scale animations (held bump, snap bump) feel centered on the
   // piece rather than skewed toward the top-left.
-  const half = manifest.pieceSize / 2;
+  const pieceSize = manifest.pieceSize;
+  const half = pieceSize / 2;
   const inner = new Container();
   inner.pivot.set(half, half);
   inner.position.set(half, half);
 
+  // The tile ships pre-masked (silhouette cut into the alpha) and pre-bordered
+  // (outline baked in), so the sprite renders as-is: no render-time mask or
+  // stroke, and the client needs no piece geometry.
   const sprite = new Sprite(texture);
   sprite.width = manifest.tileSize;
   sprite.height = manifest.tileSize;
   sprite.x = -manifest.margin;
   sprite.y = -manifest.margin;
 
-  const path = piecePath(geometry, manifest.pieceSize);
-
+  // Geometry-free snap flash: a rounded tile-shaped glow over the piece body. The
+  // exact silhouette outline is already baked into the tile, so only the flash
+  // shape degrades (a minor, accepted visual change).
   const flash = new Graphics();
-  applyPath(flash, path);
-  flash.fill({ color: 0xffffff });
+  flash.roundRect(0, 0, pieceSize, pieceSize, pieceSize * 0.18).fill({ color: 0xffffff });
   flash.alpha = 0;
 
   inner.addChild(sprite);
-  // A premasked tile already has the silhouette cut into its alpha, so it shows
-  // as-is. Otherwise the rectangular tile is masked to the piece outline at
-  // render time. The snap flash overlay uses the silhouette path either way.
-  if (!manifest.premasked) {
-    const mask = new Graphics();
-    applyPath(mask, path);
-    mask.fill({ color: 0xffffff });
-    inner.addChild(mask);
-    sprite.mask = mask;
-  }
-
-  // A borderBaked tile already carries the silhouette outline in its alpha, so
-  // the per-piece stroke only runs for slices not baked with a border. Seams
-  // stay visible between snapped neighbors within a cluster either way.
-  if (!manifest.borderBaked) {
-    const outline = new Graphics();
-    applyPath(outline, path);
-    outline.stroke({
-      width: PIECE_BORDER_WIDTH,
-      color: PIECE_BORDER_COLOR,
-      alpha: PIECE_BORDER_ALPHA,
-    });
-    inner.addChild(outline);
-  }
-
   inner.addChild(flash);
 
   container.addChild(inner);
 
   return {
-    id: geometry.id,
+    id: pieceId,
     container,
     inner,
     flash,
-    geometry,
-    localBounds: pieceLocalBounds(
-      geometry.canonicalOffset.x,
-      geometry.canonicalOffset.y,
-      manifest.pieceSize,
-      manifest.margin,
-    ),
+    localBounds: pieceLocalBounds(offsetX, offsetY, pieceSize, manifest.margin),
   };
 }
 
