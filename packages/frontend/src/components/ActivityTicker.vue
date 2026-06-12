@@ -4,14 +4,32 @@ import { usePuzzleSession, type ActivityEntry } from "../composables/usePuzzleSe
 
 const { activity } = usePuzzleSession();
 
+// Indefinite article matching how the number is read aloud: "eight", "eleven",
+// "eighteen", "eighty...", "eight hundred...", "eight thousand..." all lead with a
+// vowel sound and take "an"; everything else takes "a". Only the leading spoken
+// group decides, so divide down to it (e.g. 8000 -> 8 "eight thousand").
+function indefiniteArticle(n: number): string {
+  let lead = Math.abs(Math.trunc(n));
+  while (lead >= 1000) lead = Math.floor(lead / 1000);
+  const hundreds = Math.floor(lead / 100);
+  if (hundreds === 8) return "an";
+  if (hundreds !== 0) return "a";
+  const r = lead % 100;
+  return r === 8 || r === 11 || r === 18 || (r >= 80 && r <= 89) ? "an" : "a";
+}
+
+function cluster(count: number): string {
+  return `${indefiniteArticle(count)} ${count}-piece cluster`;
+}
+
 // A place reports the placed group (one piece or an N-piece cluster). A snap
 // reports the resulting cluster (always >= 2): two single pieces read "two pieces
 // together", anything larger reads as the cluster it formed.
 function objectPhrase(entry: ActivityEntry): string {
   if (entry.kind === "snap") {
-    return entry.count === 2 ? "two pieces together" : `a ${entry.count}-piece cluster`;
+    return entry.count === 2 ? "two pieces together" : cluster(entry.count);
   }
-  return entry.count === 1 ? "a piece" : `a ${entry.count}-piece cluster`;
+  return entry.count === 1 ? "a piece" : cluster(entry.count);
 }
 
 const now = ref(Date.now());
