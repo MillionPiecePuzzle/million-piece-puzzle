@@ -111,13 +111,14 @@ const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
 
-// While a cluster is held, its grabbed point is offset to the lower-right of the
-// cursor by this many screen pixels, so the cursor never sits on top of the
-// piece and the player can see what they are placing. Constant in screen space
-// (converted through the current zoom), so the gap feels identical at every zoom
-// and while zooming a carried cluster. The cluster drops where it is shown:
-// placement aims by the piece, not by the cursor tip.
-const HELD_CURSOR_OFFSET = 28;
+// In sticky carry the cluster floats to the upper-right of the cursor, its
+// nearest (bottom-left) bounding-box corner held this many screen pixels clear
+// of the pointer, so the whole cluster stays off the cursor whatever piece was
+// grabbed and whatever the zoom. Constant in screen space (converted through the
+// current zoom), so the gap feels identical at every zoom. Press-drag is
+// unaffected (piece under the cursor); a carry drop lands the cluster at the
+// cursor.
+const HELD_CARRY_GAP = 40;
 
 // Sticky carry mode (double-click a piece to stick its cluster to the cursor). A
 // highlighted outline marks the carried cluster, and an idle timeout drops it so
@@ -1793,37 +1794,50 @@ export class PuzzleStage {
     }
   }
 
-  // World-space origin for the held cluster given a screen pointer position,
-  // clamped into the play zone. With offset, the grabbed point sits
-  // HELD_CURSOR_OFFSET to the lower-right of the cursor (a constant screen-space
-  // gap, so the cursor never covers the piece): this is the sticky-carry feel.
-  // Without it the grabbed point sits exactly under the cursor: press-drag, and
-  // the carry drop, which lands the piece at the cursor rather than below-right.
+  // World-space origin that puts the held cluster's grabbed point under the given
+  // screen position, clamped into the play zone. Used by press-drag (move and
+  // drop) and by the carry drop, which lands the cluster at the cursor.
   private heldGroupOrigin(
     node: GroupNode,
     screenX: number,
     screenY: number,
-    offset: boolean,
   ): { x: number; y: number } {
     const world = this.screenToWorld(screenX, screenY);
-    const off = offset ? HELD_CURSOR_OFFSET / this.camera.zoom : 0;
     return this.clampGroupOrigin(
       node,
-      world.x + off - (this.held?.pointerDx ?? 0),
-      world.y + off - (this.held?.pointerDy ?? 0),
+      world.x - (this.held?.pointerDx ?? 0),
+      world.y - (this.held?.pointerDy ?? 0),
     );
   }
 
+  // World-space origin that floats the carried cluster to the upper-right of the
+  // cursor: its bottom-left bounding-box corner (minX, maxY) is held HELD_CARRY_GAP
+  // screen px to the right of and above the pointer, so the whole cluster clears
+  // the cursor whatever piece was grabbed and whatever the zoom. Clamped into the
+  // play zone.
+  private carryGroupOrigin(
+    node: GroupNode,
+    screenX: number,
+    screenY: number,
+  ): { x: number; y: number } {
+    const world = this.screenToWorld(screenX, screenY);
+    const gap = HELD_CARRY_GAP / this.camera.zoom;
+    const b = node.localBounds;
+    return this.clampGroupOrigin(node, world.x + gap - b.minX, world.y - gap - b.maxY);
+  }
+
   // Move the held cluster under the given screen position, clamped into the play
-  // zone, and stage the resulting drag for the next per-frame broadcast. The
-  // lower-right cursor offset applies to sticky carry only; a press-drag keeps
+  // zone, and stage the resulting drag for the next per-frame broadcast. Sticky
+  // carry floats the cluster to the upper-right of the cursor; a press-drag keeps
   // the piece under the cursor. Shared by pointer moves and edge-pan, which
   // carries the cluster across the board while the pointer rests at the edge.
   private dragHeldTo(screenX: number, screenY: number): void {
     if (!this.held) return;
     const node = this.groups.get(this.held.groupId);
     if (!node || !this.callbacks) return;
-    const { x: nx, y: ny } = this.heldGroupOrigin(node, screenX, screenY, this.held.carry);
+    const { x: nx, y: ny } = this.held.carry
+      ? this.carryGroupOrigin(node, screenX, screenY)
+      : this.heldGroupOrigin(node, screenX, screenY);
     this.moveGroup(node, nx, ny);
     this.pendingDrag = { worldX: nx, worldY: ny };
   }
@@ -1858,7 +1872,7 @@ export class PuzzleStage {
     if (this.held) {
       const node = this.groups.get(this.held.groupId);
       if (node && this.callbacks) {
-        const { x: nx, y: ny } = this.heldGroupOrigin(node, ev.global.x, ev.global.y, false);
+        const { x: nx, y: ny } = this.heldGroupOrigin(node, ev.global.x, ev.global.y);
         this.moveGroup(node, nx, ny);
         this.setGroupHeldVisual(node, false);
         // The server's authoritative drop/snap has not landed yet, so guard the
@@ -1898,8 +1912,9 @@ export class PuzzleStage {
   // it under the cursor, mark it with the carry outline, and arm the idle timeout.
   private beginCarry(node: GroupNode): void {
     if (!this.callbacks || !this.pointerScreen) return;
+    const pointer = this.pointerScreen;
     this.pendingDrops.delete(node.id);
-    const world = this.screenToWorld(this.pointerScreen.x, this.pointerScreen.y);
+    const world = this.screenToWorld(pointer.x, pointer.y);
     this.held = {
       groupId: node.id,
       pointerDx: world.x - node.worldX,
@@ -1914,6 +1929,9 @@ export class PuzzleStage {
     this.addCarryHighlight(node);
     this.callbacks.onGrab(node.id);
     this.onCarryChange?.(true);
+    // Float the cluster off to the upper-right of the cursor the instant it is
+    // grabbed, not on the first move, so it never starts under the pointer.
+    this.dragHeldTo(pointer.x, pointer.y);
     this.armCarryIdle();
   }
 
@@ -1927,7 +1945,7 @@ export class PuzzleStage {
     const node = this.groups.get(this.held.groupId);
     if (node && this.callbacks) {
       const { x, y } = this.pointerScreen
-        ? this.heldGroupOrigin(node, this.pointerScreen.x, this.pointerScreen.y, false)
+        ? this.heldGroupOrigin(node, this.pointerScreen.x, this.pointerScreen.y)
         : { x: node.worldX, y: node.worldY };
       this.moveGroup(node, x, y);
       this.setGroupHeldVisual(node, false);

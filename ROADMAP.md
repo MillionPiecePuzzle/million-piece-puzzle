@@ -92,7 +92,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Contributor nationality: required onboarding step after the pseudo, stored on the profile; leaderboard avatar is the contributor's round country flag
 - [x] Edge-pan navigation: during a press-drag the camera scrolls toward a canvas edge when the pointer rests in an edge band (RTS-style), driven by the Pixi ticker, suppressed during a manual background pan
 - [x] Sticky carry mode: double-click sticks a cluster to the cursor (move + edge-pan/zoom with no button held), double-click drops, Escape returns it, 30s idle timeout. See DECISIONS: sticky carry mode
-- [x] Sticky-carry cursor offset: a carried cluster sits a constant screen-space gap to the lower-right of the cursor so the cursor stays clear of the piece; pan (drag) and zoom (wheel) work mid-carry as with an empty hand, and a double-click drop lands the piece under the cursor. Press-drag is unchanged (piece under the cursor, no offset)
+- [x] Sticky-carry cursor offset: a carried cluster floats to the upper-right of the cursor with its bounding-box corner held a constant screen-space gap clear of the pointer (applied the instant it is grabbed), so the whole cluster stays off the cursor at any zoom; pan (drag) and zoom (wheel) work mid-carry as with an empty hand, and a double-click drop lands the cluster at the cursor. Press-drag is unchanged (piece under the cursor, no offset)
 - [ ] Add a global timer on the play page
 - [x] More info in the activity panel: snap (loose merge) vs place (anchored), each as a single piece or an N-piece cluster, driven by `droppedSize`/`mergedSize` on the snap event. See DECISIONS: activity feed event types
 
