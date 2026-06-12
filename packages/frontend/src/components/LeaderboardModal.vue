@@ -1,13 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
-import { toLeaderboardRows } from "../data/leaderboard";
+import { toCountryRows, toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardRow from "./LeaderboardRow.vue";
 
 const emit = defineEmits<{ close: [] }>();
 
 const { leaderboard, userId } = usePuzzleSession();
-const rows = computed(() => toLeaderboardRows(leaderboard.value, userId.value));
+
+type Mode = "people" | "countries";
+const mode = ref<Mode>("people");
+
+const rows = computed(() =>
+  mode.value === "people"
+    ? toLeaderboardRows(leaderboard.value, userId.value)
+    : toCountryRows(leaderboard.value, userId.value),
+);
 
 const PAGE_SIZE = 10;
 const page = ref(0);
@@ -16,6 +24,10 @@ const pageCount = computed(() => Math.max(1, Math.ceil(rows.value.length / PAGE_
 const pageRows = computed(() =>
   rows.value.slice(page.value * PAGE_SIZE, page.value * PAGE_SIZE + PAGE_SIZE),
 );
+
+watch(mode, () => {
+  page.value = 0;
+});
 
 function prev(): void {
   if (page.value > 0) page.value--;
@@ -35,9 +47,27 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   <div class="backdrop" @click.self="emit('close')">
     <div class="panel modal" role="dialog" aria-modal="true" aria-label="Full leaderboard">
       <div class="modal-head">
-        <h3>Leaderboard &middot; full board</h3>
+        <h3>Leaderboard</h3>
         <button type="button" class="close" aria-label="Close" @click="emit('close')">
           &times;
+        </button>
+      </div>
+      <div class="seg" role="group" aria-label="Ranking mode">
+        <button
+          type="button"
+          :class="{ on: mode === 'people' }"
+          :aria-pressed="mode === 'people'"
+          @click="mode = 'people'"
+        >
+          People
+        </button>
+        <button
+          type="button"
+          :class="{ on: mode === 'countries' }"
+          :aria-pressed="mode === 'countries'"
+          @click="mode = 'countries'"
+        >
+          Countries
         </button>
       </div>
       <ol class="lb-list">
@@ -81,6 +111,30 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   padding: 0 4px;
 }
 .close:hover {
+  color: var(--ink);
+}
+.seg {
+  display: inline-flex;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.seg button {
+  padding: 5px 14px;
+  color: var(--ink-3);
+  background: var(--paper);
+}
+.seg button + button {
+  border-left: 1px solid var(--line);
+}
+.seg button.on {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.seg button:hover:not(.on) {
   color: var(--ink);
 }
 .lb-list {

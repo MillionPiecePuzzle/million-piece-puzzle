@@ -113,4 +113,6 @@ Ideas worth keeping but not yet committed to a phase. Promote into a phase track
 - **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: with `ws.*` proxied but the VPS still reachable directly, the edge is bypassable and `CF-Connecting-IP` is spoofable. Apply a Hetzner Cloud Firewall allowing 80/443 from Cloudflare ranges plus the admin IP, and 22 from the admin IP, at the network edge so it sidesteps the Docker-publish iptables bypass a host ufw hits. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
 - **Render the spectator keyframe as the zoomed-out contributor backdrop.** Under the viewport-scoped join a contributor's far-zoomed view shows only visited regions plus the minimap; painting the CDN keyframe (the full board) behind the live pieces would give a true overview backdrop that resolves into live pieces as the user zooms in. Deferred: the minimap already carries global progress, and this couples the contributor render path to the spectator keyframe format.
 - **Reword the legal and policy pages**
-- **Remove "dot full-board" in th modal leaderboar, add a global timer on the play page add a toggle in the leaderboard modal person / country
+- add a global timer on the play page
+- add cursor pan viewport on edges
+- double click to make the piece stick to the cursor
