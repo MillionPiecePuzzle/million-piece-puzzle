@@ -1756,7 +1756,11 @@ export class PuzzleStage {
 
   private onStagePointerDown(ev: FederatedPointerEvent): void {
     this.lastPointerDownGroupId = null;
-    if (this.held) return;
+    // A press-drag owns the button, so a background pan must not compete with it.
+    // Sticky carry holds no button, so it behaves like an empty hand: pressing
+    // empty stage starts a pan (the carried cluster stays glued to the cursor as
+    // the world scrolls beneath it).
+    if (this.held && !this.held.carry) return;
     this.pan.active = true;
     this.pan.lastX = ev.global.x;
     this.pan.lastY = ev.global.y;
@@ -1769,14 +1773,10 @@ export class PuzzleStage {
       const cursor = this.screenToWorld(ev.global.x, ev.global.y);
       this.onCursorMove(cursor.x, cursor.y);
     }
-    if (this.held) {
-      this.dragHeldTo(ev.global.x, ev.global.y);
-      // A real pointer move resets the carry idle timer; an edge-pan re-place
-      // (no move event) deliberately does not, so a pointer truly at rest still
-      // times out.
-      if (this.held.carry) this.armCarryIdle();
-      return;
-    }
+    // A background pan can run alongside a sticky carry: scroll the world first,
+    // then re-glue the carried cluster to the cursor under the new camera. A
+    // press-drag never starts a pan (onStagePointerDown), so pan.active here is
+    // only ever an empty-hand or carry pan.
     if (this.pan.active) {
       this.camera.x += ev.global.x - this.pan.lastX;
       this.camera.y += ev.global.y - this.pan.lastY;
@@ -1784,20 +1784,29 @@ export class PuzzleStage {
       this.pan.lastY = ev.global.y;
       this.applyCamera();
     }
+    if (this.held) {
+      this.dragHeldTo(ev.global.x, ev.global.y);
+      // A real pointer move resets the carry idle timer; an edge-pan re-place
+      // (no move event) deliberately does not, so a pointer truly at rest still
+      // times out.
+      if (this.held.carry) this.armCarryIdle();
+    }
   }
 
-  // World-space origin for the held cluster given a screen pointer position: keep
-  // the grabbed point at HELD_CURSOR_OFFSET to the lower-right of the cursor (a
-  // constant screen-space gap, so the cursor never covers the piece), then clamp
-  // into the play zone. Shared by drag, drop and edge-pan so all three agree on
-  // where a held cluster sits and where it lands.
+  // World-space origin for the held cluster given a screen pointer position,
+  // clamped into the play zone. With offset, the grabbed point sits
+  // HELD_CURSOR_OFFSET to the lower-right of the cursor (a constant screen-space
+  // gap, so the cursor never covers the piece): this is the sticky-carry feel.
+  // Without it the grabbed point sits exactly under the cursor: press-drag, and
+  // the carry drop, which lands the piece at the cursor rather than below-right.
   private heldGroupOrigin(
     node: GroupNode,
     screenX: number,
     screenY: number,
+    offset: boolean,
   ): { x: number; y: number } {
     const world = this.screenToWorld(screenX, screenY);
-    const off = HELD_CURSOR_OFFSET / this.camera.zoom;
+    const off = offset ? HELD_CURSOR_OFFSET / this.camera.zoom : 0;
     return this.clampGroupOrigin(
       node,
       world.x + off - (this.held?.pointerDx ?? 0),
@@ -1805,15 +1814,16 @@ export class PuzzleStage {
     );
   }
 
-  // Move the held cluster to its offset position under the given screen position,
-  // clamped into the play zone, and stage the resulting drag for the next
-  // per-frame broadcast. Shared by pointer moves and edge-pan, which carries the
-  // cluster across the board while the pointer rests at the edge.
+  // Move the held cluster under the given screen position, clamped into the play
+  // zone, and stage the resulting drag for the next per-frame broadcast. The
+  // lower-right cursor offset applies to sticky carry only; a press-drag keeps
+  // the piece under the cursor. Shared by pointer moves and edge-pan, which
+  // carries the cluster across the board while the pointer rests at the edge.
   private dragHeldTo(screenX: number, screenY: number): void {
     if (!this.held) return;
     const node = this.groups.get(this.held.groupId);
     if (!node || !this.callbacks) return;
-    const { x: nx, y: ny } = this.heldGroupOrigin(node, screenX, screenY);
+    const { x: nx, y: ny } = this.heldGroupOrigin(node, screenX, screenY, this.held.carry);
     this.moveGroup(node, nx, ny);
     this.pendingDrag = { worldX: nx, worldY: ny };
   }
@@ -1848,7 +1858,7 @@ export class PuzzleStage {
     if (this.held) {
       const node = this.groups.get(this.held.groupId);
       if (node && this.callbacks) {
-        const { x: nx, y: ny } = this.heldGroupOrigin(node, ev.global.x, ev.global.y);
+        const { x: nx, y: ny } = this.heldGroupOrigin(node, ev.global.x, ev.global.y, false);
         this.moveGroup(node, nx, ny);
         this.setGroupHeldVisual(node, false);
         // The server's authoritative drop/snap has not landed yet, so guard the
@@ -1907,15 +1917,22 @@ export class PuzzleStage {
     this.armCarryIdle();
   }
 
-  // Put the carried cluster down where it sits (the drop double-click or the idle
-  // timeout), committing the move and releasing the server lock.
+  // Put the carried cluster down at the cursor (the drop double-click or the idle
+  // timeout), committing the move and releasing the server lock. The lower-right
+  // carry offset is dropped here so the piece lands under the pointer, not
+  // below-right of it. Falls back to its current resting spot if the pointer has
+  // left the canvas (a timeout after the cursor left).
   private dropCarried(): void {
     if (!this.held?.carry) return;
     const node = this.groups.get(this.held.groupId);
     if (node && this.callbacks) {
+      const { x, y } = this.pointerScreen
+        ? this.heldGroupOrigin(node, this.pointerScreen.x, this.pointerScreen.y, false)
+        : { x: node.worldX, y: node.worldY };
+      this.moveGroup(node, x, y);
       this.setGroupHeldVisual(node, false);
       this.pendingDrops.add(node.id);
-      this.callbacks.onDrop(node.id, node.worldX, node.worldY);
+      this.callbacks.onDrop(node.id, x, y);
       this.releaseGroupHeld(node.id);
     }
     this.held = null;
@@ -2855,6 +2872,10 @@ export class PuzzleStage {
         this.camera.y = py - (py - this.camera.y) * k;
         this.camera.zoom = next;
         this.applyCamera();
+        // A carried cluster is offset from the cursor in screen space, so a zoom
+        // shifts it off the pointer; re-glue it. A press-drag piece sits under
+        // the cursor and zoom-to-cursor already holds it there, so skip it.
+        if (this.held?.carry) this.dragHeldTo(px, py);
       },
       { passive: false },
     );
