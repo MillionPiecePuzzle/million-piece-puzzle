@@ -67,6 +67,9 @@ export type ActivityEntry = {
 const state = shallowRef<PuzzleSessionState>({ kind: "idle" });
 const userId = ref<string | null>(null);
 const puzzleName = ref<string | null>(null);
+// Unix ms the event started at, mirrored from welcome/keyframe. 0 means no
+// scheduled start. Drives the top bar's live play-time counter.
+const eventStartsAt = ref(0);
 const totalPieces = ref(0);
 const lockedCount = ref(0);
 const activity = ref<ActivityEntry[]>([]);
@@ -197,6 +200,7 @@ async function loadManifestFor(puzzleId: string): Promise<void> {
 async function handleWelcome(msg: SWelcome): Promise<void> {
   welcome = msg;
   userId.value = msg.userId;
+  eventStartsAt.value = msg.eventStartsAt;
   lockedCount.value = msg.lockedCount;
   activity.value = [];
   leaderboard.value = [];
@@ -431,6 +435,7 @@ function close(): void {
   transport.value = "none";
   state.value = { kind: "idle" };
   userId.value = null;
+  eventStartsAt.value = 0;
   lockedCount.value = 0;
   totalPieces.value = 0;
   activity.value = [];
@@ -502,6 +507,7 @@ export function usePuzzleSession() {
     state,
     userId,
     puzzleName,
+    eventStartsAt,
     totalPieces,
     lockedCount,
     activity,

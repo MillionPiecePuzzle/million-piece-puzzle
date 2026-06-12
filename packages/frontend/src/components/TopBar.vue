@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import BrandMark from "./BrandMark.vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { formatCountdown } from "../composables/useCountdown";
 import { useAuth } from "../composables/useAuth";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { flagUrl } from "../data/flags";
 
-const { puzzleName, totalPieces, lockedCount } = usePuzzleSession();
+const { eventStartsAt, totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
 const { show: showPseudoModal } = usePseudoModal();
 const { show: showNationalityModal } = useNationalityModal();
@@ -16,6 +17,21 @@ const { show: showNationalityModal } = useNationalityModal();
 const progressPct = computed(() =>
   totalPieces.value > 0 ? (lockedCount.value / totalPieces.value) * 100 : 0,
 );
+
+const now = ref(Date.now());
+const ticker = setInterval(() => {
+  now.value = Date.now();
+}, 1000);
+onUnmounted(() => clearInterval(ticker));
+
+// Elapsed since the event started, ticking each second. Null until a real start
+// has been reached (no schedule or a future start has no play time to show yet).
+const playTime = computed(() => {
+  if (eventStartsAt.value <= 0 || now.value < eventStartsAt.value) return null;
+  const { days, hours, minutes, seconds } = formatCountdown(now.value - eventStartsAt.value);
+  const clock = `${hours}:${minutes}:${seconds}`;
+  return Number(days) > 0 ? `${Number(days)}d ${clock}` : clock;
+});
 </script>
 
 <template>
@@ -23,7 +39,7 @@ const progressPct = computed(() =>
     <RouterLink to="/" class="brand">
       <BrandMark />
       <span class="brand-name">Million Piece <em>Puzzle</em></span>
-      <span v-if="puzzleName" class="brand-caption">{{ puzzleName }}</span>
+      <span v-if="playTime" class="brand-caption" title="Play time">{{ playTime }}</span>
     </RouterLink>
 
     <div v-if="totalPieces > 0" class="progress-pill" title="Puzzle progress">

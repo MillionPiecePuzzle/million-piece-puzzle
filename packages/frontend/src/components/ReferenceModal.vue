@@ -108,6 +108,7 @@ onBeforeUnmount(() => {
           </svg>
         </button>
       </div>
+      <p class="caption">{{ manifest.name }}</p>
     </div>
   </div>
 </template>
@@ -139,15 +140,32 @@ onBeforeUnmount(() => {
   height: auto;
   max-width: 100%;
   max-height: 100%;
+  /* No overflow clip here: the caption is anchored just below the shell and must
+     escape it. The image clip lives on .osd-large instead. */
+}
+.osd-large {
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--ground-2);
   box-shadow: var(--shadow-panel);
 }
-.osd-large {
-  width: 100%;
-  height: 100%;
+.caption {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 2px;
+  max-width: 100%;
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--ground);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .close {
   position: absolute;
