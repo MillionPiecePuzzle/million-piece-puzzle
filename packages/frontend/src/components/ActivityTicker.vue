@@ -32,13 +32,13 @@ function relativeTime(at: number): string {
     <ul v-if="activity.length > 0">
       <li v-for="entry in activity" :key="entry.id">
         <span class="msg"
-          ><b>{{ entry.actor }}</b> <em>placed</em> {{ entry.pieceCount }}
-          {{ entry.pieceCount === 1 ? "piece" : "pieces" }}</span
+          ><b>{{ entry.actor }}</b> <em>{{ entry.kind === "place" ? "placed" : "snapped" }}</em>
+          {{ entry.count === 1 ? "a piece" : `a ${entry.count}-piece cluster` }}</span
         >
         <span class="ts">{{ relativeTime(entry.at) }}</span>
       </li>
     </ul>
-    <p v-else class="empty">No pieces placed yet.</p>
+    <p v-else class="empty">No activity yet.</p>
   </aside>
 </template>
 

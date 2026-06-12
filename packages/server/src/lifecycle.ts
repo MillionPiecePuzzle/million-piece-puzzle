@@ -64,10 +64,7 @@ export class PuzzleLifecycle {
       playZone: this.playZone,
       eventStartsAt: this.ctx.eventStartsAt,
     });
-    const items = await this.ctx.mongo.recentAnchoredMerges(
-      this.ctx.puzzleId,
-      ACTIVITY_BACKFILL_LIMIT,
-    );
+    const items = await this.ctx.mongo.recentMerges(this.ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT);
     this.ctx.hub.send(client, { t: "activity", items });
     const entries = await this.ctx.mongo.leaderboard(this.ctx.puzzleId, LEADERBOARD_LIMIT);
     this.ctx.hub.send(client, { t: "leaderboard", entries });

@@ -80,36 +80,34 @@ export class MongoLogger {
     await this.merges.deleteMany({ puzzleId });
   }
 
-  // Most recent anchoring merges for a puzzle, newest first, to backfill a
-  // joining client's activity feed. Each item's pseudo is resolved from the user
-  // profile so backfilled placements show names like the live feed.
-  async recentAnchoredMerges(puzzleId: string, limit: number): Promise<ActivityItem[]> {
+  // Most recent merges for a puzzle, newest first, to backfill a joining client's
+  // activity feed. Includes both snaps (not anchored) and places (anchored) so the
+  // seeded feed shows the same event mix as the live stream. Each item's pseudo is
+  // resolved from the user profile so backfilled items show names like the live feed.
+  async recentMerges(puzzleId: string, limit: number): Promise<ActivityItem[]> {
     const docs = await this.merges
       .aggregate<{
         _id: ObjectId;
         userId: string;
-        addedPieceIds: number[];
-        lockedDelta?: number;
+        droppedPieceIds: number[];
+        anchored: boolean;
         at: Date;
         u: { pseudo?: string | null }[];
       }>([
-        { $match: { puzzleId, anchored: true } },
+        { $match: { puzzleId } },
         { $sort: { at: -1 } },
         { $limit: limit },
         profileLookup("userId"),
       ])
       .toArray();
-    return docs.map((d) => {
-      // Docs written before lockedDelta existed fall back to a piece count.
-      const delta = d.lockedDelta ?? d.addedPieceIds.length;
-      return {
-        id: d._id.toString(),
-        userId: d.userId,
-        pseudo: d.u[0]?.pseudo ?? null,
-        lockedDelta: Math.max(1, delta),
-        at: d.at.getTime(),
-      };
-    });
+    return docs.map((d) => ({
+      id: d._id.toString(),
+      userId: d.userId,
+      pseudo: d.u[0]?.pseudo ?? null,
+      anchored: d.anchored,
+      droppedSize: Math.max(1, d.droppedPieceIds.length),
+      at: d.at.getTime(),
+    }));
   }
 
   // Per-user contribution standings, derived on demand. Each piece scores one

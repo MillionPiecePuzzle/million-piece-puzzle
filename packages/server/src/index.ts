@@ -145,7 +145,7 @@ async function main(): Promise<void> {
     eventStartsAt: () => ctx.eventStartsAt,
     status: () => ctx.meta.status,
     leaderboard: () => mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT),
-    activity: () => mongo.recentAnchoredMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
+    activity: () => mongo.recentMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
     windowMs: config.eventWindowMs,
     delayMs: config.interpDelayMs,
   });

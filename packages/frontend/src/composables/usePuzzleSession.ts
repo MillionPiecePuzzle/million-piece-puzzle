@@ -56,7 +56,11 @@ export type WindowHandler = (events: SpectatorEvent[]) => void;
 export type ActivityEntry = {
   id: string;
   actor: string;
-  pieceCount: number;
+  // "place": dragged group locked into the puzzle (anchored). "snap": two loose
+  // clusters joined without locking.
+  kind: "snap" | "place";
+  // Piece count of the dragged group: 1 renders "a piece", more renders a cluster.
+  count: number;
   at: number;
 };
 
@@ -115,13 +119,11 @@ function recordSnap(msg: SSnap): void {
   // one; clamp to monotonic so the count never regresses (which at completion
   // would leave the session reading not-yet-complete).
   lockedCount.value = Math.max(prev, msg.lockedCount);
-  if (!msg.anchored) return;
-  const pieceCount = msg.lockedCount - prev;
-  if (pieceCount <= 0) return;
   const entry: ActivityEntry = {
     id: msg.mergeId,
     actor: snapActor(msg),
-    pieceCount,
+    kind: msg.anchored ? "place" : "snap",
+    count: msg.droppedSize,
     at: msg.at,
   };
   activity.value = [entry, ...activity.value].slice(0, ACTIVITY_LIMIT);
@@ -137,7 +139,8 @@ function applyActivity(msg: SActivity): void {
     .map((item) => ({
       id: item.id,
       actor: activityActor(item),
-      pieceCount: item.lockedDelta,
+      kind: item.anchored ? ("place" as const) : ("snap" as const),
+      count: item.droppedSize,
       at: item.at,
     }))
     .slice(0, ACTIVITY_LIMIT);
@@ -395,6 +398,7 @@ function recordSpectatorSnap(e: SpectatorSnapEvent): void {
     worldX: e.worldX,
     worldY: e.worldY,
     anchored: e.anchored,
+    droppedSize: e.droppedSize,
     userId: e.userId,
     pseudo: e.pseudo,
     at: e.at,

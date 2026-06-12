@@ -128,7 +128,11 @@ export type ActivityItem = {
   // Contributor pseudo resolved from the user profile, null when the user has
   // not set one. Carried so backfilled items show names like the live feed.
   pseudo?: string | null;
-  lockedDelta: number;
+  // Mirrors the live `snap` event: anchored is a "place" (locked into the
+  // puzzle), not anchored is a "snap" (two loose clusters joined); droppedSize is
+  // the dragged group's piece count, driving "piece" vs "cluster" wording.
+  anchored: boolean;
+  droppedSize: number;
   at: number;
 };
 
@@ -198,6 +202,11 @@ export type SSnap = {
   worldX: number;
   worldY: number;
   anchored: boolean;
+  // Piece count of the group the user dragged into this merge (>= 1). Drives the
+  // activity feed's "piece" vs "cluster" wording for both the snap (not anchored)
+  // and place (anchored) cases. Distinct from addedPieceIds.length, which follows
+  // group-id order and is 0 for the first frame anchor.
+  droppedSize: number;
   userId: string;
   // Pseudo of the snapping user, null if unset. Carried on the live event to
   // avoid a profile lookup on the hot path; the Mongo-backed activity backfill
@@ -366,6 +375,7 @@ export type SpectatorSnapEvent = {
   worldX: number;
   worldY: number;
   anchored: boolean;
+  droppedSize: number;
   userId: string;
   pseudo: string | null;
   lockedCount: number;

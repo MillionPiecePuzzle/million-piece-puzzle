@@ -37,7 +37,9 @@ const wire: WireContext = {
   gridForWire: Int32Array.from([0, 1]),
 };
 const leaderboardEntries: LeaderboardEntry[] = [{ userId: "u1", pieces: 3 }];
-const activityItems: ActivityItem[] = [{ id: "m1", userId: "u1", lockedDelta: 2, at: 1000 }];
+const activityItems: ActivityItem[] = [
+  { id: "m1", userId: "u1", anchored: true, droppedSize: 2, at: 1000 },
+];
 const zone: PlayZone = { minX: -100, minY: -100, maxX: 900, maxY: 900 };
 
 type SourceOpts = {

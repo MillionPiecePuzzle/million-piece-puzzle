@@ -93,7 +93,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Edge-pan navigation: during a press-drag the camera scrolls toward a canvas edge when the pointer rests in an edge band (RTS-style), driven by the Pixi ticker, suppressed during a manual background pan
 - [x] Sticky carry mode: double-click sticks a cluster to the cursor (move + edge-pan/zoom with no button held), double-click drops, Escape returns it, 30s idle timeout. See DECISIONS: sticky carry mode
 - [ ] Add a global timer on the play page
-- [ ] More info in the activity panel: handle the 4 cases (snap 1 piece / several and place 1 piece / several)
+- [x] More info in the activity panel: snap (loose merge) vs place (anchored), each as a single piece or an N-piece cluster, driven by a `droppedSize` field on the snap event. See DECISIONS: activity feed event types
 
 ---
 
