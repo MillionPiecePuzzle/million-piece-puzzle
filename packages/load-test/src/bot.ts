@@ -110,7 +110,7 @@ export class Bot {
       case "welcome":
         this.userId = msg.userId;
         this.world.playZone = msg.playZone;
-        // Protocol v3: no board arrives on join. Start the viewport/cursor
+        // Protocol v4: no board arrives on join. Start the viewport/cursor
         // presence and the grab loop now; the board fills in from the
         // region_state stream the first viewport triggers.
         this.startTimers();

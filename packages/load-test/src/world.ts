@@ -1,14 +1,16 @@
 // Local mirror of authoritative server state for one bot.
 //
-// Protocol v3: `welcome` carries no board, so the world starts empty and is
+// Protocol v4: `welcome` carries no board, so the world starts empty and is
 // filled incrementally from the region_state construction stream the server
 // sends for the cells a bot's viewport enters. It is then updated from
 // broadcasts (SGrabOk, SDrag, SDrop, SSnap). Lets a bot pick a non-held,
-// non-locked group to grab and know where it currently is in world space.
+// non-locked group to grab and know where it currently is in world space. Ids and
+// positions are opaque wire values (seed-permuted ids, anchor world positions);
+// the bot grabs/drops them as-is and ignores the per-piece (dx, dy) offsets since
+// it does not render.
 
 import type {
   GroupRuntime,
-  PieceRuntime,
   PlayZone,
   SDrag,
   SDrop,
@@ -17,8 +19,12 @@ import type {
   SSnap,
 } from "@mpp/shared";
 
+// The bot only needs each piece's current group; it never renders, so it drops the
+// wire offset and keeps just id -> group.
+type BotPiece = { id: number; groupId: number };
+
 export class World {
-  readonly pieces = new Map<number, PieceRuntime>();
+  readonly pieces = new Map<number, BotPiece>();
   readonly groups = new Map<number, GroupRuntime>();
   playZone: PlayZone = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
@@ -46,10 +52,10 @@ export class World {
         existing.size = rg.size;
         existing.locked = rg.locked;
       }
-      for (const pieceId of rg.pieceIds) {
-        const p = this.pieces.get(pieceId);
+      for (const wp of rg.pieces) {
+        const p = this.pieces.get(wp.id);
         if (p) p.groupId = rg.groupId;
-        else this.pieces.set(pieceId, { id: pieceId, groupId: rg.groupId, rotation: 0 });
+        else this.pieces.set(wp.id, { id: wp.id, groupId: rg.groupId });
       }
     }
   }
@@ -76,8 +82,8 @@ export class World {
 
   applySnap(msg: SSnap): void {
     const oldGroupIds = new Set<number>();
-    for (const pieceId of msg.addedPieceIds) {
-      const piece = this.pieces.get(pieceId);
+    for (const wp of msg.addedPieceIds) {
+      const piece = this.pieces.get(wp.id);
       if (!piece) continue;
       if (piece.groupId !== msg.newGroupId) {
         oldGroupIds.add(piece.groupId);

@@ -69,7 +69,7 @@ Locked pieces are permanent (no undo, no griefing).
 
 ### What is intentionally not stored
 
-- **Piece geometry** (Bezier params, canonical offsets): deterministic from `generationSeed`, recomputed client and server side at connection. No collection.
+- **Piece geometry** (Bezier params, canonical offsets): deterministic from `generationSeed`, recomputed server side and by the slicer (which bakes the silhouette into each tile). The `generationSeed` is server-only and never sent to a client; the client renders from pre-masked tiles plus server-provided per-piece offsets and holds no geometry (see DECISIONS: anti-programmatic-solving). No collection.
 - **Drag events**: transient, broadcast only, never persisted.
 - **Non-merging drops** (moving a piece without joining a cluster): not persisted. Current position is in Redis only.
 - **User stats** (pieces snapped count, etc.): derived on demand from `ClusterMerge` aggregations. No precomputed counters until performance demands it.
