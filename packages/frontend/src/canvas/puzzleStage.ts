@@ -111,6 +111,14 @@ const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
 
+// While a cluster is held, its grabbed point is offset to the lower-right of the
+// cursor by this many screen pixels, so the cursor never sits on top of the
+// piece and the player can see what they are placing. Constant in screen space
+// (converted through the current zoom), so the gap feels identical at every zoom
+// and while zooming a carried cluster. The cluster drops where it is shown:
+// placement aims by the piece, not by the cursor tip.
+const HELD_CURSOR_OFFSET = 28;
+
 // Sticky carry mode (double-click a piece to stick its cluster to the cursor). A
 // highlighted outline marks the carried cluster, and an idle timeout drops it so
 // a player cannot park a cluster with its server-side lock held indefinitely.
@@ -1778,20 +1786,34 @@ export class PuzzleStage {
     }
   }
 
-  // Move the held cluster so the grabbed point stays under the given screen
-  // position, clamped into the play zone, and stage the resulting drag for the
-  // next per-frame broadcast. Shared by pointer moves and edge-pan, which carries
-  // the cluster across the board while the pointer rests at the edge.
+  // World-space origin for the held cluster given a screen pointer position: keep
+  // the grabbed point at HELD_CURSOR_OFFSET to the lower-right of the cursor (a
+  // constant screen-space gap, so the cursor never covers the piece), then clamp
+  // into the play zone. Shared by drag, drop and edge-pan so all three agree on
+  // where a held cluster sits and where it lands.
+  private heldGroupOrigin(
+    node: GroupNode,
+    screenX: number,
+    screenY: number,
+  ): { x: number; y: number } {
+    const world = this.screenToWorld(screenX, screenY);
+    const off = HELD_CURSOR_OFFSET / this.camera.zoom;
+    return this.clampGroupOrigin(
+      node,
+      world.x + off - (this.held?.pointerDx ?? 0),
+      world.y + off - (this.held?.pointerDy ?? 0),
+    );
+  }
+
+  // Move the held cluster to its offset position under the given screen position,
+  // clamped into the play zone, and stage the resulting drag for the next
+  // per-frame broadcast. Shared by pointer moves and edge-pan, which carries the
+  // cluster across the board while the pointer rests at the edge.
   private dragHeldTo(screenX: number, screenY: number): void {
     if (!this.held) return;
     const node = this.groups.get(this.held.groupId);
     if (!node || !this.callbacks) return;
-    const world = this.screenToWorld(screenX, screenY);
-    const { x: nx, y: ny } = this.clampGroupOrigin(
-      node,
-      world.x - this.held.pointerDx,
-      world.y - this.held.pointerDy,
-    );
+    const { x: nx, y: ny } = this.heldGroupOrigin(node, screenX, screenY);
     this.moveGroup(node, nx, ny);
     this.pendingDrag = { worldX: nx, worldY: ny };
   }
@@ -1826,12 +1848,7 @@ export class PuzzleStage {
     if (this.held) {
       const node = this.groups.get(this.held.groupId);
       if (node && this.callbacks) {
-        const world = this.screenToWorld(ev.global.x, ev.global.y);
-        const { x: nx, y: ny } = this.clampGroupOrigin(
-          node,
-          world.x - this.held.pointerDx,
-          world.y - this.held.pointerDy,
-        );
+        const { x: nx, y: ny } = this.heldGroupOrigin(node, ev.global.x, ev.global.y);
         this.moveGroup(node, nx, ny);
         this.setGroupHeldVisual(node, false);
         // The server's authoritative drop/snap has not landed yet, so guard the
