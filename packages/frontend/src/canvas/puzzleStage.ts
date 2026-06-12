@@ -106,6 +106,14 @@ const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
 
+// Edge-pan: when the pointer rests within this many screen pixels of a canvas
+// edge, the camera scrolls toward that edge. Speed ramps quadratically from 0 at
+// the inner band to EDGE_PAN_MAX_SPEED (screen px per second) at the very rim, so
+// the pan is gentle on entry and fast at the edge. Screen-space speed keeps the
+// feel constant across zoom levels; the play-zone clamp stops it at the bounds.
+const EDGE_PAN_MARGIN = 56;
+const EDGE_PAN_MAX_SPEED = 1100;
+
 // The camera may travel one padding ring past the play zone; pieces stay
 // strictly inside it.
 const PLAY_ZONE_PADDING_FRACTION = 0.04;
@@ -294,6 +302,14 @@ export class PuzzleStage {
     lastX: 0,
     lastY: 0,
   };
+  // Latest pointer position in screen space (renderer.screen coords, matching
+  // ev.global), updated on every move and cleared when the pointer leaves the
+  // canvas. Drives edge-pan, which reads it from the ticker so a pointer resting
+  // in the edge band keeps scrolling without further move events.
+  private pointerScreen: { x: number; y: number } | null = null;
+  private readonly tickEdgePan = (ticker: { deltaMS: number }): void => {
+    this.tickEdgePanFrame(ticker.deltaMS);
+  };
   private tweener: Tweener | null = null;
 
   // Spatial index over the LOD tile grid, keyed by tile cell. Bounds both the
@@ -443,6 +459,10 @@ export class PuzzleStage {
     app.stage.on("globalpointermove", (ev) => this.onPointerMove(ev));
     app.stage.on("pointerup", (ev) => this.onPointerUp(ev));
     app.stage.on("pointerupoutside", (ev) => this.onPointerUp(ev));
+    // Off-canvas: stop edge-pan (no pointer to read a band from).
+    app.canvas.addEventListener("pointerleave", () => {
+      this.pointerScreen = null;
+    });
     app.renderer.on("resize", () => {
       this.refreshStageHitArea(app);
       this.redrawBackdrop();
@@ -455,6 +475,7 @@ export class PuzzleStage {
     this.tweener = new Tweener(app.ticker);
     app.ticker.add(this.tickPeerCursors);
     app.ticker.add(this.tickDragFlush);
+    app.ticker.add(this.tickEdgePan);
     app.ticker.add(this.tickLod);
     app.ticker.add(this.tickSpectatorBound);
     this.attachWheelZoom(app.canvas);
@@ -776,6 +797,7 @@ export class PuzzleStage {
     this.tweener = null;
     this.app?.ticker.remove(this.tickPeerCursors);
     this.app?.ticker.remove(this.tickDragFlush);
+    this.app?.ticker.remove(this.tickEdgePan);
     this.app?.ticker.remove(this.tickLod);
     this.app?.ticker.remove(this.tickSpectatorBound);
     this.resetSpectatorStream();
@@ -812,6 +834,7 @@ export class PuzzleStage {
     this.minimapGrid = null;
     this.held = null;
     this.pendingDrag = null;
+    this.pointerScreen = null;
     this.pendingDrops.clear();
   }
 
@@ -1682,22 +1705,14 @@ export class PuzzleStage {
   }
 
   private onPointerMove(ev: FederatedPointerEvent): void {
+    this.pointerScreen = { x: ev.global.x, y: ev.global.y };
     // Only contributors broadcast a cursor; spectators stay invisible to peers.
     if (this.mode === "contributor" && this.onCursorMove) {
       const cursor = this.screenToWorld(ev.global.x, ev.global.y);
       this.onCursorMove(cursor.x, cursor.y);
     }
     if (this.held) {
-      const node = this.groups.get(this.held.groupId);
-      if (!node || !this.callbacks) return;
-      const world = this.screenToWorld(ev.global.x, ev.global.y);
-      const { x: nx, y: ny } = this.clampGroupOrigin(
-        node,
-        world.x - this.held.pointerDx,
-        world.y - this.held.pointerDy,
-      );
-      this.moveGroup(node, nx, ny);
-      this.pendingDrag = { worldX: nx, worldY: ny };
+      this.dragHeldTo(ev.global.x, ev.global.y);
       return;
     }
     if (this.pan.active) {
@@ -1707,6 +1722,41 @@ export class PuzzleStage {
       this.pan.lastY = ev.global.y;
       this.applyCamera();
     }
+  }
+
+  // Move the held cluster so the grabbed point stays under the given screen
+  // position, clamped into the play zone, and stage the resulting drag for the
+  // next per-frame broadcast. Shared by pointer moves and edge-pan, which carries
+  // the cluster across the board while the pointer rests at the edge.
+  private dragHeldTo(screenX: number, screenY: number): void {
+    if (!this.held) return;
+    const node = this.groups.get(this.held.groupId);
+    if (!node || !this.callbacks) return;
+    const world = this.screenToWorld(screenX, screenY);
+    const { x: nx, y: ny } = this.clampGroupOrigin(
+      node,
+      world.x - this.held.pointerDx,
+      world.y - this.held.pointerDy,
+    );
+    this.moveGroup(node, nx, ny);
+    this.pendingDrag = { worldX: nx, worldY: ny };
+  }
+
+  // Per-frame edge-pan: when the pointer sits in an edge band, scroll the camera
+  // toward that edge (speed ramps to the rim, see EDGE_PAN_*), then re-place any
+  // held cluster under the now-stationary cursor as the world scrolls beneath it.
+  // Suppressed during a manual background pan-drag, which already owns the camera.
+  private tickEdgePanFrame(deltaMS: number): void {
+    if (!this.app || !this.playZone || !this.pointerScreen || this.pan.active) return;
+    const screen = this.app.renderer.screen;
+    const vx = edgePanAxis(this.pointerScreen.x, screen.width);
+    const vy = edgePanAxis(this.pointerScreen.y, screen.height);
+    if (vx === 0 && vy === 0) return;
+    const step = (EDGE_PAN_MAX_SPEED / 1000) * deltaMS;
+    this.camera.x += vx * step;
+    this.camera.y += vy * step;
+    this.applyCamera();
+    if (this.held) this.dragHeldTo(this.pointerScreen.x, this.pointerScreen.y);
   }
 
   private onPointerUp(ev: FederatedPointerEvent): void {
@@ -2669,6 +2719,22 @@ function seqMs(seq: string): number {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+// Edge-pan velocity component for one axis: 0 outside the band, ramping
+// quadratically to +-1 at the very edge. Positive near the low edge (so the
+// camera reveals content on that side), negative near the high edge.
+function edgePanAxis(pos: number, size: number): number {
+  if (pos < EDGE_PAN_MARGIN) {
+    const t = clamp((EDGE_PAN_MARGIN - pos) / EDGE_PAN_MARGIN, 0, 1);
+    return t * t;
+  }
+  const hi = size - EDGE_PAN_MARGIN;
+  if (pos > hi) {
+    const t = clamp((pos - hi) / EDGE_PAN_MARGIN, 0, 1);
+    return -(t * t);
+  }
+  return 0;
 }
 
 // Positions a window of `size` within [lo, hi]: clamps it inside when it fits,
