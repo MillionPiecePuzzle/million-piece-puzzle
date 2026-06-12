@@ -15,6 +15,11 @@ services:
     # local runs; Coolify deploys docker-compose.yml alone, so prod keeps the
     # image ENV. Override any of these via this directory's `.env`.
     environment:
+      # Local dev defaults to the public alpha seed: it matches the test-puzzle-10k
+      # R2 assets the dev server fetches. Override via this directory's `.env` if
+      # you slice your own local puzzle. Prod never uses this file (Coolify deploys
+      # docker-compose.yml alone and supplies the real seed as a service secret).
+      MPP_GENERATION_SEED: "${MPP_GENERATION_SEED:-test-puzzle-10k-2026}"
       MPP_ALLOWED_ORIGINS: "${MPP_ALLOWED_ORIGINS:-}"
       AUTH_URL: "${AUTH_URL:-http://localhost:8080}"
       AUTH_COOKIE_DOMAIN: "${AUTH_COOKIE_DOMAIN:-}"

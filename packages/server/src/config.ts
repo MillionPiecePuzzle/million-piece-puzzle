@@ -138,6 +138,15 @@ export async function loadConfig(): Promise<ServerConfig> {
   const port = int("MPP_PORT", 8080);
   const allowedOrigins = parseAllowedOrigins(process.env.MPP_ALLOWED_ORIGINS);
   const authUrl = trimTrailingSlash(str("AUTH_URL", `http://localhost:${port}`));
+  // The generation seed is the anti-solving secret, so an empty value must fail
+  // the boot loudly rather than silently using a publicly derivable permutation.
+  // `str` alone does not catch this: the compose `${MPP_GENERATION_SEED:-}`
+  // passthrough surfaces a forgotten secret as a set-but-empty var, which `str`
+  // returns as "" (its `?? fallback` only fires on undefined).
+  const generationSeed = str("MPP_GENERATION_SEED");
+  if (generationSeed.trim().length === 0) {
+    throw new Error("MPP_GENERATION_SEED must be set (non-empty): it is the anti-solving seed");
+  }
   return {
     port,
     redisUrl: str("MPP_REDIS_URL", "redis://127.0.0.1:6379"),
@@ -147,7 +156,7 @@ export async function loadConfig(): Promise<ServerConfig> {
     assetsBaseUrl,
     manifestUrl,
     manifest,
-    generationSeed: str("MPP_GENERATION_SEED"),
+    generationSeed,
     devEnabled: bool("MPP_DEV_ENABLED", false),
     allowedOrigins,
     wsMaxPayloadBytes: int("MPP_WS_MAX_PAYLOAD_BYTES", 64 * 1024),

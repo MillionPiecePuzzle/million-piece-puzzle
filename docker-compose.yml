@@ -35,6 +35,13 @@ services:
       # dev. This file is what Coolify deploys, so it must not re-declare those
       # keys: a compose `environment:` entry overrides the image ENV, which would
       # silently shadow the baked prod values.
+      # Generation seed: the anti-programmatic-solving secret (drives geometry, the
+      # scatter, and the wire id permutation), so it is never committed. Passed
+      # through from the Coolify service env in prod; docker-compose.override.yml
+      # supplies the public alpha value for local dev. The server fails fast if it
+      # resolves empty, so a forgotten prod secret stops the boot rather than
+      # silently using a publicly derivable permutation.
+      MPP_GENERATION_SEED: "${MPP_GENERATION_SEED:-}"
       # Auth secrets: never committed, passed through from the host environment
       # (a local `.env` for `docker compose up`, the Coolify service env in prod).
       # Without them the server boots and spectator mode works, but contributor
