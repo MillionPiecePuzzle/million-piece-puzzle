@@ -32,7 +32,7 @@ function relativeTime(at: number): string {
     <ul v-if="activity.length > 0">
       <li v-for="entry in activity" :key="entry.id">
         <span class="msg"
-          ><b>{{ entry.actor }}</b> <em>{{ entry.kind === "place" ? "placed" : "snapped" }}</em>
+          ><b>{{ entry.actor }}</b> <em>{{ entry.kind === "place" ? "placed" : "connected" }}</em>
           {{ entry.count === 1 ? "a piece" : `a ${entry.count}-piece cluster` }}</span
         >
         <span class="ts">{{ relativeTime(entry.at) }}</span>
