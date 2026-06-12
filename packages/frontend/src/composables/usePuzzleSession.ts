@@ -123,7 +123,8 @@ function recordSnap(msg: SSnap): void {
     id: msg.mergeId,
     actor: snapActor(msg),
     kind: msg.anchored ? "place" : "snap",
-    count: msg.droppedSize,
+    // A place reports the placed group; a snap reports the resulting cluster.
+    count: msg.anchored ? msg.droppedSize : msg.mergedSize,
     at: msg.at,
   };
   activity.value = [entry, ...activity.value].slice(0, ACTIVITY_LIMIT);
@@ -140,7 +141,7 @@ function applyActivity(msg: SActivity): void {
       id: item.id,
       actor: activityActor(item),
       kind: item.anchored ? ("place" as const) : ("snap" as const),
-      count: item.droppedSize,
+      count: item.anchored ? item.droppedSize : item.mergedSize,
       at: item.at,
     }))
     .slice(0, ACTIVITY_LIMIT);
@@ -399,6 +400,7 @@ function recordSpectatorSnap(e: SpectatorSnapEvent): void {
     worldY: e.worldY,
     anchored: e.anchored,
     droppedSize: e.droppedSize,
+    mergedSize: e.mergedSize,
     userId: e.userId,
     pseudo: e.pseudo,
     at: e.at,

@@ -128,11 +128,13 @@ export type ActivityItem = {
   // Contributor pseudo resolved from the user profile, null when the user has
   // not set one. Carried so backfilled items show names like the live feed.
   pseudo?: string | null;
-  // Mirrors the live `snap` event: anchored is a "place" (locked into the
-  // puzzle), not anchored is a "snap" (two loose clusters joined); droppedSize is
-  // the dragged group's piece count, driving "piece" vs "cluster" wording.
+  // Mirrors the live `snap` event: anchored is a "place" (locked into the puzzle),
+  // not anchored is a "snap" (two loose clusters joined). droppedSize (placed
+  // group) drives the place wording, mergedSize (resulting cluster) the snap
+  // wording; the client picks by `anchored`. See SSnap.
   anchored: boolean;
   droppedSize: number;
+  mergedSize: number;
   at: number;
 };
 
@@ -202,11 +204,13 @@ export type SSnap = {
   worldX: number;
   worldY: number;
   anchored: boolean;
-  // Piece count of the group the user dragged into this merge (>= 1). Drives the
-  // activity feed's "piece" vs "cluster" wording for both the snap (not anchored)
-  // and place (anchored) cases. Distinct from addedPieceIds.length, which follows
-  // group-id order and is 0 for the first frame anchor.
+  // Activity-feed sizing, both sent raw so the client picks by `anchored`.
+  // droppedSize is the group the user dragged (>= 1), shown for a place ("placed a
+  // 5-piece cluster"). mergedSize is the resulting cluster (>= 2 for a snap), shown
+  // for a snap ("connected a 5-piece cluster", or "two pieces together" at 2).
+  // Distinct from addedPieceIds.length, which follows group-id order.
   droppedSize: number;
+  mergedSize: number;
   userId: string;
   // Pseudo of the snapping user, null if unset. Carried on the live event to
   // avoid a profile lookup on the hot path; the Mongo-backed activity backfill
@@ -376,6 +380,7 @@ export type SpectatorSnapEvent = {
   worldY: number;
   anchored: boolean;
   droppedSize: number;
+  mergedSize: number;
   userId: string;
   pseudo: string | null;
   lockedCount: number;

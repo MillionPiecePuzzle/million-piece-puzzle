@@ -4,11 +4,14 @@ import { usePuzzleSession, type ActivityEntry } from "../composables/usePuzzleSe
 
 const { activity } = usePuzzleSession();
 
-// A snap joins two groups, so it names the other side ("to another"); a place
-// locks into the puzzle and stands alone.
+// A place reports the placed group (one piece or an N-piece cluster). A snap
+// reports the resulting cluster (always >= 2): two single pieces read "two pieces
+// together", anything larger reads as the cluster it formed.
 function objectPhrase(entry: ActivityEntry): string {
-  const what = entry.count === 1 ? "a piece" : `a ${entry.count}-piece cluster`;
-  return entry.kind === "snap" ? `${what} to another` : what;
+  if (entry.kind === "snap") {
+    return entry.count === 2 ? "two pieces together" : `a ${entry.count}-piece cluster`;
+  }
+  return entry.count === 1 ? "a piece" : `a ${entry.count}-piece cluster`;
 }
 
 const now = ref(Date.now());

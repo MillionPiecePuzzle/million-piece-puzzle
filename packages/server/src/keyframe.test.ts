@@ -38,7 +38,7 @@ const wire: WireContext = {
 };
 const leaderboardEntries: LeaderboardEntry[] = [{ userId: "u1", pieces: 3 }];
 const activityItems: ActivityItem[] = [
-  { id: "m1", userId: "u1", anchored: true, droppedSize: 2, at: 1000 },
+  { id: "m1", userId: "u1", anchored: true, droppedSize: 2, mergedSize: 2, at: 1000 },
 ];
 const zone: PlayZone = { minX: -100, minY: -100, maxX: 900, maxY: 900 };
 

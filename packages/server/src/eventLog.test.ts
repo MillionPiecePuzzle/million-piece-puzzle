@@ -92,6 +92,7 @@ describe("EventLog.readWindow", () => {
       worldY: 0,
       anchored: true,
       droppedSize: 2,
+      mergedSize: 2,
       userId: "u1",
       pseudo: "alice",
       lockedCount: 2,

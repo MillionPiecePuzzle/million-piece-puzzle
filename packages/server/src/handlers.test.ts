@@ -529,10 +529,21 @@ describe("handleDrop", () => {
     expect(state.pieceToGroup.get(4)).toBe(1);
     expect(state.pieceToGroup.get(1)).toBe(1);
     expect(broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ t: "snap", newGroupId: 1, anchored: false }),
+      expect.objectContaining({
+        t: "snap",
+        newGroupId: 1,
+        anchored: false,
+        droppedSize: 1,
+        mergedSize: 2,
+      }),
     );
     expect(logMerge).toHaveBeenCalledWith(
-      expect.objectContaining({ anchored: false, lockedDelta: 0, droppedPieceIds: [4] }),
+      expect.objectContaining({
+        anchored: false,
+        lockedDelta: 0,
+        droppedPieceIds: [4],
+        mergedSize: 2,
+      }),
     );
   });
 

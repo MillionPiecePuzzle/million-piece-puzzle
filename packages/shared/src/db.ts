@@ -68,5 +68,9 @@ export type ClusterMerge = {
   // Stored because it cannot be recomputed from a saved doc: a frame-anchored
   // cluster locks its pieces without listing any in addedPieceIds.
   lockedDelta: number;
+  // Piece count of the resulting cluster (host + added groups). The size the
+  // activity feed reports for a snap; stored because the host group's pre-merge
+  // size is not otherwise recoverable from a saved doc.
+  mergedSize: number;
   at: Date;
 };

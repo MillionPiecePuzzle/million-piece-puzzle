@@ -91,6 +91,7 @@ export class MongoLogger {
         userId: string;
         droppedPieceIds: number[];
         anchored: boolean;
+        mergedSize?: number;
         at: Date;
         u: { pseudo?: string | null }[];
       }>([
@@ -100,14 +101,19 @@ export class MongoLogger {
         profileLookup("userId"),
       ])
       .toArray();
-    return docs.map((d) => ({
-      id: d._id.toString(),
-      userId: d.userId,
-      pseudo: d.u[0]?.pseudo ?? null,
-      anchored: d.anchored,
-      droppedSize: Math.max(1, d.droppedPieceIds.length),
-      at: d.at.getTime(),
-    }));
+    return docs.map((d) => {
+      const droppedSize = Math.max(1, d.droppedPieceIds.length);
+      return {
+        id: d._id.toString(),
+        userId: d.userId,
+        pseudo: d.u[0]?.pseudo ?? null,
+        anchored: d.anchored,
+        droppedSize,
+        // Docs written before mergedSize existed fall back to a >= 2 lower bound.
+        mergedSize: d.mergedSize ?? Math.max(2, droppedSize + 1),
+        at: d.at.getTime(),
+      };
+    });
   }
 
   // Per-user contribution standings, derived on demand. Each piece scores one

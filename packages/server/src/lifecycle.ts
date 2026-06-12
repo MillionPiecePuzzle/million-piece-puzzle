@@ -129,6 +129,7 @@ export class PuzzleLifecycle {
       targetAnchorPieceId: 0,
       anchored: true,
       lockedDelta: Math.max(0, remaining),
+      mergedSize: total,
       at: new Date(),
     });
     await this.markCompleted();

@@ -507,6 +507,7 @@ async function applyMerge(
     targetAnchorPieceId,
     anchored: willBeLocked,
     lockedDelta,
+    mergedSize: allPieces.length,
     at,
   });
 
@@ -528,6 +529,7 @@ async function applyMerge(
     worldY: wireWorldY,
     anchored: willBeLocked,
     droppedSize: droppedPieces.length,
+    mergedSize: allPieces.length,
     userId: client.userId,
     pseudo: client.pseudo,
     at: at.getTime(),
@@ -546,6 +548,7 @@ async function applyMerge(
     worldY: wireWorldY,
     anchored: willBeLocked,
     droppedSize: droppedPieces.length,
+    mergedSize: allPieces.length,
     userId: client.userId,
     pseudo: client.pseudo,
     lockedCount,
