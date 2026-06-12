@@ -94,6 +94,11 @@ type HeldState = {
   originX: number;
   originY: number;
   confirmed: boolean;
+  // Sticky "carry" mode (double-click a piece to attach its cluster to the
+  // cursor). The cluster follows the pointer with no button held, and a button
+  // release no longer drops it. Cleared on the drop double-click, Escape, or the
+  // idle timeout.
+  carry: boolean;
 };
 
 export type StageCallbacks = {
@@ -105,6 +110,12 @@ export type StageCallbacks = {
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
+
+// Sticky carry mode (double-click a piece to stick its cluster to the cursor). A
+// highlighted outline marks the carried cluster, and an idle timeout drops it so
+// a player cannot park a cluster with its server-side lock held indefinitely.
+const CARRY_HIGHLIGHT_COLOR = 0xffce47;
+const CARRY_IDLE_TIMEOUT_MS = 30000;
 
 // Edge-pan: when the pointer rests within this many screen pixels of a canvas
 // edge, the camera scrolls toward that edge. Speed ramps quadratically from 0 at
@@ -273,6 +284,9 @@ export class PuzzleStage {
   // A user-facing notice the canvas cannot render itself (a DOM toast). Currently
   // only "tile_full": a drop the server rejected for exceeding the per-tile cap.
   onNotice: ((kind: "tile_full") => void) | null = null;
+  // Fired when the local sticky-carry state changes, so the shell can show or hide
+  // the carry hint. Contributor mode only.
+  onCarryChange: ((carrying: boolean) => void) | null = null;
 
   private peerCursors: PeerCursorLayer | null = null;
   private readonly tickPeerCursors = (ticker: { deltaMS: number }): void => {
@@ -280,6 +294,22 @@ export class PuzzleStage {
   };
 
   private held: HeldState | null = null;
+  // The group under the last pointerdown (null when it hit empty stage), so the
+  // DOM double-click can resolve which cluster to pick up for sticky carry: the
+  // DOM event carries no Pixi target.
+  private lastPointerDownGroupId: number | null = null;
+  // Outline over the cluster currently carried, and the idle timer that drops it.
+  // Only one cluster is ever carried at a time.
+  private carryHighlight: Graphics | null = null;
+  private carryIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  // Escape returns a carried cluster to where it was picked up. Window-level so it
+  // fires without the canvas being focused; bound once for add/remove symmetry.
+  private readonly onKeyDown = (ev: KeyboardEvent): void => {
+    if (ev.key === "Escape" && this.held?.carry) {
+      ev.preventDefault();
+      this.cancelCarry();
+    }
+  };
   // Groups this client dropped locally but for which the server's authoritative
   // drop/snap has not yet arrived. A pan resync carries the server's last
   // committed resting position, which is older than this in-flight drop, so it
@@ -478,6 +508,8 @@ export class PuzzleStage {
     app.ticker.add(this.tickEdgePan);
     app.ticker.add(this.tickLod);
     app.ticker.add(this.tickSpectatorBound);
+    app.canvas.addEventListener("dblclick", (ev) => this.onCanvasDoubleClick(ev));
+    window.addEventListener("keydown", this.onKeyDown);
     this.attachWheelZoom(app.canvas);
   }
 
@@ -793,6 +825,8 @@ export class PuzzleStage {
   destroy(): void {
     this.buildToken++;
     this.stopConfetti();
+    this.clearCarryIdle();
+    window.removeEventListener("keydown", this.onKeyDown);
     this.tweener?.destroy();
     this.tweener = null;
     this.app?.ticker.remove(this.tickPeerCursors);
@@ -833,6 +867,8 @@ export class PuzzleStage {
     this.textureBase = "";
     this.minimapGrid = null;
     this.held = null;
+    this.carryHighlight = null;
+    this.lastPointerDownGroupId = null;
     this.pendingDrag = null;
     this.pointerScreen = null;
     this.pendingDrops.clear();
@@ -900,6 +936,12 @@ export class PuzzleStage {
     this.lodHidden.clear();
     this.groups.clear();
     this.pieceToGroup.clear();
+    // A carry in progress is dropped by the rebuild: the highlight was already
+    // freed with the world above, so just clear the carry state and hide the hint.
+    this.clearCarryIdle();
+    this.carryHighlight = null;
+    this.lastPointerDownGroupId = null;
+    this.onCarryChange?.(false);
     this.held = null;
     this.pendingDrag = null;
     this.peerCursors?.clearHeld();
@@ -1225,6 +1267,7 @@ export class PuzzleStage {
       this.setGroupHeldVisual(node, false);
     }
     this.releaseGroupHeld(groupId);
+    if (this.held.carry) this.endCarry();
     this.held = null;
   }
 
@@ -1269,6 +1312,7 @@ export class PuzzleStage {
     this.moveGroup(node, worldX, worldY);
     if (this.held && this.held.groupId === groupId) {
       this.setGroupHeldVisual(node, false);
+      if (this.held.carry) this.endCarry();
       this.held = null;
     }
     this.releaseGroupHeld(groupId);
@@ -1680,6 +1724,10 @@ export class PuzzleStage {
     if (!this.callbacks) return;
     if (node.locked) return;
     ev.stopPropagation();
+    this.lastPointerDownGroupId = node.id;
+    // While a cluster is carried, presses are reserved for the drop double-click;
+    // do not start a competing press-drag grab on it.
+    if (this.held?.carry) return;
     // Re-grabbing supersedes any in-flight drop of the same group; the held-skip
     // now guards it, so drop the pending entry.
     this.pendingDrops.delete(node.id);
@@ -1691,6 +1739,7 @@ export class PuzzleStage {
       originX: node.worldX,
       originY: node.worldY,
       confirmed: false,
+      carry: false,
     };
     this.markGroupHeld(node);
     this.setGroupHeldVisual(node, true);
@@ -1698,6 +1747,7 @@ export class PuzzleStage {
   }
 
   private onStagePointerDown(ev: FederatedPointerEvent): void {
+    this.lastPointerDownGroupId = null;
     if (this.held) return;
     this.pan.active = true;
     this.pan.lastX = ev.global.x;
@@ -1713,6 +1763,10 @@ export class PuzzleStage {
     }
     if (this.held) {
       this.dragHeldTo(ev.global.x, ev.global.y);
+      // A real pointer move resets the carry idle timer; an edge-pan re-place
+      // (no move event) deliberately does not, so a pointer truly at rest still
+      // times out.
+      if (this.held.carry) this.armCarryIdle();
       return;
     }
     if (this.pan.active) {
@@ -1760,6 +1814,12 @@ export class PuzzleStage {
   }
 
   private onPointerUp(ev: FederatedPointerEvent): void {
+    // Sticky carry ignores the button release: the cluster stays in hand until a
+    // double-click drops it, Escape returns it, or it times out.
+    if (this.held?.carry) {
+      this.pan.active = false;
+      return;
+    }
     if (this.held) {
       const node = this.groups.get(this.held.groupId);
       if (node && this.callbacks) {
@@ -1781,6 +1841,141 @@ export class PuzzleStage {
       this.held = null;
     }
     this.pan.active = false;
+  }
+
+  // ----- sticky carry (double-click to stick a cluster to the cursor) -----
+
+  // A DOM double-click toggles carry. With a cluster carried it drops it;
+  // otherwise it picks up the cluster under the last pointerdown and sticks it to
+  // the cursor. Resolved off lastPointerDownGroupId (set by the federated pointer
+  // handlers) since the DOM event carries no Pixi target.
+  private onCanvasDoubleClick(ev: MouseEvent): void {
+    ev.preventDefault();
+    if (this.mode !== "contributor") return;
+    if (this.held?.carry) {
+      this.dropCarried();
+      return;
+    }
+    // A press-drag is in flight (button held): ignore, the release will drop it.
+    if (this.held) return;
+    if (this.lastPointerDownGroupId === null) return;
+    const node = this.groups.get(this.lastPointerDownGroupId);
+    if (!node || node.locked) return;
+    this.beginCarry(node);
+  }
+
+  // Pick a cluster up into sticky carry: grab it (acquiring the server lock), keep
+  // it under the cursor, mark it with the carry outline, and arm the idle timeout.
+  private beginCarry(node: GroupNode): void {
+    if (!this.callbacks || !this.pointerScreen) return;
+    this.pendingDrops.delete(node.id);
+    const world = this.screenToWorld(this.pointerScreen.x, this.pointerScreen.y);
+    this.held = {
+      groupId: node.id,
+      pointerDx: world.x - node.worldX,
+      pointerDy: world.y - node.worldY,
+      originX: node.worldX,
+      originY: node.worldY,
+      confirmed: false,
+      carry: true,
+    };
+    this.markGroupHeld(node);
+    this.setGroupHeldVisual(node, true);
+    this.addCarryHighlight(node);
+    this.callbacks.onGrab(node.id);
+    this.onCarryChange?.(true);
+    this.armCarryIdle();
+  }
+
+  // Put the carried cluster down where it sits (the drop double-click or the idle
+  // timeout), committing the move and releasing the server lock.
+  private dropCarried(): void {
+    if (!this.held?.carry) return;
+    const node = this.groups.get(this.held.groupId);
+    if (node && this.callbacks) {
+      this.setGroupHeldVisual(node, false);
+      this.pendingDrops.add(node.id);
+      this.callbacks.onDrop(node.id, node.worldX, node.worldY);
+      this.releaseGroupHeld(node.id);
+    }
+    this.held = null;
+    this.endCarry();
+  }
+
+  // Return the carried cluster to where it was picked up (Escape), releasing the
+  // lock by dropping it back at its origin.
+  private cancelCarry(): void {
+    if (!this.held?.carry) return;
+    const node = this.groups.get(this.held.groupId);
+    if (node && this.callbacks) {
+      this.markTilesDirty(this.worldAabb(node));
+      this.moveGroup(node, this.held.originX, this.held.originY);
+      this.setGroupHeldVisual(node, false);
+      this.pendingDrops.add(node.id);
+      this.callbacks.onDrop(node.id, this.held.originX, this.held.originY);
+      this.releaseGroupHeld(node.id);
+    }
+    this.held = null;
+    this.endCarry();
+  }
+
+  // Clear the carry visuals and idle timer and notify the shell. Leaves this.held
+  // to the caller, so the denied/rollback paths can reuse it.
+  private endCarry(): void {
+    this.clearCarryIdle();
+    this.removeCarryHighlight();
+    this.onCarryChange?.(false);
+  }
+
+  private armCarryIdle(): void {
+    this.clearCarryIdle();
+    this.carryIdleTimer = setTimeout(() => {
+      this.carryIdleTimer = null;
+      this.dropCarried();
+    }, CARRY_IDLE_TIMEOUT_MS);
+  }
+
+  private clearCarryIdle(): void {
+    if (this.carryIdleTimer === null) return;
+    clearTimeout(this.carryIdleTimer);
+    this.carryIdleTimer = null;
+  }
+
+  // Outline over the carried cluster: a soft glow plus a crisp stroke around its
+  // bounds, so a sticky-carried piece reads as in-hand with no button held.
+  private addCarryHighlight(node: GroupNode): void {
+    this.removeCarryHighlight();
+    const pieceSize = this.manifest?.pieceSize ?? 0;
+    if (pieceSize === 0) return;
+    const b = node.localBounds;
+    const pad = pieceSize * 0.12;
+    const x = b.minX - pad;
+    const y = b.minY - pad;
+    const w = b.maxX - b.minX + pad * 2;
+    const h = b.maxY - b.minY + pad * 2;
+    const radius = pieceSize * 0.25;
+    const g = new Graphics();
+    g.eventMode = "none";
+    g.roundRect(x, y, w, h, radius).stroke({
+      color: CARRY_HIGHLIGHT_COLOR,
+      width: pieceSize * 0.18,
+      alpha: 0.22,
+    });
+    g.roundRect(x, y, w, h, radius).stroke({
+      color: CARRY_HIGHLIGHT_COLOR,
+      width: pieceSize * 0.05,
+      alpha: 0.95,
+    });
+    node.container.addChild(g);
+    this.carryHighlight = g;
+  }
+
+  private removeCarryHighlight(): void {
+    const g = this.carryHighlight;
+    this.carryHighlight = null;
+    if (!g) return;
+    g.parent?.removeChild(g);
+    if (!g.destroyed) g.destroy({ context: true });
   }
 
   private setGroupHeldVisual(node: GroupNode, held: boolean): void {

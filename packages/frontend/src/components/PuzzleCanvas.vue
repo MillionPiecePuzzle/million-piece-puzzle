@@ -47,6 +47,9 @@ let latestSpectatorKeyframe: SpectatorKeyframe | null = null;
 let spectatorStreamEpoch = 0;
 const completed = ref(false);
 const modalVisible = ref(true);
+// True while the local player carries a cluster stuck to the cursor (double-click
+// to pick up). Drives the floating carry hint.
+const carrying = ref(false);
 
 // Transient bottom-center notice (e.g. a rejected drop). A new toast resets the
 // dismiss timer so repeated rejections do not stack.
@@ -258,6 +261,9 @@ onMounted(async () => {
   stage.onNotice = (kind) => {
     if (kind === "tile_full") showToast("Too many pieces on this tile.");
   };
+  stage.onCarryChange = (c) => {
+    carrying.value = c;
+  };
   await stage.mount(host.value);
   setControls({
     zoomIn: () => stage?.zoomIn(),
@@ -433,6 +439,11 @@ onBeforeUnmount(() => {
         <p v-if="isProgressPhase" class="detail">
           {{ progressLoaded.toLocaleString() }} / {{ progressTotal.toLocaleString() }}
         </p>
+        <p v-if="mode === 'contributor'" class="tip">
+          <span class="tip-bulb" aria-hidden="true">💡</span>
+          Tip: double-click a piece to stick it to your cursor, then double-click again to drop
+          it.
+        </p>
       </template>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
@@ -475,6 +486,12 @@ onBeforeUnmount(() => {
     </Transition>
     <Transition name="toast">
       <div v-if="toast" class="toast" role="status" aria-live="polite">{{ toast }}</div>
+    </Transition>
+    <Transition name="carry-hint">
+      <div v-if="carrying && !showStatus" class="carry-hint" role="status" aria-live="polite">
+        <span class="carry-dot" aria-hidden="true" />
+        Holding a piece. Double-click to drop it, Esc to put it back.
+      </div>
     </Transition>
   </div>
 </template>
@@ -614,6 +631,26 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
+}
+.tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 28px 0 0;
+  max-width: 420px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.55);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+  text-align: left;
+}
+.tip-bulb {
+  flex: none;
+  font-size: 15px;
+  line-height: 1;
 }
 .completion-modal {
   position: absolute;
@@ -770,6 +807,56 @@ onBeforeUnmount(() => {
 }
 .toast-enter-from,
 .toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
+.carry-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 32px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(90%, 420px);
+  padding: 10px 18px;
+  border-radius: var(--radius-pill);
+  background: rgba(28, 24, 16, 0.9);
+  border: 1px solid rgba(255, 206, 71, 0.5);
+  color: #f6efdd;
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 3;
+}
+.carry-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ffce47;
+  box-shadow: 0 0 0 0 rgba(255, 206, 71, 0.7);
+  animation: carry-pulse 1.4s ease-out infinite;
+}
+@keyframes carry-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 206, 71, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(255, 206, 71, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 206, 71, 0);
+  }
+}
+.carry-hint-enter-active,
+.carry-hint-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+.carry-hint-enter-from,
+.carry-hint-leave-to {
   opacity: 0;
   transform: translate(-50%, 8px);
 }
