@@ -1796,15 +1796,15 @@ export class PuzzleStage {
     this.pendingDrag = { worldX: nx, worldY: ny };
   }
 
-  // Per-frame edge-pan: while a cluster is held and the pointer sits in an edge
+  // Per-frame edge-pan: during a press-drag, when the pointer sits in an edge
   // band, scroll the camera toward that edge (speed ramps to the rim, see
-  // EDGE_PAN_*) and re-place the held cluster under the now-stationary cursor as
-  // the world scrolls beneath it. Gated on a held cluster so a bare pointer
-  // resting near the edge does not scroll the view. Suppressed during a manual
-  // background pan-drag, which already owns the camera.
+  // EDGE_PAN_*) and re-place the dragged cluster under the now-stationary cursor
+  // as the world scrolls beneath it. Gated on a button-held drag so neither a
+  // bare pointer nor a sticky carry near the edge scrolls the view. Suppressed
+  // during a manual background pan-drag, which already owns the camera.
   private tickEdgePanFrame(deltaMS: number): void {
-    if (!this.app || !this.playZone || !this.pointerScreen || this.pan.active || !this.held)
-      return;
+    if (!this.app || !this.playZone || !this.pointerScreen || this.pan.active) return;
+    if (!this.held || this.held.carry) return;
     const screen = this.app.renderer.screen;
     const vx = edgePanAxis(this.pointerScreen.x, screen.width);
     const vy = edgePanAxis(this.pointerScreen.y, screen.height);
