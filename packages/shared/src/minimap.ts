@@ -5,8 +5,13 @@
 // local board, and the spectator reads the same grid from the keyframe. Cells
 // are roughly square, with the larger play-zone axis split into MINIMAP_TARGET_CELLS.
 
-import type { GroupRuntime, PieceRuntime } from "./piece.js";
+import type { GroupRuntime } from "./piece.js";
 import type { PlayZone } from "./playzone.js";
+
+// Minimal internal piece shape this binner needs. It runs server-side over grid
+// ids and group origins (never the seed-permuted wire ids), so it takes only the
+// id and groupId, decoupled from the wire PieceRuntime's (dx, dy).
+type GridPiece = { id: number; groupId: number };
 
 export type MinimapGrid = {
   cols: number;
@@ -28,7 +33,7 @@ const MINIMAP_TARGET_CELLS = 96;
 // A piece references its group for the live origin; its solved cell (id % cols,
 // id / cols) gives the body offset, so the world center is origin + offset + half.
 export function buildMinimapGrid(
-  pieces: readonly PieceRuntime[],
+  pieces: readonly GridPiece[],
   groups: readonly GroupRuntime[],
   gridCols: number,
   pieceSize: number,

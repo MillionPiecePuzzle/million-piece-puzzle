@@ -4,18 +4,18 @@
  *
  * Each piece tile is a square of `tileSize = pieceSize + 2 * margin` pixels,
  * centered on the piece's grid cell. Tiles include the neighboring image area
- * where tabs may extend. When `premasked` is set the bezier silhouette is baked
- * into the AVIF alpha by the slicer, so the frontend shows the tile as-is; the
- * piece geometry is still derived from the seed for layout and snap math. When
- * `borderBaked` is set the silhouette outline is also stroked into the tile, so
- * the frontend skips its render-time per-piece stroke.
+ * where tabs may extend. The bezier silhouette and its border are baked into the
+ * AVIF alpha by the slicer (`premasked` / `borderBaked`), so the frontend shows
+ * the tile as-is and needs no piece geometry to render. The generation seed is
+ * NOT in the manifest: the manifest is publicly served, so shipping the seed would
+ * let a client regenerate every silhouette and reconstruct adjacency. Geometry
+ * lives only in the slicer (offline) and the server (server-only seed).
  *
- * Tile world position: `(col * pieceSize - margin, row * pieceSize - margin)`.
- * Row and col are derived from `id`: `row = id / cols`, `col = id % cols`.
- *
- * Tiles are bucketed by hundreds under `pieces/<bucket>/<id>.avif`, where
- * `bucket = floor(id / 100)` zero-padded to 4 digits and `id` zero-padded to
- * the same width as the largest piece id. The exact relative path is carried
+ * Ids are seed-permuted (`id = P(gridId)`, see permutation.ts), so neither the
+ * manifest nor the tile path reveals a piece's solved grid cell. Tiles are
+ * bucketed by hundreds under `pieces/<bucket>/<id>.avif`, where
+ * `bucket = floor(id / 100)` zero-padded to 4 digits and `id` (the permuted id)
+ * zero-padded to the width of the largest id. The exact relative path is carried
  * by each entry's `file` field.
  *
  * The reference image is published as a Deep Zoom pyramid: `source.dzi` is the
@@ -28,7 +28,6 @@
 export type ImageManifest = {
   puzzleId: string;
   name: string;
-  seed: string;
   rows: number;
   cols: number;
   pieceSize: number;

@@ -1,19 +1,36 @@
 /**
  * Runtime piece and group types shared on the wire.
  *
- * Geometry (Bezier params, canonical offsets) is deterministic from the
- * puzzle's generationSeed and is recomputed client and server side. It is
- * never serialized in WS messages or stored in Redis.
+ * The wire is opaque: ids are seed-permuted (`wireId = P(gridId)`, see
+ * permutation.ts), and a group's position is the world position of its anchor
+ * piece (the cluster's min-id host), not a solved-space origin. Each member piece
+ * carries a grid-unit offset `(dx, dy)` from that anchor, so the client places it
+ * without ever deriving a solved-space coordinate (no seed, no `id % cols`).
  *
- * A piece's absolute world position is derived:
- *   worldX = group.worldX + canonicalOffset(pieceId).x
- *   worldY = group.worldY + canonicalOffset(pieceId).y
+ * A piece's absolute world position is:
+ *   worldX = group.worldX + dx * pieceSize
+ *   worldY = group.worldY + dy * pieceSize
+ * The anchor itself has (dx, dy) = (0, 0); a locked cluster's anchor world
+ * position is its true solved position (placed and visible to all, not a leak).
  */
 
 export type PieceRuntime = {
   id: number;
   groupId: number;
   rotation: number;
+  // Grid-unit offset from the group anchor. Server-provided; the client multiplies
+  // by pieceSize to place the piece in its group container.
+  dx: number;
+  dy: number;
+};
+
+// One member piece on a construction or snap message: its opaque id plus its
+// grid-unit offset from the group anchor. Static intra-cluster structure, so it
+// rides on construction/snap only, never on a per-frame drag.
+export type WirePiece = {
+  id: number;
+  dx: number;
+  dy: number;
 };
 
 export type GroupRuntime = {

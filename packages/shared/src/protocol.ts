@@ -9,8 +9,9 @@
  * server's grab_ok or grab_denied. A losing grab triggers a rollback.
  *
  * Coordinates: worldX and worldY are in puzzle world space (pixels at piece
- * native resolution). Group position is the only thing transmitted on drag;
- * individual piece positions are derived from canonical offsets.
+ * native resolution). A group's transmitted position is the world position of its
+ * anchor piece; member pieces are placed from their grid-unit (dx, dy) offsets,
+ * which ride on construction/snap messages, not on every drag frame.
  *
  * Presence: viewport and cursor are transient awareness messages, never
  * persisted. Both change on every zoom and pan, so the client throttles them.
@@ -18,7 +19,7 @@
  * viewport-neighbor peers; join and leave bracket a peer's connection.
  */
 
-import type { GroupRuntime, PieceRuntime } from "./piece.js";
+import type { GroupRuntime, PieceRuntime, WirePiece } from "./piece.js";
 import type { PlayZone } from "./playzone.js";
 import type { MinimapGrid } from "./minimap.js";
 
@@ -190,7 +191,10 @@ export type SSnap = {
   t: "snap";
   mergeId: string;
   newGroupId: number;
-  addedPieceIds: number[];
+  // The pieces folded into the surviving group, each with its grid-unit offset
+  // from the new group's anchor so the client reparents and places them.
+  addedPieceIds: WirePiece[];
+  // World position of the surviving group's anchor piece.
   worldX: number;
   worldY: number;
   anchored: boolean;
@@ -246,17 +250,18 @@ export type SError = {
   message: string;
 };
 
-// Construction data for one group in a region_state stream: its ORIGIN
-// (worldX, worldY), locked state, member count, and member piece ids. The client
-// upserts it: build the group when unknown, or reposition and additively
-// reconcile membership/locked when known.
+// Construction data for one group in a region_state stream: its anchor world
+// position (worldX, worldY), locked state, member count, and member pieces (each
+// with its grid-unit offset from the anchor). The client upserts it: build the
+// group when unknown, or reposition and additively reconcile membership/locked
+// when known.
 export type RegionGroup = {
   groupId: number;
   worldX: number;
   worldY: number;
   locked: boolean;
   size: number;
-  pieceIds: number[];
+  pieces: WirePiece[];
 };
 
 // Viewport-scoped region state. `welcome` carries no board (protocol v3); instead
@@ -357,7 +362,7 @@ export type SpectatorSnapEvent = {
   at: number;
   mergeId: string;
   newGroupId: number;
-  addedPieceIds: number[];
+  addedPieceIds: WirePiece[];
   worldX: number;
   worldY: number;
   anchored: boolean;
