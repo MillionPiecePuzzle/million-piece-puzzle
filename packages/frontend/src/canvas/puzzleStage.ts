@@ -1208,12 +1208,11 @@ export class PuzzleStage {
     this.advanceAppliedCursor(e.seq);
   }
 
-  // Move a gliding cluster and keep its tiles hot so it renders live over the LOD
-  // while it moves, settling back into a baked tile once the glide ends.
+  // Move a gliding cluster; moveGroup dirties the tiles it leaves and enters so it
+  // renders live over the LOD while it moves, settling back into a baked tile once
+  // the glide ends.
   private setSpectatorGroupPos(node: GroupNode, x: number, y: number): void {
-    this.markTilesDirty(this.worldAabb(node));
     this.moveGroup(node, x, y);
-    this.markTilesDirty(this.worldAabb(node));
   }
 
   private advanceAppliedCursor(seq: string): void {
@@ -1429,9 +1428,7 @@ export class PuzzleStage {
         resyncShouldApply(e.groupId, localHeldId, this.heldGroupIds, this.pendingDrops) &&
         (node.worldX !== e.worldX || node.worldY !== e.worldY)
       ) {
-        this.markTilesDirty(this.worldAabb(node));
         this.moveGroup(node, e.worldX, e.worldY);
-        this.markTilesDirty(this.worldAabb(node));
         changed = true;
       }
       let membershipChanged = false;
@@ -2126,11 +2123,21 @@ export class PuzzleStage {
     layer.addChild(node.container);
   }
 
+  // Updates a group's position and re-indexes it. A non-held cluster that actually
+  // moves records the tiles it leaves and the tiles it now occupies as dirty, so
+  // callers no longer bracket the move with manual markTilesDirty calls. A held
+  // cluster is drawn live and excluded from bakes, so its per-frame drag stays off
+  // the dirty path; an unchanged position records nothing, so an idle snapshot poll
+  // re-bakes nothing.
   private moveGroup(node: GroupNode, worldX: number, worldY: number): void {
+    const dirty =
+      !this.heldGroupIds.has(node.id) && (node.worldX !== worldX || node.worldY !== worldY);
+    if (dirty) this.markTilesDirty(this.worldAabb(node));
     node.worldX = worldX;
     node.worldY = worldY;
     node.container.position.set(worldX, worldY);
     this.groupGrid.upsert(node.id, this.worldAabb(node));
+    if (dirty) this.markTilesDirty(this.worldAabb(node));
     this.cullGroup(node);
   }
 
