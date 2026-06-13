@@ -25,3 +25,24 @@ export function residencyDecision(inHydrateRing: boolean, coveredCold: boolean):
   if (!inHydrateRing) return "none";
   return coveredCold ? "dehydrate" : "hydrate";
 }
+
+// Whether a viewport cell's known content is not yet on screen, in the three real
+// cases, off the same residency/visibility truth reconcile already computes:
+//  - zoom-out (LOD active): the cell has groups but its tile has not baked. An empty
+//    or unknown cell bakes blank instantly, so it never pends here.
+//  - zoom-in, region not streamed: the board is known to stream in (coverageSeen)
+//    and this cell has not been acked known. A full-board spectator never sets
+//    coverageSeen, so it falls through to the hydration case.
+//  - zoom-in, textures loading: an in-ring group in the cell is still hydrating.
+export function cellContentPending(f: {
+  lodActive: boolean;
+  hasGroups: boolean;
+  tileReady: boolean;
+  coverageSeen: boolean;
+  known: boolean;
+  hasUnhydratedInRingGroup: boolean;
+}): boolean {
+  if (f.lodActive) return f.hasGroups && !f.tileReady;
+  if (f.coverageSeen && !f.known) return true;
+  return f.hasUnhydratedInRingGroup;
+}

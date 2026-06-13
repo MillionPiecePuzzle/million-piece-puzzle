@@ -31,7 +31,7 @@ import { LodTileLayer } from "./lodTiles";
 import { LoadingOverlay } from "./loadingOverlay";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap } from "./membership";
-import { coalesceDirtyCells, residencyDecision } from "./reconcile";
+import { cellContentPending, coalesceDirtyCells, residencyDecision } from "./reconcile";
 
 export type Mode = "spectator" | "contributor";
 
@@ -2727,18 +2727,11 @@ export class PuzzleStage {
     this.loadingOverlay = overlay;
   }
 
-  // Viewport cells (within the play zone) whose content should be visible but is
-  // not yet. Drives both the loading-cover gate (every viewport tile baked before
-  // the cover drops) and, while zoomed in, the per-cell badges. Three states, by
-  // zoom band:
-  //  - zoom-out (LOD active): a cell with known groups whose tile has not baked
-  //    yet. An unknown or empty cell bakes blank instantly, so it never badges
-  //    here, which also keeps the zoomed-out global view (nothing streamed) clear.
-  //  - zoom-in, region not streamed in yet: a cell not in knownCells, once the
-  //    board is known to stream in (coverageSeen). The full-board spectator never
-  //    sets coverageSeen, so its cells fall through to the hydration test instead.
-  //  - zoom-in, streaming textures: a known cell with an in-ring group whose AVIF
-  //    textures are still loading.
+  // Viewport cells (within the play zone) whose content should be visible but is not
+  // yet. Drives both the loading-cover gate (every viewport tile baked before the
+  // cover drops) and, while zoomed in, the per-cell badges. The three zoom-band cases
+  // live in the pure cellContentPending; this gathers each cell's facts off the same
+  // residency/visibility truth reconcile already maintains.
   private computeLoadingCells(): Set<CellKey> {
     const out = new Set<CellKey>();
     const v = this.viewport;
@@ -2752,24 +2745,33 @@ export class PuzzleStage {
     for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) {
       if (!this.cellOverlapsPlayZone(key)) continue;
       const groups = this.groupGrid.cellGroups(key);
-      if (this.lodActive) {
-        if (groups && groups.size > 0 && !this.lodLayer?.isReady(key)) out.add(key);
-        continue;
-      }
-      if (this.coverageSeen && !this.knownCells.has(key)) {
-        out.add(key);
-        continue;
-      }
-      if (!groups) continue;
-      for (const gid of groups) {
-        const node = this.groups.get(gid);
-        if (node && !node.hydrated && this.groupInRing(node, HYDRATE_MARGIN_FRAC)) {
-          out.add(key);
-          break;
-        }
-      }
+      const known = this.knownCells.has(key);
+      // The group scan is the only costly fact, so compute it only in the case that
+      // reads it (zoomed in, region already streamed): the zoom-out and not-streamed
+      // cases never touch the cell's groups.
+      const needsGroupScan = !this.lodActive && !(this.coverageSeen && !known);
+      const pending = cellContentPending({
+        lodActive: this.lodActive,
+        hasGroups: groups !== undefined && groups.size > 0,
+        tileReady: this.lodLayer?.isReady(key) ?? false,
+        coverageSeen: this.coverageSeen,
+        known,
+        hasUnhydratedInRingGroup: needsGroupScan && this.cellHasUnhydratedInRingGroup(groups),
+      });
+      if (pending) out.add(key);
     }
     return out;
+  }
+
+  // Whether a cell holds a group still hydrating inside the hydrate ring, the
+  // zoomed-in "textures loading" loading-cell case.
+  private cellHasUnhydratedInRingGroup(groups: ReadonlySet<number> | undefined): boolean {
+    if (!groups) return false;
+    for (const gid of groups) {
+      const node = this.groups.get(gid);
+      if (node && !node.hydrated && this.groupInRing(node, HYDRATE_MARGIN_FRAC)) return true;
+    }
+    return false;
   }
 
   private cellOverlapsPlayZone(key: CellKey): boolean {
