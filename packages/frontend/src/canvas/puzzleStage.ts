@@ -401,6 +401,10 @@ export class PuzzleStage {
   private lodActive = false;
   private lodWarm = false;
   private heldGroupIds = new Set<number>();
+  // Clusters mid-glide in the spectator stream. Like held clusters they are kept
+  // live (drawn on top, excluded from bakes) for the slide, so their per-frame move
+  // records no dirty; the glide records its start and settle tiles once instead.
+  private glidingGroupIds = new Set<number>();
   // Frame-local dirty accumulator. Event handlers record world rects here via
   // markDirty; the per-frame reconcile (flushDirty) turns them into per-cell tile
   // invalidations and clears it. Pull-based, so several same-frame events on one
@@ -901,6 +905,7 @@ export class PuzzleStage {
     this.lastVisible.clear();
     this.lodHidden.clear();
     this.heldGroupIds.clear();
+    this.glidingGroupIds.clear();
     this.cellDirtyMs.clear();
     this.knownCells.clear();
     this.coverageSeen = false;
@@ -971,6 +976,7 @@ export class PuzzleStage {
     this.lodActive = false;
     this.lodWarm = false;
     this.heldGroupIds.clear();
+    this.glidingGroupIds.clear();
     this.cellDirtyMs.clear();
     this.knownCells.clear();
     this.coverageSeen = false;
@@ -1108,6 +1114,7 @@ export class PuzzleStage {
     this.pendingEvents = [];
     this.pendingKeyframe = null;
     this.specInterp.clear();
+    this.glidingGroupIds.clear();
     this.anchorWindows(keyframe);
     this.specActive = true;
   }
@@ -1150,6 +1157,7 @@ export class PuzzleStage {
     if (this.pendingKeyframe && this.renderClock >= this.pendingKeyframe.generatedAt) {
       const kf = this.pendingKeyframe;
       this.pendingKeyframe = null;
+      this.endAllGlides();
       this.applySnapshot(kf.pieces, kf.groups);
       this.appliedCursor = kf.cursor;
       this.pendingEvents = this.pendingEvents.filter(
@@ -1171,6 +1179,7 @@ export class PuzzleStage {
       const node = this.groups.get(gid);
       if (!node) {
         this.specInterp.delete(gid);
+        this.endGlide(gid);
         continue;
       }
       const span = this.renderClock - it.startAt;
@@ -1180,7 +1189,10 @@ export class PuzzleStage {
         it.fromX + (it.toX - it.fromX) * t,
         it.fromY + (it.toY - it.fromY) * t,
       );
-      if (t >= 1) this.specInterp.delete(gid);
+      if (t >= 1) {
+        this.specInterp.delete(gid);
+        this.endGlide(gid);
+      }
     }
 
     this.requestNeededWindows();
@@ -1202,24 +1214,55 @@ export class PuzzleStage {
             toY: e.worldY,
             startAt: this.renderClock,
           });
+          this.beginGlide(node);
         } else {
           this.specInterp.delete(e.groupId);
+          this.endGlide(e.groupId);
           this.setSpectatorGroupPos(node, e.worldX, e.worldY);
         }
       }
     } else {
       this.applySnap(e.newGroupId, e.addedPieceIds, e.worldX, e.worldY, e.anchored, animate);
       this.specInterp.delete(e.newGroupId);
+      this.endGlide(e.newGroupId);
       this.onSpectatorSnap?.(e);
     }
     this.advanceAppliedCursor(e.seq);
   }
 
-  // Move a gliding cluster; moveGroup dirties the tiles it leaves and enters so it
-  // renders live over the LOD while it moves, settling back into a baked tile once
-  // the glide ends.
+  // Move a gliding cluster. The cluster is kept live for the slide (see beginGlide),
+  // so moveGroup leaves its tiles alone here: beginGlide and endGlide record the
+  // start and settle tiles once each, instead of re-baking every cell it crosses
+  // every frame.
   private setSpectatorGroupPos(node: GroupNode, x: number, y: number): void {
     this.moveGroup(node, x, y);
+  }
+
+  // Start a spectator glide: mark the cluster live (excluded from bakes, drawn on
+  // top) and record its current tiles dirty once so they re-bake without it. The
+  // next reconcile hydrates it (it is no longer covered-cold) and draws it live.
+  private beginGlide(node: GroupNode): void {
+    if (this.glidingGroupIds.has(node.id)) return;
+    this.glidingGroupIds.add(node.id);
+    this.markDirty(this.worldAabb(node));
+  }
+
+  // End one glide: fold the cluster back into its resting tiles by recording its
+  // current tiles dirty once, so they re-bake with it and the bake then hides it.
+  private endGlide(gid: number): void {
+    if (!this.glidingGroupIds.delete(gid)) return;
+    const node = this.groups.get(gid);
+    if (node) this.markDirty(this.worldAabb(node));
+  }
+
+  // End every in-progress glide, used on a keyframe re-base where specInterp is
+  // cleared wholesale so the re-base's applySnapshot sees settled clusters.
+  private endAllGlides(): void {
+    for (const gid of this.glidingGroupIds) {
+      const node = this.groups.get(gid);
+      if (node) this.markDirty(this.worldAabb(node));
+    }
+    this.glidingGroupIds.clear();
   }
 
   private advanceAppliedCursor(seq: string): void {
@@ -1271,6 +1314,7 @@ export class PuzzleStage {
     this.pendingEvents = [];
     this.pendingKeyframe = null;
     this.specInterp.clear();
+    this.glidingGroupIds.clear();
     this.appliedCursor = "0-0";
     this.nextWindowT0 = 0;
   }
@@ -2122,8 +2166,7 @@ export class PuzzleStage {
   // stays off the dirty path; an unchanged position records nothing, so an idle
   // snapshot poll re-bakes nothing. Culling is the next reconcile's job.
   private moveGroup(node: GroupNode, worldX: number, worldY: number): void {
-    const dirty =
-      !this.heldGroupIds.has(node.id) && (node.worldX !== worldX || node.worldY !== worldY);
+    const dirty = !this.isLive(node.id) && (node.worldX !== worldX || node.worldY !== worldY);
     if (dirty) this.markDirty(this.worldAabb(node));
     node.worldX = worldX;
     node.worldY = worldY;
@@ -2438,6 +2481,7 @@ export class PuzzleStage {
     this.lastVisible.delete(gid);
     this.lodHidden.delete(gid);
     this.heldGroupIds.delete(gid);
+    this.glidingGroupIds.delete(gid);
     this.resident.delete(gid);
     this.hydrateQueued.delete(gid);
   }
@@ -2622,7 +2666,7 @@ export class PuzzleStage {
     return (
       this.initialFill === null &&
       this.lodActive &&
-      !this.heldGroupIds.has(node.id) &&
+      !this.isLive(node.id) &&
       this.allCellsReady(node.id) &&
       !this.isGroupHot(node.id, now)
     );
@@ -2874,7 +2918,7 @@ export class PuzzleStage {
   // can start below LOD_ENTER_ZOOM: the active band is overview-only by design
   // (see DECISIONS.md, tiled zoom-out LOD).
   private applyGroupLodVisibility(node: GroupNode): void {
-    const live = this.heldGroupIds.has(node.id) || !this.allCellsReady(node.id);
+    const live = this.isLive(node.id) || !this.allCellsReady(node.id);
     node.container.visible = live;
     if (live) this.lodHidden.delete(node.id);
     else this.lodHidden.add(node.id);
@@ -2886,6 +2930,13 @@ export class PuzzleStage {
       if (!this.lodLayer.isReady(key)) return false;
     }
     return true;
+  }
+
+  // A cluster is live (drawn on top, excluded from tile bakes) while a human holds
+  // it or while it glides in the spectator stream. A live cluster is never baked
+  // into a tile, so its per-frame movement needs no tile invalidation.
+  private isLive(gid: number): boolean {
+    return this.heldGroupIds.has(gid) || this.glidingGroupIds.has(gid);
   }
 
   // A grabbed cluster is excluded from future bakes though its position has not
@@ -2955,20 +3006,20 @@ export class PuzzleStage {
   }
 
   // Renders one tile's clusters into its texture with the tile matrix as the root
-  // transform (bypassing the camera). Held clusters, the frame, the backdrop and
-  // the tile layer are excluded; non-tile clusters clip out of the texture, so
-  // only this tile's clusters contribute. After baking, the tile's clusters are
-  // re-culled and (if active) hidden now that the tile covers them.
+  // transform (bypassing the camera). Live clusters (held or gliding), the frame,
+  // the backdrop and the tile layer are excluded; non-tile clusters clip out of the
+  // texture, so only this tile's clusters contribute. After baking, the tile's
+  // clusters are re-culled and (if active) hidden now that the tile covers them.
   private bakeTile(key: CellKey): boolean {
     if (!this.app || !this.world || !this.lodLayer) return false;
     const groupIds = this.groupGrid.cellGroups(key);
-    // Defer until every non-held cluster in the cell is hydrated: baking from
+    // Defer until every non-live cluster in the cell is hydrated: baking from
     // missing textures would mark the tile ready with blank pieces. Enqueue the
     // missing ones so a later frame can complete the bake.
     if (groupIds) {
       let pending = false;
       for (const gid of groupIds) {
-        if (this.heldGroupIds.has(gid)) continue;
+        if (this.isLive(gid)) continue;
         const node = this.groups.get(gid);
         if (node && !node.hydrated) {
           this.enqueueHydrate(gid);
@@ -2990,15 +3041,15 @@ export class PuzzleStage {
     if (this.frame) this.frame.visible = false;
     if (this.backdrop) this.backdrop.visible = false;
     this.lodLayer.setVisible(false);
-    const heldHidden: GroupNode[] = [];
+    const liveHidden: GroupNode[] = [];
     const forced: GroupNode[] = [];
     if (groupIds) {
       for (const gid of groupIds) {
         const node = this.groups.get(gid);
         if (!node) continue;
-        if (this.heldGroupIds.has(gid)) {
+        if (this.isLive(gid)) {
           node.container.visible = false;
-          heldHidden.push(node);
+          liveHidden.push(node);
           continue;
         }
         // Render only the cluster's pieces that fall inside the tile: a large
@@ -3030,7 +3081,7 @@ export class PuzzleStage {
     if (this.backdrop) this.backdrop.visible = true;
     this.lodLayer.setVisible(this.lodActive);
     this.lodLayer.markBaked(key);
-    for (const node of heldHidden) node.container.visible = true;
+    for (const node of liveHidden) node.container.visible = true;
     for (const node of forced) {
       this.cullGroup(node);
       if (this.lodActive) this.applyGroupLodVisibility(node);
