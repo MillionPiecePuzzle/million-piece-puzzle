@@ -2840,7 +2840,12 @@ export class PuzzleStage {
       this.lodLayer.cull(this.viewport);
     }
     const loadingCells = this.computeLoadingCells();
-    this.loadingOverlay?.update(loadingCells, performance.now());
+    // Keep the per-cell badges off the board's first paint. While the initial
+    // fill is pending the loading cover is up (and holds until the viewport is
+    // ready), so a badge would never be seen as a loading hint, only as a stale
+    // linger the instant the cover drops. Suppress them until the fill resolves;
+    // they then track later pans, where they are the intended streaming feedback.
+    if (!this.initialFill) this.loadingOverlay?.update(loadingCells, performance.now());
     this.sweepColdResidents();
     this.tickInitialFill(loadingCells);
   }
