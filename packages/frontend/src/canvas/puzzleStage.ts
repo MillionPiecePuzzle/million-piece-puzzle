@@ -31,6 +31,7 @@ import { LodTileLayer } from "./lodTiles";
 import { LoadingOverlay } from "./loadingOverlay";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap } from "./membership";
+import { coalesceDirtyCells, residencyDecision } from "./reconcile";
 
 export type Mode = "spectator" | "contributor";
 
@@ -400,10 +401,15 @@ export class PuzzleStage {
   private lodActive = false;
   private lodWarm = false;
   private heldGroupIds = new Set<number>();
-  // Per-cell last-change timestamp (performance.now), updated wherever a tile is
-  // dirtied (markTilesDirty, the single chokepoint for drop/snap/rollback/grab
-  // and the snapshot diff). Drives cell/group hotness for the cold-residents
-  // sweep; bounded by the board's cell count and pruned of stale entries.
+  // Frame-local dirty accumulator. Event handlers record world rects here via
+  // markDirty; the per-frame reconcile (flushDirty) turns them into per-cell tile
+  // invalidations and clears it. Pull-based, so several same-frame events on one
+  // cell coalesce into a single re-bake.
+  private dirtyRects: Aabb[] = [];
+  // Per-cell last-change timestamp (performance.now), stamped by flushDirty for
+  // every cell a frame dirtied (drop/snap/rollback/grab/glide and the snapshot
+  // diff). Drives cell/group hotness for the cold-residents sweep; bounded by the
+  // board's cell count and pruned of stale entries.
   private cellDirtyMs = new Map<CellKey, number>();
   private coldSweepFrame = 0;
   private readonly tickLod = (): void => {
@@ -537,11 +543,14 @@ export class PuzzleStage {
     this.app = app;
     this.world = world;
     this.tweener = new Tweener(app.ticker);
+    // tickLod runs reconcile, the per-frame view authority, so it is added last:
+    // it sees the model mutations the other tickers (edge-pan camera, spectator
+    // stream) made this frame and reconciles them in the same frame.
     app.ticker.add(this.tickPeerCursors);
     app.ticker.add(this.tickDragFlush);
     app.ticker.add(this.tickEdgePan);
-    app.ticker.add(this.tickLod);
     app.ticker.add(this.tickSpectatorBound);
+    app.ticker.add(this.tickLod);
     app.canvas.addEventListener("dblclick", (ev) => this.onCanvasDoubleClick(ev));
     window.addEventListener("keydown", this.onKeyDown);
     this.attachWheelZoom(app.canvas);
@@ -906,6 +915,7 @@ export class PuzzleStage {
     this.pendingDrag = null;
     this.pointerScreen = null;
     this.pendingDrops.clear();
+    this.dirtyRects = [];
   }
 
   // Unloads every resident piece texture from the Assets cache. Sprites are freed
@@ -983,6 +993,7 @@ export class PuzzleStage {
     this.manifest = null;
     this.textureBase = "";
     this.pendingDrops.clear();
+    this.dirtyRects = [];
     this.worldSize = null;
     this.playZone = null;
     this.frame = null;
@@ -1070,20 +1081,16 @@ export class PuzzleStage {
       }
     }
 
-    // Dirty the tiles each changed cluster left and the tiles it now occupies.
-    // markTilesDirty, while the LOD is active, also flips the covered clusters
-    // back to live so nothing blanks in the gap before the bake queue catches up.
-    // Unchanged clusters keep their ready tiles, so an idle poll re-bakes nothing.
-    for (const rect of oldRects) this.markTilesDirty(rect);
+    // Record the tiles each changed cluster left and the tiles it now occupies as
+    // dirty. The next reconcile invalidates them and (while the LOD is active) flips
+    // the covered clusters back to live so nothing blanks before the bake catches
+    // up, and pages textures in and out for the new layout. Unchanged clusters
+    // record nothing, so an idle poll re-bakes nothing.
+    for (const rect of oldRects) this.markDirty(rect);
     for (const gid of changed) {
       const node = this.groups.get(gid);
-      if (node) this.markTilesDirty(this.worldAabb(node));
+      if (node) this.markDirty(this.worldAabb(node));
     }
-
-    // A snapshot can move any cluster into or out of view; page textures in and
-    // out for the new layout before refreshing tile visibility.
-    this.updateResidency();
-    if (this.lodActive) this.refreshLodVisibility();
   }
 
   // ----- spectator stream (keyframe + event-log diffs) -----
@@ -1295,7 +1302,7 @@ export class PuzzleStage {
     if (!this.held || this.held.groupId !== groupId) return;
     const node = this.groups.get(groupId);
     if (node) {
-      this.markTilesDirty(this.worldAabb(node));
+      this.markDirty(this.worldAabb(node));
       this.moveGroup(node, this.held.originX, this.held.originY);
       this.setGroupHeldVisual(node, false);
     }
@@ -1320,10 +1327,10 @@ export class PuzzleStage {
     this.pendingDrops.delete(groupId);
     const node = this.groups.get(groupId);
     if (!node) return;
-    // The drop can relocate a cluster that was never locally held (joined
-    // mid-drag, or a drop with no prior drag frame), so the grab hook never
-    // dirtied the old tile. Dirty it here, before the move, or it keeps a ghost.
-    this.markTilesDirty(this.worldAabb(node));
+    // The drop can relocate a cluster that was never locally held (joined mid-drag,
+    // or a drop with no prior drag frame): moveGroup records the old and new tiles
+    // for a non-held move, so the old position cannot keep a ghost. A held cluster
+    // was never baked there, so only its new resting tile (releaseGroupHeld) dirties.
     this.moveGroup(node, worldX, worldY);
     if (userId !== this.localUserId) {
       this.placeGroupInLayer(node, this.restingLayer(node));
@@ -1341,7 +1348,8 @@ export class PuzzleStage {
       this.flashRejectedTile(this.worldAabb(node));
       this.onNotice?.("tile_full");
     }
-    this.markTilesDirty(this.worldAabb(node));
+    // A rolled-back cluster was released on its drop (not held now), so moveGroup
+    // records the tiles it leaves and re-enters.
     this.moveGroup(node, worldX, worldY);
     if (this.held && this.held.groupId === groupId) {
       this.setGroupHeldVisual(node, false);
@@ -1400,8 +1408,6 @@ export class PuzzleStage {
       for (const key of cellKeysForRect(coverage, LOD_TILE_WORLD)) this.knownCells.add(key);
     }
     const localHeldId = this.held?.groupId ?? null;
-    const now = performance.now();
-    let any = false;
     for (const e of entries) {
       const node = this.groups.get(e.groupId);
       if (!node) {
@@ -1412,24 +1418,18 @@ export class PuzzleStage {
           locked: e.locked,
           pieces: e.pieces,
         });
-        this.cullGroup(built);
-        this.reconcileGroupResidency(built, now);
-        // Dirty the new group's tiles: a cell entered at a deep zoom-out is baked
-        // (empty) before its region_state arrives, so without this the group would
-        // be hidden behind a blank ready tile that never re-bakes. markTilesDirty
-        // invalidates that tile and (while active) flips the group live until the
-        // bake queue refreshes it.
-        this.markTilesDirty(this.worldAabb(built));
-        any = true;
+        // Record the new group's tiles dirty: a cell entered at a deep zoom-out is
+        // baked (empty) before its region_state arrives, so the group would hide
+        // behind a blank ready tile. The next reconcile invalidates that tile, culls
+        // and hydrates the group, and flips it live until the bake refreshes it.
+        this.markDirty(this.worldAabb(built));
         continue;
       }
-      let changed = false;
       if (
         resyncShouldApply(e.groupId, localHeldId, this.heldGroupIds, this.pendingDrops) &&
         (node.worldX !== e.worldX || node.worldY !== e.worldY)
       ) {
         this.moveGroup(node, e.worldX, e.worldY);
-        changed = true;
       }
       let membershipChanged = false;
       for (const wp of e.pieces) {
@@ -1446,15 +1446,9 @@ export class PuzzleStage {
       if (membershipChanged) {
         node.localBounds = this.boundsForMembers(node.members);
         node.hydrated = node.pieces.length >= node.members.size;
-        this.markTilesDirty(this.worldAabb(node));
+        this.markDirty(this.worldAabb(node));
         this.groupGrid.upsert(node.id, this.worldAabb(node));
-        changed = true;
       }
-      if (changed) any = true;
-    }
-    if (any) {
-      this.updateResidency();
-      if (this.lodActive) this.refreshLodVisibility();
     }
   }
 
@@ -1533,12 +1527,11 @@ export class PuzzleStage {
 
     host.localBounds = this.boundsForMembers(host.members);
     host.hydrated = host.pieces.length >= host.members.size;
-    this.markTilesDirty(hostOldRect);
+    this.markDirty(hostOldRect);
     this.moveGroup(host, worldX, worldY);
     host.locked = host.locked || anchored;
     this.setGroupHeldVisual(host, false);
-    this.markTilesDirty(this.worldAabb(host));
-    this.reconcileGroupResidency(host, performance.now());
+    this.markDirty(this.worldAabb(host));
 
     for (const gid of sourceGroupIds) this.destroyGroup(gid);
 
@@ -1578,7 +1571,7 @@ export class PuzzleStage {
   private destroyGroup(gid: number): void {
     const dead = this.groups.get(gid);
     if (!dead) return;
-    this.markTilesDirty(this.worldAabb(dead));
+    this.markDirty(this.worldAabb(dead));
     this.dehydrateGroup(dead);
     this.forgetGroup(gid);
     dead.container.destroy({ children: true });
@@ -2030,7 +2023,7 @@ export class PuzzleStage {
     if (!this.held?.carry) return;
     const node = this.groups.get(this.held.groupId);
     if (node && this.callbacks) {
-      this.markTilesDirty(this.worldAabb(node));
+      this.markDirty(this.worldAabb(node));
       this.moveGroup(node, this.held.originX, this.held.originY);
       this.setGroupHeldVisual(node, false);
       this.pendingDrops.add(node.id);
@@ -2123,22 +2116,20 @@ export class PuzzleStage {
     layer.addChild(node.container);
   }
 
-  // Updates a group's position and re-indexes it. A non-held cluster that actually
-  // moves records the tiles it leaves and the tiles it now occupies as dirty, so
-  // callers no longer bracket the move with manual markTilesDirty calls. A held
-  // cluster is drawn live and excluded from bakes, so its per-frame drag stays off
-  // the dirty path; an unchanged position records nothing, so an idle snapshot poll
-  // re-bakes nothing.
+  // Updates a group's position and re-indexes it, recording the tiles it leaves and
+  // enters as dirty so callers no longer bracket the move with manual dirty calls.
+  // A held cluster is drawn live and excluded from bakes, so its per-frame drag
+  // stays off the dirty path; an unchanged position records nothing, so an idle
+  // snapshot poll re-bakes nothing. Culling is the next reconcile's job.
   private moveGroup(node: GroupNode, worldX: number, worldY: number): void {
     const dirty =
       !this.heldGroupIds.has(node.id) && (node.worldX !== worldX || node.worldY !== worldY);
-    if (dirty) this.markTilesDirty(this.worldAabb(node));
+    if (dirty) this.markDirty(this.worldAabb(node));
     node.worldX = worldX;
     node.worldY = worldY;
     node.container.position.set(worldX, worldY);
     this.groupGrid.upsert(node.id, this.worldAabb(node));
-    if (dirty) this.markTilesDirty(this.worldAabb(node));
-    this.cullGroup(node);
+    if (dirty) this.markDirty(this.worldAabb(node));
   }
 
   // Constrains a group origin so none of its pieces leaves the play zone.
@@ -2268,18 +2259,31 @@ export class PuzzleStage {
     this.world.scale.set(this.camera.zoom);
     this.world.position.set(this.camera.x, this.camera.y);
     this.onCameraChange?.({ ...this.camera });
-    this.cullAll();
-    this.notifyViewport();
-    this.evaluateLod();
-    this.updateResidency();
+    this.reconcile();
   }
 
-  // Recomputes the visible world rectangle, then re-evaluates only the groups the
-  // spatial index reports near the viewport (O(visible), not O(board)). Groups
-  // that left the query region since last frame are culled from lastVisible.
-  // Runs on every pan, zoom, and resize, whether or not the LOD is active.
-  private cullAll(): void {
-    if (!this.app) return;
+  // Records a world rect to invalidate on the next reconcile. Pure model-side: it
+  // touches neither the tile layer, hotness, nor visibility (flushDirty does, once
+  // per touched cell).
+  private markDirty(box: Aabb): void {
+    this.dirtyRects.push(box);
+  }
+
+  // Single per-frame authority over the view. Event handlers only mutate the model
+  // (group positions, membership, locked, held, pendingDrops) and record dirty rects
+  // via markDirty; reconcile turns that recorded intent into tile invalidations,
+  // culling, residency, LOD tile visibility, baking and the loading overlay. Called
+  // at the end of every camera change and once per frame from the LOD ticker;
+  // idempotent, so running it twice in a frame (camera moved + tick) settles to the
+  // same state with no extra bakes.
+  private reconcile(): void {
+    if (!this.app || !this.world) return;
+
+    // Flush recorded dirty rects to per-cell tile invalidations and hotness stamps.
+    const hadDirty = this.flushDirty();
+
+    // Recompute the viewport; report it to the server only when it actually moved,
+    // so the per-frame tick on a still camera does not spam viewport messages.
     const screen = this.app.renderer.screen;
     const topLeft = this.screenToWorld(0, 0);
     const view: Viewport = {
@@ -2288,17 +2292,87 @@ export class PuzzleStage {
       worldW: screen.width / this.camera.zoom,
       worldH: screen.height / this.camera.zoom,
     };
+    const moved =
+      !this.viewport ||
+      this.viewport.worldX !== view.worldX ||
+      this.viewport.worldY !== view.worldY ||
+      this.viewport.worldW !== view.worldW ||
+      this.viewport.worldH !== view.worldH;
     this.viewport = view;
-    const candidates = this.groupGrid.queryRect({
-      minX: view.worldX,
-      minY: view.worldY,
-      maxX: view.worldX + view.worldW,
-      maxY: view.worldY + view.worldH,
-    });
+    if (moved) this.notifyViewport();
+
+    // Candidate pass (cull + residency + LOD visibility) only when the view moved or
+    // a cell was dirtied; an idle, settled frame skips it.
+    if (moved || hadDirty) this.reconcileGroups();
+
+    // Cross the LOD bands (a direct entry bakes the screen cover synchronously).
+    this.evaluateLod();
+
+    // Drain hydration and the bake budget, then trim the resident tile set.
+    this.pumpHydration();
+    if (this.lodLayer && (this.lodWarm || this.lodActive)) {
+      if (this.initialFill && this.lodActive) {
+        // Under the loading cover, bake the whole viewport cover each frame (bounded
+        // by the screen, the burst hidden behind the cover) so it drops the instant
+        // the board is painted; tiles whose groups are still hydrating defer.
+        this.bakeViewportCover();
+      } else {
+        // Steady state: drain a bounded few per frame so a progressive zoom never
+        // hitches.
+        const needed = this.lodLayer.neededTiles(view);
+        let baked = 0;
+        for (const key of needed) {
+          if (baked >= LOD_BAKE_PER_FRAME) break;
+          if (this.lodLayer.isReady(key)) continue;
+          if (this.bakeTile(key)) baked++;
+        }
+      }
+      this.lodLayer.cull(view);
+    }
+
+    // Loading cells: the cover gate consumes the full set; the per-cell badges are a
+    // zoomed-in affordance, suppressed while the LOD is active and during the cover.
+    const loadingCells = this.computeLoadingCells();
+    const badgeCells = this.lodActive ? NO_LOADING_CELLS : loadingCells;
+    if (!this.initialFill) this.loadingOverlay?.update(badgeCells, performance.now());
+    this.sweepColdResidents();
+    this.tickInitialFill(loadingCells);
+  }
+
+  // Turns the frame's recorded dirty rects into per-cell tile invalidations and
+  // hotness stamps, then clears the accumulator. Returns whether anything was
+  // dirtied, so reconcile runs the candidate pass (which flips a dirtied cell's
+  // clusters live until the bake catches up, gapless fill) only when needed.
+  private flushDirty(): boolean {
+    if (this.dirtyRects.length === 0) return false;
+    const rects = this.dirtyRects;
+    this.dirtyRects = [];
+    if (this.lodLayer) {
+      const now = performance.now();
+      for (const key of coalesceDirtyCells(rects, LOD_TILE_WORLD)) {
+        this.lodLayer.markDirtyCell(key);
+        this.cellDirtyMs.set(key, now);
+      }
+    }
+    return true;
+  }
+
+  // The candidate pass: over the keep-ring groups (the widest residency ring, a
+  // superset of the cull and hydrate sets), cull each, decide its residency, and,
+  // while the LOD is active, apply its tile visibility, collapsing the former
+  // separate cull/hydrate/keep queries into one. Then cull the groups that left the
+  // ring since last frame (restoring any the LOD had hidden) and free residents that
+  // left it (hysteresis). O(visible), not O(board), via the spatial index.
+  private reconcileGroups(): void {
+    const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
+    if (!keepRing) return;
+    const now = performance.now();
+    const candidates = this.groupGrid.queryRect(keepRing);
     for (const gid of candidates) {
       const node = this.groups.get(gid);
       if (!node) continue;
       this.cullGroup(node);
+      this.reconcileGroupResidency(node, now);
       if (this.lodActive) this.applyGroupLodVisibility(node);
     }
     for (const gid of this.lastVisible) {
@@ -2306,11 +2380,19 @@ export class PuzzleStage {
       const node = this.groups.get(gid);
       if (!node) continue;
       node.container.culled = true;
-      // It left the candidate path, so if an active LOD had hidden it, restore
-      // its live visibility here: nothing else will (keeps lodHidden bounded).
       if (this.lodHidden.delete(gid)) node.container.visible = true;
     }
     this.lastVisible = candidates;
+    for (const gid of [...this.resident, ...this.hydrateQueued]) {
+      if (candidates.has(gid)) continue;
+      const node = this.groups.get(gid);
+      if (!node) {
+        this.resident.delete(gid);
+        this.hydrateQueued.delete(gid);
+        continue;
+      }
+      this.dehydrateGroup(node);
+    }
   }
 
   // Culls one group against the cached viewport. A group whose bounds miss the
@@ -2546,41 +2628,16 @@ export class PuzzleStage {
     );
   }
 
-  // Hydrates a group inside the hydrate ring, except when it is covered and cold
-  // (drawn by baked tiles, no recent change): that group is freed instead, to
-  // bound resident VRAM at a deep zoom-out. With the LOD inactive (zoomed in)
-  // nothing is covered, so this hydrates the whole window as before and the
-  // pieces render live.
+  // Residency for one near-viewport group: hydrate it inside the hydrate ring,
+  // except a covered-cold cluster (drawn by baked tiles, no recent change), which is
+  // freed instead to bound resident VRAM at a deep zoom-out. With the LOD inactive
+  // (zoomed in) nothing is covered, so the whole window hydrates and renders live.
+  // Called per candidate from reconcileGroups; the keep-ring retention lives there.
   private reconcileGroupResidency(node: GroupNode, now: number): void {
-    if (!this.groupInRing(node, HYDRATE_MARGIN_FRAC)) return;
-    if (this.isCoveredCold(node, now)) this.dehydrateGroup(node);
-    else this.enqueueHydrate(node.id);
-  }
-
-  // Reconciles residency across the visible window: hydrate groups inside the
-  // hydrate ring (except covered-cold ones, which are freed), then free residents
-  // that left the wider keep ring (hysteresis). Runs on every camera change, so
-  // panning pages textures in and out and a deep zoom-out sheds its idle window.
-  private updateResidency(): void {
-    const hydrateRing = this.viewportRing(HYDRATE_MARGIN_FRAC);
-    if (!hydrateRing) return;
-    const now = performance.now();
-    for (const gid of this.groupGrid.queryRect(hydrateRing)) {
-      const node = this.groups.get(gid);
-      if (node) this.reconcileGroupResidency(node, now);
-    }
-    const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
-    const keep = keepRing ? this.groupGrid.queryRect(keepRing) : new Set<number>();
-    for (const gid of [...this.resident, ...this.hydrateQueued]) {
-      if (keep.has(gid)) continue;
-      const node = this.groups.get(gid);
-      if (!node) {
-        this.resident.delete(gid);
-        this.hydrateQueued.delete(gid);
-        continue;
-      }
-      this.dehydrateGroup(node);
-    }
+    const inRing = this.groupInRing(node, HYDRATE_MARGIN_FRAC);
+    const action = residencyDecision(inRing, inRing && this.isCoveredCold(node, now));
+    if (action === "hydrate") this.enqueueHydrate(node.id);
+    else if (action === "dehydrate") this.dehydrateGroup(node);
   }
 
   // Resolves build()'s promise once the first viewport is painted: every group in
@@ -2840,7 +2897,7 @@ export class PuzzleStage {
     // A held cluster always renders live, so make sure it is loaded (it may have
     // been covered by a tile, or be a remote grab on an off-screen cluster).
     if (this.groupInRing(node, HYDRATE_MARGIN_FRAC)) this.enqueueHydrate(node.id);
-    if (!wasHeld) this.markTilesDirty(this.worldAabb(node));
+    if (!wasHeld) this.markDirty(this.worldAabb(node));
   }
 
   // The released cluster's new resting tile must fold it back in. It stays live
@@ -2848,22 +2905,7 @@ export class PuzzleStage {
   private releaseGroupHeld(groupId: number): void {
     this.heldGroupIds.delete(groupId);
     const node = this.groups.get(groupId);
-    if (node) this.markTilesDirty(this.worldAabb(node));
-  }
-
-  // Marks every resident tile overlapping the box stale, and (while active)
-  // flips the box's clusters back to live so nothing disappears in the gap
-  // between a tile going stale and the bake queue refreshing it.
-  private markTilesDirty(box: Aabb): void {
-    if (!this.lodLayer) return;
-    this.lodLayer.markDirtyRect(box);
-    const now = performance.now();
-    for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) this.cellDirtyMs.set(key, now);
-    if (!this.lodActive) return;
-    for (const gid of this.groupGrid.queryRect(box)) {
-      const node = this.groups.get(gid);
-      if (node) this.applyGroupLodVisibility(node);
-    }
+    if (node) this.markDirty(this.worldAabb(node));
   }
 
   // Bakes every screen-cover tile not already ready, synchronously. Called once on
@@ -2882,44 +2924,12 @@ export class PuzzleStage {
     }
   }
 
-  // Per-frame LOD driver: while warm or active, enqueue the visible-but-not-ready
-  // tiles, bake a bounded few of them, and keep the resident set within budget.
+  // Per-frame LOD driver: reconcile is the sole authority, so the tick just runs it
+  // every frame. This guarantees a flush + bake even when the camera is still (a
+  // WS-driven dirty, a hydration completing, the initial-fill cover bake); a camera
+  // move runs reconcile again from applyCamera.
   private tickLodFrame(): void {
-    this.pumpHydration();
-    if (this.lodLayer && this.viewport && (this.lodWarm || this.lodActive)) {
-      if (this.initialFill && this.lodActive) {
-        // Under the initial loading cover, bake the whole viewport cover each
-        // frame (bounded by the screen, so a full bake is one longer frame hidden
-        // behind the cover) so the cover can drop the instant the board is fully
-        // painted. Tiles whose groups are still hydrating defer cheaply and bake
-        // on a later frame as they arrive.
-        this.bakeViewportCover();
-      } else {
-        // Steady state: drain a bounded few per frame so a progressive zoom-out
-        // never hitches.
-        const needed = this.lodLayer.neededTiles(this.viewport);
-        let baked = 0;
-        for (const key of needed) {
-          if (baked >= LOD_BAKE_PER_FRAME) break;
-          if (this.lodLayer.isReady(key)) continue;
-          if (this.bakeTile(key)) baked++;
-        }
-      }
-      this.lodLayer.cull(this.viewport);
-    }
-    const loadingCells = this.computeLoadingCells();
-    // Per-cell badges are a zoomed-in affordance: they share the grid the tile-full
-    // drop rejection flashes on, and dropping is disabled below LOD_ENTER_ZOOM (the
-    // active band is overview-only). At a zoom-out the gapless live render shows a
-    // cell's pieces the moment they hydrate, well before the background tile bake
-    // finishes, so a scrim gated on tile readiness lingers over pieces already on
-    // screen. Suppress badges while the LOD is active (and over the first paint,
-    // where the loading cover stands in); the cover gate below still consumes the
-    // full loadingCells set so it holds until every viewport tile has baked.
-    const badgeCells = this.lodActive ? NO_LOADING_CELLS : loadingCells;
-    if (!this.initialFill) this.loadingOverlay?.update(badgeCells, performance.now());
-    this.sweepColdResidents();
-    this.tickInitialFill(loadingCells);
+    this.reconcile();
   }
 
   // Frees the per-piece textures of resident clusters now covered by cold baked

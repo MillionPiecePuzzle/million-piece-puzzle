@@ -134,14 +134,12 @@ export class LodTileLayer {
     tile.lru = ++this.lruClock;
   }
 
-  // Marks every resident tile overlapping the box stale (covers both the rect a
-  // cluster leaves and the one it enters). A stale tile hides its sprite; the
-  // bake queue re-bakes it while it stays in view.
-  markDirtyRect(box: Aabb): void {
-    for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) {
-      const tile = this.tiles.get(key);
-      if (tile) this.markTileDirty(tile);
-    }
+  // Marks the resident tile for one cell stale, if present. A stale tile hides its
+  // sprite; the bake queue re-bakes it while it stays in view. The stage coalesces a
+  // frame's dirty rects to cells, so each touched tile is invalidated once.
+  markDirtyCell(key: CellKey): void {
+    const tile = this.tiles.get(key);
+    if (tile) this.markTileDirty(tile);
   }
 
   // World rectangle of one tile cell, for the stage to query the cell's groups.
