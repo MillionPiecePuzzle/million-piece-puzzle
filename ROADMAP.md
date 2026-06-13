@@ -61,7 +61,6 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Rendering stays smooth on commodity hardware at 1M: fixed z-order layer containers (no `sortableChildren`), geometry cache evicted on dehydrate, deep zoom-out VRAM bounded by freeing covered idle clusters. End-to-end 1M smoke is the `qa-and-load` soak test. See DECISIONS: z-order layers, hot-tile residency
 - [x] Per-tile loading indicator: pulsing badge over viewport cells not yet on screen (three states by zoom band), `region_state` coverage rect distinguishes a pending region from an empty one
 - [x] Per-tile piece cap: a non-merging drop onto a cell already at `MPP_TILE_PIECE_CAP_MULTIPLIER` (default 8) times solved density is rejected, cluster bounces back via `rollback` with a "tile_full" toast. Merges and anchors exempt. See DECISIONS: per-tile piece cap
-- [ ] Event-start cascade entrance: synchronized across clients at `eventStartsAt`, pieces fall into their shuffled positions, late joiners skip it
 
 ### `backend-realtime`
 - [x] Viewport sharding for broadcasts: spatial broadcast index + cluster-AABB scoping. See DECISIONS: spatial broadcast index

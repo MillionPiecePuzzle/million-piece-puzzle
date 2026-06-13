@@ -30,7 +30,7 @@ A community-built online jigsaw puzzle: 1,000,000 pieces on a single shared canv
 
 ## Product Pillars
 
-- **Animation-heavy feel.** The experience must feel alive: cascade entrance when a puzzle session starts, tactile feedback on every drag/drop, satisfying snap animation when pieces lock, and a spectacle end-of-puzzle animation shared across all clients. All canvas animations are driven by the PixiJS ticker with easing, no external animation library.
+- **Animation-heavy feel.** The experience must feel alive: tactile feedback on every drag/drop, satisfying snap animation when pieces lock, and a spectacle end-of-puzzle animation shared across all clients. All canvas animations are driven by the PixiJS ticker with easing, no external animation library.
 
 ## Architecture
 
