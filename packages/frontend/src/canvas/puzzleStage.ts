@@ -2560,20 +2560,23 @@ export class PuzzleStage {
     }
   }
 
-  // Resolves build()'s promise once every group in the hydrate ring is hydrated,
-  // i.e. the first viewport's pieces are on screen (the LOD bakes its tiles from
-  // them within the next frames). Hydration-based, not tile-based, so a spectator
-  // snapshot dirtying every tile cannot reset the loading progress. The per-frame
-  // driver (tickLodFrame) checks completion.
+  // Resolves build()'s promise once the first viewport is painted: every group in
+  // the hydrate ring hydrated and, while the board shows as baked tiles (zoomed
+  // out), every viewport LOD tile baked too (tickInitialFill's gate). Holding the
+  // cover over the tile bake means the board appears complete, not mid-bake, when
+  // it drops. The per-frame driver (tickLodFrame) checks completion and passes it
+  // the frame's loading-cell set.
   private awaitInitialCoverage(progress?: (loaded: number, total: number) => void): Promise<void> {
     return new Promise((resolve) => {
       this.initialFill = { resolve, progress };
     });
   }
 
-  private initialCoverage(): { loaded: number; total: number; done: boolean } {
+  // Hydration progress of the first viewport, driving the loading cover's progress
+  // bar. tickInitialFill folds in tile readiness for the done decision.
+  private initialCoverage(): { loaded: number; total: number } {
     const ring = this.viewportRing(HYDRATE_MARGIN_FRAC);
-    if (!ring) return { loaded: 0, total: 0, done: false };
+    if (!ring) return { loaded: 0, total: 0 };
     let total = 0;
     let loaded = 0;
     // queryRect is cell-coarse: it returns every group whose grid cell overlaps
@@ -2588,17 +2591,23 @@ export class PuzzleStage {
       total++;
       if (node.hydrated) loaded++;
     }
-    // total can be 0 for a fit over an empty region; the ring is populated
-    // synchronously before the first tick, so resolving immediately is correct
-    // and avoids a hang with nothing to load.
-    return { loaded, total, done: loaded >= total };
+    return { loaded, total };
   }
 
-  private tickInitialFill(): void {
+  private tickInitialFill(loadingCells: ReadonlySet<CellKey>): void {
     if (!this.initialFill) return;
-    const { loaded, total, done } = this.initialCoverage();
+    const { loaded, total } = this.initialCoverage();
     this.initialFill.progress?.(loaded, total);
-    if (!done) return;
+    // Hold the cover until the first viewport is fully painted: every in-ring
+    // group hydrated, and (when the board shows as baked tiles) no viewport tile
+    // still loading. While the LOD is active computeLoadingCells reports exactly
+    // the viewport cells whose tile is not ready, so gating on it empty keeps the
+    // cover up until the last tile bakes; the per-cell badges then only ever show
+    // for later pans, never over the board's first paint. Zoomed in there are no
+    // tiles, so only the hydration gate applies. total 0 (a fit over an empty
+    // region, e.g. a contributor's global-subscriber overview) resolves at once.
+    const tilesPending = this.lodActive && loadingCells.size > 0;
+    if (loaded < total || tilesPending) return;
     const fill = this.initialFill;
     this.initialFill = null;
     fill.resolve();
@@ -2810,18 +2819,30 @@ export class PuzzleStage {
   private tickLodFrame(): void {
     this.pumpHydration();
     if (this.lodLayer && this.viewport && (this.lodWarm || this.lodActive)) {
-      const needed = this.lodLayer.neededTiles(this.viewport);
-      let baked = 0;
-      for (const key of needed) {
-        if (baked >= LOD_BAKE_PER_FRAME) break;
-        if (this.lodLayer.isReady(key)) continue;
-        if (this.bakeTile(key)) baked++;
+      if (this.initialFill && this.lodActive) {
+        // Under the initial loading cover, bake the whole viewport cover each
+        // frame (bounded by the screen, so a full bake is one longer frame hidden
+        // behind the cover) so the cover can drop the instant the board is fully
+        // painted. Tiles whose groups are still hydrating defer cheaply and bake
+        // on a later frame as they arrive.
+        this.bakeViewportCover();
+      } else {
+        // Steady state: drain a bounded few per frame so a progressive zoom-out
+        // never hitches.
+        const needed = this.lodLayer.neededTiles(this.viewport);
+        let baked = 0;
+        for (const key of needed) {
+          if (baked >= LOD_BAKE_PER_FRAME) break;
+          if (this.lodLayer.isReady(key)) continue;
+          if (this.bakeTile(key)) baked++;
+        }
       }
       this.lodLayer.cull(this.viewport);
     }
-    this.loadingOverlay?.update(this.computeLoadingCells(), performance.now());
+    const loadingCells = this.computeLoadingCells();
+    this.loadingOverlay?.update(loadingCells, performance.now());
     this.sweepColdResidents();
-    this.tickInitialFill();
+    this.tickInitialFill(loadingCells);
   }
 
   // Frees the per-piece textures of resident clusters now covered by cold baked
