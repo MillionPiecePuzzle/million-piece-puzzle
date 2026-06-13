@@ -2661,9 +2661,12 @@ export class PuzzleStage {
 
   // Viewport cells (within the play zone) whose content should be visible but is
   // not yet. Three states, by zoom band:
-  //  - zoom-out (LOD active): a cell with known groups whose tile has not baked
-  //    yet. An unknown or empty cell bakes blank instantly, so it never badges
-  //    here, which also keeps the zoomed-out global view (nothing streamed) clear.
+  //  - zoom-out (LOD active): a cell with a known, non-held group still un-hydrated
+  //    and whose tile has not baked. A hydrated group renders live (gapless) before
+  //    its tile bakes, so the cell is only blank while a group's textures are still
+  //    loading; badging until the background bake catches up would linger over
+  //    pieces already on screen. An unknown or empty cell bakes blank instantly, so
+  //    it never badges here, which keeps the zoomed-out global view clear.
   //  - zoom-in, region not streamed in yet: a cell not in knownCells, once the
   //    board is known to stream in (coverageSeen). The full-board spectator never
   //    sets coverageSeen, so its cells fall through to the hydration test instead.
@@ -2683,7 +2686,15 @@ export class PuzzleStage {
       if (!this.cellOverlapsPlayZone(key)) continue;
       const groups = this.groupGrid.cellGroups(key);
       if (this.lodActive) {
-        if (groups && groups.size > 0 && !this.lodLayer?.isReady(key)) out.add(key);
+        if (!groups || groups.size === 0 || this.lodLayer?.isReady(key)) continue;
+        for (const gid of groups) {
+          if (this.heldGroupIds.has(gid)) continue;
+          const node = this.groups.get(gid);
+          if (node && !node.hydrated) {
+            out.add(key);
+            break;
+          }
+        }
         continue;
       }
       if (this.coverageSeen && !this.knownCells.has(key)) {
