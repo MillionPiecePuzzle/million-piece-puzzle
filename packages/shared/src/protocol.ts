@@ -110,6 +110,12 @@ export type SWelcome = {
   // same value for every client so they can fire it in sync. 0 means no
   // scheduled start (already running): clients skip the wait and the cascade.
   eventStartsAt: number;
+  // The server's viewport scoping bound (config.broadcastMaxCells): a viewport
+  // overlapping more than this many world-tile cells is a global subscriber that
+  // receives no region_state. The contributor client mirrors this to know whether
+  // its initial loading cover should wait for region coverage. Absent on the
+  // spectator's synthetic welcome (it builds the whole board from the keyframe).
+  broadcastMaxCells?: number;
 };
 
 export type SState = {

@@ -97,6 +97,7 @@ async function main(): Promise<void> {
     wire,
     groupIndex,
     tilePieceCap,
+    broadcastMaxCells: config.broadcastMaxCells,
   };
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
   ctx.lifecycle = lifecycle;

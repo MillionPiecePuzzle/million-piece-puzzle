@@ -63,6 +63,7 @@ export class PuzzleLifecycle {
       lockedCount,
       playZone: this.playZone,
       eventStartsAt: this.ctx.eventStartsAt,
+      broadcastMaxCells: this.ctx.broadcastMaxCells,
     });
     const items = await this.ctx.mongo.recentMerges(this.ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT);
     this.ctx.hub.send(client, { t: "activity", items });

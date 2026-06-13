@@ -387,6 +387,12 @@ export class PuzzleStage {
   // badge applies only where the board streams in.
   private knownCells = new Set<CellKey>();
   private coverageSeen = false;
+  // Server's viewport scoping bound (welcome.broadcastMaxCells), mirrored so the
+  // client can tell a scoped viewport (streams region_state, whose coverage the
+  // initial cover waits for) from a global-subscriber one (too large to scope, so
+  // no region_state arrives and there is nothing to wait for). Infinity until a
+  // contributor welcome sets it; a spectator never reads it.
+  private broadcastMaxCells = Number.POSITIVE_INFINITY;
   private lodActive = false;
   private lodWarm = false;
   private heldGroupIds = new Set<number>();
@@ -471,6 +477,12 @@ export class PuzzleStage {
 
   setLocalUserId(userId: string | null): void {
     this.localUserId = userId;
+  }
+
+  // The server's broadcast scoping bound, from the contributor welcome. Lets the
+  // initial-fill gate mirror the server's scoped-vs-global viewport decision.
+  setBroadcastMaxCells(maxCells: number): void {
+    this.broadcastMaxCells = maxCells;
   }
 
   // Store the latest server minimap grid (WS `minimap` for a contributor, the
@@ -2604,10 +2616,14 @@ export class PuzzleStage {
     // the viewport cells whose tile is not ready, so gating on it empty keeps the
     // cover up until the last tile bakes; the per-cell badges then only ever show
     // for later pans, never over the board's first paint. Zoomed in there are no
-    // tiles, so only the hydration gate applies. total 0 (a fit over an empty
-    // region, e.g. a contributor's global-subscriber overview) resolves at once.
+    // tiles, so only the hydration gate applies.
     const tilesPending = this.lodActive && loadingCells.size > 0;
-    if (loaded < total || tilesPending) return;
+    // Also hold until the first viewport's region has actually streamed in (a
+    // contributor's region_state), so the cover never drops onto a board still
+    // streaming. Without it the cold-start frame (no groups yet, so loaded/total
+    // are 0 and no tile is pending) resolves at once and the per-cell badges paint
+    // as the region arrives. See viewportStreamSettled.
+    if (loaded < total || tilesPending || !this.viewportStreamSettled()) return;
     const fill = this.initialFill;
     this.initialFill = null;
     fill.resolve();
@@ -2697,6 +2713,45 @@ export class PuzzleStage {
       minY < this.playZone.maxY &&
       minY + LOD_TILE_WORLD > this.playZone.minY
     );
+  }
+
+  // Whether the first viewport's content has arrived, so dropping the loading
+  // cover will not reveal a region still streaming in. A spectator builds the
+  // whole board from the keyframe, so it is always settled. A contributor streams
+  // its viewport via region_state: a scoped viewport waits for the coverage ack
+  // and for every in-zone cell to be acked known; a global-subscriber viewport
+  // (too large to scope) receives no region_state by design, so there is nothing
+  // to wait for (the minimap carries its overview).
+  private viewportStreamSettled(): boolean {
+    if (this.mode !== "contributor") return true;
+    if (this.viewportIsGlobalSubscriber()) return true;
+    if (!this.coverageSeen) return false;
+    const v = this.viewport;
+    if (!v || !this.playZone) return false;
+    const box: Aabb = {
+      minX: v.worldX,
+      minY: v.worldY,
+      maxX: v.worldX + v.worldW,
+      maxY: v.worldY + v.worldH,
+    };
+    for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) {
+      if (this.cellOverlapsPlayZone(key) && !this.knownCells.has(key)) return false;
+    }
+    return true;
+  }
+
+  // Mirrors the server's cellsForRect decision (worldGrid.ts): a viewport
+  // overlapping more than broadcastMaxCells world-tile cells is a global
+  // subscriber the server streams no region_state to. LOD_TILE_WORLD is the same
+  // WORLD_TILE_SIZE the server scopes on, so the cell count matches exactly.
+  private viewportIsGlobalSubscriber(): boolean {
+    const v = this.viewport;
+    if (!v) return false;
+    const cxMin = Math.floor(v.worldX / LOD_TILE_WORLD);
+    const cxMax = Math.floor((v.worldX + v.worldW) / LOD_TILE_WORLD);
+    const cyMin = Math.floor(v.worldY / LOD_TILE_WORLD);
+    const cyMax = Math.floor((v.worldY + v.worldH) / LOD_TILE_WORLD);
+    return (cxMax - cxMin + 1) * (cyMax - cyMin + 1) > this.broadcastMaxCells;
   }
 
   // Crosses the three zoom bands. The bake queue (drained in tickLodFrame) fills

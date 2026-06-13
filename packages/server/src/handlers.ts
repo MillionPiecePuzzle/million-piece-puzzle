@@ -51,6 +51,9 @@ export type Context = {
   // Max pieces allowed to rest in one world grid cell (one LOD tile). A non-merging
   // drop that would push the destination cell past this is rejected (see handleDrop).
   tilePieceCap: number;
+  // Viewport scoping bound (config.broadcastMaxCells), carried in welcome so the
+  // contributor client mirrors the scoped-vs-global decision for its loading cover.
+  broadcastMaxCells: number;
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.

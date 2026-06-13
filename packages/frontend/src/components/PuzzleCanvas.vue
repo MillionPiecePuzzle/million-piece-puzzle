@@ -326,6 +326,9 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   }
   builtEpoch = s.epoch;
   stage.setLocalUserId(userId.value);
+  if (s.welcome.broadcastMaxCells !== undefined) {
+    stage.setBroadcastMaxCells(s.welcome.broadcastMaxCells);
+  }
   buildPhaseKind.value = "build";
   progressLoaded.value = 0;
   progressTotal.value = 0;
