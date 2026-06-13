@@ -159,6 +159,10 @@ const LOD_EXIT_ZOOM = 0.35;
 const LOD_WARM_ZOOM = 0.5;
 const LOD_BAKE_PER_FRAME = 2;
 
+// Shared empty set passed to the loading overlay when badges are suppressed (a
+// zoom-out), so existing badges still age out via LINGER without a per-frame alloc.
+const NO_LOADING_CELLS: ReadonlySet<CellKey> = new Set();
+
 // A tile cell is "hot" for this long after its last real change (a drop, snap,
 // rollback, grab, or a snapshot diff). When the LOD covers the board, a non-held
 // cluster all of whose tiles have gone cold renders entirely from its baked
@@ -2660,13 +2664,12 @@ export class PuzzleStage {
   }
 
   // Viewport cells (within the play zone) whose content should be visible but is
-  // not yet. Three states, by zoom band:
-  //  - zoom-out (LOD active): a cell with a known, non-held group still un-hydrated
-  //    and whose tile has not baked. A hydrated group renders live (gapless) before
-  //    its tile bakes, so the cell is only blank while a group's textures are still
-  //    loading; badging until the background bake catches up would linger over
-  //    pieces already on screen. An unknown or empty cell bakes blank instantly, so
-  //    it never badges here, which keeps the zoomed-out global view clear.
+  // not yet. Drives both the loading-cover gate (every viewport tile baked before
+  // the cover drops) and, while zoomed in, the per-cell badges. Three states, by
+  // zoom band:
+  //  - zoom-out (LOD active): a cell with known groups whose tile has not baked
+  //    yet. An unknown or empty cell bakes blank instantly, so it never badges
+  //    here, which also keeps the zoomed-out global view (nothing streamed) clear.
   //  - zoom-in, region not streamed in yet: a cell not in knownCells, once the
   //    board is known to stream in (coverageSeen). The full-board spectator never
   //    sets coverageSeen, so its cells fall through to the hydration test instead.
@@ -2686,15 +2689,7 @@ export class PuzzleStage {
       if (!this.cellOverlapsPlayZone(key)) continue;
       const groups = this.groupGrid.cellGroups(key);
       if (this.lodActive) {
-        if (!groups || groups.size === 0 || this.lodLayer?.isReady(key)) continue;
-        for (const gid of groups) {
-          if (this.heldGroupIds.has(gid)) continue;
-          const node = this.groups.get(gid);
-          if (node && !node.hydrated) {
-            out.add(key);
-            break;
-          }
-        }
+        if (groups && groups.size > 0 && !this.lodLayer?.isReady(key)) out.add(key);
         continue;
       }
       if (this.coverageSeen && !this.knownCells.has(key)) {
@@ -2906,12 +2901,16 @@ export class PuzzleStage {
       this.lodLayer.cull(this.viewport);
     }
     const loadingCells = this.computeLoadingCells();
-    // Keep the per-cell badges off the board's first paint. While the initial
-    // fill is pending the loading cover is up (and holds until the viewport is
-    // ready), so a badge would never be seen as a loading hint, only as a stale
-    // linger the instant the cover drops. Suppress them until the fill resolves;
-    // they then track later pans, where they are the intended streaming feedback.
-    if (!this.initialFill) this.loadingOverlay?.update(loadingCells, performance.now());
+    // Per-cell badges are a zoomed-in affordance: they share the grid the tile-full
+    // drop rejection flashes on, and dropping is disabled below LOD_ENTER_ZOOM (the
+    // active band is overview-only). At a zoom-out the gapless live render shows a
+    // cell's pieces the moment they hydrate, well before the background tile bake
+    // finishes, so a scrim gated on tile readiness lingers over pieces already on
+    // screen. Suppress badges while the LOD is active (and over the first paint,
+    // where the loading cover stands in); the cover gate below still consumes the
+    // full loadingCells set so it holds until every viewport tile has baked.
+    const badgeCells = this.lodActive ? NO_LOADING_CELLS : loadingCells;
+    if (!this.initialFill) this.loadingOverlay?.update(badgeCells, performance.now());
     this.sweepColdResidents();
     this.tickInitialFill(loadingCells);
   }
