@@ -234,6 +234,15 @@ const SNAP_BUMP_MS = 240;
 const SNAP_FLASH_ALPHA = 0.55;
 const SNAP_FLASH_MS = 260;
 
+// Small spark burst radiating from a piece the instant it locks. Anchored to the
+// piece (world space, child of inner) so it scales with zoom. Capped per snap so
+// a large cluster anchoring (which lights up every member) cannot spawn an
+// unbounded number of particles.
+const SNAP_BURST_COUNT = 7;
+const SNAP_BURST_MS = 480;
+const SNAP_BURST_MAX_PIECES = 6;
+const SNAP_BURST_COLORS = [0xffffff, 0xffe9a8, 0xffd166];
+
 const END_PULSE_SCALE = 1.06;
 const END_PULSE_MS = 280;
 const END_PULSE_SPREAD_MS = 700;
@@ -1536,9 +1545,16 @@ export class PuzzleStage {
     }
 
     if (animate) {
+      let bursts = 0;
       for (const piece of host.pieces) {
         if (preLockedPieceIds.has(piece.id)) continue;
-        if (addedSet.has(piece.id) || host.locked) this.playSnapAnimation(piece);
+        if (addedSet.has(piece.id) || host.locked) {
+          this.playSnapAnimation(piece);
+          if (bursts < SNAP_BURST_MAX_PIECES) {
+            this.playSnapBurst(piece);
+            bursts++;
+          }
+        }
       }
     }
   }
@@ -1713,6 +1729,44 @@ export class PuzzleStage {
       },
       onDone: () => {
         flash.alpha = 0;
+      },
+    });
+  }
+
+  private playSnapBurst(piece: PieceNode): void {
+    if (!this.tweener || !this.manifest) return;
+    const pieceSize = this.manifest.pieceSize;
+    const burst = new Container();
+    burst.eventMode = "none";
+    burst.position.set(pieceSize / 2, pieceSize / 2);
+    piece.inner.addChild(burst);
+
+    const sparks: { gfx: Graphics; angle: number; dist: number }[] = [];
+    for (let i = 0; i < SNAP_BURST_COUNT; i++) {
+      const gfx = new Graphics();
+      const radius = pieceSize * (0.03 + Math.random() * 0.03);
+      const color = SNAP_BURST_COLORS[Math.floor(Math.random() * SNAP_BURST_COLORS.length)]!;
+      gfx.circle(0, 0, radius).fill({ color });
+      burst.addChild(gfx);
+      const angle = (i / SNAP_BURST_COUNT) * Math.PI * 2 + Math.random() * 0.6;
+      const dist = pieceSize * (0.45 + Math.random() * 0.35);
+      sparks.push({ gfx, angle, dist });
+    }
+
+    this.tweener.add({
+      duration: SNAP_BURST_MS,
+      easing: easeOutCubic,
+      onUpdate: (eased, raw) => {
+        if (burst.destroyed) return;
+        for (const s of sparks) {
+          const d = s.dist * eased;
+          s.gfx.position.set(Math.cos(s.angle) * d, Math.sin(s.angle) * d);
+          s.gfx.alpha = 1 - raw;
+          s.gfx.scale.set(1 - 0.5 * raw);
+        }
+      },
+      onDone: () => {
+        if (!burst.destroyed) burst.destroy({ children: true });
       },
     });
   }
