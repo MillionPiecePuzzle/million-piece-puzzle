@@ -3007,9 +3007,12 @@ export class PuzzleStage {
 
   // Renders one tile's clusters into its texture with the tile matrix as the root
   // transform (bypassing the camera). Live clusters (held or gliding), the frame,
-  // the backdrop and the tile layer are excluded; non-tile clusters clip out of the
-  // texture, so only this tile's clusters contribute. After baking, the tile's
-  // clusters are re-culled and (if active) hidden now that the tile covers them.
+  // the backdrop, the loading overlay and the tile layer are excluded; non-tile
+  // clusters clip out of the texture, so only this tile's clusters contribute. The
+  // loading badge is a transient hint composited live above the tiles, so baking it
+  // in would freeze a stale badge into the cell until its next re-bake. After baking,
+  // the tile's clusters are re-culled and (if active) hidden now that the tile covers
+  // them.
   private bakeTile(key: CellKey): boolean {
     if (!this.app || !this.world || !this.lodLayer) return false;
     const groupIds = this.groupGrid.cellGroups(key);
@@ -3040,6 +3043,7 @@ export class PuzzleStage {
 
     if (this.frame) this.frame.visible = false;
     if (this.backdrop) this.backdrop.visible = false;
+    if (this.loadingOverlay) this.loadingOverlay.container.visible = false;
     this.lodLayer.setVisible(false);
     const liveHidden: GroupNode[] = [];
     const forced: GroupNode[] = [];
@@ -3079,6 +3083,7 @@ export class PuzzleStage {
 
     if (this.frame) this.frame.visible = true;
     if (this.backdrop) this.backdrop.visible = true;
+    if (this.loadingOverlay) this.loadingOverlay.container.visible = true;
     this.lodLayer.setVisible(this.lodActive);
     this.lodLayer.markBaked(key);
     for (const node of liveHidden) node.container.visible = true;
