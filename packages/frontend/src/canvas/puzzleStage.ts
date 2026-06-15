@@ -165,17 +165,26 @@ const LOD_BAKE_PER_FRAME = 2;
 const NO_LOADING_CELLS: ReadonlySet<CellKey> = new Set();
 
 // A tile cell is "hot" for this long after its last real change (a drop, snap,
-// rollback, grab, or a snapshot diff). When the LOD covers the board, a non-held
-// cluster all of whose tiles have gone cold renders entirely from its baked
-// tiles, so its full-res per-piece textures are freed: resident VRAM at a deep
-// zoom-out converges on the hot working set plus the bake-in-progress and held
-// clusters, not the whole window. Several snapshot cycles (2s each), so a region
-// worked continuously stays hydrated and never blanks; the first change to a
-// long-cold region re-hydrates its tile and may flash once before settling. The
-// cold-residents sweep runs every Nth frame: it scans the resident set it
-// shrinks, so it self-limits and need not run every frame.
+// rollback, grab, or a snapshot diff). A non-held cluster all of whose tiles are
+// baked and cold ("covered-cold") renders entirely from its baked tiles, so its
+// per-piece nodes add nothing on screen and become eligible for eviction. They are
+// not freed eagerly: the budget evictor frees the coldest covered-cold clusters
+// (LRU) only when resident nodes exceed RESIDENT_PIECE_BUDGET, so a zoom in/out
+// under the budget keeps every node and never re-fetches, while a 1M deep zoom-out
+// converges on the budget. Hotness keeps a recently-changed region hydrated so its
+// tile can re-bake without a blank. The evictor runs every Nth frame: it scans the
+// resident set it shrinks, so it self-limits and need not run every frame.
 const LOD_HOT_TTL_MS = 9000;
 const LOD_COLD_SWEEP_FRAMES = 6;
+
+// Hydrated per-piece nodes kept resident before the budget evictor frees the
+// coldest covered clusters (LRU). Sized above both the alpha board and a deep
+// zoom-out window, so below it nothing is ever evicted (a zoom in/out re-uses the
+// resident nodes with no re-fetch) and only a 1M deep zoom-out, whose window
+// exceeds it, converges on it. The baked tiles keep drawing an evicted cluster, so
+// freeing one is invisible; a later change to its cell re-hydrates it. VRAM is this
+// count times one per-piece texture, the knob to tune against device VRAM.
+const RESIDENT_PIECE_BUDGET = 24000;
 
 // Viewport-driven texture streaming. Per-piece AVIF textures and their nodes are
 // built on demand for groups within the hydrate ring around the viewport and
@@ -440,7 +449,13 @@ export class PuzzleStage {
   // or rebuild mid-construction stops the in-flight passes.
   private buildToken = 0;
   private fileById = new Map<number, string>();
-  private resident = new Set<number>();
+  // Resident groups (hydrated or loading), each mapped to an LRU stamp bumped while
+  // the group is active (live, zoomed-in visible, or still feeding an unbaked tile)
+  // and left untouched once it is covered-cold, so evictResidentsOverBudget frees the
+  // coldest covered clusters first. The value orders eviction; the keys are the
+  // resident set.
+  private resident = new Map<number, number>();
+  private residentLru = 0;
   private hydrateQueue: number[] = [];
   private hydrateQueued = new Set<number>();
   private inFlight = 0;
@@ -2344,12 +2359,16 @@ export class PuzzleStage {
     this.viewport = view;
     if (moved) this.notifyViewport();
 
-    // Candidate pass (cull + residency + LOD visibility) only when the view moved or
-    // a cell was dirtied; an idle, settled frame skips it.
-    if (moved || hadDirty) this.reconcileGroups();
+    // Cross the LOD bands first (a direct entry bakes the screen cover
+    // synchronously), so the candidate pass below sees the correct lodActive: a
+    // zoom-in re-hydrates the now-uncovered clusters this same frame instead of
+    // running residency against the stale (still-active) LOD state and leaving them
+    // un-hydrated until the next camera move.
+    const lodChanged = this.evaluateLod();
 
-    // Cross the LOD bands (a direct entry bakes the screen cover synchronously).
-    this.evaluateLod();
+    // Candidate pass (cull + residency + LOD visibility) when the view moved, a cell
+    // was dirtied, or the LOD band just flipped; an idle, settled frame skips it.
+    if (moved || hadDirty || lodChanged) this.reconcileGroups();
 
     // Drain hydration and the bake budget, then trim the resident tile set.
     this.pumpHydration();
@@ -2378,7 +2397,7 @@ export class PuzzleStage {
     const loadingCells = this.computeLoadingCells();
     const badgeCells = this.lodActive ? NO_LOADING_CELLS : loadingCells;
     if (!this.initialFill) this.loadingOverlay?.update(badgeCells, performance.now());
-    this.sweepColdResidents();
+    this.evictResidentsOverBudget();
     this.tickInitialFill(loadingCells);
   }
 
@@ -2426,7 +2445,7 @@ export class PuzzleStage {
       if (this.lodHidden.delete(gid)) node.container.visible = true;
     }
     this.lastVisible = candidates;
-    for (const gid of [...this.resident, ...this.hydrateQueued]) {
+    for (const gid of [...this.resident.keys(), ...this.hydrateQueued]) {
       if (candidates.has(gid)) continue;
       const node = this.groups.get(gid);
       if (!node) {
@@ -2581,7 +2600,7 @@ export class PuzzleStage {
   private async hydrateGroup(node: GroupNode): Promise<void> {
     if (node.hydrated || node.hydrating) return;
     node.hydrating = true;
-    this.resident.add(node.id);
+    this.resident.set(node.id, ++this.residentLru);
     await Promise.all(
       [...node.members.keys()].map(async (pieceId) => {
         if (node.pieces.some((p) => p.id === pieceId)) return;
@@ -2656,12 +2675,13 @@ export class PuzzleStage {
 
   // A covered, idle cluster: the LOD is active, it is not held, every tile it
   // occupies is baked (the tiles draw it), and none of those tiles changed within
-  // the hot window. Such a cluster adds nothing on screen, so its full-res
-  // textures are freed; the first later change to one of its tiles marks the cell
-  // hot, which re-hydrates it and re-bakes the tile from live pieces. Suppressed
-  // until the initial fill resolves: that gate counts hydrated groups, and at a
-  // cold start every cell is cold (no change yet), so freeing covered clusters
-  // mid-fill would stall the loading cover. Once resolved, the idle window frees.
+  // the hot window. Such a cluster adds nothing on screen, so it is eligible for
+  // eviction (evictResidentsOverBudget frees the coldest under budget pressure); the
+  // first later change to one of its tiles marks the cell hot, which keeps it
+  // resident and re-bakes the tile from live pieces. Suppressed until the initial
+  // fill resolves: that gate counts hydrated groups, and at a cold start every cell
+  // is cold (no change yet), so making covered clusters evictable mid-fill would
+  // stall the loading cover. Once resolved, the idle window can be evicted.
   private isCoveredCold(node: GroupNode, now: number): boolean {
     return (
       this.initialFill === null &&
@@ -2672,16 +2692,25 @@ export class PuzzleStage {
     );
   }
 
-  // Residency for one near-viewport group: hydrate it inside the hydrate ring,
-  // except a covered-cold cluster (drawn by baked tiles, no recent change), which is
-  // freed instead to bound resident VRAM at a deep zoom-out. With the LOD inactive
-  // (zoomed in) nothing is covered, so the whole window hydrates and renders live.
-  // Called per candidate from reconcileGroups; the keep-ring retention lives there.
+  // Residency for one near-viewport group. Inside the hydrate ring a non-covered
+  // cluster is hydrated and marked recently used; a covered-cold one (drawn by its
+  // baked tiles) is retained, left resident but not bumped, so it ages toward
+  // eviction and is freed only when evictResidentsOverBudget needs the room. With the
+  // LOD inactive (zoomed in) nothing is covered, so the whole window hydrates and
+  // renders live. Called per candidate from reconcileGroups; the keep-ring retention
+  // lives there.
   private reconcileGroupResidency(node: GroupNode, now: number): void {
     const inRing = this.groupInRing(node, HYDRATE_MARGIN_FRAC);
-    const action = residencyDecision(inRing, inRing && this.isCoveredCold(node, now));
-    if (action === "hydrate") this.enqueueHydrate(node.id);
-    else if (action === "dehydrate") this.dehydrateGroup(node);
+    if (residencyDecision(inRing, inRing && this.isCoveredCold(node, now)) !== "hydrate") return;
+    this.enqueueHydrate(node.id);
+    this.touchResident(node.id);
+  }
+
+  // Bump a resident group's LRU stamp: it is active this frame (live, zoomed-in
+  // visible, or still feeding an unbaked tile), so the budget evictor should free it
+  // last. A no-op when the group is not resident yet (the hydrate sets its stamp).
+  private touchResident(gid: number): void {
+    if (this.resident.has(gid)) this.resident.set(gid, ++this.residentLru);
   }
 
   // Resolves build()'s promise once the first viewport is painted: every group in
@@ -2870,15 +2899,19 @@ export class PuzzleStage {
     return (cxMax - cxMin + 1) * (cyMax - cyMin + 1) > this.broadcastMaxCells;
   }
 
-  // Crosses the three zoom bands. The bake queue (drained in tickLodFrame) fills
-  // tiles in the background while warm, so reaching the active band does not
-  // hitch; LOD_EXIT_ZOOM gives the active band hysteresis.
-  private evaluateLod(): void {
-    if (!this.lodLayer) return;
+  // Crosses the three zoom bands and returns whether the active band flipped this
+  // frame, so reconcile re-runs the residency pass against the new state. The bake
+  // queue (drained in tickLodFrame) fills tiles in the background while warm, so
+  // reaching the active band does not hitch; LOD_EXIT_ZOOM gives the active band
+  // hysteresis.
+  private evaluateLod(): boolean {
+    if (!this.lodLayer) return false;
     const zoom = this.camera.zoom;
     this.lodWarm = zoom < LOD_WARM_ZOOM;
     const active = this.lodActive ? zoom < LOD_EXIT_ZOOM : zoom < LOD_ENTER_ZOOM;
-    if (active !== this.lodActive) this.setLodActive(active);
+    if (active === this.lodActive) return false;
+    this.setLodActive(active);
+    return true;
   }
 
   // Shows or hides the baked tiles. Entering bakes any screen-cover tiles the warm
@@ -2985,20 +3018,39 @@ export class PuzzleStage {
     this.reconcile();
   }
 
-  // Frees the per-piece textures of resident clusters now covered by cold baked
-  // tiles, so resident VRAM at a deep zoom-out converges on the hot working set
-  // (recently changed cells) plus the bake-in-progress and held clusters rather
-  // than the whole window. Throttled to one pass every LOD_COLD_SWEEP_FRAMES; the
-  // scan is bounded by the resident set it shrinks. Also prunes hotness entries
-  // past the hot window so the cell map stays the size of the hot set.
-  private sweepColdResidents(): void {
-    if (!this.lodActive) return;
+  // Frees the per-piece nodes of the coldest covered-cold clusters when resident
+  // nodes exceed RESIDENT_PIECE_BUDGET, bounding resident VRAM at a deep zoom-out
+  // without freeing eagerly on every zoom: under the budget a covered cluster stays
+  // resident, so a zoom in/out re-uses its nodes with no re-fetch (the alpha board,
+  // under the budget, never evicts). Only covered-cold clusters are evictable (their
+  // baked tiles keep drawing them) and only while the LOD is active; zoomed in
+  // nothing is covered, so the whole window stays resident. Throttled to one pass
+  // every LOD_COLD_SWEEP_FRAMES; the scan is bounded by the resident set. Also prunes
+  // hotness entries past the hot window so the cell map stays the size of the hot set.
+  private evictResidentsOverBudget(): void {
+    if (!this.lodActive || this.initialFill) return;
     if (++this.coldSweepFrame < LOD_COLD_SWEEP_FRAMES) return;
     this.coldSweepFrame = 0;
     const now = performance.now();
-    for (const gid of [...this.resident]) {
+    let totalNodes = 0;
+    const evictable: number[] = [];
+    for (const gid of this.resident.keys()) {
       const node = this.groups.get(gid);
-      if (node && this.isCoveredCold(node, now)) this.dehydrateGroup(node);
+      if (!node) continue;
+      totalNodes += node.pieces.length;
+      if (this.isCoveredCold(node, now)) evictable.push(gid);
+    }
+    if (totalNodes > RESIDENT_PIECE_BUDGET && evictable.length > 0) {
+      // Coldest first: a covered-cold cluster stops bumping its LRU stamp, so the
+      // lowest stamp is the one longest off-screen-useful.
+      evictable.sort((a, b) => (this.resident.get(a) ?? 0) - (this.resident.get(b) ?? 0));
+      for (const gid of evictable) {
+        if (totalNodes <= RESIDENT_PIECE_BUDGET) break;
+        const node = this.groups.get(gid);
+        if (!node) continue;
+        totalNodes -= node.pieces.length;
+        this.dehydrateGroup(node);
+      }
     }
     for (const [key, t] of this.cellDirtyMs) {
       if (now - t >= LOD_HOT_TTL_MS) this.cellDirtyMs.delete(key);

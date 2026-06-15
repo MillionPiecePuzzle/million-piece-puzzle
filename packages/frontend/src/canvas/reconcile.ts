@@ -16,14 +16,15 @@ export function coalesceDirtyCells(rects: readonly Aabb[], cell: number): Set<Ce
   return out;
 }
 
-export type ResidencyAction = "hydrate" | "dehydrate" | "none";
+export type ResidencyAction = "hydrate" | "retain" | "none";
 
 // Residency decision for one group near the viewport: outside the hydrate ring it
 // is left as is; inside, a covered-cold cluster (drawn by baked tiles with no recent
-// change) is freed, and any other is hydrated.
+// change) is retained (kept resident, eligible for budget eviction later), and any
+// other is hydrated.
 export function residencyDecision(inHydrateRing: boolean, coveredCold: boolean): ResidencyAction {
   if (!inHydrateRing) return "none";
-  return coveredCold ? "dehydrate" : "hydrate";
+  return coveredCold ? "retain" : "hydrate";
 }
 
 // Whether a viewport cell's known content is not yet on screen, in the three real

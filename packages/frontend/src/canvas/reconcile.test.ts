@@ -48,8 +48,8 @@ describe("residencyDecision", () => {
     expect(residencyDecision(true, false)).toBe("hydrate");
   });
 
-  it("frees an in-ring group that is covered-cold", () => {
-    expect(residencyDecision(true, true)).toBe("dehydrate");
+  it("retains an in-ring covered-cold group for budget eviction", () => {
+    expect(residencyDecision(true, true)).toBe("retain");
   });
 });
 
