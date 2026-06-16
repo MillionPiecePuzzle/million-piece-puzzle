@@ -1914,8 +1914,8 @@ export class PuzzleStage {
   }
 
   // World-space origin that puts the held cluster's grabbed point under the given
-  // screen position, clamped into the play zone. Used by press-drag (move and
-  // drop) and by the carry drop, which lands the cluster at the cursor.
+  // screen position, clamped into the play zone. Used by press-drag move and drop,
+  // which keep the grabbed point under the cursor.
   private heldGroupOrigin(
     node: GroupNode,
     screenX: number,
@@ -1943,6 +1943,23 @@ export class PuzzleStage {
     const gap = HELD_CARRY_GAP / this.camera.zoom;
     const b = node.localBounds;
     return this.clampGroupOrigin(node, world.x + gap - b.minX, world.y - gap - b.maxY);
+  }
+
+  // World-space origin that lands the carried cluster centered on the cursor: its
+  // bounding-box center sits at the pointer's world position (the symmetric tab
+  // margin keeps that center on the cluster's grid footprint center). Clamped into
+  // the play zone. Used by the carry drop, where the grab point is irrelevant since
+  // the cluster floats off the cursor while carried.
+  private carryDropOrigin(
+    node: GroupNode,
+    screenX: number,
+    screenY: number,
+  ): { x: number; y: number } {
+    const world = this.screenToWorld(screenX, screenY);
+    const b = node.localBounds;
+    const centerX = (b.minX + b.maxX) / 2;
+    const centerY = (b.minY + b.maxY) / 2;
+    return this.clampGroupOrigin(node, world.x - centerX, world.y - centerY);
   }
 
   // Move the held cluster under the given screen position, clamped into the play
@@ -2054,17 +2071,18 @@ export class PuzzleStage {
     this.armCarryIdle();
   }
 
-  // Put the carried cluster down at the cursor (the drop double-click or the idle
-  // timeout), committing the move and releasing the server lock. The lower-right
-  // carry offset is dropped here so the piece lands under the pointer, not
-  // below-right of it. Falls back to its current resting spot if the pointer has
-  // left the canvas (a timeout after the cursor left).
+  // Put the carried cluster down centered on the cursor (the drop double-click or
+  // the idle timeout), committing the move and releasing the server lock. It lands
+  // centered on the pointer rather than by its grab point: the carry floats it off
+  // the cursor, so the grab point is irrelevant on drop. Falls back to its current
+  // resting spot if the pointer has left the canvas (a timeout after the cursor
+  // left).
   private dropCarried(): void {
     if (!this.held?.carry) return;
     const node = this.groups.get(this.held.groupId);
     if (node && this.callbacks) {
       const { x, y } = this.pointerScreen
-        ? this.heldGroupOrigin(node, this.pointerScreen.x, this.pointerScreen.y)
+        ? this.carryDropOrigin(node, this.pointerScreen.x, this.pointerScreen.y)
         : { x: node.worldX, y: node.worldY };
       this.moveGroup(node, x, y);
       this.setGroupHeldVisual(node, false);
