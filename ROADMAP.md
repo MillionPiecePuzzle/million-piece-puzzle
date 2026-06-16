@@ -78,6 +78,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 
 ### `infra-deploy`
 - [x] Production hardening: backups (`backup` sidecar pushes gzipped `mongodump` + Redis RDB to private `mpp-backups` R2 every 6h, keep-3), secrets stay in the Coolify env, `ws.*` Cloudflare-proxied with an Origin CA cert (Full strict) + 30s WS heartbeat. Manual infra done and verified. Firewalling the origin to Cloudflare ranges stays the open DDoS gap (backlog). See DECISIONS: scheduled backups, alpha topology
+- [x] Frontend dropped from the Coolify deploy: `docker-compose.yml` (deployed by Coolify) no longer defines the Vite dev `frontend` service; it lives in `docker-compose.override.yml` for local dev only, since prod `app.*` is Cloudflare Pages. Manual follow-up: remove the now-unused `VITE_WS_URL`/`VITE_AUTH_BASE_URL`/`MPP_ALLOWED_HOSTS` from the Coolify service env, then redeploy so the dev frontend container stops.
 
 ### `qa-and-load`
 - [x] Load-test bots authenticate past the WS session gate: harness seeds a disposable user + database session per bot in Mongo and sends the matching cookie; bot brought to protocol v3. Verified at 10 000 (anonymous rejected, ~160 drag/s sustained, clean teardown). See DECISIONS: harness seeds sessions by direct Mongo write
@@ -110,6 +111,5 @@ Ideas worth keeping but not yet committed to a phase. Promote into a phase track
 - **Jump-to search bar (`⌘K`).** Command palette to recenter on a coordinate, sector, or piece id. Depends on a sector concept and a `panTo(worldX, worldY)` camera method.
 - **Bookmark tray (piece shortlist).** Client-side panel of thumbnails for flagged pieces; clicking flies the camera to the piece. Pure client-side, no protocol change. Pays off once the canvas is too large to re-find pieces by eye.
 - **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. Hetzner Cloud Firewall allowing 80/443 from Cloudflare ranges + admin IP, 22 from admin IP, at the network edge. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
-- **Verify and remove the vestigial `frontend` service from the Coolify deployment.** `app.*` is served by Cloudflare Pages, so the `frontend` service in `docker-compose.yml` is likely dead weight in prod. Confirm no hostname points at it, then move it to `docker-compose.override.yml`, letting the related Coolify env vars be removed too.
 - **Render the spectator keyframe as the zoomed-out contributor backdrop.** Painting the CDN keyframe behind the live pieces would give a true overview that resolves into live pieces as the user zooms in. Deferred: the minimap already carries global progress, and this couples the contributor render path to the spectator keyframe format.
 - **Reword the legal and policy pages.**

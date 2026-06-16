@@ -52,19 +52,10 @@ services:
     expose:
       - "8080"
 
-  frontend:
-    build:
-      context: .
-      dockerfile: packages/frontend/Dockerfile.dev
-    restart: unless-stopped
-    depends_on:
-      - server
-    environment:
-      VITE_WS_URL: "${VITE_WS_URL:-}"
-      VITE_AUTH_BASE_URL: "${VITE_AUTH_BASE_URL:-}"
-      MPP_ALLOWED_HOSTS: "${MPP_ALLOWED_HOSTS:-}"
-    expose:
-      - "5173"
+  # The frontend is not deployed here: prod app.millionpiecepuzzle.com is served
+  # by Cloudflare Pages (a production build that reads
+  # packages/frontend/.env.production). A Vite dev server for local development
+  # lives in docker-compose.override.yml, which Coolify does not deploy.
 
   # Off-host backups: a gzipped Mongo dump + Redis RDB pushed to a private R2
   # bucket every 6h, kept to the newest 3 (see DECISIONS: scheduled backups to a

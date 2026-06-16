@@ -25,7 +25,21 @@ services:
       AUTH_COOKIE_DOMAIN: "${AUTH_COOKIE_DOMAIN:-}"
       MPP_APP_ORIGIN: "${MPP_APP_ORIGIN:-http://localhost:5173}"
 
+  # Local-dev only: the Vite dev server, bind-mounting the frontend source for
+  # HMR on :5173. It lives here, not in docker-compose.yml, because prod
+  # app.millionpiecepuzzle.com is served by Cloudflare Pages, so Coolify (which
+  # deploys docker-compose.yml alone) must neither build nor run it.
   frontend:
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      VITE_WS_URL: "${VITE_WS_URL:-}"
+      VITE_AUTH_BASE_URL: "${VITE_AUTH_BASE_URL:-}"
+      MPP_ALLOWED_HOSTS: "${MPP_ALLOWED_HOSTS:-}"
     ports:
       - "5173:5173"
     volumes:
