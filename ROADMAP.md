@@ -100,6 +100,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Landing reflects the event lifecycle: countdown before the start, live progress (locked/total bar) plus an activity + leaderboard two-column block during, and a completed recap (COMPLETED, date, event duration, full-width final leaderboard) after. Driven by `GET /landing` extended with `status`/`progress`/`leaderboard`/`activity`/`completion`; live figures come from the in-memory keyframe snapshot (no full-board fetch), the completed span from a `puzzleId_at`-indexed first/last merge lookup
 - [x] Snap particle burst: a small spark burst radiates from each piece the instant it locks (snap or anchor), reusing the snap bump/flash path on the Pixi ticker, capped per snap event so a large cluster anchor cannot spawn unbounded particles
 - [x] Brand mark as favicon and Discord icon: cream-tiled SVG favicon + apple-touch PNG wired in index.html, plus a 512px Discord server-icon PNG, all generated from the BrandMark glyph via `npm run icons`
+- [x] Minimap navigation: a primary-button press on the overview recenters the camera on that world point, and a hold-drag (tracked past the panel edge via pointer capture) sweeps it continuously, clamped to the play zone. Same in spectator and contributor mode
 
 ---
 
@@ -111,3 +112,5 @@ Ideas worth keeping but not yet committed to a phase. Promote into a phase track
 - **Coordinate HUD overlay.** Small overlay showing viewport position (XY, sector, zoom). Needs a "sector" concept first. Revisit at 1M when orientation becomes a real problem.
 - **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. Hetzner Cloud Firewall allowing 80/443 from Cloudflare ranges + admin IP, 22 from admin IP, at the network edge. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
 - **Reword the legal and policy pages.**
+- Let the user choose how much vram should be used
+- Slice and upload the 1M puzzle on hetzner VPS

@@ -2,10 +2,23 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useMinimap } from "../composables/useMinimap";
 
-const { source } = useMinimap();
+const { source, navigate } = useMinimap();
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
+const dragging = ref(false);
 let raf = 0;
+
+// Last canvas->world mapping the draw loop produced, captured so a pointer press
+// can invert it without recomputing the layout. Null until the first real frame.
+type MapTransform = {
+  scale: number;
+  offX: number;
+  offY: number;
+  zoneMinX: number;
+  zoneMinY: number;
+  margin: number;
+};
+let transform: MapTransform | null = null;
 
 // Out-of-bounds band: the play zone is inset by this fraction of its larger
 // side so a thin margin of outside space shows on every edge. Matches the
@@ -66,6 +79,7 @@ function draw(): void {
   const offY = (ch - mapH * scale) / 2;
   const toX = (wx: number): number => offX + (wx - zone.minX + margin) * scale;
   const toY = (wy: number): number => offY + (wy - zone.minY + margin) * scale;
+  transform = { scale, offX, offY, zoneMinX: zone.minX, zoneMinY: zone.minY, margin };
 
   // Play zone interior.
   ctx.fillStyle = "#f4f1ea";
@@ -142,6 +156,46 @@ function draw(): void {
   }
 }
 
+// Invert the draw loop's mapping: pointer (CSS px relative to the canvas) ->
+// device px -> world. Works for out-of-bounds points too, so a drag past the
+// panel edge keeps pushing the camera until applyCamera's clamp stops it.
+function pointerToWorld(ev: PointerEvent): { x: number; y: number } | null {
+  const canvas = canvasEl.value;
+  if (!canvas || !transform) return null;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return null;
+  const cx = (ev.clientX - rect.left) * (canvas.width / rect.width);
+  const cy = (ev.clientY - rect.top) * (canvas.height / rect.height);
+  const t = transform;
+  return {
+    x: (cx - t.offX) / t.scale + t.zoneMinX - t.margin,
+    y: (cy - t.offY) / t.scale + t.zoneMinY - t.margin,
+  };
+}
+
+function onPointerDown(ev: PointerEvent): void {
+  if (ev.button !== 0) return;
+  const world = pointerToWorld(ev);
+  if (!world) return;
+  dragging.value = true;
+  // Capture so the sweep keeps tracking the pointer once it leaves the panel.
+  canvasEl.value?.setPointerCapture(ev.pointerId);
+  navigate.value?.(world.x, world.y);
+  ev.preventDefault();
+}
+
+function onPointerMove(ev: PointerEvent): void {
+  if (!dragging.value) return;
+  const world = pointerToWorld(ev);
+  if (world) navigate.value?.(world.x, world.y);
+}
+
+function onPointerUp(ev: PointerEvent): void {
+  if (!dragging.value) return;
+  dragging.value = false;
+  canvasEl.value?.releasePointerCapture(ev.pointerId);
+}
+
 onMounted(() => {
   raf = requestAnimationFrame(draw);
 });
@@ -157,7 +211,14 @@ onBeforeUnmount(() => {
       <h3>Overview</h3>
     </div>
     <div class="mm-canvas" :style="{ aspectRatio: canvasAspect }">
-      <canvas ref="canvasEl"></canvas>
+      <canvas
+        ref="canvasEl"
+        :class="{ dragging }"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+      ></canvas>
     </div>
   </aside>
 </template>
@@ -187,5 +248,10 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.mm-canvas canvas.dragging {
+  cursor: grabbing;
 }
 </style>

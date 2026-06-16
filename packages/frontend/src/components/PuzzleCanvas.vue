@@ -31,7 +31,7 @@ const {
   sendCursor,
 } = usePuzzleSession();
 const { setControls, setCamera, setReady } = useStageControls();
-const { setMinimapSource } = useMinimap();
+const { setMinimapSource, setMinimapNavigate } = useMinimap();
 const { mode } = useMode();
 
 let stage: PuzzleStage | null = null;
@@ -272,6 +272,7 @@ onMounted(async () => {
     fit: () => stage?.fitView(),
   });
   setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
+  setMinimapNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
   unsubscribe = onMessage(routeMessage);
   // Spectator stream wiring: the stage asks for the next sealed window, the
   // session fetches it (once, edge-cached) and feeds the events back; the stage
@@ -407,6 +408,7 @@ onBeforeUnmount(() => {
   setControls(null);
   setReady(false);
   setMinimapSource(null);
+  setMinimapNavigate(null);
   close();
   stage?.destroy();
   stage = null;

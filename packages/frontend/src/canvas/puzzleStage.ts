@@ -2248,6 +2248,13 @@ export class PuzzleStage {
     this.centerOn(this.worldSize.w / 2, this.worldSize.h / 2);
   }
 
+  // Minimap navigation: center the camera on a world point picked from the
+  // overview. The shared clamp pulls an out-of-bounds pick back to the nearest
+  // in-bounds framing.
+  centerOnWorld(worldX: number, worldY: number): void {
+    this.centerOn(worldX, worldY);
+  }
+
   zoomIn(): void {
     this.zoomBy(1.25);
   }
