@@ -99,6 +99,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] More info in the activity panel: snap (loose merge) vs place (anchored), each as a single piece or an N-piece cluster, driven by `droppedSize`/`mergedSize` on the snap event. See DECISIONS: activity feed event types
 - [x] Landing reflects the event lifecycle: countdown before the start, live progress (locked/total bar) plus an activity + leaderboard two-column block during, and a completed recap (COMPLETED, date, event duration, full-width final leaderboard) after. Driven by `GET /landing` extended with `status`/`progress`/`leaderboard`/`activity`/`completion`; live figures come from the in-memory keyframe snapshot (no full-board fetch), the completed span from a `puzzleId_at`-indexed first/last merge lookup
 - [x] Snap particle burst: a small spark burst radiates from each piece the instant it locks (snap or anchor), reusing the snap bump/flash path on the Pixi ticker, capped per snap event so a large cluster anchor cannot spawn unbounded particles
+- [x] Brand mark as favicon and Discord icon: cream-tiled SVG favicon + apple-touch PNG wired in index.html, plus a 512px Discord server-icon PNG, all generated from the BrandMark glyph via `npm run icons`
 
 ---
 

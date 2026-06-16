@@ -18,6 +18,7 @@
     "clean": "npm run clean --workspaces --if-present",
     "dev:frontend": "npm run dev -w @mpp/frontend",
     "dev:server": "npm run dev -w @mpp/server",
+    "icons": "tsx scripts/generate-icons.ts",
     "materialize": "tsx scripts/synthetic-source.ts materialize",
     "validate:generation": "tsx scripts/validate-generation.ts",
     "slice": "tsx scripts/slice-image.ts",
