@@ -15,6 +15,15 @@ services:
     # local runs; Coolify deploys docker-compose.yml alone, so prod keeps the
     # image ENV. Override any of these via this directory's `.env`.
     environment:
+      # The in-memory keyframe snapshot holds the whole board (and is retained), so
+      # at 1M pieces it exceeds Node's default ~2 GB heap. Raise it for a local 1M
+      # run; the Docker VM has room. Harmless for the small test puzzle. (Prod runs
+      # the committed image CMD, so the real 1M deploy needs the same treatment.)
+      NODE_OPTIONS: "${NODE_OPTIONS:---max-old-space-size=5120}"
+      # Which R2-hosted puzzle the dev server serves. Defaults to the image's
+      # test-puzzle-10k; override via this directory's `.env` (with a matching
+      # MPP_GENERATION_SEED) to serve another uploaded puzzle locally.
+      MPP_PUZZLE_ID: "${MPP_PUZZLE_ID:-test-puzzle-10k}"
       # Local dev defaults to the public alpha seed: it matches the test-puzzle-10k
       # R2 assets the dev server fetches. Override via this directory's `.env` if
       # you slice your own local puzzle. Prod never uses this file (Coolify deploys
