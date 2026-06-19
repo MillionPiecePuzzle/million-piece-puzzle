@@ -111,6 +111,3 @@ Ideas worth keeping but not yet committed to a phase. Promote into a phase track
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out early and relax it as pieces are placed, to bound the visible piece count. A fixed 15% zoom floor already exists (see [play-zone hard limits](DECISIONS.md#2026-05-21-frontend-canvas-play-zone-hard-limits)); the progress-relative version is the open idea.
 - **Coordinate HUD overlay.** Small overlay showing viewport position (XY, sector, zoom). Needs a "sector" concept first. Revisit at 1M when orientation becomes a real problem.
 - **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. Hetzner Cloud Firewall allowing 80/443 from Cloudflare ranges + admin IP, 22 from admin IP, at the network edge. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
-- **Reword the legal and policy pages.**
-- Let the user choose how much vram should be used
-- Slice and upload the 1M puzzle on hetzner VPS
