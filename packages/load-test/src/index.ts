@@ -23,6 +23,7 @@ type Args = {
   mongoDb: string;
   viewportFrac: number;
   keepSessions: boolean;
+  spoofIpBase: string;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -58,6 +59,11 @@ function parseArgs(argv: string[]): Args {
     viewportFrac:
       typeof args["viewport-frac"] === "string" ? parseFloat(args["viewport-frac"]) : 0.1,
     keepSessions: args["keep-sessions"] === true,
+    // When set, each bot sends a distinct CF-Connecting-IP derived from this base
+    // so the server buckets it as its own IP, sidestepping the per-IP connection
+    // cap and message-rate bucket. Only takes effect connecting straight to the
+    // origin (Cloudflare overwrites the header at the edge). Empty = no header.
+    spoofIpBase: typeof args["spoof-ip-base"] === "string" ? args["spoof-ip-base"] : "",
   };
 }
 
@@ -79,6 +85,7 @@ async function main(): Promise<void> {
     secure: args.target.startsWith("wss"),
     viewportFrac: args.viewportFrac,
     keepSessions: args.keepSessions,
+    spoofIpBase: args.spoofIpBase,
   });
   await runner.run();
 }

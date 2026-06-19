@@ -68,7 +68,26 @@ export type RunnerConfig = {
   viewportFrac: number;
   // Skip teardown of the seeded users/sessions (leave them for inspection).
   keepSessions: boolean;
+  // Base IPv4 for per-bot CF-Connecting-IP spoofing (each bot gets base + its
+  // index). Empty disables it (no header sent). See BotConfig.spoofIp.
+  spoofIpBase: string;
 };
+
+// Adds an integer offset to a dotted IPv4, wrapping within 32 bits. Used to hand
+// each bot a distinct synthetic CF-Connecting-IP from one base. Returns null for a
+// malformed base so the caller can fail loudly.
+export function ipFromBase(base: string, offset: number): string | null {
+  const parts = base.split(".");
+  if (parts.length !== 4) return null;
+  let value = 0;
+  for (const part of parts) {
+    const n = Number(part);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return null;
+    value = value * 256 + n;
+  }
+  const next = (value + offset) >>> 0;
+  return [(next >>> 24) & 255, (next >>> 16) & 255, (next >>> 8) & 255, next & 255].join(".");
+}
 
 export class Runner {
   readonly metrics = newMetrics();
@@ -95,6 +114,15 @@ export class Runner {
       ttlMs,
     });
 
+    if (this.cfg.spoofIpBase && ipFromBase(this.cfg.spoofIpBase, 0) === null) {
+      throw new Error(`invalid --spoof-ip-base "${this.cfg.spoofIpBase}" (expected dotted IPv4)`);
+    }
+    if (this.cfg.spoofIpBase) {
+      console.log(
+        `[runner] spoofing CF-Connecting-IP from ${this.cfg.spoofIpBase} (one IP per bot)`,
+      );
+    }
+
     try {
       for (let i = 0; i < this.cfg.bots; i++) {
         const session = seed.sessions[i];
@@ -106,6 +134,7 @@ export class Runner {
           origin: this.cfg.origin,
           cookie: sessionCookie(session.sessionToken, this.cfg.secure),
           viewportFrac: this.cfg.viewportFrac,
+          spoofIp: this.cfg.spoofIpBase ? (ipFromBase(this.cfg.spoofIpBase, i) ?? null) : null,
           metrics: this.metrics,
           rng: makeRng(this.cfg.seed + i * 1000003),
           verbose: this.cfg.verbose,

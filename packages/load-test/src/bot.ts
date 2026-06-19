@@ -27,6 +27,10 @@ export type BotConfig = {
   // region_state stream (a too-large viewport is treated as a global subscriber
   // and streams no board, leaving the bot with nothing to grab).
   viewportFrac: number;
+  // When set, sent as CF-Connecting-IP so the server buckets this bot under its
+  // own IP (per-IP connection cap and rate bucket). Only honored when the bot
+  // reaches the origin directly; Cloudflare overwrites the header at the edge.
+  spoofIp: string | null;
   metrics: Metrics;
   rng: () => number;
   verbose: boolean;
@@ -51,9 +55,9 @@ export class Bot {
   constructor(private readonly cfg: BotConfig) {}
 
   start(): void {
-    const ws = new WebSocket(this.cfg.url, {
-      headers: { Origin: this.cfg.origin, Cookie: this.cfg.cookie },
-    });
+    const headers: Record<string, string> = { Origin: this.cfg.origin, Cookie: this.cfg.cookie };
+    if (this.cfg.spoofIp) headers["CF-Connecting-IP"] = this.cfg.spoofIp;
+    const ws = new WebSocket(this.cfg.url, { headers });
     this.ws = ws;
     ws.on("open", () => {
       this.send({ t: "hello", protocolVersion: PROTOCOL_VERSION, puzzleId: this.cfg.puzzleId });
