@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 import { useStageControls } from "../composables/useStageControls";
 
+const { t } = useI18n();
 const { controls, zoomPercent } = useStageControls();
 </script>
 
@@ -9,8 +11,8 @@ const { controls, zoomPercent } = useStageControls();
     <div class="lvl">{{ zoomPercent }}%</div>
     <button
       type="button"
-      aria-label="Zoom in"
-      data-tip="Zoom in"
+      :aria-label="t('zoom.in')"
+      :data-tip="t('zoom.in')"
       :disabled="!controls"
       @click="controls?.zoomIn()"
     >
@@ -20,8 +22,8 @@ const { controls, zoomPercent } = useStageControls();
     </button>
     <button
       type="button"
-      aria-label="Zoom out"
-      data-tip="Zoom out"
+      :aria-label="t('zoom.out')"
+      :data-tip="t('zoom.out')"
       :disabled="!controls"
       @click="controls?.zoomOut()"
     >
@@ -31,8 +33,8 @@ const { controls, zoomPercent } = useStageControls();
     </button>
     <button
       type="button"
-      aria-label="Center on puzzle"
-      data-tip="Center on puzzle"
+      :aria-label="t('zoom.center')"
+      :data-tip="t('zoom.center')"
       :disabled="!controls"
       @click="controls?.center()"
     >
@@ -48,8 +50,8 @@ const { controls, zoomPercent } = useStageControls();
     </button>
     <button
       type="button"
-      aria-label="Fit puzzle to view"
-      data-tip="Fit puzzle to view"
+      :aria-label="t('zoom.fit')"
+      :data-tip="t('zoom.fit')"
       :disabled="!controls"
       @click="controls?.fit()"
     >

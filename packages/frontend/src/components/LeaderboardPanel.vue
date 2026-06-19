@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardModal from "./LeaderboardModal.vue";
 import LeaderboardRow from "./LeaderboardRow.vue";
 
+const { t } = useI18n();
 const { leaderboard, userId } = usePuzzleSession();
 const showModal = ref(false);
 
@@ -22,17 +24,19 @@ const panelRows = computed(() => {
 <template>
   <aside class="panel leaderboard">
     <div class="lb-head">
-      <h3>Leaderboard</h3>
+      <h3>{{ t("common.leaderboard") }}</h3>
     </div>
     <template v-if="panelRows.length > 0">
       <ol class="lb-list">
         <LeaderboardRow v-for="row in panelRows" :key="row.rank" :row="row" rank-width="18px" />
       </ol>
       <div class="lb-foot">
-        <button type="button" class="full-board" @click="showModal = true">full board</button>
+        <button type="button" class="full-board" @click="showModal = true">
+          {{ t("common.fullBoard") }}
+        </button>
       </div>
     </template>
-    <p v-else class="empty">No standings yet.</p>
+    <p v-else class="empty">{{ t("common.noStandings") }}</p>
   </aside>
 
   <LeaderboardModal v-if="showModal" @close="showModal = false" />

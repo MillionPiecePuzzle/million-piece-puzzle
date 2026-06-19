@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { usePuzzleSession, type ActivityEntry } from "../composables/usePuzzleSession";
+import { useLocaleFormat } from "../i18n/format";
 
+const { t } = useI18n();
+const { formatNumber } = useLocaleFormat();
 const { activity } = usePuzzleSession();
 
 // Indefinite article matching how the number is read aloud: "eight", "eleven",
@@ -18,8 +22,10 @@ function indefiniteArticle(n: number): string {
   return r === 8 || r === 11 || r === 18 || (r >= 80 && r <= 89) ? "an" : "a";
 }
 
+// The English indefinite article is passed to the message and ignored by locales
+// whose cluster phrase carries a fixed article.
 function cluster(count: number): string {
-  return `${indefiniteArticle(count)} ${count}-piece cluster`;
+  return t("activityPanel.cluster", { article: indefiniteArticle(count), n: formatNumber(count) });
 }
 
 // A place reports the placed group (one piece or an N-piece cluster). A snap
@@ -27,9 +33,18 @@ function cluster(count: number): string {
 // together", anything larger reads as the cluster it formed.
 function objectPhrase(entry: ActivityEntry): string {
   if (entry.kind === "snap") {
-    return entry.count === 2 ? "two pieces together" : cluster(entry.count);
+    return entry.count === 2 ? t("activityPanel.twoPieces") : cluster(entry.count);
   }
-  return entry.count === 1 ? "a piece" : cluster(entry.count);
+  return entry.count === 1 ? t("activityPanel.piece") : cluster(entry.count);
+}
+
+// The whole verb-plus-object phrase comes from one message so each language can
+// place the verb where its grammar needs it (e.g. German verb-final).
+function lineRest(entry: ActivityEntry): string {
+  const object = objectPhrase(entry);
+  return entry.kind === "place"
+    ? t("activityPanel.placedLine", { object })
+    : t("activityPanel.connectedLine", { object });
 }
 
 const now = ref(Date.now());
@@ -46,27 +61,26 @@ onBeforeUnmount(() => {
 
 function relativeTime(at: number): string {
   const seconds = Math.max(0, Math.round((now.value - at) / 1000));
-  if (seconds < 10) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 10) return t("time.justNow");
+  if (seconds < 60) return t("time.secondsAgo", { n: seconds });
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.floor(minutes / 60)}h ago`;
+  if (minutes < 60) return t("time.minutesAgo", { n: minutes });
+  return t("time.hoursAgo", { n: Math.floor(minutes / 60) });
 }
 </script>
 
 <template>
   <aside class="panel ticker">
-    <h3>Activity</h3>
+    <h3>{{ t("common.activity") }}</h3>
     <ul v-if="activity.length > 0">
       <li v-for="entry in activity" :key="entry.id">
         <span class="msg"
-          ><b>{{ entry.actor }}</b> <em>{{ entry.kind === "place" ? "placed" : "connected" }}</em>
-          {{ objectPhrase(entry) }}</span
+          ><b>{{ entry.actor }}</b> {{ lineRest(entry) }}</span
         >
         <span class="ts">{{ relativeTime(entry.at) }}</span>
       </li>
     </ul>
-    <p v-else class="empty">No activity yet.</p>
+    <p v-else class="empty">{{ t("common.noActivity") }}</p>
   </aside>
 </template>
 
@@ -99,10 +113,6 @@ function relativeTime(at: number): string {
 .msg b {
   font-weight: 500;
   color: var(--ink);
-}
-.msg em {
-  font-style: normal;
-  color: var(--ink-3);
 }
 .ts {
   font-family: var(--mono);

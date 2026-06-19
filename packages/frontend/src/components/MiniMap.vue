@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useMinimap } from "../composables/useMinimap";
 
+const { t } = useI18n();
 const { source, navigate } = useMinimap();
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
@@ -206,9 +208,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside v-show="ready" class="panel minimap" aria-label="Minimap">
+  <aside v-show="ready" class="panel minimap" :aria-label="t('minimap.label')">
     <div class="minimap-head">
-      <h3>Overview</h3>
+      <h3>{{ t("minimap.overview") }}</h3>
     </div>
     <div class="mm-canvas" :style="{ aspectRatio: canvasAspect }">
       <canvas

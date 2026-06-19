@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 import { useMode } from "../composables/useMode";
 import { useAuthModal } from "../composables/useAuthModal";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 
+const { t } = useI18n();
 const { mode } = useMode();
 const { show } = useAuthModal();
 const { completed } = usePuzzleSession();
@@ -13,11 +15,11 @@ const { completed } = usePuzzleSession();
     v-if="mode === 'spectator' && !completed"
     class="contribute-card"
     role="region"
-    aria-label="Spectator mode"
+    :aria-label="t('contribute.spectatorMode')"
   >
-    <p class="status">You are currently in spectator mode</p>
-    <p class="prompt">Become a contributor</p>
-    <button class="cta" @click="show">Contribute</button>
+    <p class="status">{{ t("contribute.status") }}</p>
+    <p class="prompt">{{ t("contribute.prompt") }}</p>
+    <button class="cta" @click="show">{{ t("contribute.cta") }}</button>
   </div>
 </template>
 

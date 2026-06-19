@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { useAuthModal } from "../composables/useAuthModal";
 import { useAuth } from "../composables/useAuth";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 
+const { t } = useI18n();
 const { open, hide } = useAuthModal();
 const { signIn } = useAuth();
 const { completed } = usePuzzleSession();
@@ -26,19 +28,16 @@ function continueWithGoogle() {
     <div v-if="open && !completed" class="auth-backdrop" @click.self="hide">
       <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
         <header>
-          <h2 id="auth-title">Become a contributor</h2>
-          <button class="close" aria-label="Close" @click="hide">×</button>
+          <h2 id="auth-title">{{ t("auth.title") }}</h2>
+          <button class="close" :aria-label="t('common.close')" @click="hide">×</button>
         </header>
 
-        <p class="lede">
-          Sign in to drop pieces on the canvas under your pseudo. Spectator mode stays open to
-          everyone.
-        </p>
+        <p class="lede">{{ t("auth.lede") }}</p>
 
         <div class="providers">
           <button class="provider google" @click="continueWithGoogle">
             <span class="g-mark" aria-hidden="true">G</span>
-            Continue with Google
+            {{ t("auth.continueGoogle") }}
           </button>
         </div>
       </div>

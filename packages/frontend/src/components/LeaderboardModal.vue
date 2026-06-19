@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { toCountryRows, toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardRow from "./LeaderboardRow.vue";
 
+const { t } = useI18n();
 const emit = defineEmits<{ close: [] }>();
 
 const { leaderboard, userId } = usePuzzleSession();
@@ -45,21 +47,26 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
 <template>
   <div class="backdrop" @click.self="emit('close')">
-    <div class="panel modal" role="dialog" aria-modal="true" aria-label="Full leaderboard">
+    <div
+      class="panel modal"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('leaderboardModal.label')"
+    >
       <div class="modal-head">
-        <h3>Leaderboard</h3>
-        <button type="button" class="close" aria-label="Close" @click="emit('close')">
+        <h3>{{ t("common.leaderboard") }}</h3>
+        <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
           &times;
         </button>
       </div>
-      <div class="seg" role="group" aria-label="Ranking mode">
+      <div class="seg" role="group" :aria-label="t('leaderboardModal.rankingMode')">
         <button
           type="button"
           :class="{ on: mode === 'people' }"
           :aria-pressed="mode === 'people'"
           @click="mode = 'people'"
         >
-          People
+          {{ t("leaderboardModal.people") }}
         </button>
         <button
           type="button"
@@ -67,7 +74,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           :aria-pressed="mode === 'countries'"
           @click="mode = 'countries'"
         >
-          Countries
+          {{ t("leaderboardModal.countries") }}
         </button>
       </div>
       <ol class="lb-list">
@@ -79,9 +86,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
         />
       </ol>
       <div class="modal-foot">
-        <button type="button" :disabled="page === 0" @click="prev">&larr; prev</button>
+        <button type="button" :disabled="page === 0" @click="prev">
+          &larr; {{ t("leaderboardModal.prev") }}
+        </button>
         <span class="page">{{ page + 1 }} / {{ pageCount }}</span>
-        <button type="button" :disabled="page === pageCount - 1" @click="next">next &rarr;</button>
+        <button type="button" :disabled="page === pageCount - 1" @click="next">
+          {{ t("leaderboardModal.next") }} &rarr;
+        </button>
       </div>
     </div>
   </div>

@@ -9,18 +9,15 @@ import LanguageSwitcher from "../components/LanguageSwitcher.vue";
 import LeaderboardRow from "../components/LeaderboardRow.vue";
 import { useMode } from "../composables/useMode";
 import { useCountdown } from "../composables/useCountdown";
-import { LOCALE_TAGS, type AppLocale } from "../i18n";
+import { useLocaleFormat } from "../i18n/format";
 import { interestedUrl } from "../data/spectatorUrl";
 import { loadLanding, type InterestState } from "../data/landing";
 import { toLeaderboardRows } from "../data/leaderboard";
 
 const router = useRouter();
 const { setMode } = useMode();
-const { t, locale } = useI18n();
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat(LOCALE_TAGS[locale.value as AppLocale]).format(value);
-}
+const { t } = useI18n();
+const { formatNumber, formatDate } = useLocaleFormat();
 
 const INTERESTED_KEY = "mpp.interested";
 
@@ -70,20 +67,12 @@ function piecePhrase(n: number): string {
 
 function relativeTime(at: number): string {
   const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
-  if (seconds < 60) return t("landing.justNow");
+  if (seconds < 60) return t("time.justNow");
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return t("landing.minutesAgo", { n: minutes });
+  if (minutes < 60) return t("time.minutesAgo", { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("landing.hoursAgo", { n: hours });
-  return t("landing.daysAgo", { n: Math.floor(hours / 24) });
-}
-
-function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(LOCALE_TAGS[locale.value as AppLocale], {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  if (hours < 24) return t("time.hoursAgo", { n: hours });
+  return t("time.daysAgo", { n: Math.floor(hours / 24) });
 }
 
 // Event duration: scheduled start to the final placement, falling back to the
@@ -245,10 +234,10 @@ onMounted(async () => {
               <span class="ts">{{ relativeTime(line.at) }}</span>
             </li>
           </ul>
-          <p v-else class="empty">{{ t("landing.noActivity") }}</p>
+          <p v-else class="empty">{{ t("common.noActivity") }}</p>
         </div>
         <div class="board-card">
-          <h3>{{ t("landing.leaderboard") }}</h3>
+          <h3>{{ t("common.leaderboard") }}</h3>
           <ol v-if="liveLeaders.length > 0" class="lb-list">
             <LeaderboardRow
               v-for="row in liveLeaders"
@@ -258,12 +247,12 @@ onMounted(async () => {
               :show-you-tag="false"
             />
           </ol>
-          <p v-else class="empty">{{ t("landing.noStandings") }}</p>
+          <p v-else class="empty">{{ t("common.noStandings") }}</p>
         </div>
       </section>
 
       <section v-else-if="phase === 'completed'" class="final-board board-card">
-        <h3>{{ t("landing.leaderboard") }}</h3>
+        <h3>{{ t("common.leaderboard") }}</h3>
         <ol v-if="finalLeaders.length > 0" class="lb-list">
           <LeaderboardRow
             v-for="row in finalLeaders"

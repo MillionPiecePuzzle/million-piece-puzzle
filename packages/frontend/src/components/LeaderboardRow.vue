@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 import type { LeaderboardRow } from "../data/leaderboard";
+import { useLocaleFormat } from "../i18n/format";
 import { flagUrl } from "../data/flags";
 
 const props = withDefaults(
@@ -10,9 +12,8 @@ const props = withDefaults(
   },
 );
 
-function fmt(n: number): string {
-  return n.toLocaleString("en-US");
-}
+const { t } = useI18n();
+const { formatNumber } = useLocaleFormat();
 </script>
 
 <template>
@@ -34,10 +35,12 @@ function fmt(n: number): string {
     <span v-else class="av" :style="{ background: props.row.color }">{{ props.row.initials }}</span>
     <span class="nm">
       {{ props.row.name }}
-      <span v-if="props.row.you && props.showYouTag" class="you-tag">you</span>
-      <span v-else-if="props.row.online" class="live-dot" title="online"></span>
+      <span v-if="props.row.you && props.showYouTag" class="you-tag">{{ t("row.you") }}</span>
+      <span v-else-if="props.row.online" class="live-dot" :title="t('row.online')"></span>
     </span>
-    <span class="pc">{{ fmt(props.row.pieces) }}<small> pcs</small></span>
+    <span class="pc"
+      >{{ formatNumber(props.row.pieces) }}<small> {{ t("row.pcs") }}</small></span
+    >
   </li>
 </template>
 

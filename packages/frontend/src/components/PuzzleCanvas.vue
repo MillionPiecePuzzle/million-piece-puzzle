@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { useI18n } from "vue-i18n";
 import type { ServerMessage, SpectatorKeyframe } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useMinimap } from "../composables/useMinimap";
 import { useMode } from "../composables/useMode";
+import { useLocaleFormat } from "../i18n/format";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 import { toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardRow from "./LeaderboardRow.vue";
+
+const { t } = useI18n();
+const { formatNumber } = useLocaleFormat();
 
 const host = ref<HTMLDivElement | null>(null);
 const {
@@ -92,20 +97,20 @@ function triggerCompletion(playSpectacle: boolean): void {
 // build()), ready (board on screen).
 type LoadPhase = "connect" | "manifest" | "build" | "textures" | "ready";
 
-const LOAD_PHASES: { key: LoadPhase; label: string }[] = [
-  { key: "connect", label: "Connect" },
-  { key: "manifest", label: "Manifest" },
-  { key: "build", label: "Build" },
-  { key: "textures", label: "Textures" },
-  { key: "ready", label: "Ready" },
+const LOAD_PHASES: { key: LoadPhase; labelKey: string }[] = [
+  { key: "connect", labelKey: "loading.stepConnect" },
+  { key: "manifest", labelKey: "loading.stepManifest" },
+  { key: "build", labelKey: "loading.stepBuild" },
+  { key: "textures", labelKey: "loading.stepTextures" },
+  { key: "ready", labelKey: "loading.stepReady" },
 ];
 
-const PHASE_HEADINGS: Record<LoadPhase, string> = {
-  connect: "Connecting to server",
-  manifest: "Loading puzzle data",
-  build: "Building the board",
-  textures: "Loading textures",
-  ready: "Ready",
+const PHASE_HEADING_KEYS: Record<LoadPhase, string> = {
+  connect: "loading.headConnect",
+  manifest: "loading.headManifest",
+  build: "loading.headBuild",
+  textures: "loading.headTextures",
+  ready: "loading.headReady",
 };
 
 const loadPhase = computed<LoadPhase>(() => {
@@ -116,7 +121,7 @@ const loadPhase = computed<LoadPhase>(() => {
 });
 
 const phaseIndex = computed(() => LOAD_PHASES.findIndex((p) => p.key === loadPhase.value));
-const phaseHeading = computed(() => PHASE_HEADINGS[loadPhase.value]);
+const phaseHeading = computed(() => t(PHASE_HEADING_KEYS[loadPhase.value]));
 const isProgressPhase = computed(
   () => loadPhase.value === "build" || loadPhase.value === "textures",
 );
@@ -259,7 +264,7 @@ onMounted(async () => {
   stage.onViewportChange = (vp) => queueViewport(vp);
   stage.onCursorMove = (x, y) => queueCursor(x, y);
   stage.onNotice = (kind) => {
-    if (kind === "tile_full") showToast("Too many pieces on this tile.");
+    if (kind === "tile_full") showToast(t("toast.tileFull"));
   };
   stage.onCarryChange = (c) => {
     carrying.value = c;
@@ -418,8 +423,8 @@ onBeforeUnmount(() => {
 <template>
   <div ref="host" class="canvas-host">
     <div v-if="showStatus" class="status" role="status" aria-live="polite">
-      <p class="kicker">{{ errorMessage ? "Error" : "Loading" }}</p>
-      <p class="value">{{ errorMessage ? "Could not load the puzzle" : phaseHeading }}</p>
+      <p class="kicker">{{ errorMessage ? t("loading.error") : t("loading.loading") }}</p>
+      <p class="value">{{ errorMessage ? t("loading.couldNotLoad") : phaseHeading }}</p>
       <template v-if="!errorMessage">
         <ol class="steps" aria-hidden="true">
           <li
@@ -428,7 +433,7 @@ onBeforeUnmount(() => {
             :class="{ done: i < phaseIndex, active: i === phaseIndex }"
           >
             <span class="dot" />
-            <span class="step-label">{{ phase.label }}</span>
+            <span class="step-label">{{ t(phase.labelKey) }}</span>
           </li>
         </ol>
         <div
@@ -442,12 +447,11 @@ onBeforeUnmount(() => {
           <div class="bar" :style="isProgressPhase ? { width: loadProgress + '%' } : undefined" />
         </div>
         <p v-if="isProgressPhase" class="detail">
-          {{ progressLoaded.toLocaleString() }} / {{ progressTotal.toLocaleString() }}
+          {{ formatNumber(progressLoaded) }} / {{ formatNumber(progressTotal) }}
         </p>
         <p v-if="mode === 'contributor'" class="tip">
           <span class="tip-bulb" aria-hidden="true">💡</span>
-          Tip: double-click a piece to stick it to your cursor, then double-click again to drop
-          it.
+          {{ t("loading.tip") }}
         </p>
       </template>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
@@ -462,16 +466,20 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="modal-close"
-          aria-label="Hide summary"
+          :aria-label="t('completion.hideSummary')"
           @click="modalVisible = false"
         >
           ×
         </button>
-        <p class="kicker">Complete</p>
-        <p class="value">Puzzle assembled.</p>
-        <p class="meta">{{ totalPieces.toLocaleString() }} pieces placed.</p>
+        <p class="kicker">{{ t("completion.complete") }}</p>
+        <p class="value">{{ t("completion.assembled") }}</p>
+        <p class="meta">
+          {{
+            t("completion.piecesPlaced", totalPieces, { named: { n: formatNumber(totalPieces) } })
+          }}
+        </p>
         <div v-if="leaderboardRows.length > 0" class="completion-leaderboard">
-          <p class="lb-kicker">Top contributors</p>
+          <p class="lb-kicker">{{ t("completion.topContributors") }}</p>
           <ol class="lb-list">
             <LeaderboardRow v-for="row in leaderboardRows" :key="row.rank" :row="row" />
           </ol>
@@ -483,10 +491,10 @@ onBeforeUnmount(() => {
         v-if="completed && !modalVisible && !showStatus"
         type="button"
         class="modal-reopen"
-        aria-label="Show summary"
+        :aria-label="t('completion.showSummary')"
         @click="modalVisible = true"
       >
-        Summary
+        {{ t("completion.summary") }}
       </button>
     </Transition>
     <Transition name="toast">
@@ -495,7 +503,7 @@ onBeforeUnmount(() => {
     <Transition name="carry-hint">
       <div v-if="carrying && !showStatus" class="carry-hint" role="status" aria-live="polite">
         <span class="carry-dot" aria-hidden="true" />
-        Holding a piece. Double-click to drop it, Esc to put it back.
+        {{ t("carry.hint") }}
       </div>
     </Transition>
   </div>

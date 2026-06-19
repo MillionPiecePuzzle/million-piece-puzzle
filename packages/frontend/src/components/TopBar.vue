@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
+import { useI18n } from "vue-i18n";
 import BrandMark from "./BrandMark.vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { formatCountdown } from "../composables/useCountdown";
 import { useAuth } from "../composables/useAuth";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
+import { useLocaleFormat } from "../i18n/format";
 import { flagUrl } from "../data/flags";
 
+const { t } = useI18n();
+const { formatNumber } = useLocaleFormat();
 const { eventStartsAt, totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
 const { show: showPseudoModal } = usePseudoModal();
@@ -30,7 +34,7 @@ const playTime = computed(() => {
   if (eventStartsAt.value <= 0 || now.value < eventStartsAt.value) return null;
   const { days, hours, minutes, seconds } = formatCountdown(now.value - eventStartsAt.value);
   const clock = `${hours}:${minutes}:${seconds}`;
-  return Number(days) > 0 ? `${Number(days)}d ${clock}` : clock;
+  return Number(days) > 0 ? `${Number(days)}${t("units.d")} ${clock}` : clock;
 });
 </script>
 
@@ -39,27 +43,29 @@ const playTime = computed(() => {
     <RouterLink to="/" class="brand">
       <BrandMark />
       <span class="brand-name">Million Piece <em>Puzzle</em></span>
-      <span v-if="playTime" class="brand-caption" title="Play time">{{ playTime }}</span>
+      <span v-if="playTime" class="brand-caption" :title="t('topbar.playTime')">{{
+        playTime
+      }}</span>
     </RouterLink>
 
-    <div v-if="totalPieces > 0" class="progress-pill" title="Puzzle progress">
+    <div v-if="totalPieces > 0" class="progress-pill" :title="t('topbar.puzzleProgress')">
       <div class="bar">
         <div class="fill" :style="{ width: `${progressPct}%` }"></div>
       </div>
       <span class="num">
-        {{ lockedCount.toLocaleString() }}<span> / {{ totalPieces.toLocaleString() }}</span>
+        {{ formatNumber(lockedCount) }}<span> / {{ formatNumber(totalPieces) }}</span>
       </span>
     </div>
     <span v-else></span>
 
     <div class="top-right">
       <div v-if="user && user.pseudo" class="presence">
-        <span class="dot" aria-label="Connected"></span>
+        <span class="dot" :aria-label="t('topbar.connected')"></span>
         <button
           v-if="user.country"
           type="button"
           class="flag"
-          :title="`Nationality: ${user.country.toUpperCase()}. Click to change.`"
+          :title="t('topbar.nationalityTitle', { code: user.country.toUpperCase() })"
           @click="showNationalityModal('edit')"
         >
           <img :src="flagUrl(user.country)" :alt="user.country" width="18" height="18" />
@@ -67,12 +73,12 @@ const playTime = computed(() => {
         <button
           type="button"
           class="pseudo"
-          :title="`Signed in as ${user.pseudo}. Click to change.`"
+          :title="t('topbar.signedInAs', { pseudo: user.pseudo })"
           @click="showPseudoModal('edit')"
         >
           {{ user.pseudo }}
         </button>
-        <span class="status">connected</span>
+        <span class="status">{{ t("topbar.connected") }}</span>
       </div>
     </div>
   </header>

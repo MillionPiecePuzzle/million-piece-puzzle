@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { PSEUDO_MAX_LENGTH, PSEUDO_MIN_LENGTH, normalizePseudo } from "@mpp/shared";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
 
+const { t } = useI18n();
 const { open, mode, hide } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
 const { user, submitPseudo } = useAuth();
@@ -18,12 +20,10 @@ const normalized = computed(() => normalizePseudo(draft.value));
 const valid = computed(() => normalized.value !== null);
 const dismissible = computed(() => mode.value === "edit");
 
-const title = computed(() => (mode.value === "edit" ? "Change your pseudo" : "Choose your pseudo"));
-const lede = computed(() =>
-  mode.value === "edit"
-    ? "Pick a new pseudo. It is shown to other builders next to the pieces you place."
-    : "Pick a pseudo before you start placing pieces. It is shown to other builders.",
+const title = computed(() =>
+  mode.value === "edit" ? t("pseudo.titleEdit") : t("pseudo.titleNew"),
 );
+const lede = computed(() => (mode.value === "edit" ? t("pseudo.ledeEdit") : t("pseudo.ledeNew")));
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -40,8 +40,7 @@ async function save() {
   const res = await submitPseudo(name);
   saving.value = false;
   if (!res.ok) {
-    error.value =
-      res.reason === "taken" ? "That pseudo is already taken." : "Could not save, try again.";
+    error.value = res.reason === "taken" ? t("pseudo.taken") : t("common.saveError");
     return;
   }
   // First-time onboarding chains into the required nationality step, which is
@@ -61,7 +60,9 @@ function onBackdrop() {
       <div class="pseudo-modal" role="dialog" aria-modal="true" aria-labelledby="pseudo-title">
         <header>
           <h2 id="pseudo-title">{{ title }}</h2>
-          <button v-if="dismissible" class="close" aria-label="Close" @click="hide">×</button>
+          <button v-if="dismissible" class="close" :aria-label="t('common.close')" @click="hide">
+            ×
+          </button>
         </header>
 
         <p class="lede">{{ lede }}</p>
@@ -72,19 +73,18 @@ function onBackdrop() {
           class="field"
           type="text"
           :maxlength="PSEUDO_MAX_LENGTH"
-          placeholder="your pseudo"
-          aria-label="Pseudo"
+          :placeholder="t('pseudo.placeholder')"
+          :aria-label="t('pseudo.fieldLabel')"
           autocomplete="off"
           @keyup.enter="save"
         />
         <p class="hint">
-          {{ PSEUDO_MIN_LENGTH }} to {{ PSEUDO_MAX_LENGTH }} characters: letters, digits, spaces,
-          hyphens and underscores.
+          {{ t("pseudo.hint", { min: PSEUDO_MIN_LENGTH, max: PSEUDO_MAX_LENGTH }) }}
         </p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
 
         <button class="save" :disabled="!valid || saving" @click="save">
-          {{ saving ? "Saving..." : "Save" }}
+          {{ saving ? t("common.saving") : t("common.save") }}
         </button>
       </div>
     </div>

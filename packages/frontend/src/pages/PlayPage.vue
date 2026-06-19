@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import TopBar from "../components/TopBar.vue";
 import PuzzleCanvas from "../components/PuzzleCanvas.vue";
 import ZoomControls from "../components/ZoomControls.vue";
@@ -12,6 +13,7 @@ import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
 import { GRID_WORLD_CELL } from "@mpp/shared";
 
+const { t } = useI18n();
 const { camera, ready } = useStageControls();
 
 // Drive the CSS hairline grid from world space: one cell is GRID_WORLD_CELL
@@ -29,7 +31,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 <template>
   <div class="play">
     <TopBar />
-    <main class="stage" aria-label="Puzzle stage" :style="backdropVars">
+    <main class="stage" :aria-label="t('play.stage')" :style="backdropVars">
       <PuzzleCanvas />
       <template v-if="ready">
         <ZoomControls />

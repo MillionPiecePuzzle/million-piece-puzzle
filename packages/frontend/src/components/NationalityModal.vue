@@ -1,14 +1,34 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { COUNTRIES } from "@mpp/shared";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
 import { useMode } from "../composables/useMode";
+import { LOCALE_TAGS, type AppLocale } from "../i18n";
 import { flagUrl } from "../data/flags";
 
+const { t, locale } = useI18n();
 const { open, mode, hide } = useNationalityModal();
 const { user, submitCountry } = useAuth();
 const { setMode } = useMode();
+
+// Localize country labels from their code, falling back to the dataset's English
+// name for any code Intl does not recognize as a region.
+const regionNames = computed(() => {
+  try {
+    return new Intl.DisplayNames([LOCALE_TAGS[locale.value as AppLocale]], { type: "region" });
+  } catch {
+    return null;
+  }
+});
+function countryName(country: { code: string; name: string }): string {
+  try {
+    return regionNames.value?.of(country.code.toUpperCase()) ?? country.name;
+  } catch {
+    return country.name;
+  }
+}
 
 const draft = ref("");
 const error = ref<string | null>(null);
@@ -19,12 +39,10 @@ const valid = computed(() => draft.value !== "");
 const dismissible = computed(() => mode.value === "edit");
 
 const title = computed(() =>
-  mode.value === "edit" ? "Change your nationality" : "Choose your nationality",
+  mode.value === "edit" ? t("nationality.titleEdit") : t("nationality.titleNew"),
 );
 const lede = computed(() =>
-  mode.value === "edit"
-    ? "Pick a new country. Its flag is shown next to your pseudo in the leaderboard."
-    : "Pick your country. Its flag is shown next to your pseudo in the leaderboard.",
+  mode.value === "edit" ? t("nationality.ledeEdit") : t("nationality.ledeNew"),
 );
 
 watch(open, (isOpen) => {
@@ -42,7 +60,7 @@ async function save() {
   const res = await submitCountry(code);
   saving.value = false;
   if (!res.ok) {
-    error.value = "Could not save, try again.";
+    error.value = t("common.saveError");
     return;
   }
   // The nationality step completes onboarding and unlocks contribution.
@@ -61,7 +79,9 @@ function onBackdrop() {
       <div class="nat-modal" role="dialog" aria-modal="true" aria-labelledby="nat-title">
         <header>
           <h2 id="nat-title">{{ title }}</h2>
-          <button v-if="dismissible" class="close" aria-label="Close" @click="hide">×</button>
+          <button v-if="dismissible" class="close" :aria-label="t('common.close')" @click="hide">
+            ×
+          </button>
         </header>
 
         <p class="lede">{{ lede }}</p>
@@ -70,7 +90,7 @@ function onBackdrop() {
           <img
             class="preview"
             :src="flagUrl(draft || null)"
-            :alt="draft || 'no country selected'"
+            :alt="draft || t('nationality.noCountry')"
             width="28"
             height="28"
           />
@@ -78,18 +98,20 @@ function onBackdrop() {
             ref="selectEl"
             v-model="draft"
             class="field"
-            aria-label="Country"
+            :aria-label="t('nationality.selectLabel')"
             @keyup.enter="save"
           >
-            <option value="" disabled>Select your country...</option>
-            <option v-for="c in COUNTRIES" :key="c.code" :value="c.code">{{ c.name }}</option>
+            <option value="" disabled>{{ t("nationality.selectPlaceholder") }}</option>
+            <option v-for="c in COUNTRIES" :key="c.code" :value="c.code">
+              {{ countryName(c) }}
+            </option>
           </select>
         </div>
 
         <p v-if="error" class="error" role="alert">{{ error }}</p>
 
         <button class="save" :disabled="!valid || saving" @click="save">
-          {{ saving ? "Saving..." : "Save" }}
+          {{ saving ? t("common.saving") : t("common.save") }}
         </button>
       </div>
     </div>

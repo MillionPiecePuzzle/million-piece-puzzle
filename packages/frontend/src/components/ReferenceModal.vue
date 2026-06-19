@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import OpenSeadragon from "openseadragon";
+import { useI18n } from "vue-i18n";
 import type { ImageManifest } from "@mpp/shared";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 
+const { t } = useI18n();
 const props = defineProps<{ manifest: ImageManifest }>();
 const emit = defineEmits<{ close: [] }>();
 
@@ -76,13 +78,15 @@ onBeforeUnmount(() => {
       class="shell"
       role="dialog"
       aria-modal="true"
-      aria-label="Reference image"
+      :aria-label="t('reference.image')"
       :style="{ '--ar': aspectRatio }"
     >
-      <button type="button" class="close" aria-label="Close" @click="emit('close')">&times;</button>
+      <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
+        &times;
+      </button>
       <div ref="host" class="osd-large" />
       <div class="zoom">
-        <button type="button" aria-label="Zoom in" @click="zoomBy(1.4)">
+        <button type="button" :aria-label="t('zoom.in')" @click="zoomBy(1.4)">
           <svg class="ic" viewBox="0 0 16 16" fill="none">
             <path
               d="M8 3v10M3 8h10"
@@ -92,12 +96,12 @@ onBeforeUnmount(() => {
             />
           </svg>
         </button>
-        <button type="button" aria-label="Zoom out" @click="zoomBy(1 / 1.4)">
+        <button type="button" :aria-label="t('zoom.out')" @click="zoomBy(1 / 1.4)">
           <svg class="ic" viewBox="0 0 16 16" fill="none">
             <path d="M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
           </svg>
         </button>
-        <button type="button" aria-label="Fit to view" @click="fit()">
+        <button type="button" :aria-label="t('reference.fitToView')" @click="fit()">
           <svg class="ic" viewBox="0 0 16 16" fill="none">
             <path
               d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import OpenSeadragon from "openseadragon";
+import { useI18n } from "vue-i18n";
 import type { ImageManifest } from "@mpp/shared";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import ReferenceModal from "./ReferenceModal.vue";
 
+const { t } = useI18n();
 const { state } = usePuzzleSession();
 
 const host = ref<HTMLDivElement | null>(null);
@@ -63,14 +65,14 @@ onBeforeUnmount(() => {
 
 <template>
   <aside class="panel reference">
-    <h3>Reference</h3>
+    <h3>{{ t("reference.title") }}</h3>
     <div class="preview">
       <div ref="host" class="osd" :style="{ aspectRatio }" />
       <button
         type="button"
         class="open"
         :disabled="!currentManifest"
-        aria-label="Open enlarged reference"
+        :aria-label="t('reference.openEnlarged')"
         @click="openModal"
       >
         <span class="expand" aria-hidden="true">

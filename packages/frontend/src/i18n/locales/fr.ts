@@ -1,6 +1,24 @@
 import type { MessageSchema } from "./en";
 
 const fr: MessageSchema = {
+  common: {
+    save: "Enregistrer",
+    saving: "Enregistrement...",
+    close: "Fermer",
+    leaderboard: "Classement",
+    activity: "Activité",
+    noActivity: "Aucune activité pour l'instant.",
+    noStandings: "Aucun classement pour l'instant.",
+    saveError: "Impossible d'enregistrer, réessayez.",
+    fullBoard: "tableau complet",
+  },
+  time: {
+    justNow: "à l'instant",
+    secondsAgo: "il y a {n} s",
+    minutesAgo: "il y a {n} min",
+    hoursAgo: "il y a {n} h",
+    daysAgo: "il y a {n} j",
+  },
   units: { d: "j", h: "h", m: "min" },
   langSwitcher: { label: "Choisir la langue" },
   landing: {
@@ -15,18 +33,11 @@ const fr: MessageSchema = {
     completed: "TERMINÉ",
     solvedIn: "résolu en {duration}",
     liveActivity: "Activité en direct",
-    leaderboard: "Classement",
-    noActivity: "Aucune activité pour l'instant.",
-    noStandings: "Aucun classement pour l'instant.",
     noStandingsFinal: "Aucun classement enregistré.",
     someone: "Quelqu'un",
     placed: "a placé {pieces}",
     connected: "a relié {pieces}",
     pieces: "une pièce | {n} pièces",
-    justNow: "à l'instant",
-    minutesAgo: "il y a {n} min",
-    hoursAgo: "il y a {n} h",
-    daysAgo: "il y a {n} j",
   },
   countdown: {
     untilOpen: "Avant l'ouverture du canevas",
@@ -35,6 +46,117 @@ const fr: MessageSchema = {
   footer: {
     privacy: "Confidentialité",
     legal: "Mentions légales",
+  },
+  play: {
+    stage: "Plateau du puzzle",
+  },
+  topbar: {
+    playTime: "Temps de jeu",
+    puzzleProgress: "Progression du puzzle",
+    connected: "Connecté",
+    nationalityTitle: "Nationalité : {code}. Cliquez pour changer.",
+    signedInAs: "Connecté en tant que {pseudo}. Cliquez pour changer.",
+  },
+  contribute: {
+    spectatorMode: "Mode spectateur",
+    status: "Vous êtes actuellement en mode spectateur",
+    prompt: "Devenir contributeur",
+    cta: "Contribuer",
+  },
+  zoom: {
+    in: "Zoom avant",
+    out: "Zoom arrière",
+    center: "Centrer sur le puzzle",
+    fit: "Ajuster le puzzle à la vue",
+  },
+  reference: {
+    title: "Référence",
+    openEnlarged: "Ouvrir la référence agrandie",
+    image: "Image de référence",
+    fitToView: "Ajuster à la vue",
+  },
+  minimap: {
+    overview: "Aperçu",
+    label: "Mini-carte",
+  },
+  auth: {
+    title: "Devenir contributeur",
+    lede: "Connectez-vous pour poser des pièces sur le canevas sous votre pseudo. Le mode spectateur reste ouvert à tous.",
+    continueGoogle: "Continuer avec Google",
+  },
+  pseudo: {
+    titleEdit: "Changer de pseudo",
+    titleNew: "Choisissez votre pseudo",
+    ledeEdit:
+      "Choisissez un nouveau pseudo. Il est affiché aux autres joueurs à côté des pièces que vous placez.",
+    ledeNew:
+      "Choisissez un pseudo avant de commencer à placer des pièces. Il est affiché aux autres joueurs.",
+    placeholder: "votre pseudo",
+    fieldLabel: "Pseudo",
+    hint: "{min} à {max} caractères : lettres, chiffres, espaces, traits d'union et tirets bas.",
+    taken: "Ce pseudo est déjà pris.",
+  },
+  nationality: {
+    titleEdit: "Changer de nationalité",
+    titleNew: "Choisissez votre nationalité",
+    ledeEdit:
+      "Choisissez un nouveau pays. Son drapeau est affiché à côté de votre pseudo dans le classement.",
+    ledeNew:
+      "Choisissez votre pays. Son drapeau est affiché à côté de votre pseudo dans le classement.",
+    selectLabel: "Pays",
+    selectPlaceholder: "Sélectionnez votre pays...",
+    noCountry: "aucun pays sélectionné",
+  },
+  leaderboardModal: {
+    label: "Classement complet",
+    rankingMode: "Mode de classement",
+    people: "Personnes",
+    countries: "Pays",
+    prev: "préc.",
+    next: "suiv.",
+  },
+  activityPanel: {
+    placedLine: "a placé {object}",
+    connectedLine: "a relié {object}",
+    piece: "une pièce",
+    twoPieces: "deux pièces reliées",
+    cluster: "un groupe de {n} pièces",
+  },
+  loading: {
+    error: "Erreur",
+    loading: "Chargement",
+    couldNotLoad: "Impossible de charger le puzzle",
+    stepConnect: "Connexion",
+    stepManifest: "Manifeste",
+    stepBuild: "Construction",
+    stepTextures: "Textures",
+    stepReady: "Prêt",
+    headConnect: "Connexion au serveur",
+    headManifest: "Chargement des données du puzzle",
+    headBuild: "Construction du plateau",
+    headTextures: "Chargement des textures",
+    headReady: "Prêt",
+    tip: "Astuce : double-cliquez sur une pièce pour la coller à votre curseur, puis double-cliquez à nouveau pour la déposer.",
+  },
+  completion: {
+    complete: "Terminé",
+    assembled: "Puzzle assemblé.",
+    piecesPlaced: "{n} pièce placée. | {n} pièces placées.",
+    topContributors: "Meilleurs contributeurs",
+    summary: "Récapitulatif",
+    hideSummary: "Masquer le récapitulatif",
+    showSummary: "Afficher le récapitulatif",
+  },
+  toast: {
+    tileFull: "Trop de pièces sur cette case.",
+  },
+  carry: {
+    hint: "Pièce en main. Double-cliquez pour la déposer, Échap pour la remettre.",
+  },
+  row: {
+    pcs: "pcs",
+    you: "vous",
+    online: "en ligne",
   },
 };
 

@@ -1,6 +1,24 @@
 import type { MessageSchema } from "./en";
 
 const de: MessageSchema = {
+  common: {
+    save: "Speichern",
+    saving: "Speichern...",
+    close: "Schließen",
+    leaderboard: "Rangliste",
+    activity: "Aktivität",
+    noActivity: "Noch keine Aktivität.",
+    noStandings: "Noch keine Platzierungen.",
+    saveError: "Speichern fehlgeschlagen, bitte erneut versuchen.",
+    fullBoard: "ganze Tabelle",
+  },
+  time: {
+    justNow: "gerade eben",
+    secondsAgo: "vor {n} Sek.",
+    minutesAgo: "vor {n} Min.",
+    hoursAgo: "vor {n} Std.",
+    daysAgo: "vor {n} T",
+  },
   units: { d: "T", h: "Std.", m: "Min." },
   langSwitcher: { label: "Sprache wählen" },
   landing: {
@@ -15,18 +33,11 @@ const de: MessageSchema = {
     completed: "ABGESCHLOSSEN",
     solvedIn: "gelöst in {duration}",
     liveActivity: "Live-Aktivität",
-    leaderboard: "Rangliste",
-    noActivity: "Noch keine Aktivität.",
-    noStandings: "Noch keine Platzierungen.",
     noStandingsFinal: "Keine Platzierungen erfasst.",
     someone: "Jemand",
     placed: "hat {pieces} platziert",
     connected: "hat {pieces} verbunden",
     pieces: "ein Teil | {n} Teile",
-    justNow: "gerade eben",
-    minutesAgo: "vor {n} Min.",
-    hoursAgo: "vor {n} Std.",
-    daysAgo: "vor {n} T",
   },
   countdown: {
     untilOpen: "Bis die Leinwand öffnet",
@@ -35,6 +46,117 @@ const de: MessageSchema = {
   footer: {
     privacy: "Datenschutz",
     legal: "Impressum",
+  },
+  play: {
+    stage: "Puzzle-Fläche",
+  },
+  topbar: {
+    playTime: "Spielzeit",
+    puzzleProgress: "Puzzle-Fortschritt",
+    connected: "Verbunden",
+    nationalityTitle: "Nationalität: {code}. Zum Ändern klicken.",
+    signedInAs: "Angemeldet als {pseudo}. Zum Ändern klicken.",
+  },
+  contribute: {
+    spectatorMode: "Zuschauermodus",
+    status: "Du bist derzeit im Zuschauermodus",
+    prompt: "Mitwirkender werden",
+    cta: "Mitwirken",
+  },
+  zoom: {
+    in: "Vergrößern",
+    out: "Verkleinern",
+    center: "Auf Puzzle zentrieren",
+    fit: "Puzzle an Ansicht anpassen",
+  },
+  reference: {
+    title: "Referenz",
+    openEnlarged: "Vergrößerte Referenz öffnen",
+    image: "Referenzbild",
+    fitToView: "An Ansicht anpassen",
+  },
+  minimap: {
+    overview: "Übersicht",
+    label: "Minikarte",
+  },
+  auth: {
+    title: "Mitwirkender werden",
+    lede: "Melde dich an, um unter deinem Pseudonym Teile auf der Leinwand zu platzieren. Der Zuschauermodus bleibt für alle offen.",
+    continueGoogle: "Mit Google fortfahren",
+  },
+  pseudo: {
+    titleEdit: "Pseudonym ändern",
+    titleNew: "Wähle dein Pseudonym",
+    ledeEdit:
+      "Wähle ein neues Pseudonym. Es wird anderen Mitwirkenden neben den von dir platzierten Teilen angezeigt.",
+    ledeNew:
+      "Wähle ein Pseudonym, bevor du Teile platzierst. Es wird anderen Mitwirkenden angezeigt.",
+    placeholder: "dein Pseudonym",
+    fieldLabel: "Pseudonym",
+    hint: "{min} bis {max} Zeichen: Buchstaben, Ziffern, Leerzeichen, Bindestriche und Unterstriche.",
+    taken: "Dieses Pseudonym ist bereits vergeben.",
+  },
+  nationality: {
+    titleEdit: "Nationalität ändern",
+    titleNew: "Wähle deine Nationalität",
+    ledeEdit:
+      "Wähle ein neues Land. Seine Flagge wird in der Rangliste neben deinem Pseudonym angezeigt.",
+    ledeNew:
+      "Wähle dein Land. Seine Flagge wird in der Rangliste neben deinem Pseudonym angezeigt.",
+    selectLabel: "Land",
+    selectPlaceholder: "Wähle dein Land...",
+    noCountry: "kein Land ausgewählt",
+  },
+  leaderboardModal: {
+    label: "Vollständige Rangliste",
+    rankingMode: "Ranglistenmodus",
+    people: "Personen",
+    countries: "Länder",
+    prev: "zurück",
+    next: "weiter",
+  },
+  activityPanel: {
+    placedLine: "hat {object} platziert",
+    connectedLine: "hat {object} verbunden",
+    piece: "ein Teil",
+    twoPieces: "zwei Teile verbunden",
+    cluster: "ein Cluster aus {n} Teilen",
+  },
+  loading: {
+    error: "Fehler",
+    loading: "Wird geladen",
+    couldNotLoad: "Das Puzzle konnte nicht geladen werden",
+    stepConnect: "Verbinden",
+    stepManifest: "Manifest",
+    stepBuild: "Aufbau",
+    stepTextures: "Texturen",
+    stepReady: "Bereit",
+    headConnect: "Verbindung zum Server",
+    headManifest: "Puzzle-Daten werden geladen",
+    headBuild: "Spielfeld wird aufgebaut",
+    headTextures: "Texturen werden geladen",
+    headReady: "Bereit",
+    tip: "Tipp: Doppelklicke auf ein Teil, um es an den Cursor zu heften, und doppelklicke erneut, um es abzulegen.",
+  },
+  completion: {
+    complete: "Fertig",
+    assembled: "Puzzle zusammengesetzt.",
+    piecesPlaced: "{n} Teil platziert. | {n} Teile platziert.",
+    topContributors: "Top-Mitwirkende",
+    summary: "Zusammenfassung",
+    hideSummary: "Zusammenfassung ausblenden",
+    showSummary: "Zusammenfassung anzeigen",
+  },
+  toast: {
+    tileFull: "Zu viele Teile auf diesem Feld.",
+  },
+  carry: {
+    hint: "Teil in der Hand. Doppelklicke zum Ablegen, Esc zum Zurücklegen.",
+  },
+  row: {
+    pcs: "Tle",
+    you: "du",
+    online: "online",
   },
 };
 
