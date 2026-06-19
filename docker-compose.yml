@@ -29,6 +29,12 @@ services:
       MPP_REDIS_URL: "redis://redis:6379"
       MPP_MONGO_URL: "mongodb://mongo:27017"
       MPP_MONGO_DB: "mpp"
+      # Per-IP WS connection cap. Defaults to the code value (10), so prod is
+      # unchanged unless overridden in the Coolify service env: raise it for a
+      # load test driving many bots from one IP, then set it back. Interpolated
+      # here (not a baked Dockerfile ENV) so it is a Coolify-env knob, not a
+      # commit + rebuild.
+      MPP_WS_MAX_CONNECTIONS_PER_IP: "${MPP_WS_MAX_CONNECTIONS_PER_IP:-10}"
       # Non-secret app config (puzzle id, asset base, auth host/cookie/origin,
       # Origin allowlist) is baked as prod ENV in packages/server/Dockerfile.
       # docker-compose.override.yml overrides it with localhost values for local
