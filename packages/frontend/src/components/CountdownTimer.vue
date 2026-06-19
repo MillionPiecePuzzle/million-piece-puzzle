@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 import type { CountdownParts } from "../composables/useCountdown";
 
 defineProps<{ scheduled: boolean; parts: CountdownParts }>();
+
+const { t } = useI18n();
 
 const PLACEHOLDER = "--";
 </script>
@@ -25,7 +28,7 @@ const PLACEHOLDER = "--";
         <span class="value">{{ scheduled ? parts.seconds : PLACEHOLDER }}</span>
       </div>
     </div>
-    <p class="caption">{{ scheduled ? "Until the canvas opens" : "Launching soon" }}</p>
+    <p class="caption">{{ scheduled ? t("countdown.untilOpen") : t("countdown.launchingSoon") }}</p>
   </div>
 </template>
 

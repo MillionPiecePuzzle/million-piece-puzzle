@@ -1,18 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import type { ActivityItem, LeaderboardEntry } from "@mpp/shared";
 import BrandMark from "../components/BrandMark.vue";
 import CountdownTimer from "../components/CountdownTimer.vue";
+import LanguageSwitcher from "../components/LanguageSwitcher.vue";
 import LeaderboardRow from "../components/LeaderboardRow.vue";
 import { useMode } from "../composables/useMode";
 import { useCountdown } from "../composables/useCountdown";
+import { LOCALE_TAGS, type AppLocale } from "../i18n";
 import { interestedUrl } from "../data/spectatorUrl";
 import { loadLanding, type InterestState } from "../data/landing";
 import { toLeaderboardRows } from "../data/leaderboard";
 
 const router = useRouter();
 const { setMode } = useMode();
+const { t, locale } = useI18n();
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat(LOCALE_TAGS[locale.value as AppLocale]).format(value);
+}
 
 const INTERESTED_KEY = "mpp.interested";
 
@@ -48,30 +56,30 @@ const finalLeaders = computed(() => toLeaderboardRows(leaderboard.value, null).s
 const activityLines = computed(() =>
   activity.value.map((item) => ({
     id: item.id,
-    actor: item.pseudo ?? "Someone",
+    actor: item.pseudo ?? t("landing.someone"),
     rest: item.anchored
-      ? `placed ${piecePhrase(item.droppedSize)}`
-      : `connected ${piecePhrase(item.mergedSize)}`,
+      ? t("landing.placed", { pieces: piecePhrase(item.droppedSize) })
+      : t("landing.connected", { pieces: piecePhrase(item.mergedSize) }),
     at: item.at,
   })),
 );
 
 function piecePhrase(n: number): string {
-  return n === 1 ? "a piece" : `${n.toLocaleString()} pieces`;
+  return t("landing.pieces", n, { named: { n: formatNumber(n) } });
 }
 
 function relativeTime(at: number): string {
   const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
-  if (seconds < 60) return "just now";
+  if (seconds < 60) return t("landing.justNow");
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return t("landing.minutesAgo", { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return t("landing.hoursAgo", { n: hours });
+  return t("landing.daysAgo", { n: Math.floor(hours / 24) });
 }
 
 function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString("en-US", {
+  return new Date(ms).toLocaleDateString(LOCALE_TAGS[locale.value as AppLocale], {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -87,9 +95,9 @@ function formatDuration(c: { at: number; startedAt: number }): string {
   const hours = Math.floor((totalSec % 86400) / 3600);
   const minutes = Math.floor((totalSec % 3600) / 60);
   const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0 || days > 0) parts.push(`${hours}h`);
-  parts.push(`${minutes}m`);
+  if (days > 0) parts.push(`${days}${t("units.d")}`);
+  if (hours > 0 || days > 0) parts.push(`${hours}${t("units.h")}`);
+  parts.push(`${minutes}${t("units.m")}`);
   return parts.join(" ");
 }
 
@@ -133,9 +141,8 @@ async function markInterested(): Promise<void> {
 
 function interestLabel(): string {
   if (count.value === null) return "";
-  if (count.value === 0) return "Be the first to follow along";
-  const noun = count.value === 1 ? "person" : "people";
-  return `${count.value.toLocaleString()} ${noun} interested`;
+  if (count.value === 0) return t("landing.beFirst");
+  return t("landing.interestCount", count.value, { named: { n: formatNumber(count.value) } });
 }
 
 onMounted(async () => {
@@ -163,12 +170,13 @@ onMounted(async () => {
         <BrandMark />
         <span class="brand-name">Million Piece <em>Puzzle</em></span>
       </span>
+      <LanguageSwitcher />
     </header>
 
     <main class="hero">
       <div class="hero-top">
         <h1>Million Piece Puzzle</h1>
-        <p class="tagline">One million pieces on a single shared canvas.</p>
+        <p class="tagline">{{ t("landing.tagline") }}</p>
 
         <CountdownTimer
           v-if="phase === 'scheduled'"
@@ -179,22 +187,24 @@ onMounted(async () => {
 
         <div v-else-if="phase === 'live'" class="hero-feature progress">
           <p class="progress-figures">
-            <span class="progress-locked">{{ progress.locked.toLocaleString() }}</span>
-            <span class="progress-total"
-              >/ {{ progress.total.toLocaleString() }} pieces locked</span
-            >
+            <span class="progress-locked">{{ formatNumber(progress.locked) }}</span>
+            <span class="progress-total">{{
+              t("landing.piecesLockedSuffix", { n: formatNumber(progress.total) })
+            }}</span>
           </p>
           <div class="progress-track">
             <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
           </div>
-          <p class="progress-pct">{{ progressPct.toFixed(progressPct < 10 ? 2 : 1) }}% complete</p>
+          <p class="progress-pct">
+            {{ t("landing.pctComplete", { p: progressPct.toFixed(progressPct < 10 ? 2 : 1) }) }}
+          </p>
         </div>
 
         <div v-else class="hero-feature completed">
-          <p class="completed-word">COMPLETED</p>
+          <p class="completed-word">{{ t("landing.completed") }}</p>
           <p v-if="completion" class="completed-meta">
-            {{ formatDate(completion.at) }} <span class="dot" aria-hidden="true">·</span> solved in
-            {{ formatDuration(completion) }}
+            {{ formatDate(completion.at) }} <span class="dot" aria-hidden="true">·</span>
+            {{ t("landing.solvedIn", { duration: formatDuration(completion) }) }}
           </p>
         </div>
 
@@ -205,7 +215,7 @@ onMounted(async () => {
             class="cta primary"
             @click="enterCanvas"
           >
-            Enter the canvas
+            {{ t("landing.enterCanvas") }}
           </button>
           <button
             v-else-if="!interested"
@@ -214,9 +224,9 @@ onMounted(async () => {
             :disabled="submitting"
             @click="markInterested"
           >
-            I'm interested
+            {{ t("landing.interested") }}
           </button>
-          <span v-else class="interested-badge">You're on the list</span>
+          <span v-else class="interested-badge">{{ t("landing.onTheList") }}</span>
         </div>
 
         <p v-if="phase === 'scheduled' && count !== null" class="interest-count">
@@ -226,7 +236,7 @@ onMounted(async () => {
 
       <section v-if="phase === 'live'" class="live-panels">
         <div class="board-card">
-          <h3>Live activity</h3>
+          <h3>{{ t("landing.liveActivity") }}</h3>
           <ul v-if="activityLines.length > 0" class="activity-list">
             <li v-for="line in activityLines" :key="line.id">
               <span class="msg"
@@ -235,10 +245,10 @@ onMounted(async () => {
               <span class="ts">{{ relativeTime(line.at) }}</span>
             </li>
           </ul>
-          <p v-else class="empty">No activity yet.</p>
+          <p v-else class="empty">{{ t("landing.noActivity") }}</p>
         </div>
         <div class="board-card">
-          <h3>Leaderboard</h3>
+          <h3>{{ t("landing.leaderboard") }}</h3>
           <ol v-if="liveLeaders.length > 0" class="lb-list">
             <LeaderboardRow
               v-for="row in liveLeaders"
@@ -248,12 +258,12 @@ onMounted(async () => {
               :show-you-tag="false"
             />
           </ol>
-          <p v-else class="empty">No standings yet.</p>
+          <p v-else class="empty">{{ t("landing.noStandings") }}</p>
         </div>
       </section>
 
       <section v-else-if="phase === 'completed'" class="final-board board-card">
-        <h3>Leaderboard</h3>
+        <h3>{{ t("landing.leaderboard") }}</h3>
         <ol v-if="finalLeaders.length > 0" class="lb-list">
           <LeaderboardRow
             v-for="row in finalLeaders"
@@ -262,14 +272,14 @@ onMounted(async () => {
             :show-you-tag="false"
           />
         </ol>
-        <p v-else class="empty">No standings recorded.</p>
+        <p v-else class="empty">{{ t("landing.noStandingsFinal") }}</p>
       </section>
     </main>
 
     <footer class="landing-foot">
       <span class="legal-links">
-        <RouterLink to="/privacy">Privacy</RouterLink>
-        <RouterLink to="/legal">Legal notice</RouterLink>
+        <RouterLink to="/privacy">{{ t("footer.privacy") }}</RouterLink>
+        <RouterLink to="/legal">{{ t("footer.legal") }}</RouterLink>
       </span>
     </footer>
   </div>
@@ -283,6 +293,10 @@ onMounted(async () => {
   background: radial-gradient(circle at 50% 35%, #faf7f0 0%, #efeadd 70%, #e7e1d1 100%);
 }
 .landing-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   padding: 20px 24px;
 }
 .brand {

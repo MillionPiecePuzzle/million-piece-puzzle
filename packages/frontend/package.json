@@ -15,9 +15,11 @@
   },
   "dependencies": {
     "@mpp/shared": "*",
+    "flag-icons": "^7.5.0",
     "openseadragon": "^6.0.2",
     "pixi.js": "^8.18.1",
     "vue": "^3.5.13",
+    "vue-i18n": "^11.4.6",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
