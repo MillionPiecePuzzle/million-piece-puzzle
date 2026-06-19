@@ -168,10 +168,7 @@ onMounted(async () => {
     <main class="hero">
       <div class="hero-top">
         <h1>Million Piece Puzzle</h1>
-        <p class="tagline">
-          One million pieces on a single shared canvas. Watch the picture come together, or join in
-          and place your piece of it.
-        </p>
+        <p class="tagline">One million pieces on a single shared canvas.</p>
 
         <CountdownTimer
           v-if="phase === 'scheduled'"
@@ -256,7 +253,7 @@ onMounted(async () => {
       </section>
 
       <section v-else-if="phase === 'completed'" class="final-board board-card">
-        <h3>Final leaderboard</h3>
+        <h3>Leaderboard</h3>
         <ol v-if="finalLeaders.length > 0" class="lb-list">
           <LeaderboardRow
             v-for="row in finalLeaders"
