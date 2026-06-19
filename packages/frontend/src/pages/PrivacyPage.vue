@@ -5,25 +5,24 @@ import LegalDocument from "../components/LegalDocument.vue";
 <template>
   <LegalDocument title="Privacy Policy" updated="June 7, 2026">
     <p>
-      Million Piece Puzzle is a personal, non-commercial project run by an independent developer.
-      This page explains what data is collected, why, and how to exercise your rights.
+      Million Piece Puzzle is a collaborative, non-commercial project initiated by an independent
+      team. This page explains what data is collected, why, and how to exercise your rights.
     </p>
 
     <h2>Data controller</h2>
     <p>
-      The service is operated by an independent developer (contact: Discord @krantt). No legal
-      entity is declared for this project at this time.
+      The service is operated by an independent team, reachable on our
+      <a href="https://discord.gg/VhtfHqTfS" target="_blank" rel="noopener">Discord server</a>.
     </p>
 
     <h2>Data collected</h2>
     <p>
       Spectators browse the canvas anonymously and no account is created for them. When you sign in
       to contribute, the following are stored: a unique user identifier, the pseudo you choose, and
-      the country you select during onboarding. Because sign-in uses Google, your email address,
-      your name and your avatar from Google are also stored. Your contributions (which pieces you
-      placed and when) are recorded and shown publicly for snap attribution and the leaderboard.
-      Technical logs (IP address, browser) are processed by the host for security and reliability,
-      including rate limiting.
+      the country you select during onboarding. Because sign-in uses Google, your email address and
+      your name from Google are also stored. Your contributions (which pieces you placed and when)
+      are recorded and shown publicly for the activity feed and the leaderboard. Technical logs (IP
+      address, browser) are processed by the host for security and reliability.
     </p>
 
     <h2>Purposes</h2>
@@ -37,21 +36,15 @@ import LegalDocument from "../components/LegalDocument.vue";
       The service relies on Google (sign-in), Cloudflare (frontend hosting, asset storage and
       delivery, and cookieless, privacy-friendly web analytics) and Hetzner (the server hosting the
       game backend). These providers may process data outside the European Union under their own
-      protection frameworks. No other third-party tracking or analytics service is used, and error
-      monitoring is self-hosted.
+      protection frameworks. No other third-party tracking or analytics service is used.
     </p>
 
-    <h2>Retention</h2>
+    <h2>Retention and your rights</h2>
     <p>
-      Your data is kept for as long as your account exists. You can request its deletion at any time
-      using the contact below.
-    </p>
-
-    <h2>Your rights</h2>
-    <p>
-      Under the GDPR you have a right of access, rectification, erasure and portability of your
-      data, as well as a right to object. To exercise them, contact the developer on Discord
-      (@krantt). Requests are handled within a reasonable time.
+      Your data is kept for as long as your account exists. Under the GDPR you have a right of
+      access, rectification, erasure and portability of your data, as well as a right to object. To
+      exercise them, or to request deletion at any time, contact the operator using the details
+      above.
     </p>
 
     <h2>Cookies</h2>

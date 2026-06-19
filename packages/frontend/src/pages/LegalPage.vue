@@ -5,7 +5,10 @@ import LegalDocument from "../components/LegalDocument.vue";
 <template>
   <LegalDocument title="Legal Notice" updated="June 7, 2026">
     <h2>Publisher</h2>
-    <p>This site is published by a private individual. Contact: Discord @krantt.</p>
+    <p>
+      This site is a collaborative project initiated by an independent team. Contact: our
+      <a href="https://discord.gg/VhtfHqTfS" target="_blank" rel="noopener">Discord server</a>.
+    </p>
 
     <h2>Host</h2>
     <p>
@@ -31,7 +34,7 @@ import LegalDocument from "../components/LegalDocument.vue";
       >
         project repository</a
       >. The puzzle artwork and other visuals belong to their respective authors and are credited
-      where applicable. The project uses no AI-generated content.
+      where applicable.
     </p>
 
     <h2>Liability</h2>
