@@ -1,13 +1,31 @@
 <script setup lang="ts">
-defineProps<{ title: string; updated: string }>();
+import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+import { LOCALE_TAGS, type AppLocale } from "../i18n";
+
+const props = defineProps<{ title: string; updatedAt: number }>();
+const { t, locale } = useI18n();
+
+// Format the document date in UTC so a midnight-UTC timestamp never drifts to
+// the previous or next day in the visitor's timezone.
+const updatedLabel = computed(() =>
+  t("legalDoc.updated", {
+    date: new Date(props.updatedAt).toLocaleDateString(LOCALE_TAGS[locale.value as AppLocale], {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    }),
+  }),
+);
 </script>
 
 <template>
   <div class="legal">
     <article class="legal-inner">
-      <RouterLink to="/" class="back">&larr; Back to home</RouterLink>
+      <RouterLink to="/" class="back">&larr; {{ t("legalDoc.back") }}</RouterLink>
       <h1>{{ title }}</h1>
-      <p class="updated">Last updated: {{ updated }}</p>
+      <p class="updated">{{ updatedLabel }}</p>
       <div class="doc">
         <slot />
       </div>

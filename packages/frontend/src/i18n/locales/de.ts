@@ -158,6 +158,58 @@ const de: MessageSchema = {
     you: "du",
     online: "online",
   },
+  legalDoc: {
+    back: "Zurück zur Startseite",
+    updated: "Zuletzt aktualisiert: {date}",
+  },
+  privacyPage: {
+    title: "Datenschutzerklärung",
+    intro:
+      "Million Piece Puzzle ist ein kollaboratives, nicht kommerzielles Projekt eines unabhängigen Teams. Diese Seite erklärt, welche Daten erfasst werden, warum, und wie du deine Rechte ausüben kannst.",
+    controllerHead: "Verantwortlicher",
+    controllerBody:
+      "Der Dienst wird von einem unabhängigen Team betrieben, erreichbar über unseren {discord}.",
+    discord: "Discord-Server",
+    collectedHead: "Erfasste Daten",
+    collectedBody:
+      "Zuschauer betrachten die Leinwand anonym, und es wird kein Konto für sie angelegt. Wenn du dich anmeldest, um mitzuwirken, wird Folgendes gespeichert: eine eindeutige Benutzerkennung, das von dir gewählte Pseudonym und das beim Onboarding ausgewählte Land. Da die Anmeldung über Google erfolgt, werden auch deine E-Mail-Adresse und dein Name von Google gespeichert. Deine Beiträge (welche Teile du platziert hast und wann) werden erfasst und für den Aktivitäts-Feed und die Rangliste öffentlich angezeigt. Technische Protokolle (IP-Adresse, Browser) werden vom Hoster aus Gründen der Sicherheit und Zuverlässigkeit verarbeitet.",
+    purposesHead: "Zwecke",
+    purposesBody:
+      "Die Daten werden ausschließlich zum Betrieb des Spiels verwendet: um dich zu authentifizieren, deinen Fortschritt zu speichern, platzierte Teile zuzuordnen und die Rangliste anzuzeigen. Es werden keine Daten verkauft oder für Werbung verwendet.",
+    processorsHead: "Auftragsverarbeiter",
+    processorsBody:
+      "Der Dienst nutzt Google (Anmeldung), Cloudflare (Frontend-Hosting, Speicherung und Auslieferung der Assets sowie cookielose, datenschutzfreundliche Web-Analyse) und Hetzner (den Server, der das Spiel-Backend hostet). Diese Anbieter können Daten außerhalb der Europäischen Union im Rahmen ihrer eigenen Schutzmechanismen verarbeiten. Es wird kein weiterer Drittanbieter-Dienst für Tracking oder Analyse eingesetzt.",
+    retentionHead: "Speicherung und deine Rechte",
+    retentionBody:
+      "Deine Daten werden so lange gespeichert, wie dein Konto besteht. Nach der DSGVO hast du ein Recht auf Auskunft, Berichtigung, Löschung und Übertragbarkeit deiner Daten sowie ein Widerspruchsrecht. Um sie auszuüben oder jederzeit eine Löschung zu verlangen, kontaktiere den Betreiber über die oben genannten Angaben.",
+    cookiesHead: "Cookies",
+    cookiesBody:
+      "Die Website verwendet nur die für die Anmeldung und deine Einstellungen notwendigen Cookies und den lokalen Speicher. Es werden keine Werbe- oder Reichweitenmessungs-Cookies gesetzt; die verwendete Web-Analyse ist cookielos.",
+  },
+  legalPage: {
+    title: "Impressum",
+    publisherHead: "Herausgeber",
+    publisherBody:
+      "Diese Website ist ein kollaboratives Projekt eines unabhängigen Teams. Kontakt: unser {discord}.",
+    discord: "Discord-Server",
+    hostHead: "Hosting",
+    hostBody:
+      "Das Frontend wird von Cloudflare, Inc. (101 Townsend Street, San Francisco, CA 94107, USA) auf Cloudflare Pages gehostet. Das Spiel-Backend wird auf einem Server der Hetzner Online GmbH (Industriestr. 25, 91710 Gunzenhausen, Deutschland) gehostet.",
+    natureHead: "Art des Projekts",
+    natureBody:
+      "Million Piece Puzzle ist ein nicht kommerzielles Projekt. Es erwirtschaftet keine Einnahmen, enthält keine Werbung und bietet keine kostenpflichtigen Inhalte.",
+    ipHead: "Geistiges Eigentum",
+    ipBody:
+      "Million Piece Puzzle ist quelloffen. Der Quellcode wird unter der MIT-Lizenz veröffentlicht und ist im {repo} verfügbar. Die Puzzle-Grafik und sonstige Visuals gehören ihren jeweiligen Urhebern und werden, soweit zutreffend, genannt.",
+    repo: "Projekt-Repository",
+    liabilityHead: "Haftung",
+    liabilityBody:
+      "Million Piece Puzzle wird „wie besehen“ und ohne jegliche Gewährleistung bereitgestellt. Der Herausgeber haftet nicht für Dienstunterbrechungen, Datenverluste oder sonstige Schäden, die aus der Nutzung der Website entstehen.",
+    licensesHead: "Open-Source-Lizenzen",
+    licensesBody:
+      "Die Website nutzt Open-Source-Bibliotheken, die Eigentum ihrer jeweiligen Urheber bleiben und hier unter ihren Lizenzen verwendet werden: Vue und Vue Router (MIT), PixiJS (MIT) und OpenSeadragon (BSD-3-Clause). Der vollständige Abhängigkeitsbaum und der vollständige Lizenztext sind im {sourceRepo} verfügbar.",
+    sourceRepo: "Quell-Repository",
+  },
 };
 
 export default de;

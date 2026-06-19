@@ -152,6 +152,57 @@ const en = {
     you: "you",
     online: "online",
   },
+  legalDoc: {
+    back: "Back to home",
+    updated: "Last updated: {date}",
+  },
+  privacyPage: {
+    title: "Privacy Policy",
+    intro:
+      "Million Piece Puzzle is a collaborative, non-commercial project initiated by an independent team. This page explains what data is collected, why, and how to exercise your rights.",
+    controllerHead: "Data controller",
+    controllerBody: "The service is operated by an independent team, reachable on our {discord}.",
+    discord: "Discord server",
+    collectedHead: "Data collected",
+    collectedBody:
+      "Spectators browse the canvas anonymously and no account is created for them. When you sign in to contribute, the following are stored: a unique user identifier, the pseudo you choose, and the country you select during onboarding. Because sign-in uses Google, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the leaderboard. Technical logs (IP address, browser) are processed by the host for security and reliability.",
+    purposesHead: "Purposes",
+    purposesBody:
+      "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the leaderboard. No data is sold or used for advertising.",
+    processorsHead: "Sub-processors",
+    processorsBody:
+      "The service relies on Google (sign-in), Cloudflare (frontend hosting, asset storage and delivery, and cookieless, privacy-friendly web analytics) and Hetzner (the server hosting the game backend). These providers may process data outside the European Union under their own protection frameworks. No other third-party tracking or analytics service is used.",
+    retentionHead: "Retention and your rights",
+    retentionBody:
+      "Your data is kept for as long as your account exists. Under the GDPR you have a right of access, rectification, erasure and portability of your data, as well as a right to object. To exercise them, or to request deletion at any time, contact the operator using the details above.",
+    cookiesHead: "Cookies",
+    cookiesBody:
+      "The site only uses the cookies and local storage necessary for sign-in and for your preferences. No advertising or audience-measurement cookies are set; the web analytics used is cookieless.",
+  },
+  legalPage: {
+    title: "Legal Notice",
+    publisherHead: "Publisher",
+    publisherBody:
+      "This site is a collaborative project initiated by an independent team. Contact: our {discord}.",
+    discord: "Discord server",
+    hostHead: "Host",
+    hostBody:
+      "The frontend is hosted by Cloudflare, Inc. (101 Townsend Street, San Francisco, CA 94107, USA) on Cloudflare Pages. The game backend is hosted on a server provided by Hetzner Online GmbH (Industriestr. 25, 91710 Gunzenhausen, Germany).",
+    natureHead: "Nature of the project",
+    natureBody:
+      "Million Piece Puzzle is a non-commercial project. It generates no revenue, contains no advertising and offers no paid content.",
+    ipHead: "Intellectual property",
+    ipBody:
+      "Million Piece Puzzle is open source. The source code is published under the MIT license and available on the {repo}. The puzzle artwork and other visuals belong to their respective authors and are credited where applicable.",
+    repo: "project repository",
+    liabilityHead: "Liability",
+    liabilityBody:
+      'Million Piece Puzzle is provided "as is", without any warranty. The publisher cannot be held responsible for service interruptions, data loss or any damage resulting from use of the site.',
+    licensesHead: "Open-source licenses",
+    licensesBody:
+      "The site is built with open-source libraries that remain the property of their respective authors, used here under their licenses: Vue and Vue Router (MIT), PixiJS (MIT) and OpenSeadragon (BSD-3-Clause). The complete dependency tree and the full text of each license are available in the {sourceRepo}.",
+    sourceRepo: "source repository",
+  },
 };
 
 export default en;

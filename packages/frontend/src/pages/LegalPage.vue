@@ -1,61 +1,43 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 import LegalDocument from "../components/LegalDocument.vue";
+
+const { t } = useI18n();
+const UPDATED_AT = Date.UTC(2026, 5, 7);
+const DISCORD_URL = "https://discord.gg/VhtfHqTfS";
+const REPO_URL = "https://github.com/MillionPiecePuzzle/million-piece-puzzle";
 </script>
 
 <template>
-  <LegalDocument title="Legal Notice" updated="June 7, 2026">
-    <h2>Publisher</h2>
-    <p>
-      This site is a collaborative project initiated by an independent team. Contact: our
-      <a href="https://discord.gg/VhtfHqTfS" target="_blank" rel="noopener">Discord server</a>.
-    </p>
+  <LegalDocument :title="t('legalPage.title')" :updated-at="UPDATED_AT">
+    <h2>{{ t("legalPage.publisherHead") }}</h2>
+    <i18n-t keypath="legalPage.publisherBody" tag="p" scope="global">
+      <template #discord>
+        <a :href="DISCORD_URL" target="_blank" rel="noopener">{{ t("legalPage.discord") }}</a>
+      </template>
+    </i18n-t>
 
-    <h2>Host</h2>
-    <p>
-      The frontend is hosted by Cloudflare, Inc. (101 Townsend Street, San Francisco, CA 94107, USA)
-      on Cloudflare Pages. The game backend is hosted on a server provided by Hetzner Online GmbH
-      (Industriestr. 25, 91710 Gunzenhausen, Germany).
-    </p>
+    <h2>{{ t("legalPage.hostHead") }}</h2>
+    <p>{{ t("legalPage.hostBody") }}</p>
 
-    <h2>Nature of the project</h2>
-    <p>
-      Million Piece Puzzle is a non-commercial project. It generates no revenue, contains no
-      advertising and offers no paid content.
-    </p>
+    <h2>{{ t("legalPage.natureHead") }}</h2>
+    <p>{{ t("legalPage.natureBody") }}</p>
 
-    <h2>Intellectual property</h2>
-    <p>
-      Million Piece Puzzle is open source. The source code is published under the MIT license and
-      available on the
-      <a
-        href="https://github.com/MillionPiecePuzzle/million-piece-puzzle"
-        target="_blank"
-        rel="noopener"
-      >
-        project repository</a
-      >. The puzzle artwork and other visuals belong to their respective authors and are credited
-      where applicable.
-    </p>
+    <h2>{{ t("legalPage.ipHead") }}</h2>
+    <i18n-t keypath="legalPage.ipBody" tag="p" scope="global">
+      <template #repo>
+        <a :href="REPO_URL" target="_blank" rel="noopener">{{ t("legalPage.repo") }}</a>
+      </template>
+    </i18n-t>
 
-    <h2>Liability</h2>
-    <p>
-      Million Piece Puzzle is provided "as is", without any warranty. The publisher cannot be held
-      responsible for service interruptions, data loss or any damage resulting from use of the site.
-    </p>
+    <h2>{{ t("legalPage.liabilityHead") }}</h2>
+    <p>{{ t("legalPage.liabilityBody") }}</p>
 
-    <h2>Open-source licenses</h2>
-    <p>
-      The site is built with open-source libraries that remain the property of their respective
-      authors, used here under their licenses: Vue and Vue Router (MIT), PixiJS (MIT) and
-      OpenSeadragon (BSD-3-Clause). The complete dependency tree and the full text of each license
-      are available in the
-      <a
-        href="https://github.com/MillionPiecePuzzle/million-piece-puzzle"
-        target="_blank"
-        rel="noopener"
-      >
-        source repository</a
-      >.
-    </p>
+    <h2>{{ t("legalPage.licensesHead") }}</h2>
+    <i18n-t keypath="legalPage.licensesBody" tag="p" scope="global">
+      <template #sourceRepo>
+        <a :href="REPO_URL" target="_blank" rel="noopener">{{ t("legalPage.sourceRepo") }}</a>
+      </template>
+    </i18n-t>
   </LegalDocument>
 </template>
