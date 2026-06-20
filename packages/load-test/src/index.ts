@@ -24,6 +24,7 @@ type Args = {
   viewportFrac: number;
   keepSessions: boolean;
   spoofIpBase: string;
+  secureCookie: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -64,6 +65,11 @@ function parseArgs(argv: string[]): Args {
     // cap and message-rate bucket. Only takes effect connecting straight to the
     // origin (Cloudflare overwrites the header at the edge). Empty = no header.
     spoofIpBase: typeof args["spoof-ip-base"] === "string" ? args["spoof-ip-base"] : "",
+    // Force the __Secure- session cookie name regardless of the target scheme.
+    // Needed for an in-network ws:// target against a prod server whose auth host
+    // is https (so it only reads the __Secure- cookie). Otherwise the cookie name
+    // follows the target scheme (wss -> secure).
+    secureCookie: args["secure-cookie"] === true,
   };
 }
 
@@ -82,7 +88,9 @@ async function main(): Promise<void> {
     mongoDb: args.mongoDb,
     // The server marks the session cookie Secure only over https (auth host),
     // which a wss target implies; match that name so the upgrade reads the cookie.
-    secure: args.target.startsWith("wss"),
+    // --secure-cookie forces it for an in-network ws:// target against an https
+    // prod server.
+    secure: args.secureCookie || args.target.startsWith("wss"),
     viewportFrac: args.viewportFrac,
     keepSessions: args.keepSessions,
     spoofIpBase: args.spoofIpBase,

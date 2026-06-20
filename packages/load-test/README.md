@@ -69,6 +69,47 @@ This only works when the bots reach the **origin directly**: `clientIp` trusts
 unfirewalled-origin gap (see DECISIONS: alpha topology); for a load test we
 control, that gap is the lever.
 
+## In-network launcher on the VPS (no tunnel, no cap change)
+
+`docker/loadtest/Dockerfile` builds a throwaway image that runs the harness and
+the validator from **inside the prod Docker network**, the simplest way to soak
+a prod whose Redis/Mongo/server ports are `expose:`-only. The bots reach the
+server directly (`ws://server:8080`) and spoof a distinct IP each (origin-direct,
+so no per-IP cap change), and seeding/validation reach `mongo`/`redis` by service
+name (no tunnel).
+
+Run it from a shell on the VPS host (Coolify gives one under Server -> Terminal,
+no SSH needed). The repo is public, so clone it fresh rather than hunting
+Coolify's build dir:
+
+```bash
+git clone https://github.com/MillionPiecePuzzle/million-piece-puzzle mpp && cd mpp
+docker build -f docker/loadtest/Dockerfile -t mpp-loadtest .
+
+# Resolve the running server's container name and the network it shares with
+# redis/mongo (the one that also has the mongo alias).
+SRV=$(docker ps --filter name=server --format '{{.Names}}' | head -1)
+NET=$(docker inspect "$SRV" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' | head -1)
+
+# 15-min, 50-bot soak. --secure-cookie because the prod server's auth host is
+# https, so it only reads the __Secure- cookie even over this ws:// hop.
+docker run --rm --network "$NET" mpp-loadtest run \
+  --target ws://server:8080 --puzzle test-puzzle-10k \
+  --origin https://app.millionpiecepuzzle.com \
+  --mongo mongodb://mongo:27017 --mongo-db mpp \
+  --bots 50 --duration 900 --spoof-ip-base 198.51.100.0 --secure-cookie
+
+# ~5s settle, then the corruption gate (also in-network, by service name)
+docker run --rm --network "$NET" mpp-loadtest validate \
+  --redis redis://redis:6379 --mongo mongodb://mongo:27017 --mongo-db mpp \
+  --puzzle test-puzzle-10k
+```
+
+If `$NET` resolves to more than one network, pick the one `mongo` and `redis` are
+on (`docker inspect` them and compare). The validator alternatively runs straight
+in the server container, which already ships it: `node
+packages/server/dist/validate-state.js <flags>`.
+
 ## State-corruption validator
 
 The harness verdict covers transport saturation only. To check the board itself
@@ -106,6 +147,7 @@ exposed: run it on the VPS, or over an SSH tunnel to those ports.
 | `--seed`            | `42`                        | Seed for the per-bot RNG (reproducible runs)                 |
 | `--keep-sessions`   | off                         | Skip teardown of the seeded users/sessions                   |
 | `--spoof-ip-base`   | off                         | Per-bot `CF-Connecting-IP` (base + bot index) to bypass the per-IP cap; origin-direct only (see below) |
+| `--secure-cookie`   | off                         | Force the `__Secure-` session cookie on a `ws://` target (in-network run against an https prod server) |
 | `--verbose`         | off                         | Log per-bot server errors and ws errors                      |
 
 ## Verdict
