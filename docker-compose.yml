@@ -11,6 +11,9 @@ services:
   mongo:
     image: mongo:7
     restart: unless-stopped
+    # Cap WiredTiger so Mongo does not grab ~50% of RAM and collide with the Node
+    # heap on the co-located 12 GB box.
+    command: ["mongod", "--wiredTigerCacheSizeGB", "1.0"]
     expose:
       - "27017"
     volumes:
@@ -29,17 +32,10 @@ services:
       MPP_REDIS_URL: "redis://redis:6379"
       MPP_MONGO_URL: "mongodb://mongo:27017"
       MPP_MONGO_DB: "mpp"
-      # Per-IP WS connection cap. Defaults to the code value (10), so prod is
-      # unchanged unless overridden in the Coolify service env: raise it for a
-      # load test driving many bots from one IP, then set it back. Interpolated
-      # here (not a baked Dockerfile ENV) so it is a Coolify-env knob, not a
-      # commit + rebuild.
-      MPP_WS_MAX_CONNECTIONS_PER_IP: "${MPP_WS_MAX_CONNECTIONS_PER_IP:-10}"
-      # Node flags, empty by default (image CMD runs node with its defaults). The
-      # in-memory keyframe holds the whole board, so a 1M puzzle needs a raised
-      # heap: set NODE_OPTIONS=--max-old-space-size=5120 (8 GB box) or higher (16
-      # GB) in the Coolify service env. Only meaningful once the box has the RAM.
-      NODE_OPTIONS: "${NODE_OPTIONS:-}"
+      # Non-secret runtime config (per-IP WS cap, Node heap, event start) is baked
+      # as prod ENV in packages/server/Dockerfile, not passed through here: the
+      # Coolify service env holds only secrets. The per-IP cap falls back to its
+      # code default (10); the load harness drives >cap bots via --spoof-ip-base.
       # Non-secret app config (puzzle id, asset base, auth host/cookie/origin,
       # Origin allowlist) is baked as prod ENV in packages/server/Dockerfile.
       # docker-compose.override.yml overrides it with localhost values for local
@@ -91,11 +87,11 @@ services:
       RCLONE_CONFIG_R2_TYPE: "s3"
       RCLONE_CONFIG_R2_PROVIDER: "Cloudflare"
       RCLONE_CONFIG_R2_ACL: "private"
-      # Bucket + R2 credentials for the private backup target come from the
-      # Coolify service env, never committed: the endpoint carries the account id
-      # and the keys are secrets. Without them the backup loop logs failures and
-      # the app is unaffected.
-      MPP_BACKUP_BUCKET: "${MPP_BACKUP_BUCKET:-mpp-backups}"
+      # R2 credentials for the private backup target come from the Coolify service
+      # env, never committed: the endpoint carries the account id and the keys are
+      # secrets. Without them the backup loop logs failures and the app is
+      # unaffected. The bucket name is non-secret, so it is fixed here.
+      MPP_BACKUP_BUCKET: "mpp-backups"
       RCLONE_CONFIG_R2_ENDPOINT: "${RCLONE_CONFIG_R2_ENDPOINT:-}"
       RCLONE_CONFIG_R2_ACCESS_KEY_ID: "${RCLONE_CONFIG_R2_ACCESS_KEY_ID:-}"
       RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: "${RCLONE_CONFIG_R2_SECRET_ACCESS_KEY:-}"
