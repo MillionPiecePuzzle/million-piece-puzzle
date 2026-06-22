@@ -35,6 +35,11 @@ services:
       # here (not a baked Dockerfile ENV) so it is a Coolify-env knob, not a
       # commit + rebuild.
       MPP_WS_MAX_CONNECTIONS_PER_IP: "${MPP_WS_MAX_CONNECTIONS_PER_IP:-10}"
+      # Node flags, empty by default (image CMD runs node with its defaults). The
+      # in-memory keyframe holds the whole board, so a 1M puzzle needs a raised
+      # heap: set NODE_OPTIONS=--max-old-space-size=5120 (8 GB box) or higher (16
+      # GB) in the Coolify service env. Only meaningful once the box has the RAM.
+      NODE_OPTIONS: "${NODE_OPTIONS:-}"
       # Non-secret app config (puzzle id, asset base, auth host/cookie/origin,
       # Origin allowlist) is baked as prod ENV in packages/server/Dockerfile.
       # docker-compose.override.yml overrides it with localhost values for local
