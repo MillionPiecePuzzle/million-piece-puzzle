@@ -11,7 +11,7 @@ Early development. Architecture and stack defined, implementation in progress.
 - **Frontend** - Vue 3 + TypeScript + Vite, PixiJS (WebGL canvas), OpenSeadragon
 - **Backend** - Node.js + TypeScript, Express, WebSocket, Redis (live state), MongoDB (logs, user profiles)
 - **Auth** - Auth.js (`@auth/express`, Google), database sessions, internal per-IP login rate limiting
-- **Infra** - Docker + Coolify on Hetzner, Cloudflare (Pages, R2, CDN)
+- **Infra** - Docker + Coolify on OVH, Cloudflare (Pages, R2, CDN)
 
 ## Repo layout
 

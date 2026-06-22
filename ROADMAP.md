@@ -13,7 +13,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 5. `frontend-canvas`: PixiJS rendering, OpenSeadragon, drag/drop, LOD, culling
 6. `backend-realtime`: WS server, drag/drop/snap logic, Redis state, Mongo logs, CDN snapshots
 7. `auth-and-accounts`: Auth.js (Google), pseudo onboarding, sessions, login anti-abuse
-8. `infra-deploy`: Docker, Coolify, Hetzner, Cloudflare (Pages, R2, CDN, DNS)
+8. `infra-deploy`: Docker, Coolify, OVH, Cloudflare (Pages, R2, CDN, DNS)
 9. `tooling-foundations`: monorepo workspaces, shared tsconfig, eslint, prettier
 10. `qa-and-load`: load tests up to 1M simulated pieces and clients
 11. `legal`: privacy policy, ToS, GDPR notes, license attributions
@@ -83,7 +83,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 
 ### `qa-and-load`
 - [x] Load-test bots authenticate past the WS session gate: harness seeds a disposable user + database session per bot in Mongo and sends the matching cookie; bot brought to protocol v3. Verified at 10 000 (anonymous rejected, ~160 drag/s sustained, clean teardown). See DECISIONS: harness seeds sessions by direct Mongo write
-- [~] Soak test with simulated traffic at target scale passes without state corruption. Tooling built: `validate-state` (`@mpp/server`) asserts partition/locked/held invariants + Mongo-replay-equals-Redis at rest; harness `--spoof-ip-base` drives >cap bots from one host (origin-direct). See DECISIONS: soak-test state-corruption validator. Pending: run the prod soak (live alpha board) + validator. Literal 1M scale needs a box larger than the 4 GB CX22
+- [~] Soak test with simulated traffic at target scale passes without state corruption. Tooling built: `validate-state` (`@mpp/server`) asserts partition/locked/held invariants + Mongo-replay-equals-Redis at rest; harness `--spoof-ip-base` drives >cap bots from one host (origin-direct). See DECISIONS: soak-test state-corruption validator. Pending: run the prod soak + validator against the OVH VPS-3 (12 GB, fits the 1M keyframe)
 
 ### `legal`
 - [x] Privacy policy published: public `/privacy` page, linked from the landing footer
@@ -111,4 +111,4 @@ Ideas worth keeping but not yet committed to a phase. Promote into a phase track
 
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out early and relax it as pieces are placed, to bound the visible piece count. A fixed 15% zoom floor already exists (see [play-zone hard limits](DECISIONS.md#2026-05-21-frontend-canvas-play-zone-hard-limits)); the progress-relative version is the open idea.
 - **Coordinate HUD overlay.** Small overlay showing viewport position (XY, sector, zoom). Needs a "sector" concept first. Revisit at 1M when orientation becomes a real problem.
-- **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. Hetzner Cloud Firewall allowing 80/443 from Cloudflare ranges + admin IP, 22 from admin IP, at the network edge. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
+- **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. OVH Network Firewall allowing 80/443 from Cloudflare ranges + admin IP, 22 from admin IP, at the network edge. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).

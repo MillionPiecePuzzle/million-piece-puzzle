@@ -95,7 +95,7 @@ Locked pieces are permanent (no undo, no griefing).
 - **MongoDB**: snap events log, user profiles
 - **Auth.js** (`@auth/express`): Google OAuth, self-hosted in the Node server, Mongo adapter, database sessions. Login anti-abuse is internal per-IP rate limiting (Redis), not a third-party challenge.
 - **GlitchTip** (self-hosted, Sentry-compatible): error monitoring
-- All orchestrated by **Coolify** on a **Hetzner VPS**
+- All orchestrated by **Coolify** on an **OVH VPS**
 
 ### CDN & Storage
 - **Cloudflare Pages**: frontend hosting
