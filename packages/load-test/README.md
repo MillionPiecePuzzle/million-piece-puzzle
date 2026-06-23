@@ -42,7 +42,7 @@ npm run start -w @mpp/load-test -- \
 # Prod (Mongo reached over a tunnel, wss target selects the __Secure- cookie).
 npm run start -w @mpp/load-test -- \
   --target wss://ws.millionpiecepuzzle.com \
-  --puzzle test-puzzle-10k \
+  --puzzle synthetic-1m \
   --origin https://app.millionpiecepuzzle.com \
   --mongo mongodb://localhost:27017 --mongo-db mpp \
   --bots 5 --duration 300
@@ -94,7 +94,7 @@ NET=$(docker inspect "$SRV" --format '{{range $k,$v := .NetworkSettings.Networks
 # 15-min, 50-bot soak. --secure-cookie because the prod server's auth host is
 # https, so it only reads the __Secure- cookie even over this ws:// hop.
 docker run --rm --network "$NET" mpp-loadtest run \
-  --target ws://server:8080 --puzzle test-puzzle-10k \
+  --target ws://server:8080 --puzzle synthetic-1m \
   --origin https://app.millionpiecepuzzle.com \
   --mongo mongodb://mongo:27017 --mongo-db mpp \
   --bots 50 --duration 900 --spoof-ip-base 198.51.100.0 --secure-cookie
@@ -102,7 +102,7 @@ docker run --rm --network "$NET" mpp-loadtest run \
 # ~5s settle, then the corruption gate (also in-network, by service name)
 docker run --rm --network "$NET" mpp-loadtest validate \
   --redis redis://redis:6379 --mongo mongodb://mongo:27017 --mongo-db mpp \
-  --puzzle test-puzzle-10k
+  --puzzle synthetic-1m
 ```
 
 If `$NET` resolves to more than one network, pick the one `mongo` and `redis` are
@@ -136,7 +136,7 @@ exposed: run it on the VPS, or over an SSH tunnel to those ports.
 | Flag                | Default                     | Meaning                                                       |
 | ------------------- | --------------------------- | ------------------------------------------------------------ |
 | `--target`          | (required)                  | WS URL (`ws://...` or `wss://...`); `wss` selects the `__Secure-` cookie |
-| `--puzzle`          | (required)                  | Puzzle id sent in `hello`                                     |
+| `--puzzle`          | (required)                  | Puzzle id sent in `hello`; must match the target server's loaded `MPP_PUZZLE_ID` (local default `test-puzzle-10k`, prod `synthetic-1m`) |
 | `--origin`          | `http://localhost:5173`     | `Origin` header, must match `MPP_ALLOWED_ORIGINS`            |
 | `--mongo`           | `mongodb://127.0.0.1:27017` | Mongo URL the seeder writes test sessions to                 |
 | `--mongo-db`        | `mpp`                       | Mongo database name (must match the server's `MPP_MONGO_DB`) |
