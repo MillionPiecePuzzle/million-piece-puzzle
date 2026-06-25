@@ -6,14 +6,23 @@ services:
       - "6379"
     volumes:
       - redis-data:/data
-    command: ["redis-server", "--appendonly", "yes"]
+    # Password from the Coolify service env in prod (never committed). Local dev
+    # turns auth off in docker-compose.override.yml; the server and backup sidecar
+    # carry the same password in MPP_REDIS_URL.
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
 
   mongo:
     image: mongo:7
     restart: unless-stopped
+    # Root credentials from the Coolify service env in prod (never committed): the
+    # official image creates the user on first init and --auth enforces access
+    # control. Local dev turns both off in docker-compose.override.yml.
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: "${MONGO_INITDB_ROOT_USERNAME}"
+      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_INITDB_ROOT_PASSWORD}"
     # Cap WiredTiger so Mongo does not grab ~50% of RAM and collide with the Node
     # heap on the co-located 12 GB box.
-    command: ["mongod", "--wiredTigerCacheSizeGB", "1.0"]
+    command: ["mongod", "--auth", "--wiredTigerCacheSizeGB", "1.0"]
     expose:
       - "27017"
     volumes:
@@ -29,8 +38,8 @@ services:
       - mongo
     environment:
       MPP_PORT: "8080"
-      MPP_REDIS_URL: "redis://redis:6379"
-      MPP_MONGO_URL: "mongodb://mongo:27017"
+      MPP_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379"
+      MPP_MONGO_URL: "mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo:27017/?authSource=admin"
       MPP_MONGO_DB: "mpp"
       # Non-secret runtime config (per-IP WS cap, Node heap, event start) is baked
       # as prod ENV in packages/server/Dockerfile, not passed through here: the
@@ -77,8 +86,8 @@ services:
       - redis
       - mongo
     environment:
-      MPP_REDIS_URL: "redis://redis:6379"
-      MPP_MONGO_URL: "mongodb://mongo:27017"
+      MPP_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379"
+      MPP_MONGO_URL: "mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo:27017/?authSource=admin"
       MPP_MONGO_DB: "mpp"
       # Cadence and retention: non-secret, baked here as the prod source.
       MPP_BACKUP_INTERVAL_SEC: "21600"
