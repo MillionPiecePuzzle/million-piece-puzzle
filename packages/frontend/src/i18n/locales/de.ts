@@ -178,7 +178,7 @@ const de: MessageSchema = {
       "Die Daten werden ausschließlich zum Betrieb des Spiels verwendet: um dich zu authentifizieren, deinen Fortschritt zu speichern, platzierte Teile zuzuordnen und die Rangliste anzuzeigen. Es werden keine Daten verkauft oder für Werbung verwendet.",
     processorsHead: "Auftragsverarbeiter",
     processorsBody:
-      "Der Dienst nutzt Google (Anmeldung), Cloudflare (Frontend-Hosting, Speicherung und Auslieferung der Assets sowie cookielose, datenschutzfreundliche Web-Analyse) und Hetzner (den Server, der das Spiel-Backend hostet). Diese Anbieter können Daten außerhalb der Europäischen Union im Rahmen ihrer eigenen Schutzmechanismen verarbeiten. Es wird kein weiterer Drittanbieter-Dienst für Tracking oder Analyse eingesetzt.",
+      "Der Dienst nutzt Google (Anmeldung), Cloudflare (Frontend-Hosting, Speicherung und Auslieferung der Assets sowie cookielose, datenschutzfreundliche Web-Analyse) und OVH (den Server, der das Spiel-Backend hostet). Diese Anbieter können Daten außerhalb der Europäischen Union im Rahmen ihrer eigenen Schutzmechanismen verarbeiten. Es wird kein weiterer Drittanbieter-Dienst für Tracking oder Analyse eingesetzt.",
     retentionHead: "Speicherung und deine Rechte",
     retentionBody:
       "Deine Daten werden so lange gespeichert, wie dein Konto besteht. Nach der DSGVO hast du ein Recht auf Auskunft, Berichtigung, Löschung und Übertragbarkeit deiner Daten sowie ein Widerspruchsrecht. Um sie auszuüben oder jederzeit eine Löschung zu verlangen, kontaktiere den Betreiber über die oben genannten Angaben.",
@@ -194,7 +194,7 @@ const de: MessageSchema = {
     discord: "Discord-Server",
     hostHead: "Hosting",
     hostBody:
-      "Das Frontend wird von Cloudflare, Inc. (101 Townsend Street, San Francisco, CA 94107, USA) auf Cloudflare Pages gehostet. Das Spiel-Backend wird auf einem Server der Hetzner Online GmbH (Industriestr. 25, 91710 Gunzenhausen, Deutschland) gehostet.",
+      "Das Frontend wird von Cloudflare, Inc. (101 Townsend Street, San Francisco, CA 94107, USA) auf Cloudflare Pages gehostet. Das Spiel-Backend wird auf einem Server der OVH SAS (2 rue Kellermann, 59100 Roubaix, Frankreich) gehostet.",
     natureHead: "Art des Projekts",
     natureBody:
       "Million Piece Puzzle ist ein nicht kommerzielles Projekt. Es erwirtschaftet keine Einnahmen, enthält keine Werbung und bietet keine kostenpflichtigen Inhalte.",

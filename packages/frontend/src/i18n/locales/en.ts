@@ -171,7 +171,7 @@ const en = {
       "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the leaderboard. No data is sold or used for advertising.",
     processorsHead: "Sub-processors",
     processorsBody:
-      "The service relies on Google (sign-in), Cloudflare (frontend hosting, asset storage and delivery, and cookieless, privacy-friendly web analytics) and Hetzner (the server hosting the game backend). These providers may process data outside the European Union under their own protection frameworks. No other third-party tracking or analytics service is used.",
+      "The service relies on Google (sign-in), Cloudflare (frontend hosting, asset storage and delivery, and cookieless, privacy-friendly web analytics) and OVH (the server hosting the game backend). These providers may process data outside the European Union under their own protection frameworks. No other third-party tracking or analytics service is used.",
     retentionHead: "Retention and your rights",
     retentionBody:
       "Your data is kept for as long as your account exists. Under the GDPR you have a right of access, rectification, erasure and portability of your data, as well as a right to object. To exercise them, or to request deletion at any time, contact the operator using the details above.",
@@ -187,7 +187,7 @@ const en = {
     discord: "Discord server",
     hostHead: "Host",
     hostBody:
-      "The frontend is hosted by Cloudflare, Inc. (101 Townsend Street, San Francisco, CA 94107, USA) on Cloudflare Pages. The game backend is hosted on a server provided by Hetzner Online GmbH (Industriestr. 25, 91710 Gunzenhausen, Germany).",
+      "The frontend is hosted by Cloudflare, Inc. (101 Townsend Street, San Francisco, CA 94107, USA) on Cloudflare Pages. The game backend is hosted on a server provided by OVH SAS (2 rue Kellermann, 59100 Roubaix, France).",
     natureHead: "Nature of the project",
     natureBody:
       "Million Piece Puzzle is a non-commercial project. It generates no revenue, contains no advertising and offers no paid content.",
