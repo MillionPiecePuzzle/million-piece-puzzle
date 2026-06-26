@@ -56,6 +56,12 @@ services:
       AUTH_SECRET: "${AUTH_SECRET:-}"
       AUTH_GOOGLE_ID: "${AUTH_GOOGLE_ID:-}"
       AUTH_GOOGLE_SECRET: "${AUTH_GOOGLE_SECRET:-}"
+      # Admin page: the shared password gates the direct-URL /admin (empty, the
+      # default, leaves it unmounted), and the puzzle switch list carries each
+      # puzzle's secret seed. Both are secrets, so they are passed through from the
+      # Coolify env like the auth secrets, never baked into the committed image.
+      MPP_ADMIN_PASSWORD: "${MPP_ADMIN_PASSWORD:-}"
+      MPP_ADMIN_PUZZLES: "${MPP_ADMIN_PUZZLES:-}"
     expose:
       - "8080"
 

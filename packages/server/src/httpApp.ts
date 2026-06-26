@@ -11,6 +11,14 @@ import { normalizeCountry, normalizePseudo } from "@mpp/shared";
 import type { ActivityItem, LandingResponse, LeaderboardEntry } from "@mpp/shared";
 import { clientIp, type RedisFixedWindow } from "./limits.js";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
+import {
+  makeAdminAuth,
+  makeAdminClearHandler,
+  makeAdminEventStartHandler,
+  makeAdminPageHandler,
+  makeAdminSwitchHandler,
+  type AdminDeps,
+} from "./admin.js";
 
 export type PseudoStore = {
   setPseudo: (userId: string, pseudo: string) => Promise<UserProfile>;
@@ -43,7 +51,9 @@ export type CreateAppDeps = {
   signupLimiter: RedisFixedWindow;
   spectatorLimiter: RedisFixedWindow;
   interested: InterestedStore;
-  eventStartsAt: number;
+  // Read live (not a captured value) so an admin change to the event start is
+  // reflected on the next landing request without a restart.
+  eventStartsAt: () => number;
   landingSnapshot: () => LandingSnapshot | null;
   puzzleStatus: () => "active" | "completed";
   puzzleSpan: () => Promise<{ firstAt: number; lastAt: number } | null>;
@@ -54,6 +64,9 @@ export type CreateAppDeps = {
   // path-scoped). The events handler serves its sealed-window body asynchronously.
   handleKeyframe: (req: IncomingMessage, res: ServerResponse) => boolean;
   handleEvents: (req: IncomingMessage, res: ServerResponse) => boolean;
+  // The direct-URL admin page and its routes, mounted only when provided (i.e.
+  // when MPP_ADMIN_PASSWORD is set). Absent leaves /admin unmapped (404).
+  admin?: AdminDeps | undefined;
 };
 
 export function createApp(deps: CreateAppDeps): Express {
@@ -124,6 +137,22 @@ export function createApp(deps: CreateAppDeps): Express {
       countryStore: deps.countryStore,
     }),
   );
+
+  // Direct-URL admin page, mounted only when a password is configured. Sits
+  // outside the SPA CORS/auth-rate boundary (it is a same-origin admin tool, not
+  // an SPA route) and behind its own Basic-auth gate.
+  if (deps.admin) {
+    const adminAuth = makeAdminAuth(deps.admin.password);
+    app.get("/admin", adminAuth, makeAdminPageHandler(deps.admin));
+    app.post(
+      "/admin/event-start",
+      adminAuth,
+      express.json(),
+      makeAdminEventStartHandler(deps.admin),
+    );
+    app.post("/admin/switch-puzzle", adminAuth, express.json(), makeAdminSwitchHandler(deps.admin));
+    app.post("/admin/clear", adminAuth, express.json(), makeAdminClearHandler(deps.admin));
+  }
 
   app.use((_req, res) => {
     res.status(404).type("text/plain; charset=utf-8").send("not found");
@@ -223,7 +252,7 @@ const PUBLIC_NO_STORE = {
 
 export type LandingDeps = {
   interested: InterestedStore;
-  eventStartsAt: number;
+  eventStartsAt: () => number;
   snapshot: () => LandingSnapshot | null;
   status: () => "active" | "completed";
   span: () => Promise<{ firstAt: number; lastAt: number } | null>;
@@ -246,7 +275,7 @@ export function makeLandingHandler(deps: LandingDeps) {
     const snap = deps.snapshot();
     const status = deps.status();
     const body: LandingResponse = {
-      eventStartsAt: deps.eventStartsAt,
+      eventStartsAt: deps.eventStartsAt(),
       interested,
       status,
       progress: { locked: snap?.lockedCount ?? 0, total: snap?.totalPieces ?? 0 },

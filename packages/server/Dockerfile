@@ -41,8 +41,9 @@ ENV MPP_KEYFRAME_IDLE_TTL_MS=15000
 ENV NODE_OPTIONS=--max-old-space-size=5120
 
 # Scheduled public start (unix ms), mirrored into welcome/snapshot to sync the
-# entrance cascade. 0 = no scheduled start (/play open, no countdown). Baked here
-# by design, so scheduling the launch is a commit + Coolify rebuild.
+# entrance cascade. 0 = no scheduled start (/play open, no countdown). This is the
+# boot default; the admin page (/admin) can set it live and persists the override
+# in Redis, which survives a restart and supersedes this until a full admin wipe.
 ENV MPP_EVENT_STARTS_AT=0
 
 # Non-secret prod config (auth host/cookie/origin + WS Origin allowlist). The

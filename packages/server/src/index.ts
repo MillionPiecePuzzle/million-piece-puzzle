@@ -4,7 +4,9 @@ import { MongoClient } from "mongodb";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import { WebSocketServer, type WebSocket, type VerifyClientCallbackAsync } from "ws";
 import { PROTOCOL_VERSION, WORLD_TILE_SIZE } from "@mpp/shared";
-import { loadConfig } from "./config.js";
+import { loadConfig, DEFAULT_REDIS_URL } from "./config.js";
+import { readAdminOverrides, UnknownPuzzleError } from "./admin.js";
+import { adminEventStart, adminPuzzleOverride } from "./redis/keys.js";
 import { Hub, type Client } from "./hub.js";
 import { worldAabbFor } from "./worldGrid.js";
 import { buildWireContext, toWireId, anchorWorldX, anchorWorldY } from "./wire.js";
@@ -32,10 +34,14 @@ type AuthedUser = { id: string; pseudo: string | null };
 type AuthedRequest = IncomingMessage & { mppUser?: AuthedUser };
 
 async function main(): Promise<void> {
-  const config = await loadConfig();
-
-  const redis = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
+  // The Redis client comes up before the config so a persisted admin override
+  // (puzzle switch / event start) can supersede the env before loadConfig builds
+  // everything that descends from the puzzle id and seed.
+  const redisUrl = process.env.MPP_REDIS_URL ?? DEFAULT_REDIS_URL;
+  const redis = new IORedis(redisUrl, { maxRetriesPerRequest: null });
   redis.on("error", (e: Error) => console.error("[redis]", e.message));
+  const overrides = await readAdminOverrides(redis);
+  const config = await loadConfig(overrides);
 
   // One Mongo client shared by the merge log, the user-profile ops, and the
   // Auth.js adapter.
@@ -176,8 +182,51 @@ async function main(): Promise<void> {
     });
   }, config.keyframeIntervalMs);
 
-  // Express hosts the auth routes, the pseudo-profile route, and the spectator
-  // stream. The WebSocket upgrade attaches to the same http.Server below.
+  // Admin puzzle switch: the configured list plus the currently-running puzzle
+  // (always selectable so a switch can be reverted), each mapped to its seed. The
+  // seed never leaves the server; only id/label reach the browser.
+  const adminPuzzleSeeds = new Map<string, string>();
+  const adminPuzzleLabels = new Map<string, string>();
+  for (const p of config.adminPuzzles) {
+    adminPuzzleSeeds.set(p.id, p.seed);
+    adminPuzzleLabels.set(p.id, p.label);
+  }
+  if (!adminPuzzleSeeds.has(config.puzzleId)) {
+    adminPuzzleSeeds.set(config.puzzleId, config.generationSeed);
+  }
+  const adminDeps = config.adminPassword
+    ? {
+        password: config.adminPassword,
+        puzzles: () =>
+          [...adminPuzzleSeeds.keys()].map((id) => ({
+            id,
+            label: adminPuzzleLabels.get(id) ?? id,
+            current: id === ctx.puzzleId,
+          })),
+        getEventStartsAt: () => ctx.eventStartsAt,
+        setEventStartsAt: async (at: number) => {
+          await redis.set(adminEventStart(), String(at));
+          ctx.eventStartsAt = at;
+          // Push the new start into the frozen spectator keyframe immediately
+          // rather than waiting for the next periodic regenerate.
+          await keyframePublisher.regenerate(true);
+        },
+        switchPuzzle: async (puzzleId: string) => {
+          const seed = adminPuzzleSeeds.get(puzzleId);
+          if (!seed) throw new UnknownPuzzleError(puzzleId);
+          await redis.set(adminPuzzleOverride(), JSON.stringify({ puzzleId, seed }));
+        },
+        clearEverything: async () => {
+          await redis.flushdb();
+          await mongoClient.db(config.mongoDb).dropDatabase();
+        },
+        exit: () => process.exit(0),
+      }
+    : undefined;
+
+  // Express hosts the auth routes, the pseudo-profile route, the spectator
+  // stream, and (when a password is set) the admin page. The WebSocket upgrade
+  // attaches to the same http.Server below.
   const app = createApp({
     authConfig,
     pseudoStore: mongo,
@@ -203,7 +252,7 @@ async function main(): Promise<void> {
       manifest.puzzleId,
       process.env.AUTH_SECRET || "mpp-interested-dev-salt",
     ),
-    eventStartsAt: config.eventStartsAt,
+    eventStartsAt: () => ctx.eventStartsAt,
     // The landing's live progress/standings come from the in-memory keyframe
     // snapshot (rebuilt on the keyframe cadence, forced on complete), so the
     // public landing never triggers a full-board read.
@@ -223,6 +272,7 @@ async function main(): Promise<void> {
     devEnabled: config.devEnabled,
     handleKeyframe,
     handleEvents,
+    admin: adminDeps,
   });
   const httpServer = createServer(app);
 

@@ -41,3 +41,17 @@ export const rateLimit = (bucket: string, ip: string) => `ratelimit:${bucket}:${
  * this set has no TTL (unlike the per-IP rate-limit keys above).
  */
 export const interested = (puzzleId: string) => `puzzle:${puzzleId}:interested`;
+
+/**
+ * String (JSON {puzzleId, seed}): admin-set puzzle override, read at boot to
+ * supersede the env puzzle so a switch survives the restart it triggers. Not
+ * puzzle-scoped (it selects the puzzle). Cleared by a full admin wipe (FLUSHDB),
+ * which intentionally returns the boot to the env baseline puzzle.
+ */
+export const adminPuzzleOverride = () => `admin:puzzle-override`;
+
+/**
+ * String (unix ms): admin-set event start, read at boot to supersede
+ * MPP_EVENT_STARTS_AT. Cleared by a full admin wipe (FLUSHDB).
+ */
+export const adminEventStart = () => `admin:event-start`;

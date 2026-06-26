@@ -354,7 +354,7 @@ describe("makeLandingHandler", () => {
     const span = vi.fn(async () => null);
     const handler = makeLandingHandler({
       interested,
-      eventStartsAt: 12345,
+      eventStartsAt: () => 12345,
       snapshot: () => fakeSnapshot(),
       status: () => "active",
       span,
@@ -388,7 +388,7 @@ describe("makeLandingHandler", () => {
     const span = vi.fn(async () => ({ firstAt: 100, lastAt: 900 }));
     const handler = makeLandingHandler({
       interested,
-      eventStartsAt: 50,
+      eventStartsAt: () => 50,
       snapshot: () => fakeSnapshot(),
       status: () => "completed",
       span,
@@ -411,7 +411,7 @@ describe("makeLandingHandler", () => {
     };
     const handler = makeLandingHandler({
       interested,
-      eventStartsAt: 0,
+      eventStartsAt: () => 0,
       snapshot: () => null,
       status: () => "active",
       span: vi.fn(async () => null),

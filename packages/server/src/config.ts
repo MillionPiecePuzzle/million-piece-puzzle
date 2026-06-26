@@ -1,6 +1,23 @@
 import type { ImageManifest } from "@mpp/shared";
 import { parseAllowedOrigins } from "./limits.js";
 
+export const DEFAULT_REDIS_URL = "redis://127.0.0.1:6379";
+
+// One selectable puzzle for the admin switch: a label shown in the dropdown plus
+// the generation seed that must match its R2 assets. The seed is the anti-solving
+// secret, so the list is configured server-side (MPP_ADMIN_PUZZLES) and only the
+// id/label ever reach the browser.
+export type AdminPuzzle = { id: string; label: string; seed: string };
+
+// Boot-time overrides read from the Redis admin store (see admin.ts), used to let
+// an admin puzzle switch or event-start change survive the restart it triggers.
+// Each field falls back to its env value when absent.
+export type ConfigOverrides = {
+  puzzleId?: string;
+  generationSeed?: string;
+  eventStartsAt?: number;
+};
+
 export type ServerConfig = {
   port: number;
   redisUrl: string;
@@ -85,6 +102,15 @@ export type ServerConfig = {
   // on a flood, not on a NAT of honest viewers.
   spectatorRateMax: number;
   spectatorRateWindowSec: number;
+  // Shared password for the direct-URL admin page (Basic auth). Empty (the
+  // default) leaves the /admin routes unmounted entirely, so the page is opt-in
+  // per deployment. A secret, so it is passed through from the Coolify env, never
+  // baked into the image.
+  adminPassword: string;
+  // Puzzles the admin switch can select. Carries each puzzle's secret seed, so it
+  // is configured server-side (never baked into the committed image) and only the
+  // id/label reach the browser.
+  adminPuzzles: AdminPuzzle[];
 };
 
 function int(name: string, fallback: number): number {
@@ -125,8 +151,30 @@ async function fetchManifest(url: string): Promise<ImageManifest> {
   return (await res.json()) as ImageManifest;
 }
 
-export async function loadConfig(): Promise<ServerConfig> {
-  const puzzleId = str("MPP_PUZZLE_ID");
+// Parse MPP_ADMIN_PUZZLES, a JSON array of { id, seed, label? }. A malformed
+// value fails the boot loudly rather than silently disabling the switch list.
+function parseAdminPuzzles(raw: string | undefined): AdminPuzzle[] {
+  if (!raw || raw.trim().length === 0) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("MPP_ADMIN_PUZZLES is not valid JSON");
+  }
+  if (!Array.isArray(parsed)) throw new Error("MPP_ADMIN_PUZZLES must be a JSON array");
+  return parsed.map((entry, i) => {
+    const e = (entry ?? {}) as Record<string, unknown>;
+    if (typeof e.id !== "string" || e.id.length === 0)
+      throw new Error(`MPP_ADMIN_PUZZLES[${i}].id must be a non-empty string`);
+    if (typeof e.seed !== "string" || e.seed.length === 0)
+      throw new Error(`MPP_ADMIN_PUZZLES[${i}].seed must be a non-empty string`);
+    const label = typeof e.label === "string" && e.label.length > 0 ? e.label : e.id;
+    return { id: e.id, seed: e.seed, label };
+  });
+}
+
+export async function loadConfig(overrides: ConfigOverrides = {}): Promise<ServerConfig> {
+  const puzzleId = overrides.puzzleId ?? str("MPP_PUZZLE_ID");
   const assetsBaseUrl = trimTrailingSlash(str("MPP_ASSETS_BASE_URL"));
   const manifestUrl = `${assetsBaseUrl}/${puzzleId}/manifest.json`;
   const manifest = await fetchManifest(manifestUrl);
@@ -143,13 +191,13 @@ export async function loadConfig(): Promise<ServerConfig> {
   // `str` alone does not catch this: the compose `${MPP_GENERATION_SEED:-}`
   // passthrough surfaces a forgotten secret as a set-but-empty var, which `str`
   // returns as "" (its `?? fallback` only fires on undefined).
-  const generationSeed = str("MPP_GENERATION_SEED");
+  const generationSeed = overrides.generationSeed ?? str("MPP_GENERATION_SEED");
   if (generationSeed.trim().length === 0) {
     throw new Error("MPP_GENERATION_SEED must be set (non-empty): it is the anti-solving seed");
   }
   return {
     port,
-    redisUrl: str("MPP_REDIS_URL", "redis://127.0.0.1:6379"),
+    redisUrl: str("MPP_REDIS_URL", DEFAULT_REDIS_URL),
     mongoUrl: str("MPP_MONGO_URL", "mongodb://127.0.0.1:27017"),
     mongoDb: str("MPP_MONGO_DB", "mpp"),
     puzzleId,
@@ -173,7 +221,7 @@ export async function loadConfig(): Promise<ServerConfig> {
     interpDelayMs: int("MPP_INTERP_DELAY_MS", 6000),
     eventRetentionMs: int("MPP_EVENT_RETENTION_MS", 900000),
     keyframeIdleTtlMs: int("MPP_KEYFRAME_IDLE_TTL_MS", 15000),
-    eventStartsAt: int("MPP_EVENT_STARTS_AT", 0),
+    eventStartsAt: overrides.eventStartsAt ?? int("MPP_EVENT_STARTS_AT", 0),
     authUrl,
     authSecure: authUrl.startsWith("https:"),
     authCookieDomain: str("AUTH_COOKIE_DOMAIN", ""),
@@ -184,6 +232,8 @@ export async function loadConfig(): Promise<ServerConfig> {
     signupWindowSec: int("MPP_SIGNUP_WINDOW_SEC", 3600),
     spectatorRateMax: int("MPP_SPECTATOR_RATE_MAX", 120),
     spectatorRateWindowSec: int("MPP_SPECTATOR_RATE_WINDOW_SEC", 60),
+    adminPassword: str("MPP_ADMIN_PASSWORD", ""),
+    adminPuzzles: parseAdminPuzzles(process.env.MPP_ADMIN_PUZZLES),
   };
 }
 
