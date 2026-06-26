@@ -3,7 +3,7 @@
 // Usage:
 //   npm run start -w @mpp/load-test -- \
 //     --target ws://localhost:8080 \
-//     --puzzle test-puzzle-10k \
+//     --puzzle synthetic-1m \
 //     --origin http://localhost:5173 \
 //     --mongo mongodb://localhost:27017 --mongo-db mpp \
 //     --bots 20 --duration 300 --spawn-interval 250

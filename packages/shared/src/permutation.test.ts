@@ -33,7 +33,7 @@ describe("buildPermutation", () => {
 
   it("actually permutes (not the identity)", () => {
     const n = 10000;
-    const { wireForGrid } = buildPermutation("test-puzzle-10k-2026", n);
+    const { wireForGrid } = buildPermutation("seed", n);
     let fixed = 0;
     for (let i = 0; i < n; i++) if (wireForGrid[i] === i) fixed++;
     // A random permutation of n elements has ~1 expected fixed point; assert the

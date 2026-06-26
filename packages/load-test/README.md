@@ -34,7 +34,7 @@ session even when `AUTH_SECRET` is unset.
 # Local docker-compose (puzzle pre-loaded via MPP_PUZZLE_ID + MPP_ASSETS_BASE_URL).
 npm run start -w @mpp/load-test -- \
   --target ws://localhost:8080 \
-  --puzzle test-puzzle-10k \
+  --puzzle synthetic-1m \
   --origin http://localhost:5173 \
   --mongo mongodb://localhost:27017 --mongo-db mpp \
   --bots 5 --duration 300
@@ -120,7 +120,7 @@ the board at rest, pointed at the same Redis and Mongo the target server uses:
 npm run validate-state -w @mpp/server -- \
   --redis redis://127.0.0.1:6379 \
   --mongo mongodb://127.0.0.1:27017 --mongo-db mpp \
-  --puzzle test-puzzle-10k
+  --puzzle synthetic-1m
 ```
 
 It asserts piece/group partition consistency, group-size and locked-count
@@ -136,7 +136,7 @@ exposed: run it on the VPS, or over an SSH tunnel to those ports.
 | Flag                | Default                     | Meaning                                                       |
 | ------------------- | --------------------------- | ------------------------------------------------------------ |
 | `--target`          | (required)                  | WS URL (`ws://...` or `wss://...`); `wss` selects the `__Secure-` cookie |
-| `--puzzle`          | (required)                  | Puzzle id sent in `hello`; must match the target server's loaded `MPP_PUZZLE_ID` (local default `test-puzzle-10k`, prod `synthetic-1m`) |
+| `--puzzle`          | (required)                  | Puzzle id sent in `hello`; must match the target server's loaded `MPP_PUZZLE_ID` (`synthetic-1m`) |
 | `--origin`          | `http://localhost:5173`     | `Origin` header, must match `MPP_ALLOWED_ORIGINS`            |
 | `--mongo`           | `mongodb://127.0.0.1:27017` | Mongo URL the seeder writes test sessions to                 |
 | `--mongo-db`        | `mpp`                       | Mongo database name (must match the server's `MPP_MONGO_DB`) |

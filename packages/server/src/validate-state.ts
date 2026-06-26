@@ -14,7 +14,7 @@
 //   npm run validate-state -w @mpp/server -- \
 //     --redis redis://127.0.0.1:6379 \
 //     --mongo mongodb://127.0.0.1:27017 --mongo-db mpp \
-//     --puzzle test-puzzle-10k
+//     --puzzle synthetic-1m
 
 import { Redis as IORedis } from "ioredis";
 import { MongoClient } from "mongodb";

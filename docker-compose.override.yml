@@ -20,15 +20,17 @@ services:
       # run; the Docker VM has room. Harmless for the small test puzzle. (Prod runs
       # the committed image CMD, so the real 1M deploy needs the same treatment.)
       NODE_OPTIONS: "${NODE_OPTIONS:---max-old-space-size=5120}"
-      # Which R2-hosted puzzle the dev server serves. Defaults to the image's
-      # test-puzzle-10k; override via this directory's `.env` (with a matching
-      # MPP_GENERATION_SEED) to serve another uploaded puzzle locally.
-      MPP_PUZZLE_ID: "${MPP_PUZZLE_ID:-test-puzzle-10k}"
-      # Local dev defaults to the public alpha seed: it matches the test-puzzle-10k
-      # R2 assets the dev server fetches. Override via this directory's `.env` if
-      # you slice your own local puzzle. Prod never uses this file (Coolify deploys
-      # docker-compose.yml alone and supplies the real seed as a service secret).
-      MPP_GENERATION_SEED: "${MPP_GENERATION_SEED:-test-puzzle-10k-2026}"
+      # Which R2-hosted puzzle the dev server serves. Defaults to synthetic-1m,
+      # the same 1M puzzle prod serves; override via this directory's `.env` (with
+      # a matching MPP_GENERATION_SEED) to serve another uploaded puzzle locally.
+      MPP_PUZZLE_ID: "${MPP_PUZZLE_ID:-synthetic-1m}"
+      # Seed for the wire-id permutation: must match the R2 assets the dev server
+      # fetches. synthetic-1m is a throwaway synthetic puzzle, so its seed is not a
+      # real secret and is fine to default here (authoritative value: the Coolify
+      # service env MPP_GENERATION_SEED). Override via `.env` if you slice your own
+      # local puzzle. Prod never reads this file (Coolify deploys docker-compose.yml
+      # alone and supplies the real seed as a service secret).
+      MPP_GENERATION_SEED: "${MPP_GENERATION_SEED:-synthetic-1m}"
       MPP_ALLOWED_ORIGINS: "${MPP_ALLOWED_ORIGINS:-}"
       AUTH_URL: "${AUTH_URL:-http://localhost:8080}"
       AUTH_COOKIE_DOMAIN: "${AUTH_COOKIE_DOMAIN:-}"
