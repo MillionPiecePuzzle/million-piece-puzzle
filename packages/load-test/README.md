@@ -6,9 +6,9 @@ and cursor presence. Records grab latency, drag/drop throughput, server
 errors, and backpressure closes; emits a PASS/FAIL verdict at the end.
 
 The bot uses the same `@mpp/shared` types as the real client, so the wire
-format is exact. It follows protocol v3: `welcome` carries no board, so each bot
-streams its region in via `region_state` for the cells its (bounded) viewport
-enters, then grabs from what it has learned.
+format is exact. It sends the shared `PROTOCOL_VERSION` in `hello`: `welcome`
+carries no board, so each bot streams its region in via `region_state` for the
+cells its (bounded) viewport enters, then grabs from what it has learned.
 
 ## Sessions
 
