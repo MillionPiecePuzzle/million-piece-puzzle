@@ -36,10 +36,11 @@ services:
       AUTH_COOKIE_DOMAIN: "${AUTH_COOKIE_DOMAIN:-}"
       MPP_APP_ORIGIN: "${MPP_APP_ORIGIN:-http://localhost:5173}"
       # Admin page for local dev: a throwaway password (visit http://localhost:8080/admin)
-      # and synthetic-1m as the only switch target (its seed is not a real secret).
-      # Prod values come from the Coolify env. Override either via this directory's `.env`.
+      # and the synthetic puzzles as switch targets (their seeds are not real secrets,
+      # each seed equals its id). Prod values come from the Coolify env. Override either
+      # via this directory's `.env`.
       MPP_ADMIN_PASSWORD: "${MPP_ADMIN_PASSWORD:-admin}"
-      MPP_ADMIN_PUZZLES: '${MPP_ADMIN_PUZZLES:-[{"id":"synthetic-1m","label":"Synthetic 1M","seed":"synthetic-1m"}]}'
+      MPP_ADMIN_PUZZLES: '${MPP_ADMIN_PUZZLES:-[{"id":"synthetic-1m","label":"Synthetic 1M","seed":"synthetic-1m"},{"id":"synthetic-25","label":"Synthetic 25","seed":"synthetic-25"}]}'
 
   # Local-dev only: the Vite dev server, bind-mounting the frontend source for
   # HMR on :5173. It lives here, not in docker-compose.yml, because prod

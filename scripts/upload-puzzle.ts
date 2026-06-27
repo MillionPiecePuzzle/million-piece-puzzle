@@ -89,6 +89,10 @@ async function main(): Promise<void> {
     `--transfers=${args.transfers}`,
     `--checkers=${args.transfers * 2}`,
     "--fast-list",
+    // The R2 API token is object-scoped (read/write objects, no bucket admin), so
+    // rclone's default pre-sync HeadBucket/CreateBucket check is denied. The bucket
+    // is pre-created, so skip the check and go straight to the object operations.
+    "--s3-no-check-bucket",
     "--progress",
   ];
   if (args.dryRun) rcloneArgs.push("--dry-run");
