@@ -67,6 +67,10 @@ type PieceNode = {
   inner: Container;
   flash: Graphics;
   localBounds: Aabb;
+  // Kept so a grab can sample the silhouette's alpha at the pointer (strict
+  // hit-test): the tile is alpha-cut to the piece shape, so the transparent tab
+  // margin and corners read 0 and are not grabbable.
+  texture: Texture;
 };
 
 type GroupNode = {
@@ -116,6 +120,11 @@ export type StageCallbacks = {
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 5;
 const HELD_SCALE = 1.02;
+// Minimum texel alpha (0-255) under the pointer for a grab to count as on the
+// piece. The silhouette interior is opaque (255) and the cut margin transparent
+// (0); a small floor keeps the 1px anti-aliased edge grabbable while rejecting
+// the transparent gaps.
+const GRAB_HIT_ALPHA = 16;
 
 // In sticky carry the cluster floats to the upper-right of the cursor, its
 // nearest (bottom-left) bounding-box corner held this many screen pixels clear
@@ -342,6 +351,10 @@ export class PuzzleStage {
   // an effect; the live effect still plays on top until its cluster's tile is
   // ready. Entries are added on start and removed when the effect ends.
   private readonly effectNodes = new Set<Container>();
+
+  // 1x1 scratch canvas reused to read a single texel's alpha on grab (strict
+  // hit-test). Lazily created; willReadFrequently since every grab probes it.
+  private alphaProbe: CanvasRenderingContext2D | null = null;
 
   private held: HeldState | null = null;
   // The group under the last pointerdown (null when it hit empty stage), so the
@@ -1890,6 +1903,12 @@ export class PuzzleStage {
   private onGroupPointerDown(node: GroupNode, ev: FederatedPointerEvent): void {
     if (!this.callbacks) return;
     if (node.locked) return;
+    const world = this.screenToWorld(ev.global.x, ev.global.y);
+    // Strict hit-test: Pixi reports a hit anywhere in a piece's rectangular tile
+    // bounds, including the transparent tab margin, corners, and the gaps between
+    // a cluster's pieces. Grab only when the pointer is on opaque silhouette.
+    // Otherwise let the press bubble to the stage, which starts a pan.
+    if (!this.pointerOnPiece(node, world.x, world.y)) return;
     ev.stopPropagation();
     this.lastPointerDownGroupId = node.id;
     // While a cluster is carried, presses are reserved for the drop double-click;
@@ -1898,7 +1917,6 @@ export class PuzzleStage {
     // Re-grabbing supersedes any in-flight drop of the same group; the held-skip
     // now guards it, so drop the pending entry.
     this.pendingDrops.delete(node.id);
-    const world = this.screenToWorld(ev.global.x, ev.global.y);
     this.held = {
       groupId: node.id,
       pointerDx: world.x - node.worldX,
@@ -1911,6 +1929,54 @@ export class PuzzleStage {
     this.markGroupHeld(node);
     this.setGroupHeldVisual(node, true);
     this.callbacks.onGrab(node.id);
+  }
+
+  // Whether a world point lands on the opaque silhouette of any of a cluster's
+  // pieces (knobs included, blanks and gaps excluded). The press happens at rest,
+  // so each piece's inner transform is identity (its pivot and position cancel)
+  // and the tile texture maps onto container-local [-margin, pieceSize+margin].
+  private pointerOnPiece(node: GroupNode, worldX: number, worldY: number): boolean {
+    const m = this.manifest;
+    if (!m) return true;
+    const span = m.tileSize;
+    for (const piece of node.pieces) {
+      const u = (worldX - node.worldX - piece.container.x + m.margin) / span;
+      const v = (worldY - node.worldY - piece.container.y + m.margin) / span;
+      if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
+      if (this.samplePieceAlpha(piece, u, v) >= GRAB_HIT_ALPHA) return true;
+    }
+    return false;
+  }
+
+  // Alpha (0-255) of one texel of a piece's tile, at normalized (u, v). Reads a
+  // single source pixel through a 1x1 scratch canvas, so a grab costs one pixel
+  // read per candidate piece and retains nothing. A source that cannot be probed
+  // (missing, or a tainted cross-origin canvas) falls back to grabbable.
+  private samplePieceAlpha(piece: PieceNode, u: number, v: number): number {
+    const ctx = this.alphaProbeCtx();
+    const res = piece.texture.source?.resource as CanvasImageSource | undefined;
+    if (!ctx || !res) return 255;
+    const f = piece.texture.frame;
+    const sx = f.x + Math.min(f.width - 1, Math.floor(u * f.width));
+    const sy = f.y + Math.min(f.height - 1, Math.floor(v * f.height));
+    try {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.drawImage(res, sx, sy, 1, 1, 0, 0, 1, 1);
+      return ctx.getImageData(0, 0, 1, 1).data[3] ?? 255;
+    } catch {
+      return 255;
+    }
+  }
+
+  private alphaProbeCtx(): CanvasRenderingContext2D | null {
+    if (this.alphaProbe) return this.alphaProbe;
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (ctx) ctx.imageSmoothingEnabled = false;
+    this.alphaProbe = ctx;
+    return ctx;
   }
 
   private onStagePointerDown(ev: FederatedPointerEvent): void {
@@ -3347,6 +3413,7 @@ function buildPieceNode(
     inner,
     flash,
     localBounds: pieceLocalBounds(offsetX, offsetY, pieceSize, manifest.margin),
+    texture,
   };
 }
 
