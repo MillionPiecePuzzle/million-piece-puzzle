@@ -2171,12 +2171,30 @@ export class PuzzleStage {
   }
 
   private setGroupHeldVisual(node: GroupNode, held: boolean): void {
-    // Scale each piece around its own inner pivot, not the group container:
-    // the container origin sits at the puzzle's canonical origin, so scaling
-    // it shifts every piece by its canonical offset and makes the cluster
-    // jump away from the cursor on grab and drop.
+    // Lift the cluster as one unit: a uniform scale about the cluster center,
+    // realized per piece so the group container transform (and thus moveGroup)
+    // stays untouched. Each inner pivots on its own center, so the lift is the
+    // piece's own bump plus a shift that carries its center along the cluster's
+    // uniform scaling. Scaling each piece about its own center in isolation
+    // would pull the interlocking knobs and blanks out of register (the cluster
+    // visibly seams apart); scaling about the shared center keeps every piece
+    // aligned while still feeling lifted off the board. The container origin is
+    // the puzzle's canonical origin, far from the cluster, so scaling the
+    // container directly would fling the cluster away from the cursor instead.
     const scale = held ? HELD_SCALE : 1;
-    for (const piece of node.pieces) piece.inner.scale.set(scale);
+    const half = (this.manifest?.pieceSize ?? 0) / 2;
+    const b = node.localBounds;
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    for (const piece of node.pieces) {
+      piece.inner.scale.set(scale);
+      const pieceCx = piece.container.x + half;
+      const pieceCy = piece.container.y + half;
+      piece.inner.position.set(
+        half + (scale - 1) * (pieceCx - cx),
+        half + (scale - 1) * (pieceCy - cy),
+      );
+    }
     this.placeGroupInLayer(node, held ? this.localHeldLayer : this.restingLayer(node));
   }
 
