@@ -53,6 +53,10 @@ export type MinimapSnapshot = {
   frame: { w: number; h: number };
   grid: MinimapGrid | null;
   pieces: MinimapPiece[];
+  // Server-grid cell indices (row * cols + col) the client knows live: the cells
+  // its visited groups fall in. The minimap skips the server density for these so
+  // the stale global count never shows under a region the live overlay covers.
+  knownCells: Set<number>;
   viewport: Viewport | null;
 };
 
@@ -2418,21 +2422,29 @@ export class PuzzleStage {
     // overlay stays correct while most pieces are dehydrated (textures unloaded).
     const { pieceSize } = this.manifest;
     const half = pieceSize / 2;
+    const grid = this.minimapGrid;
     const pieces: MinimapPiece[] = [];
+    const knownCells = new Set<number>();
     for (const group of this.groups.values()) {
       for (const off of group.members.values()) {
-        pieces.push({
-          x: group.worldX + off.dx * pieceSize + half,
-          y: group.worldY + off.dy * pieceSize + half,
-          locked: group.locked,
-        });
+        const x = group.worldX + off.dx * pieceSize + half;
+        const y = group.worldY + off.dy * pieceSize + half;
+        pieces.push({ x, y, locked: group.locked });
+        if (grid) {
+          const c = Math.floor((x - grid.originX) / grid.cellW);
+          const r = Math.floor((y - grid.originY) / grid.cellH);
+          if (c >= 0 && c < grid.cols && r >= 0 && r < grid.rows) {
+            knownCells.add(r * grid.cols + c);
+          }
+        }
       }
     }
     return {
       playZone: this.playZone,
       frame: { w: this.worldSize.w, h: this.worldSize.h },
-      grid: this.minimapGrid,
+      grid,
       pieces,
+      knownCells,
       viewport: this.viewport,
     };
   }

@@ -104,7 +104,11 @@ function draw(): void {
     const paint = (counts: number[], base: number, span: number) => {
       for (let r = 0; r < grid.rows; r++) {
         for (let c = 0; c < grid.cols; c++) {
-          const n = counts[r * grid.cols + c] ?? 0;
+          const idx = r * grid.cols + c;
+          // Skip cells the live overlay already covers, so a stale server count
+          // never shows under a region the client knows fresh.
+          if (snap.knownCells.has(idx)) continue;
+          const n = counts[idx] ?? 0;
           if (n <= 0) continue;
           const x = toX(grid.originX + c * grid.cellW);
           const y = toY(grid.originY + r * grid.cellH);
