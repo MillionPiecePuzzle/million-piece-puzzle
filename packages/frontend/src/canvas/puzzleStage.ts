@@ -360,6 +360,14 @@ export class PuzzleStage {
       this.cancelCarry();
     }
   };
+  // The window losing focus (alt-tab, or an OS overlay like the Windows
+  // screenshot tool grabbing the pointer) means an in-progress press-drag will
+  // never get its pointerup: cancel it so the cluster does not stick to the hand
+  // or commit a drop at a stale off-window position. Sticky carry is deliberately
+  // unaffected (it survives focus loss until its own timeout).
+  private readonly onWindowBlur = (): void => {
+    this.cancelPressDrag();
+  };
   // Groups this client dropped locally but for which the server's authoritative
   // drop/snap has not yet arrived. A pan resync carries the server's last
   // committed resting position, which is older than this in-flight drop, so it
@@ -566,6 +574,10 @@ export class PuzzleStage {
     app.stage.on("globalpointermove", (ev) => this.onPointerMove(ev));
     app.stage.on("pointerup", (ev) => this.onPointerUp(ev));
     app.stage.on("pointerupoutside", (ev) => this.onPointerUp(ev));
+    // The pointer is cancelled (capture lost to the OS, a gesture, etc.) with no
+    // matching pointerup: abort an in-progress press-drag rather than leaving it
+    // stuck in the hand.
+    app.stage.on("pointercancel", () => this.cancelPressDrag());
     // Off-canvas: stop edge-pan (no pointer to read a band from).
     app.canvas.addEventListener("pointerleave", () => {
       this.pointerScreen = null;
@@ -590,6 +602,7 @@ export class PuzzleStage {
     app.ticker.add(this.tickLod);
     app.canvas.addEventListener("dblclick", (ev) => this.onCanvasDoubleClick(ev));
     window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("blur", this.onWindowBlur);
     this.attachWheelZoom(app.canvas);
   }
 
@@ -908,6 +921,7 @@ export class PuzzleStage {
     this.stopConfetti();
     this.clearCarryIdle();
     window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("blur", this.onWindowBlur);
     this.tweener?.destroy();
     this.tweener = null;
     this.app?.ticker.remove(this.tickPeerCursors);
@@ -2117,6 +2131,27 @@ export class PuzzleStage {
     }
     this.held = null;
     this.endCarry();
+  }
+
+  // Abort an in-progress press-drag (button-held grab) without committing a move:
+  // return the cluster to its grab origin and release the server lock. Used when
+  // the interaction is interrupted with no pointerup (window blur, an OS overlay
+  // capturing the pointer, a cancelled pointer), so the cluster never sticks to
+  // the hand and never commits a drop at a stale, off-window position. Dropping
+  // at the origin is anchor-safe: a cluster grabbable at that origin was, by
+  // definition, not within anchor tolerance there.
+  private cancelPressDrag(): void {
+    if (!this.held || this.held.carry) return;
+    const node = this.groups.get(this.held.groupId);
+    if (node && this.callbacks) {
+      this.moveGroup(node, this.held.originX, this.held.originY);
+      this.setGroupHeldVisual(node, false);
+      this.pendingDrops.add(node.id);
+      this.callbacks.onDrop(node.id, this.held.originX, this.held.originY);
+      this.releaseGroupHeld(node.id);
+    }
+    this.held = null;
+    this.pan.active = false;
   }
 
   // Return the carried cluster to where it was picked up (Escape), releasing the
