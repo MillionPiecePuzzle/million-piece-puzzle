@@ -82,6 +82,11 @@ type GroupNode = {
   pieces: PieceNode[];
   hydrated: boolean;
   hydrating: boolean;
+  // Hydrate passes that finished with a piece still missing (its texture failed
+  // every retry). Bounds re-hydration so a transient failure heals on a later
+  // pass while a permanently missing asset is accepted as partial after a few
+  // tries instead of re-fetching forever. Reset to 0 on a complete hydrate.
+  hydrateAttempts: number;
   locked: boolean;
   worldX: number;
   worldY: number;
@@ -206,6 +211,11 @@ const HYDRATE_MAX_INFLIGHT = 128;
 // times, then skipped so the group still completes and the slot frees.
 const TEXTURE_LOAD_TIMEOUT_MS = 10000;
 const TEXTURE_LOAD_RETRIES = 1;
+// Hydrate passes a group gets to fill a missing piece before its partial state
+// is accepted. Beyond loadPieceTexture's per-call retries: a whole pass is
+// re-run on later frames so a transient outage heals, while a genuinely missing
+// asset stops being re-fetched (and unwedges the loading cover) after this many.
+const MAX_HYDRATE_ATTEMPTS = 3;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -324,6 +334,14 @@ export class PuzzleStage {
   private readonly tickPeerCursors = (ticker: { deltaMS: number }): void => {
     this.peerCursors?.update(ticker.deltaMS, this.camera);
   };
+
+  // Transient per-piece effect nodes (snap flashes and particle bursts) currently
+  // animating. They live as children of group containers, so a tile bake would
+  // freeze a mid-animation copy into the texture (it persists until the cell
+  // re-bakes). bakeTile hides them for the render so the LOD tiles never capture
+  // an effect; the live effect still plays on top until its cluster's tile is
+  // ready. Entries are added on start and removed when the effect ends.
+  private readonly effectNodes = new Set<Container>();
 
   private held: HeldState | null = null;
   // The group under the last pointerdown (null when it hit empty stage), so the
@@ -785,6 +803,7 @@ export class PuzzleStage {
       pieces: [],
       hydrated: false,
       hydrating: false,
+      hydrateAttempts: 0,
       locked: spec.locked,
       worldX: spec.worldX,
       worldY: spec.worldY,
@@ -919,6 +938,7 @@ export class PuzzleStage {
     this.groupGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
+    this.effectNodes.clear();
     this.heldGroupIds.clear();
     this.glidingGroupIds.clear();
     this.cellDirtyMs.clear();
@@ -999,6 +1019,7 @@ export class PuzzleStage {
     this.groupGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
+    this.effectNodes.clear();
     this.groups.clear();
     this.pieceToGroup.clear();
     // A carry in progress is dropped by the rebuild: the highlight was already
@@ -1786,6 +1807,7 @@ export class PuzzleStage {
       },
       onDone: () => inner.scale.set(1),
     });
+    this.effectNodes.add(flash);
     this.tweener.add({
       duration: SNAP_FLASH_MS,
       easing: easeOutCubic,
@@ -1794,6 +1816,7 @@ export class PuzzleStage {
       },
       onDone: () => {
         flash.alpha = 0;
+        this.effectNodes.delete(flash);
       },
     });
   }
@@ -1805,6 +1828,7 @@ export class PuzzleStage {
     burst.eventMode = "none";
     burst.position.set(pieceSize / 2, pieceSize / 2);
     piece.inner.addChild(burst);
+    this.effectNodes.add(burst);
 
     const sparks: { gfx: Graphics; angle: number; dist: number }[] = [];
     for (let i = 0; i < SNAP_BURST_COUNT; i++) {
@@ -1831,6 +1855,7 @@ export class PuzzleStage {
         }
       },
       onDone: () => {
+        this.effectNodes.delete(burst);
         if (!burst.destroyed) burst.destroy({ children: true });
       },
     });
@@ -2159,6 +2184,7 @@ export class PuzzleStage {
       alpha: 0.95,
     });
     node.container.addChild(g);
+    this.effectNodes.add(g);
     this.carryHighlight = g;
   }
 
@@ -2166,6 +2192,7 @@ export class PuzzleStage {
     const g = this.carryHighlight;
     this.carryHighlight = null;
     if (!g) return;
+    this.effectNodes.delete(g);
     g.parent?.removeChild(g);
     if (!g.destroyed) g.destroy({ context: true });
   }
@@ -2672,7 +2699,17 @@ export class PuzzleStage {
       this.destroyPieceNodes(node);
       return;
     }
-    node.hydrated = true;
+    // Complete only when every member built. A piece whose texture failed every
+    // retry leaves the group incomplete: keep it unhydrated so a later pass
+    // retries (a transient failure heals), up to MAX_HYDRATE_ATTEMPTS, after
+    // which the partial cluster is accepted so residency and the loading cover
+    // do not wedge on an asset that is genuinely gone (already logged per url).
+    if (node.pieces.length >= node.members.size) {
+      node.hydrated = true;
+      node.hydrateAttempts = 0;
+    } else if (++node.hydrateAttempts >= MAX_HYDRATE_ATTEMPTS) {
+      node.hydrated = true;
+    }
     this.applyGroupInteractivity(node);
     this.cullGroup(node);
     if (this.lodActive) this.applyGroupLodVisibility(node);
@@ -3168,6 +3205,17 @@ export class PuzzleStage {
       }
     }
 
+    // Keep transient effects out of the texture: a mid-animation flash or burst
+    // baked in would stay frozen in the tile until its next re-bake. Hidden only
+    // for the render, restored right after, so the live effect keeps playing.
+    const effectsHidden: Container[] = [];
+    for (const fx of this.effectNodes) {
+      if (fx.visible) {
+        fx.visible = false;
+        effectsHidden.push(fx);
+      }
+    }
+
     this.app.renderer.render({
       container: this.world,
       target: target.texture,
@@ -3176,6 +3224,7 @@ export class PuzzleStage {
       clearColor: [0, 0, 0, 0],
     });
 
+    for (const fx of effectsHidden) fx.visible = true;
     if (this.frame) this.frame.visible = true;
     if (this.backdrop) this.backdrop.visible = true;
     if (this.loadingOverlay) this.loadingOverlay.container.visible = true;
