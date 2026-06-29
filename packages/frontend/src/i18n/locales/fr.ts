@@ -119,7 +119,7 @@ const fr: MessageSchema = {
     placedLine: "a placé {object}",
     connectedLine: "a relié {object}",
     piece: "une pièce",
-    twoPieces: "deux pièces reliées",
+    twoPieces: "deux pièces ensemble",
     cluster: "un groupe de {n} pièces",
   },
   loading: {
