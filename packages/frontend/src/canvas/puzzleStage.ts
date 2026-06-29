@@ -2454,7 +2454,27 @@ export class PuzzleStage {
     const half = pieceSize / 2;
     const grid = this.minimapGrid;
     const pieces: MinimapPiece[] = [];
+    // Density cells the live overlay supersedes. Keyed off the authoritative
+    // coverage (the LOD cells the client has streamed), not the cells that happen
+    // to hold a piece right now: once a region is loaded the client owns its live
+    // state, so dragging pieces out of a cell must not let the stale server count
+    // reappear under it. A spectator has no coverage but holds the whole board, so
+    // its per-piece marks below still mask what it knows.
     const knownCells = new Set<number>();
+    if (grid) {
+      for (const key of this.knownCells) {
+        const { cx, cy } = unpackCell(key);
+        const c0 = Math.floor((cx * LOD_TILE_WORLD - grid.originX) / grid.cellW);
+        const c1 = Math.floor(((cx + 1) * LOD_TILE_WORLD - grid.originX) / grid.cellW);
+        const r0 = Math.floor((cy * LOD_TILE_WORLD - grid.originY) / grid.cellH);
+        const r1 = Math.floor(((cy + 1) * LOD_TILE_WORLD - grid.originY) / grid.cellH);
+        for (let r = Math.max(0, r0); r <= Math.min(grid.rows - 1, r1); r++) {
+          for (let c = Math.max(0, c0); c <= Math.min(grid.cols - 1, c1); c++) {
+            knownCells.add(r * grid.cols + c);
+          }
+        }
+      }
+    }
     for (const group of this.groups.values()) {
       for (const off of group.members.values()) {
         const x = group.worldX + off.dx * pieceSize + half;

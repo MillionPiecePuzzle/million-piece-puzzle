@@ -136,13 +136,13 @@ function draw(): void {
   // client has fresh positions for), refining the coarse grid. Loose first,
   // locked on top so progress reads. Empty for a contributor's far-zoomed fit
   // (no regions built yet), where the grid alone carries the overview.
-  const dot = Math.max(1, 1.4 * dpr);
+  const dot = Math.max(1, 1.8 * dpr);
   const half = dot / 2;
-  ctx.fillStyle = "rgba(21,20,15,0.22)";
+  ctx.fillStyle = "rgba(21,20,15,0.5)";
   for (const p of snap.pieces) {
     if (!p.locked) ctx.fillRect(toX(p.x) - half, toY(p.y) - half, dot, dot);
   }
-  ctx.fillStyle = "rgba(21,20,15,0.62)";
+  ctx.fillStyle = "rgba(21,20,15,0.85)";
   for (const p of snap.pieces) {
     if (p.locked) ctx.fillRect(toX(p.x) - half, toY(p.y) - half, dot, dot);
   }
