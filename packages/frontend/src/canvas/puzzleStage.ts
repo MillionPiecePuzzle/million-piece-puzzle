@@ -1906,33 +1906,63 @@ export class PuzzleStage {
 
   private onGroupPointerDown(node: GroupNode, ev: FederatedPointerEvent): void {
     if (!this.callbacks) return;
-    if (node.locked) return;
     const world = this.screenToWorld(ev.global.x, ev.global.y);
-    // Strict hit-test: Pixi reports a hit anywhere in a piece's rectangular tile
-    // bounds, including the transparent tab margin, corners, and the gaps between
-    // a cluster's pieces. Grab only when the pointer is on opaque silhouette.
-    // Otherwise let the press bubble to the stage, which starts a pan.
-    if (!this.pointerOnPiece(node, world.x, world.y)) return;
+    // Strict hit-test with fall-through: Pixi delivers the press to the cluster
+    // whose rectangular tile bounds are topmost, but those bounds include the
+    // transparent tab margin, corners, and the gaps between a cluster's pieces, so
+    // the top piece can fully cover an opaque neighbour beneath it. Re-resolve
+    // against every cluster overlapping the point and grab the topmost one whose
+    // opaque silhouette is actually under the pointer. None means the pointer sits
+    // on a transparent gap: let the press bubble to the stage, which starts a pan.
+    const target = this.grabTargetAt(world.x, world.y, node);
+    if (!target) return;
     ev.stopPropagation();
-    this.lastPointerDownGroupId = node.id;
+    this.lastPointerDownGroupId = target.id;
     // While a cluster is carried, presses are reserved for the drop double-click;
     // do not start a competing press-drag grab on it.
     if (this.held?.carry) return;
     // Re-grabbing supersedes any in-flight drop of the same group; the held-skip
     // now guards it, so drop the pending entry.
-    this.pendingDrops.delete(node.id);
+    this.pendingDrops.delete(target.id);
     this.held = {
-      groupId: node.id,
-      pointerDx: world.x - node.worldX,
-      pointerDy: world.y - node.worldY,
-      originX: node.worldX,
-      originY: node.worldY,
+      groupId: target.id,
+      pointerDx: world.x - target.worldX,
+      pointerDy: world.y - target.worldY,
+      originX: target.worldX,
+      originY: target.worldY,
       confirmed: false,
       carry: false,
     };
-    this.markGroupHeld(node);
-    this.setGroupHeldVisual(node, true);
-    this.callbacks.onGrab(node.id);
+    this.markGroupHeld(target);
+    this.setGroupHeldVisual(target, true);
+    this.callbacks.onGrab(target.id);
+  }
+
+  // Topmost grabbable cluster whose opaque silhouette covers the world point.
+  // `hit` is the cluster Pixi delivered the press to (topmost by tile rect); when
+  // its own silhouette covers the point it is by definition the topmost grabbable
+  // and wins immediately. Otherwise fall through to the clusters beneath it,
+  // picking the one highest in the unlocked layer's z-order, so a press on a top
+  // piece's transparent margin still grabs the opaque piece it overlaps.
+  private grabTargetAt(worldX: number, worldY: number, hit: GroupNode): GroupNode | null {
+    if (!hit.locked && this.pointerOnPiece(hit, worldX, worldY)) return hit;
+    const layer = this.unlockedLayer;
+    if (!layer) return null;
+    const point: Aabb = { minX: worldX, minY: worldY, maxX: worldX, maxY: worldY };
+    let best: GroupNode | null = null;
+    let bestZ = -1;
+    for (const id of this.groupGrid.queryRect(point)) {
+      const candidate = this.groups.get(id);
+      if (!candidate || candidate === hit || candidate.locked) continue;
+      if (candidate.container.parent !== layer) continue;
+      if (!this.pointerOnPiece(candidate, worldX, worldY)) continue;
+      const z = layer.getChildIndex(candidate.container);
+      if (z > bestZ) {
+        bestZ = z;
+        best = candidate;
+      }
+    }
+    return best;
   }
 
   // Whether a world point lands on the opaque silhouette of any of a cluster's
