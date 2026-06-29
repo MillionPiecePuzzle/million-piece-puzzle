@@ -37,7 +37,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 **Exit criterion**: the puzzle is open to the public, with 1 000 000 pieces on a single shared canvas, full auth, monitoring sufficient to operate, and legal documents in place.
 
 ### `shared-protocol`
-- [ ] Protocol frozen at v1, breaking changes go through version bump
+- [ ] Protocol frozen at v4 before public launch, breaking changes go through version bump
 - [x] `eventStartsAt` (unix ms) in `welcome` to sync the cascade trigger (from `MPP_EVENT_STARTS_AT`, default 0 = no scheduled start), mirrored into the spectator `Snapshot`
 - [x] Anti-programmatic-solving: seed-permuted wire ids, anchor-relative member offsets, server-only seed. A client can no longer reconstruct adjacency. `PROTOCOL_VERSION` 4, `SPECTATOR_FORMAT_VERSION` 2. Deploy step re-uploads R2 under wire-id paths and sets `MPP_GENERATION_SEED`. See DECISIONS: anti-programmatic-solving
 
