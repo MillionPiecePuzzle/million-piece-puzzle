@@ -100,7 +100,7 @@ describe("cellContentPending", () => {
       expect(facts({ coverageSeen: true, known: true })).toBe(false);
     });
 
-    it("a full-board spectator (never coverageSeen) falls through to hydration", () => {
+    it("a global subscriber (never coverageSeen) falls through to hydration", () => {
       expect(facts({ coverageSeen: false, known: false, hasUnhydratedInRingGroup: true })).toBe(
         true,
       );

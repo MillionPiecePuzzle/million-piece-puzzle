@@ -32,7 +32,7 @@ export function residencyDecision(inHydrateRing: boolean, coveredCold: boolean):
 //  - zoom-out (LOD active): the cell has groups but its tile has not baked. An empty
 //    or unknown cell bakes blank instantly, so it never pends here.
 //  - zoom-in, region not streamed: the board is known to stream in (coverageSeen)
-//    and this cell has not been acked known. A full-board spectator never sets
+//    and this cell has not been acked known. A global subscriber never sets
 //    coverageSeen, so it falls through to the hydration case.
 //  - zoom-in, textures loading: an in-ring group in the cell is still hydrating.
 export function cellContentPending(f: {

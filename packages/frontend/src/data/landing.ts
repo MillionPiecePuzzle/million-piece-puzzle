@@ -1,5 +1,16 @@
 import type { LandingResponse } from "@mpp/shared";
-import { landingUrl } from "./spectatorUrl";
+import { authBaseUrl } from "./authBaseUrl";
+
+// Public landing endpoints, served from the WS host (the same Node process as the
+// auth and queue routes): the countdown/progress read and the interested opt-in.
+// Anonymous, wildcard-CORS, never cached.
+export function landingUrl(): string {
+  return `${authBaseUrl()}/landing`;
+}
+
+export function interestedUrl(): string {
+  return `${authBaseUrl()}/interested`;
+}
 
 export type InterestState = { count: number; me: boolean };
 export type LandingData = LandingResponse;
@@ -34,7 +45,7 @@ export function eventGateOpen(eventStartsAt: number | null, now = Date.now()): b
 }
 
 // Used by the router guard. A failed /landing fetch (null) opens the gate, so a
-// transient blip during the live event never strands a spectator on the countdown.
+// transient blip during the live event never strands a visitor on the countdown.
 export async function playRouteOpen(): Promise<boolean> {
   const data = await loadLanding();
   return eventGateOpen(data ? data.eventStartsAt : null);

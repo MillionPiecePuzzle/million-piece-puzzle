@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ServerMessage, SpectatorKeyframe } from "@mpp/shared";
+import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useMinimap } from "../composables/useMinimap";
@@ -19,15 +19,9 @@ const {
   state,
   userId,
   leaderboard,
-  transport,
-  shouldTail,
   startContributor,
   close,
   onMessage,
-  onKeyframe,
-  onWindowEvents,
-  requestWindow,
-  recordSpectatorSnap,
   sendGrab,
   sendDrag,
   sendDrop,
@@ -42,13 +36,6 @@ let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
 let buildChain: Promise<void> = Promise.resolve();
 let unsubscribe: (() => void) | null = null;
-let unsubscribeKeyframe: (() => void) | null = null;
-let unsubscribeWindow: (() => void) | null = null;
-// The latest spectator keyframe and the epoch whose build started the stream.
-// The first keyframe drives the build; buildStage then starts the stage stream
-// with it, and later keyframes re-base (only once the stream is started).
-let latestSpectatorKeyframe: SpectatorKeyframe | null = null;
-let spectatorStreamEpoch = 0;
 const completed = ref(false);
 const modalVisible = ref(true);
 // True while the local player carries a cluster stuck to the cursor (double-click
@@ -294,30 +281,6 @@ onMounted(async () => {
   setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
   setMinimapNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
   unsubscribe = onMessage(routeMessage);
-  // Spectator stream wiring: the stage asks for the next sealed window, the
-  // session fetches it (once, edge-cached) and feeds the events back; the stage
-  // reports each applied snap so the session advances the locked count and
-  // activity ticker and the canvas can fire the completion spectacle.
-  stage.onNeedWindow = (t0) => void requestWindow(t0);
-  stage.onSpectatorSnap = (e) => {
-    recordSpectatorSnap(e);
-    if (totalPieces.value > 0 && e.lockedCount >= totalPieces.value) {
-      triggerCompletion(true);
-    }
-  };
-  unsubscribeKeyframe = onKeyframe((kf) => {
-    latestSpectatorKeyframe = kf;
-    // The spectator minimap renders from the keyframe's grid (the contributor
-    // gets the same grid over the WS `minimap` message).
-    stage?.setMinimapGrid(kf.minimapGrid);
-    // The first keyframe builds the stage (buildStage starts the stream); later
-    // keyframes for the same build feed the re-base.
-    if (stage && spectatorStreamEpoch > 0 && spectatorStreamEpoch === builtEpoch) {
-      stage.ingestKeyframe(kf);
-      stage.setSpectatorTailing(shouldTail.value);
-    }
-  });
-  unsubscribeWindow = onWindowEvents((events) => stage?.ingestEvents(events));
   // Guest-first: the canvas is WS-only. It connects once a complete identity
   // exists (mode flips to contributor on a resolved session or a freshly minted
   // guest); until then the onboarding modals collect the guest pseudo + country.
@@ -358,15 +321,6 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
     progressTotal.value = p.total;
   });
   stage.setMode(mode.value);
-  // Spectator: the board is now built from the keyframe; start the stream driver
-  // (render clock delayMs behind live, window tailing per the idle gate). The
-  // contributor path keeps the stream inactive.
-  if (transport.value === "spectator" && latestSpectatorKeyframe) {
-    stage.setMinimapGrid(latestSpectatorKeyframe.minimapGrid);
-    stage.startSpectatorStream(latestSpectatorKeyframe);
-    stage.setSpectatorTailing(shouldTail.value);
-    spectatorStreamEpoch = builtEpoch;
-  }
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
     triggerCompletion(false);
   }
@@ -399,19 +353,9 @@ watch(mode, (m) => {
   stage?.setMode(m);
 });
 
-// Push the idle gate to the stage: tailing requests event windows; not tailing
-// freezes on the keyframe (countdown before start, after completion).
-watch(shouldTail, (tail) => {
-  stage?.setSpectatorTailing(tail);
-});
-
 onBeforeUnmount(() => {
   unsubscribe?.();
   unsubscribe = null;
-  unsubscribeKeyframe?.();
-  unsubscribeKeyframe = null;
-  unsubscribeWindow?.();
-  unsubscribeWindow = null;
   if (viewportTimer !== null) {
     clearTimeout(viewportTimer);
     viewportTimer = null;

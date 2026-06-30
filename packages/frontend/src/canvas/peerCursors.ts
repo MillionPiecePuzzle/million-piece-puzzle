@@ -6,8 +6,8 @@ import { Container, Graphics, Text } from "pixi.js";
 export type CameraTransform = { x: number; y: number; zoom: number };
 
 // A peer is registered on `join` but drawn only after its first cursor
-// position. Spectators never emit a cursor, so they stay invisible without any
-// mode knowledge on this side.
+// position, so a peer that has not moved yet stays invisible without any mode
+// knowledge on this side.
 const SMOOTH_MS = 110;
 const IDLE_AFTER_MS = 1200;
 const BOB_RAMP_MS = 400;

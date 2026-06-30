@@ -10,16 +10,12 @@ import {
 } from "pixi.js";
 import {
   GRID_WORLD_CELL,
-  compareSpectatorSeq,
   type GroupRuntime,
   type ImageManifest,
   type MinimapGrid,
   type PieceRuntime,
   type PlayZone,
   type RegionGroup,
-  type SpectatorEvent,
-  type SpectatorKeyframe,
-  type SpectatorSnapEvent,
   type WirePiece,
 } from "@mpp/shared";
 import { Tweener, peak, easeOutCubic } from "./tween";
@@ -252,20 +248,6 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 // loading cover can paint determinate "build" progress.
 const BUILD_CHUNK_BUDGET_MS = 8;
 
-// Spectator stream interpolation. A non-merging drop is the end of an unseen
-// drag, so the spectator eases the cluster from its previous resting position to
-// the dropped position over this long instead of teleporting (snaps keep their
-// instant lock + bump). Short enough to read as a settle.
-const SPECTATOR_GLIDE_MS = 450;
-
-// Caps how many event windows a single catch-up burst requests. A normal join
-// replays from a keyframe up to the keyframe interval old (~100 windows at a 300s
-// interval and 3s windows), so the cap sits comfortably above that and below the
-// 900s retention: a real join replays fully, and only a pathological anchor (a
-// tab backgrounded for many minutes, where the render clock and the keyframe
-// refetch both stalled) is bounded, its gap healed by the next keyframe re-base.
-const SPECTATOR_MAX_CATCHUP_WINDOWS = 256;
-
 const SNAP_BUMP_SCALE = 1.08;
 const SNAP_BUMP_MS = 240;
 const SNAP_FLASH_ALPHA = 0.55;
@@ -439,32 +421,28 @@ export class PuzzleStage {
   private loadingOverlay: LoadingOverlay | null = null;
   // Cells whose region_state has streamed in (their area was acked by the server's
   // coverage rect), so a viewport cell that is in the play zone but absent here has
-  // not loaded yet. coverageSeen flips on the first ack: a viewport-streamed
-  // contributor gets one, a full-board spectator never does, so the not-yet-loaded
-  // badge applies only where the board streams in.
+  // not loaded yet. coverageSeen flips on the first ack: a scoped viewport gets one,
+  // a global subscriber never does, so the not-yet-loaded badge applies only where
+  // the board streams in.
   private knownCells = new Set<CellKey>();
   private coverageSeen = false;
   // Server's viewport scoping bound (welcome.broadcastMaxCells), mirrored so the
   // client can tell a scoped viewport (streams region_state, whose coverage the
   // initial cover waits for) from a global-subscriber one (too large to scope, so
-  // no region_state arrives and there is nothing to wait for). Infinity until a
-  // contributor welcome sets it; a spectator never reads it.
+  // no region_state arrives and there is nothing to wait for). Infinity until the
+  // welcome sets it.
   private broadcastMaxCells = Number.POSITIVE_INFINITY;
   private lodActive = false;
   private lodWarm = false;
   private heldGroupIds = new Set<number>();
-  // Clusters mid-glide in the spectator stream. Like held clusters they are kept
-  // live (drawn on top, excluded from bakes) for the slide, so their per-frame move
-  // records no dirty; the glide records its start and settle tiles once instead.
-  private glidingGroupIds = new Set<number>();
   // Frame-local dirty accumulator. Event handlers record world rects here via
   // markDirty; the per-frame reconcile (flushDirty) turns them into per-cell tile
   // invalidations and clears it. Pull-based, so several same-frame events on one
   // cell coalesce into a single re-bake.
   private dirtyRects: Aabb[] = [];
   // Per-cell last-change timestamp (performance.now), stamped by flushDirty for
-  // every cell a frame dirtied (drop/snap/rollback/grab/glide and the snapshot
-  // diff). Drives cell/group hotness for the cold-residents sweep; bounded by the
+  // every cell a frame dirtied (drop/snap/rollback/grab and the region diff).
+  // Drives cell/group hotness for the cold-residents sweep; bounded by the
   // board's cell count and pruned of stale entries.
   private cellDirtyMs = new Map<CellKey, number>();
   private coldSweepFrame = 0;
@@ -482,10 +460,10 @@ export class PuzzleStage {
   // cover up over the progressive fill instead of an eager whole-board fetch.
   private manifest: ImageManifest | null = null;
   private textureBase = "";
-  // Latest server-computed minimap density grid (contributor: the periodic WS
-  // `minimap` message and one on join; spectator: the keyframe's grid). The
-  // minimap renders this global overview plus a live overlay of the locally known
-  // groups, so it stays complete while the local board is partial.
+  // Latest server-computed minimap density grid (the periodic WS `minimap` message
+  // and one on join). The minimap renders this global overview plus a live overlay
+  // of the locally known groups, so it stays complete while the local board is
+  // partial.
   private minimapGrid: MinimapGrid | null = null;
   // Incremented at the start of build(), and in clearWorld()/destroy(). Each
   // build()'s chunked passes capture it and bail when it changes, so a teardown
@@ -514,32 +492,6 @@ export class PuzzleStage {
     tick: (ticker: { deltaMS: number }) => void;
   } | null = null;
 
-  // Spectator stream driver (keyframe + event-log diffs). Active only in
-  // spectator mode after startSpectatorStream. tickSpectator advances renderClock
-  // to delayMs behind live each frame, applies due buffered events in seq order
-  // (snaps animate, drops glide), re-bases onto a freshly fetched keyframe at the
-  // render time it represents, and asks for the next sealed window via
-  // onNeedWindow. renderClock, appliedCursor and the event times are all in the
-  // server's ms epoch, which assumes the client clock roughly agrees (the delay
-  // budget absorbs normal skew); a grossly wrong client clock degrades to a
-  // lagged or fast-forwarded view, self-healed by the next keyframe re-base.
-  private specActive = false;
-  private specTailing = false;
-  private renderClock = 0;
-  private specWindowMs = 3000;
-  private specDelayMs = 6000;
-  private appliedCursor = "0-0";
-  private pendingEvents: SpectatorEvent[] = [];
-  private pendingKeyframe: SpectatorKeyframe | null = null;
-  private specInterp = new Map<
-    number,
-    { fromX: number; fromY: number; toX: number; toY: number; startAt: number }
-  >();
-  private nextWindowT0 = 0;
-  onNeedWindow: ((t0: number) => void) | null = null;
-  onSpectatorSnap: ((e: SpectatorSnapEvent) => void) | null = null;
-  private readonly tickSpectatorBound = (): void => this.tickSpectator();
-
   setMode(mode: Mode): void {
     this.mode = mode;
     for (const node of this.groups.values()) {
@@ -557,9 +509,8 @@ export class PuzzleStage {
     this.broadcastMaxCells = maxCells;
   }
 
-  // Store the latest server minimap grid (WS `minimap` for a contributor, the
-  // keyframe grid for a spectator). The minimap panel reads it via the next
-  // getMinimapSnapshot.
+  // Store the latest server minimap grid (the WS `minimap` message). The minimap
+  // panel reads it via the next getMinimapSnapshot.
   setMinimapGrid(grid: MinimapGrid): void {
     this.minimapGrid = grid;
   }
@@ -610,12 +561,11 @@ export class PuzzleStage {
     this.world = world;
     this.tweener = new Tweener(app.ticker);
     // tickLod runs reconcile, the per-frame view authority, so it is added last:
-    // it sees the model mutations the other tickers (edge-pan camera, spectator
-    // stream) made this frame and reconciles them in the same frame.
+    // it sees the model mutations the other tickers (edge-pan camera) made this
+    // frame and reconciles them in the same frame.
     app.ticker.add(this.tickPeerCursors);
     app.ticker.add(this.tickDragFlush);
     app.ticker.add(this.tickEdgePan);
-    app.ticker.add(this.tickSpectatorBound);
     app.ticker.add(this.tickLod);
     app.canvas.addEventListener("dblclick", (ev) => this.onCanvasDoubleClick(ev));
     window.addEventListener("keydown", this.onKeyDown);
@@ -730,9 +680,9 @@ export class PuzzleStage {
 
     // Pass C: one dehydrated container per group (empty container, no textures
     // fetched) plus its spatial-index entry, via the shared constructGroup. The
-    // spectator passes the full keyframe board here; a contributor passes empty
-    // arrays (protocol v4), so this loop is a no-op and groups stream in later via
-    // applyRegionState, which reuses the same constructGroup.
+    // welcome carries no board, so initialGroups is empty and this loop is a no-op:
+    // groups stream in later via applyRegionState, which reuses the same
+    // constructGroup.
     if (
       !(await this.chunkedPass(
         token,
@@ -812,8 +762,8 @@ export class PuzzleStage {
   // membership and geometry-derived bounds, the locked/unlocked layer, the
   // spatial-index entry, interactivity, and the piece -> group map. No textures
   // are fetched; the streaming engine hydrates the pieces when in view. Shared by
-  // build() (the spectator's whole-board pass and a contributor's empty no-op) and
-  // applyRegionState (each unknown group in a viewport-scoped construction stream).
+  // build() (an empty no-op now the welcome carries no board) and applyRegionState
+  // (each unknown group in a viewport-scoped construction stream).
   private constructGroup(spec: {
     groupId: number;
     worldX: number;
@@ -945,10 +895,6 @@ export class PuzzleStage {
     this.app?.ticker.remove(this.tickDragFlush);
     this.app?.ticker.remove(this.tickEdgePan);
     this.app?.ticker.remove(this.tickLod);
-    this.app?.ticker.remove(this.tickSpectatorBound);
-    this.resetSpectatorStream();
-    this.onNeedWindow = null;
-    this.onSpectatorSnap = null;
     this.peerCursors?.destroy();
     this.peerCursors = null;
     this.lodLayer?.destroy();
@@ -971,7 +917,6 @@ export class PuzzleStage {
     this.lodHidden.clear();
     this.effectNodes.clear();
     this.heldGroupIds.clear();
-    this.glidingGroupIds.clear();
     this.cellDirtyMs.clear();
     this.knownCells.clear();
     this.coverageSeen = false;
@@ -1033,7 +978,6 @@ export class PuzzleStage {
       this.world.y = 0;
       this.world.scale.set(1);
     }
-    this.resetSpectatorStream();
     this.lodLayer?.destroy();
     this.lodLayer = null;
     // The overlay's container and badges were already freed by removeChildren
@@ -1042,7 +986,6 @@ export class PuzzleStage {
     this.lodActive = false;
     this.lodWarm = false;
     this.heldGroupIds.clear();
-    this.glidingGroupIds.clear();
     this.cellDirtyMs.clear();
     this.knownCells.clear();
     this.coverageSeen = false;
@@ -1078,312 +1021,6 @@ export class PuzzleStage {
     this.viewport = null;
     this.camera = { x: 0, y: 0, zoom: 1 };
     this.onCameraChange?.(this.camera);
-  }
-
-  // Apply a fresh full-board state (same puzzleId) without rebuilding the stage:
-  // update group positions and locked state in place, fold any merged groups into
-  // the surviving host (their pieces reparent), and drop groups that no longer
-  // exist. Used by the spectator keyframe re-base. A held local cluster is skipped
-  // so an active drag is not yanked (no held clusters in spectator mode).
-  applySnapshot(pieces: PieceRuntime[], groups: GroupRuntime[]): void {
-    if (!this.world) return;
-    const snapGroupIds = new Set<number>();
-    for (const g of groups) snapGroupIds.add(g.id);
-
-    const targetByPiece = new Map<number, { groupId: number; dx: number; dy: number }>();
-    for (const p of pieces) targetByPiece.set(p.id, { groupId: p.groupId, dx: p.dx, dy: p.dy });
-
-    // Targeted dirtying: only clusters that actually change (membership,
-    // position, or locked) invalidate tiles, so a snapshot where nothing moved
-    // re-bakes and re-fetches nothing. changed collects those clusters; their
-    // pre-change world AABB is captured on first touch (before any update), so
-    // both the rect a cluster leaves and the one it lands in are dirtied once the
-    // updates apply. Dirtying the whole resident set every poll instead would
-    // keep a deep zoom-out window fully hydrated, defeating cold-cluster freeing.
-    const changed = new Set<number>();
-    const oldRects: Aabb[] = [];
-    const markChanged = (node: GroupNode): void => {
-      if (changed.has(node.id)) return;
-      changed.add(node.id);
-      oldRects.push(this.worldAabb(node));
-    };
-
-    for (const [pieceId, currentGid] of this.pieceToGroup) {
-      const target = targetByPiece.get(pieceId);
-      if (target === undefined || target.groupId === currentGid) continue;
-      const host = this.groups.get(target.groupId);
-      const from = this.groups.get(currentGid);
-      if (!host || !from) continue;
-      markChanged(host);
-      markChanged(from);
-      const offset: PieceOffset = { dx: target.dx, dy: target.dy };
-      this.pieceToGroup.set(pieceId, target.groupId);
-      from.members.delete(pieceId);
-      host.members.set(pieceId, offset);
-      const piece = from.pieces.find((n) => n.id === pieceId);
-      if (!piece) continue;
-      from.container.removeChild(piece.container);
-      from.pieces = from.pieces.filter((n) => n.id !== pieceId);
-      this.placePieceInContainer(piece, offset);
-      host.container.addChild(piece.container);
-      host.pieces.push(piece);
-    }
-
-    for (const [gid, node] of this.groups) {
-      if (snapGroupIds.has(gid)) continue;
-      markChanged(node);
-      this.forgetGroup(gid);
-      node.container.destroy({ children: true });
-      this.groups.delete(gid);
-    }
-
-    for (const g of groups) {
-      const node = this.groups.get(g.id);
-      if (!node) continue;
-      if (this.held && this.held.groupId === g.id) continue;
-      const moved = node.worldX !== g.worldX || node.worldY !== g.worldY;
-      const becameLocked = !node.locked && g.locked;
-      if (moved || node.locked !== g.locked) markChanged(node);
-      node.localBounds = this.boundsForMembers(node.members);
-      node.hydrated = node.pieces.length >= node.members.size;
-      node.locked = g.locked;
-      this.moveGroup(node, g.worldX, g.worldY);
-      if (becameLocked) {
-        this.placeGroupInLayer(node, this.lockedLayer);
-        this.applyGroupInteractivity(node);
-      }
-    }
-
-    // Record the tiles each changed cluster left and the tiles it now occupies as
-    // dirty. The next reconcile invalidates them and (while the LOD is active) flips
-    // the covered clusters back to live so nothing blanks before the bake catches
-    // up, and pages textures in and out for the new layout. Unchanged clusters
-    // record nothing, so an idle poll re-bakes nothing.
-    for (const rect of oldRects) this.markDirty(rect);
-    for (const gid of changed) {
-      const node = this.groups.get(gid);
-      if (node) this.markDirty(this.worldAabb(node));
-    }
-  }
-
-  // ----- spectator stream (keyframe + event-log diffs) -----
-
-  // Begin driving the read-only view from a keyframe. The board has already been
-  // built from the same keyframe (the session synthesizes welcome + state), so
-  // this only initializes the render clock delayMs behind live, the dedup cursor,
-  // and the window anchor. Window tailing then fills the gap from the keyframe to
-  // now: ingestEvents applies past events instantly and buffers the rest.
-  startSpectatorStream(keyframe: SpectatorKeyframe): void {
-    this.specWindowMs = keyframe.windowMs > 0 ? keyframe.windowMs : this.specWindowMs;
-    this.specDelayMs = keyframe.delayMs >= 0 ? keyframe.delayMs : this.specDelayMs;
-    this.renderClock = Date.now() - this.specDelayMs;
-    this.appliedCursor = keyframe.cursor;
-    this.pendingEvents = [];
-    this.pendingKeyframe = null;
-    this.specInterp.clear();
-    this.glidingGroupIds.clear();
-    this.anchorWindows(keyframe);
-    this.specActive = true;
-  }
-
-  // Controls whether the tick requests event windows. The session gates this on
-  // the event being live (started, not completed); while not tailing the board is
-  // the frozen keyframe and no windows are fetched.
-  setSpectatorTailing(tailing: boolean): void {
-    this.specTailing = tailing;
-  }
-
-  // Hold a freshly fetched keyframe for re-base. The tick applies it once the
-  // render clock reaches its logical time, so there is no visual jump. The session
-  // version-checks before calling, so a held keyframe is always the current format.
-  ingestKeyframe(keyframe: SpectatorKeyframe): void {
-    if (!this.specActive) return;
-    if (this.pendingKeyframe && keyframe.generatedAt <= this.pendingKeyframe.generatedAt) return;
-    this.pendingKeyframe = keyframe;
-  }
-
-  // Fold a fetched window's events into the stream: skip anything already applied
-  // (seq <= cursor), apply events already in the past instantly (no animation,
-  // drops jump), and buffer the rest in seq order for the tick to play in time.
-  ingestEvents(events: readonly SpectatorEvent[]): void {
-    if (!this.specActive) return;
-    for (const e of events) {
-      if (compareSpectatorSeq(e.seq, this.appliedCursor) <= 0) continue;
-      if (e.at <= this.renderClock) this.applySpectatorEvent(e, false);
-      else this.insertPending(e);
-    }
-  }
-
-  private tickSpectator(): void {
-    if (!this.specActive) return;
-    this.renderClock = Date.now() - this.specDelayMs;
-
-    // Re-base: apply the held keyframe at exactly the render time it represents,
-    // then drop buffered events it already folded in and re-anchor the window
-    // cursor. This heals a restart gap, drift, or missed windows with no jump.
-    if (this.pendingKeyframe && this.renderClock >= this.pendingKeyframe.generatedAt) {
-      const kf = this.pendingKeyframe;
-      this.pendingKeyframe = null;
-      this.endAllGlides();
-      this.applySnapshot(kf.pieces, kf.groups);
-      this.appliedCursor = kf.cursor;
-      this.pendingEvents = this.pendingEvents.filter(
-        (e) => compareSpectatorSeq(e.seq, kf.cursor) > 0,
-      );
-      this.specInterp.clear();
-      this.anchorWindows(kf, true);
-    }
-
-    while (this.pendingEvents.length > 0) {
-      const e = this.pendingEvents[0]!;
-      if (e.at > this.renderClock) break;
-      this.pendingEvents.shift();
-      if (compareSpectatorSeq(e.seq, this.appliedCursor) <= 0) continue;
-      this.applySpectatorEvent(e, true);
-    }
-
-    for (const [gid, it] of this.specInterp) {
-      const node = this.groups.get(gid);
-      if (!node) {
-        this.specInterp.delete(gid);
-        this.endGlide(gid);
-        continue;
-      }
-      const span = this.renderClock - it.startAt;
-      const t = span <= 0 ? 0 : span >= SPECTATOR_GLIDE_MS ? 1 : span / SPECTATOR_GLIDE_MS;
-      this.setSpectatorGroupPos(
-        node,
-        it.fromX + (it.toX - it.fromX) * t,
-        it.fromY + (it.toY - it.fromY) * t,
-      );
-      if (t >= 1) {
-        this.specInterp.delete(gid);
-        this.endGlide(gid);
-      }
-    }
-
-    this.requestNeededWindows();
-  }
-
-  // Apply one spectator event. A snap reuses applySnap (the same path as the WS
-  // snap) and notifies the session for the locked count, activity ticker and
-  // completion. A drop glides to its target when animated (live tail) or jumps to
-  // it when not (join catch-up / events already in the past).
-  private applySpectatorEvent(e: SpectatorEvent, animate: boolean): void {
-    if (e.k === "drop") {
-      const node = this.groups.get(e.groupId);
-      if (node) {
-        if (animate) {
-          this.specInterp.set(e.groupId, {
-            fromX: node.worldX,
-            fromY: node.worldY,
-            toX: e.worldX,
-            toY: e.worldY,
-            startAt: this.renderClock,
-          });
-          this.beginGlide(node);
-        } else {
-          this.specInterp.delete(e.groupId);
-          this.endGlide(e.groupId);
-          this.setSpectatorGroupPos(node, e.worldX, e.worldY);
-        }
-      }
-    } else {
-      this.applySnap(e.newGroupId, e.addedPieceIds, e.worldX, e.worldY, e.anchored, animate);
-      this.specInterp.delete(e.newGroupId);
-      this.endGlide(e.newGroupId);
-      this.onSpectatorSnap?.(e);
-    }
-    this.advanceAppliedCursor(e.seq);
-  }
-
-  // Move a gliding cluster. The cluster is kept live for the slide (see beginGlide),
-  // so moveGroup leaves its tiles alone here: beginGlide and endGlide record the
-  // start and settle tiles once each, instead of re-baking every cell it crosses
-  // every frame.
-  private setSpectatorGroupPos(node: GroupNode, x: number, y: number): void {
-    this.moveGroup(node, x, y);
-  }
-
-  // Start a spectator glide: mark the cluster live (excluded from bakes, drawn on
-  // top) and record its current tiles dirty once so they re-bake without it. The
-  // next reconcile hydrates it (it is no longer covered-cold) and draws it live.
-  private beginGlide(node: GroupNode): void {
-    if (this.glidingGroupIds.has(node.id)) return;
-    this.glidingGroupIds.add(node.id);
-    this.markDirty(this.worldAabb(node));
-  }
-
-  // End one glide: fold the cluster back into its resting tiles by recording its
-  // current tiles dirty once, so they re-bake with it and the bake then hides it.
-  private endGlide(gid: number): void {
-    if (!this.glidingGroupIds.delete(gid)) return;
-    const node = this.groups.get(gid);
-    if (node) this.markDirty(this.worldAabb(node));
-  }
-
-  // End every in-progress glide, used on a keyframe re-base where specInterp is
-  // cleared wholesale so the re-base's applySnapshot sees settled clusters.
-  private endAllGlides(): void {
-    for (const gid of this.glidingGroupIds) {
-      const node = this.groups.get(gid);
-      if (node) this.markDirty(this.worldAabb(node));
-    }
-    this.glidingGroupIds.clear();
-  }
-
-  private advanceAppliedCursor(seq: string): void {
-    if (compareSpectatorSeq(seq, this.appliedCursor) > 0) this.appliedCursor = seq;
-  }
-
-  // Set the next window to request from a keyframe's cursor (or its generatedAt
-  // when the log is empty). On re-base the anchor only moves forward.
-  private anchorWindows(keyframe: SpectatorKeyframe, forward = false): void {
-    const cm = seqMs(keyframe.cursor);
-    const startMs = cm > 0 ? cm : keyframe.generatedAt;
-    const w0 = Math.floor(startMs / this.specWindowMs) * this.specWindowMs;
-    this.nextWindowT0 = forward ? Math.max(this.nextWindowT0, w0) : w0;
-  }
-
-  // Request every sealed window from the anchor up to delayMs behind live, in
-  // order. A stale anchor (long idle, a gap) jumps forward to the catch-up cap so
-  // a few keyframe re-bases heal the gap rather than replaying hundreds of windows.
-  private requestNeededWindows(): void {
-    if (!this.specTailing || !this.onNeedWindow) return;
-    const W = this.specWindowMs;
-    const upTo = Math.floor((Date.now() - this.specDelayMs) / W) * W;
-    const floorT0 = upTo - SPECTATOR_MAX_CATCHUP_WINDOWS * W;
-    if (this.nextWindowT0 < floorT0) this.nextWindowT0 = floorT0;
-    while (this.nextWindowT0 <= upTo) {
-      this.onNeedWindow(this.nextWindowT0);
-      this.nextWindowT0 += W;
-    }
-  }
-
-  // Insert into the seq-sorted pending buffer, skipping a duplicate (windows are
-  // immutable and fetched once, but a re-base could re-deliver one).
-  private insertPending(e: SpectatorEvent): void {
-    let lo = 0;
-    let hi = this.pendingEvents.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      const c = compareSpectatorSeq(this.pendingEvents[mid]!.seq, e.seq);
-      if (c === 0) return;
-      if (c < 0) lo = mid + 1;
-      else hi = mid;
-    }
-    this.pendingEvents.splice(lo, 0, e);
-  }
-
-  private resetSpectatorStream(): void {
-    this.specActive = false;
-    this.specTailing = false;
-    this.pendingEvents = [];
-    this.pendingKeyframe = null;
-    this.specInterp.clear();
-    this.glidingGroupIds.clear();
-    this.appliedCursor = "0-0";
-    this.nextWindowT0 = 0;
   }
 
   // ----- incoming server messages -----
@@ -1587,9 +1224,8 @@ export class PuzzleStage {
     worldX: number,
     worldY: number,
     anchored: boolean,
-    // The spectator join fast-forward applies catch-up snaps with animate=false
-    // so the board lands in its current state without a burst of bump/flash
-    // animations; live snaps (WS and tailing) animate.
+    // When false, applies the snap without the bump/flash/burst animations (the
+    // board lands in its resulting state instantly); live snaps animate.
     animate = true,
   ): void {
     // Partial-board-safe: under protocol v4 a contributor only builds visited
@@ -2027,7 +1663,7 @@ export class PuzzleStage {
 
   private onPointerMove(ev: FederatedPointerEvent): void {
     this.pointerScreen = { x: ev.global.x, y: ev.global.y };
-    // Only contributors broadcast a cursor; spectators stay invisible to peers.
+    // A cursor is broadcast only in contributor mode (a connected player).
     if (this.mode === "contributor" && this.onCursorMove) {
       const cursor = this.screenToWorld(ev.global.x, ev.global.y);
       this.onCursorMove(cursor.x, cursor.y);
@@ -2458,8 +2094,7 @@ export class PuzzleStage {
     // coverage (the LOD cells the client has streamed), not the cells that happen
     // to hold a piece right now: once a region is loaded the client owns its live
     // state, so dragging pieces out of a cell must not let the stale server count
-    // reappear under it. A spectator has no coverage but holds the whole board, so
-    // its per-piece marks below still mask what it knows.
+    // reappear under it.
     const knownCells = new Set<number>();
     if (grid) {
       for (const key of this.knownCells) {
@@ -2733,7 +2368,6 @@ export class PuzzleStage {
     this.lastVisible.delete(gid);
     this.lodHidden.delete(gid);
     this.heldGroupIds.delete(gid);
-    this.glidingGroupIds.delete(gid);
     this.resident.delete(gid);
     this.hydrateQueued.delete(gid);
   }
@@ -3104,9 +2738,8 @@ export class PuzzleStage {
   }
 
   // Whether the first viewport's content has arrived, so dropping the loading
-  // cover will not reveal a region still streaming in. A spectator builds the
-  // whole board from the keyframe, so it is always settled. A contributor streams
-  // its viewport via region_state: a scoped viewport waits for the coverage ack
+  // cover will not reveal a region still streaming in. The board streams in per
+  // viewport via region_state: a scoped viewport waits for the coverage ack
   // and for every in-zone cell to be acked known; a global-subscriber viewport
   // (too large to scope) receives no region_state by design, so there is nothing
   // to wait for (the minimap carries its overview).
@@ -3209,10 +2842,10 @@ export class PuzzleStage {
   }
 
   // A cluster is live (drawn on top, excluded from tile bakes) while a human holds
-  // it or while it glides in the spectator stream. A live cluster is never baked
-  // into a tile, so its per-frame movement needs no tile invalidation.
+  // it. A live cluster is never baked into a tile, so its per-frame movement needs
+  // no tile invalidation.
   private isLive(gid: number): boolean {
-    return this.heldGroupIds.has(gid) || this.glidingGroupIds.has(gid);
+    return this.heldGroupIds.has(gid);
   }
 
   // A grabbed cluster is excluded from future bakes though its position has not
@@ -3489,14 +3122,6 @@ function yieldToEventLoop(): Promise<void> {
 function joinUrl(base: string, rel: string): string {
   if (/^https?:\/\//.test(rel) || rel.startsWith("/")) return rel;
   return base.endsWith("/") ? `${base}${rel}` : `${base}/${rel}`;
-}
-
-// Milliseconds component of a Redis stream id ("<ms>-<n>"), the window key the
-// spectator stream anchors its event-window requests on. 0 for the empty-log
-// sentinel "0-0".
-function seqMs(seq: string): number {
-  const dash = seq.indexOf("-");
-  return dash < 0 ? Number(seq) : Number(seq.slice(0, dash));
 }
 
 function clamp(v: number, lo: number, hi: number): number {
