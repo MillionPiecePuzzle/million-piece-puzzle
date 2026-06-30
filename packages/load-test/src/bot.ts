@@ -9,10 +9,18 @@
 // usually returns null) are exercised on every cycle.
 
 import { WebSocket } from "ws";
-import type { ClientMessage, ServerMessage } from "@mpp/shared";
+import type {
+  ClientMessage,
+  QueueStatusResponse,
+  QueueTicketResponse,
+  ServerMessage,
+} from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import { World } from "./world.js";
 import type { Metrics } from "./runner.js";
+
+// Poll cadence while a bot waits in the admission queue past the server cap.
+const QUEUE_POLL_MS = 2000;
 
 export type BotConfig = {
   id: number;
@@ -54,10 +62,57 @@ export class Bot {
 
   constructor(private readonly cfg: BotConfig) {}
 
-  start(): void {
+  async start(): Promise<void> {
+    let grant: string | null;
+    try {
+      grant = await this.admit();
+    } catch (e) {
+      this.cfg.metrics.wsErrors.inc();
+      if (this.cfg.verbose)
+        console.error(`[bot ${this.cfg.id}] admit error: ${(e as Error).message}`);
+      return;
+    }
+    if (this.stopped) return;
+    this.openWs(grant);
+  }
+
+  // Acquire an admission grant before connecting: request a ticket, then poll while
+  // queued until a slot frees. Returns the grant token, or null when the server has
+  // no cap (connect ungated). Mirrors the browser client so a capped server queues
+  // bots past the cap exactly as it would real players.
+  private async admit(): Promise<string | null> {
+    const base = httpBaseFromWs(this.cfg.url);
+    const headers: Record<string, string> = {};
+    if (this.cfg.spoofIp) headers["CF-Connecting-IP"] = this.cfg.spoofIp;
+    let ticket: string | null = null;
+    while (!this.stopped) {
+      const res =
+        ticket === null
+          ? await fetch(`${base}/queue/ticket`, { method: "POST", headers })
+          : await fetch(`${base}/queue/status?ticket=${encodeURIComponent(ticket)}`, { headers });
+      if (!res.ok) throw new Error(`queue ${res.status}`);
+      const body = (await res.json()) as QueueTicketResponse | QueueStatusResponse;
+      if (body.state === "disabled") return null;
+      if (body.state === "ready") return body.grant;
+      if (body.state === "queued") {
+        ticket = body.ticket;
+        if (this.cfg.verbose)
+          console.log(`[bot ${this.cfg.id}] queued at position ${body.position}`);
+        await delay(QUEUE_POLL_MS);
+        continue;
+      }
+      // busy (wait list full) or expired (ticket reaped): re-request a ticket.
+      ticket = null;
+      if (body.state === "busy") await delay(QUEUE_POLL_MS);
+    }
+    return null;
+  }
+
+  private openWs(grant: string | null): void {
+    const url = grant ? appendGrant(this.cfg.url, grant) : this.cfg.url;
     const headers: Record<string, string> = { Origin: this.cfg.origin, Cookie: this.cfg.cookie };
     if (this.cfg.spoofIp) headers["CF-Connecting-IP"] = this.cfg.spoofIp;
-    const ws = new WebSocket(this.cfg.url, { headers });
+    const ws = new WebSocket(url, { headers });
     this.ws = ws;
     ws.on("open", () => {
       this.send({ t: "hello", protocolVersion: PROTOCOL_VERSION, puzzleId: this.cfg.puzzleId });
@@ -266,4 +321,22 @@ export class Bot {
     const y = z.minY + this.cfg.rng() * (z.maxY - z.minY);
     this.send({ t: "cursor", worldX: x, worldY: y });
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// HTTP origin of the queue endpoints, derived from the WS url (ws->http,
+// wss->https), at the host root regardless of the WS path.
+function httpBaseFromWs(wsUrl: string): string {
+  const u = new URL(wsUrl);
+  const scheme = u.protocol === "wss:" ? "https:" : "http:";
+  return `${scheme}//${u.host}`;
+}
+
+function appendGrant(wsUrl: string, grant: string): string {
+  const u = new URL(wsUrl);
+  u.searchParams.set("grant", grant);
+  return u.toString();
 }

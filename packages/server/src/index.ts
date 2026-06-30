@@ -19,6 +19,7 @@ import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
 import { initPuzzleIfEmpty, rebuildGroupIndex } from "./init.js";
 import { GroupIndex } from "./groupIndex.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
+import { AdmissionController } from "./admission.js";
 import { KeyframePublisher, makeKeyframeHandler, makeEventsHandler } from "./keyframe.js";
 import { EventLog } from "./eventLog.js";
 import {
@@ -31,8 +32,13 @@ import { createApp } from "./httpApp.js";
 import { RedisInterested } from "./interested.js";
 
 // WebSocket close code 1013 ("Try Again Later"), used to refuse a connection
-// that exceeds the per-IP concurrent-connection cap.
+// that exceeds the per-IP concurrent-connection cap or presents no valid
+// admission grant.
 const CLOSE_TRY_AGAIN_LATER = 1013;
+
+// Cadence of the admission-queue sweep: reclaim expired grants and abandoned
+// waiters, then admit into the freed slots even when no one is polling.
+const ADMISSION_SWEEP_INTERVAL_MS = 5000;
 
 // User stashed on the upgrade request by verifyClient and read by the
 // connection handler, so the session is resolved exactly once at the upgrade.
@@ -243,6 +249,22 @@ async function main(): Promise<void> {
       }
     : undefined;
 
+  // Admission queue: a global cap on concurrent WS connections with a FIFO wait
+  // list (see DECISIONS: admission queue). In-process like the Hub and IpRegistry,
+  // since one process owns every connection. Disabled (cap 0) leaves the upgrade
+  // grant-free, so the feature is opt-in per deployment.
+  const admission = new AdmissionController({
+    cap: config.maxActiveConnections,
+    grantTtlMs: config.queueGrantTtlMs,
+    ticketTtlMs: config.queueTicketTtlMs,
+    maxQueueLength: config.maxQueueLength,
+  });
+  if (admission.enabled) {
+    console.log(
+      `[admission] cap=${config.maxActiveConnections} grantTtl=${config.queueGrantTtlMs}ms maxQueue=${config.maxQueueLength}`,
+    );
+  }
+
   // Express hosts the auth routes, the pseudo-profile route, the spectator
   // stream, and (when a password is set) the admin page. The WebSocket upgrade
   // attaches to the same http.Server below.
@@ -269,6 +291,13 @@ async function main(): Promise<void> {
       config.spectatorRateMax,
       config.spectatorRateWindowSec,
     ),
+    queueLimiter: new RedisFixedWindow(
+      redis,
+      "queue",
+      config.queueRateMax,
+      config.queueRateWindowSec,
+    ),
+    admission,
     // The interested-IP hash is keyed by AUTH_SECRET (already a per-deployment
     // secret in process.env, kept out of config). Dev runs without it fall back to
     // a fixed salt so the dedup stays stable across restarts locally.
@@ -309,6 +338,14 @@ async function main(): Promise<void> {
   const verifyClient: VerifyClientCallbackAsync = (info, cb) => {
     if (!isAllowedOrigin(info.origin, config.allowedOrigins)) {
       cb(false, 403, "forbidden origin");
+      return;
+    }
+    // Admission gate: reject an upgrade with no valid grant before the (async)
+    // session lookup, so a flood of grant-less upgrades costs nothing. The grant
+    // is consumed (single-use) in the connection handler, not here. No-op when the
+    // queue is disabled.
+    if (admission.enabled && !admission.peekGrant(grantFromUpgrade(info.req))) {
+      cb(false, 403, "queue grant required");
       return;
     }
     void (async () => {
@@ -360,11 +397,22 @@ async function main(): Promise<void> {
       ws.close(1011, "auth missing");
       return;
     }
+    // Consume the admission grant atomically (single-use): the reserved slot
+    // becomes this live connection, released on close below. A grant that expired
+    // between the upgrade peek and here, or a token already redeemed by another
+    // socket, is refused. No-op (always admitted) when the queue is disabled.
+    const admitted = admission.enabled ? admission.redeem(grantFromUpgrade(request)) : true;
+    if (!admitted) {
+      ws.close(CLOSE_TRY_AGAIN_LATER, "queue grant invalid");
+      return;
+    }
     const ip = clientIp(request, config.devEnabled);
     const bucket = ipRegistry.acquire(ip);
     if (bucket === null) {
       // Over the per-IP concurrent-connection cap: refuse before adding the
-      // client so one IP cannot hold more than its budget of sessions open.
+      // client so one IP cannot hold more than its budget of sessions open. The
+      // admission slot just consumed is returned so the refusal frees it.
+      if (admission.enabled) admission.releaseConnection();
       ws.close(CLOSE_TRY_AGAIN_LATER, "too many connections");
       return;
     }
@@ -405,6 +453,8 @@ async function main(): Promise<void> {
 
     ws.on("close", () => {
       ipRegistry.release(ip);
+      // Return the admission slot and admit the next waiter into it.
+      if (admission.enabled) admission.releaseConnection();
       hub.remove(client);
       hub.broadcast({ t: "leave", userId: client.userId });
       void releaseHeldGroups(ctx, client, hub);
@@ -429,11 +479,18 @@ async function main(): Promise<void> {
     }
   }, config.wsHeartbeatIntervalMs);
 
+  // Periodic admission sweep: free stalled grants and abandoned waiters, then
+  // admit into the freed slots. Only armed when the queue is enabled.
+  const admissionSweepTimer = admission.enabled
+    ? setInterval(() => admission.sweep(), ADMISSION_SWEEP_INTERVAL_MS)
+    : null;
+
   const shutdown = async () => {
     console.log("[shutdown] closing");
     keyframePublisher.stop();
     clearInterval(trimTimer);
     clearInterval(heartbeatTimer);
+    if (admissionSweepTimer) clearInterval(admissionSweepTimer);
     wss.close();
     httpServer.close();
     await redis.quit();
@@ -442,6 +499,17 @@ async function main(): Promise<void> {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+}
+
+// Pull the admission grant token from the WS upgrade request's query string
+// (`?grant=`). Returns null when absent or unparseable, which the admission gate
+// treats as an invalid grant.
+function grantFromUpgrade(req: IncomingMessage): string | null {
+  try {
+    return new URL(req.url ?? "/", "http://localhost").searchParams.get("grant");
+  } catch {
+    return null;
+  }
 }
 
 // Release every group a departing client still held. The connection tracks its

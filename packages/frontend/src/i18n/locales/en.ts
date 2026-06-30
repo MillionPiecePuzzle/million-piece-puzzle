@@ -135,6 +135,12 @@ const en = {
     headReady: "Ready",
     tip: "Tip: double-click a piece to stick it to your cursor, then double-click again to drop it.",
   },
+  queue: {
+    kicker: "Almost in",
+    heading: "You're in line",
+    position: "Position {n} in line",
+    waiting: "Waiting for an open slot",
+  },
   completion: {
     complete: "Complete",
     assembled: "Puzzle assembled.",

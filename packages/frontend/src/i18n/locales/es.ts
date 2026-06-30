@@ -139,6 +139,12 @@ const es: MessageSchema = {
     headReady: "Listo",
     tip: "Consejo: haz doble clic en una pieza para pegarla al cursor y haz doble clic de nuevo para soltarla.",
   },
+  queue: {
+    kicker: "Casi dentro",
+    heading: "Estás en la cola",
+    position: "Posición {n} en la cola",
+    waiting: "Esperando un hueco libre",
+  },
   completion: {
     complete: "Completado",
     assembled: "Puzle ensamblado.",

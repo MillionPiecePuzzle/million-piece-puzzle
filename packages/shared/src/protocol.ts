@@ -437,6 +437,24 @@ export type LandingResponse = {
   completion?: { at: number; startedAt: number };
 };
 
+// Admission queue (see DECISIONS: admission queue). A client requests a ticket,
+// then either connects immediately with the grant or polls status until a slot
+// frees. `ready` carries the one-time grant for the WS `?grant=` query; `queued`
+// carries a 1-based position estimate; `disabled` means the server has no cap, so
+// the client connects with no grant; `busy` means the wait list is full (retry);
+// `expired` (status only) means the ticket was reaped, so re-request one.
+export type QueueTicketResponse =
+  | { state: "ready"; ticket: string; grant: string }
+  | { state: "queued"; ticket: string; position: number }
+  | { state: "disabled" }
+  | { state: "busy" };
+
+export type QueueStatusResponse =
+  | { state: "ready"; ticket: string; grant: string }
+  | { state: "queued"; ticket: string; position: number }
+  | { state: "disabled" }
+  | { state: "expired" };
+
 export type ServerMessage =
   | SWelcome
   | SState

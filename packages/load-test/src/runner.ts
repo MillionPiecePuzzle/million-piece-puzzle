@@ -140,7 +140,9 @@ export class Runner {
           verbose: this.cfg.verbose,
         });
         this.bots.push(bot);
-        bot.start();
+        // Fire and forget: a bot's admission handshake (and any queue wait) runs
+        // asynchronously while the runner keeps ramping at the spawn interval.
+        void bot.start();
         if (i < this.cfg.bots - 1) {
           await new Promise((r) => setTimeout(r, this.cfg.spawnIntervalMs));
         }

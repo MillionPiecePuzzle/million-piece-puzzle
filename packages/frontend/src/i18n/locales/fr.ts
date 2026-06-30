@@ -141,6 +141,12 @@ const fr: MessageSchema = {
     headReady: "Prêt",
     tip: "Astuce : double-cliquez sur une pièce pour la coller à votre curseur, puis double-cliquez à nouveau pour la déposer.",
   },
+  queue: {
+    kicker: "Bientôt à vous",
+    heading: "Vous êtes dans la file",
+    position: "Position {n} dans la file",
+    waiting: "En attente d'une place libre",
+  },
   completion: {
     complete: "Terminé",
     assembled: "Puzzle assemblé.",

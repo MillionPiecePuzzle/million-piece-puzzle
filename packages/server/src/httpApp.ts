@@ -8,7 +8,13 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import { ExpressAuth, getSession, type ExpressAuthConfig } from "@auth/express";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { normalizeCountry, normalizePseudo } from "@mpp/shared";
-import type { ActivityItem, LandingResponse, LeaderboardEntry } from "@mpp/shared";
+import type {
+  ActivityItem,
+  LandingResponse,
+  LeaderboardEntry,
+  QueueStatusResponse,
+  QueueTicketResponse,
+} from "@mpp/shared";
 import { clientIp, type RedisFixedWindow } from "./limits.js";
 import { generateClaimToken, hashClaimToken } from "./auth.js";
 import { DuplicatePseudoError, type ClaimResult, type UserProfile } from "./mongo.js";
@@ -54,6 +60,14 @@ export type InterestedStore = {
   status: (ip: string) => Promise<{ count: number; me: boolean }>;
 };
 
+// The admission queue surface the HTTP layer needs (see DECISIONS: admission
+// queue). Implemented by AdmissionController in index.ts; an interface here keeps
+// the handlers unit-testable without the controller's internals.
+export type AdmissionGate = {
+  requestTicket: () => QueueTicketResponse;
+  status: (ticketId: string) => QueueStatusResponse;
+};
+
 // Compact live figures for the landing, lifted from the in-memory keyframe
 // snapshot so the landing never triggers a full-board read. Null until the first
 // keyframe is built at boot.
@@ -79,6 +93,8 @@ export type CreateAppDeps = {
   authLimiter: RedisFixedWindow;
   signupLimiter: RedisFixedWindow;
   spectatorLimiter: RedisFixedWindow;
+  queueLimiter: RedisFixedWindow;
+  admission: AdmissionGate;
   interested: InterestedStore;
   // Read live (not a captured value) so an admin change to the event start is
   // reflected on the next landing request without a restart.
@@ -139,6 +155,16 @@ export function createApp(deps: CreateAppDeps): Express {
     "/interested",
     makeInterestedHandler({ interested: deps.interested, devEnabled: deps.devEnabled }),
   );
+
+  // Admission queue: anonymous, wildcard-CORS, never cached. Its own per-IP guard
+  // (sized for a waiting client's poll cadence) runs first; the ticket request and
+  // the status poll then read the in-process controller. POST /queue/ticket sends
+  // no body and GET /queue/status a single `ticket` query param, so both stay CORS
+  // simple requests with no preflight, and the responses carry the queue state in
+  // the body (always 200; the client branches on `state`).
+  app.all(["/queue/ticket", "/queue/status"], makeQueueGuard(deps.queueLimiter, deps.devEnabled));
+  app.post("/queue/ticket", makeQueueTicketHandler({ admission: deps.admission }));
+  app.get("/queue/status", makeQueueStatusHandler({ admission: deps.admission }));
 
   // Credentialed CORS for the SPA, then the per-IP auth-route window.
   app.use(["/auth", "/profile", "/guest"], makeCors(deps.appOrigin));
@@ -369,6 +395,60 @@ export function makeInterestedHandler(deps: InterestedDeps) {
       console.error("[interested]", (e as Error).message);
     }
     res.status(200).set(PUBLIC_NO_STORE).json(result);
+  };
+}
+
+// Per-IP guard for the queue endpoints: wildcard CORS + no-store on every
+// response, a preflight answered 204, and a per-IP fixed window sized for a
+// waiting client's poll cadence. Unlike the spectator guard it permits a query
+// string (GET /queue/status carries `ticket`), since the queue is never CDN
+// cached. Fail-open on a Redis error so a transient outage does not seal the
+// entrance.
+export function makeQueueGuard(limiter: RedisFixedWindow, devEnabled: boolean) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    res.set(PUBLIC_NO_STORE);
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    try {
+      if (!(await limiter.allow(clientIp(req, devEnabled)))) {
+        res
+          .status(429)
+          .set({ "Retry-After": "1" })
+          .type("application/json; charset=utf-8")
+          .send('{"error":"rate_limited"}');
+        return;
+      }
+    } catch (e) {
+      console.error("[queue ratelimit]", (e as Error).message);
+    }
+    next();
+  };
+}
+
+export type QueueDeps = { admission: AdmissionGate };
+
+// POST /queue/ticket (no body): mint a wait-list ticket. The body carries the
+// resolved state: ready with a one-time grant, queued with a position, busy when
+// the list is full, or disabled when the server has no cap.
+export function makeQueueTicketHandler(deps: QueueDeps) {
+  return (_req: Request, res: Response): void => {
+    res.status(200).json(deps.admission.requestTicket());
+  };
+}
+
+// GET /queue/status?ticket=<id>: poll a ticket. A missing ticket param is a 400;
+// an unknown or reaped ticket resolves to `expired` in the body so the client
+// re-requests one.
+export function makeQueueStatusHandler(deps: QueueDeps) {
+  return (req: Request, res: Response): void => {
+    const ticket = (req.query as Record<string, unknown>).ticket;
+    if (typeof ticket !== "string" || ticket.length === 0) {
+      res.status(400).json({ error: "missing_ticket" });
+      return;
+    }
+    res.status(200).json(deps.admission.status(ticket));
   };
 }
 

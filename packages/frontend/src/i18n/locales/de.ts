@@ -141,6 +141,12 @@ const de: MessageSchema = {
     headReady: "Bereit",
     tip: "Tipp: Doppelklicke auf ein Teil, um es an den Cursor zu heften, und doppelklicke erneut, um es abzulegen.",
   },
+  queue: {
+    kicker: "Gleich geht's",
+    heading: "Du bist in der Warteschlange",
+    position: "Position {n} in der Warteschlange",
+    waiting: "Warten auf einen freien Platz",
+  },
   completion: {
     complete: "Fertig",
     assembled: "Puzzle zusammengesetzt.",

@@ -5,6 +5,8 @@ import type {
   ImageManifest,
   LeaderboardEntry,
   PieceRuntime,
+  QueueStatusResponse,
+  QueueTicketResponse,
   SActivity,
   SError,
   SSnap,
@@ -20,6 +22,7 @@ import { PROTOCOL_VERSION, SPECTATOR_FORMAT_VERSION } from "@mpp/shared";
 import { PuzzleWsClient } from "../canvas/wsClient";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { eventsUrl, keyframeUrl } from "../data/spectatorUrl";
+import { queueStatusUrl, queueTicketUrl } from "../data/queueUrl";
 import { useMode } from "./useMode";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/";
@@ -31,12 +34,21 @@ const ACTIVITY_LIMIT = 6;
 // transition promptly without tailing windows.
 const KEYFRAME_REFETCH_MS = 300_000;
 const KEYFRAME_IDLE_POLL_MS = 10_000;
+// Admission-queue poll cadence while waiting for a slot, and the slower retry when
+// the wait list itself is full (no ticket yet). Both stay under the server's
+// per-IP queue-rate window.
+const QUEUE_POLL_MS = 2_500;
+const QUEUE_BUSY_RETRY_MS = 5_000;
 
 export type Transport = "none" | "spectator" | "ws";
 
 export type PuzzleSessionState =
   | { kind: "idle" }
   | { kind: "connecting" }
+  // Waiting in the admission queue past the server cap. `position` is the 1-based
+  // place in line, or 0 when the wait list is full and the client is retrying for
+  // a ticket (no position to show yet).
+  | { kind: "queued"; position: number }
   | { kind: "loading-manifest"; puzzleId: string }
   | { kind: "syncing"; manifest: ImageManifest; welcome: SWelcome }
   | {
@@ -89,6 +101,12 @@ let welcome: SWelcome | null = null;
 let manifest: ImageManifest | null = null;
 let pendingState: SState | null = null;
 let started = false;
+// Admission-queue gate: an in-flight ticket/status fetch, the poll-delay timer,
+// and the delay's resolver, all torn down by close() so leaving the queue cancels
+// promptly (the resolver unblocks a pending delay so the gate loop exits at once).
+let queueAbort: AbortController | null = null;
+let queueTimer: ReturnType<typeof setTimeout> | null = null;
+let queueDelayResolve: (() => void) | null = null;
 let buildEpoch = 0;
 const handlers = new Set<MessageHandler>();
 const keyframeHandlers = new Set<KeyframeHandler>();
@@ -234,10 +252,114 @@ async function startContributor(): Promise<void> {
   started = true;
   transport.value = "ws";
   state.value = { kind: "connecting" };
-  const wsUrl = import.meta.env.VITE_WS_URL || DEFAULT_WS_URL;
-  client = new PuzzleWsClient(wsUrl);
   welcome = null;
   manifest = null;
+  let grant: string | null;
+  try {
+    grant = await acquireAdmission();
+  } catch (e) {
+    if (started) {
+      state.value = { kind: "error", message: `failed to join the queue: ${(e as Error).message}` };
+    }
+    started = false;
+    return;
+  }
+  // close() during the wait flips started false; bail without connecting.
+  if (!started) return;
+  connectWs(grant);
+}
+
+// Admission gate: request a ticket, then connect immediately when granted or poll
+// status while queued until a slot frees. Returns the grant token to connect with,
+// or null to connect ungated (the server has no cap). Throws only when the initial
+// join fails; once queued, a transient poll failure retries rather than dropping
+// the player out of the line.
+async function acquireAdmission(): Promise<string | null> {
+  let ticket: string | null = null;
+  let queuedOnce = false;
+  while (started) {
+    let resp: QueueTicketResponse | QueueStatusResponse;
+    try {
+      resp = ticket === null ? await postQueueTicket() : await getQueueStatus(ticket);
+    } catch (e) {
+      if (!started) return null;
+      if (!queuedOnce) throw e;
+      ticket = null;
+      await queueDelay(QUEUE_POLL_MS);
+      continue;
+    }
+    if (!started) return null;
+    if (resp.state === "disabled") return null;
+    if (resp.state === "ready") return resp.grant;
+    if (resp.state === "queued") {
+      queuedOnce = true;
+      ticket = resp.ticket;
+      state.value = { kind: "queued", position: resp.position };
+      await queueDelay(QUEUE_POLL_MS);
+      continue;
+    }
+    if (resp.state === "busy") {
+      // Wait list full: no ticket, retry from scratch after a longer beat.
+      queuedOnce = true;
+      ticket = null;
+      state.value = { kind: "queued", position: 0 };
+      await queueDelay(QUEUE_BUSY_RETRY_MS);
+      continue;
+    }
+    // expired: the ticket was reaped, re-request one.
+    ticket = null;
+  }
+  return null;
+}
+
+async function postQueueTicket(): Promise<QueueTicketResponse> {
+  queueAbort = new AbortController();
+  const res = await fetch(queueTicketUrl(), { method: "POST", signal: queueAbort.signal });
+  if (!res.ok) throw new Error(`queue ticket ${res.status}`);
+  return (await res.json()) as QueueTicketResponse;
+}
+
+async function getQueueStatus(ticket: string): Promise<QueueStatusResponse> {
+  queueAbort = new AbortController();
+  const res = await fetch(queueStatusUrl(ticket), { signal: queueAbort.signal });
+  if (!res.ok) throw new Error(`queue status ${res.status}`);
+  return (await res.json()) as QueueStatusResponse;
+}
+
+function queueDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    queueDelayResolve = resolve;
+    queueTimer = setTimeout(() => {
+      queueTimer = null;
+      queueDelayResolve = null;
+      resolve();
+    }, ms);
+  });
+}
+
+// Tear down the admission gate: abort an in-flight fetch and resolve any pending
+// poll delay so the acquireAdmission loop wakes and exits (started is already
+// false by the time this runs from close()).
+function cancelQueueGate(): void {
+  queueAbort?.abort();
+  queueAbort = null;
+  if (queueTimer !== null) {
+    clearTimeout(queueTimer);
+    queueTimer = null;
+  }
+  if (queueDelayResolve) {
+    const resolve = queueDelayResolve;
+    queueDelayResolve = null;
+    resolve();
+  }
+}
+
+// Open the contributor WebSocket, carrying the admission grant as `?grant=` when
+// the queue is enabled. Wires the message and close handlers the session needs.
+function connectWs(grant: string | null): void {
+  state.value = { kind: "connecting" };
+  const wsUrl = import.meta.env.VITE_WS_URL || DEFAULT_WS_URL;
+  client = new PuzzleWsClient(grant ? appendGrant(wsUrl, grant) : wsUrl);
 
   client.on((msg: ServerMessage) => {
     if (msg.t === "welcome") {
@@ -267,6 +389,17 @@ async function startContributor(): Promise<void> {
   });
 
   client.connect();
+}
+
+function appendGrant(wsUrl: string, grant: string): string {
+  try {
+    const u = new URL(wsUrl);
+    u.searchParams.set("grant", grant);
+    return u.toString();
+  } catch {
+    const sep = wsUrl.includes("?") ? "&" : "?";
+    return `${wsUrl}${sep}grant=${encodeURIComponent(grant)}`;
+  }
 }
 
 // Spectator entry: load the keyframe, then tail immutable event windows a few
@@ -432,6 +565,7 @@ function close(): void {
   manifest = null;
   pendingState = null;
   started = false;
+  cancelQueueGate();
   transport.value = "none";
   state.value = { kind: "idle" };
   userId.value = null;

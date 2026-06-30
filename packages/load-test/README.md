@@ -10,6 +10,12 @@ format is exact. It sends the shared `PROTOCOL_VERSION` in `hello`: `welcome`
 carries no board, so each bot streams its region in via `region_state` for the
 cells its (bounded) viewport enters, then grabs from what it has learned.
 
+Like the real client, each bot runs the admission gate before connecting:
+`POST /queue/ticket`, then poll `GET /queue/status` while queued, then open the
+WS with `?grant=`. With no cap set (`MPP_MAX_ACTIVE_CONNECTIONS` unset/0) the
+ticket comes back `disabled` and the bot connects ungated, so an uncapped run is
+unchanged; set the cap to exercise the queue and bots past it wait for a slot.
+
 ## Sessions
 
 The WS upgrade rejects anonymous connections: it resolves the session cookie

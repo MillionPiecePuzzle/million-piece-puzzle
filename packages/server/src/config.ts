@@ -44,6 +44,20 @@ export type ServerConfig = {
   // interval and terminates a socket that missed the previous pong, keeping idle
   // contributors connected and reaping half-open sockets.
   wsHeartbeatIntervalMs: number;
+  // Admission queue (see DECISIONS: admission queue). A global cap on concurrent
+  // WS connections with a FIFO wait list in front of it. 0 disables the queue, so
+  // the WS upgrade requires no grant (the cap is opt-in per deployment). The grant
+  // TTL is how long an issued admission token holds its reserved slot before the
+  // upgrade; the ticket TTL reaps a waiter that stops polling; the max queue length
+  // bounds the wait list so a flood cannot grow it without limit.
+  maxActiveConnections: number;
+  queueGrantTtlMs: number;
+  queueTicketTtlMs: number;
+  maxQueueLength: number;
+  // Per-IP fixed window on the queue endpoints (POST /queue/ticket, GET
+  // /queue/status), sized for a waiting client's poll cadence.
+  queueRateMax: number;
+  queueRateWindowSec: number;
   // Spatial broadcast index (see DECISIONS: spatial broadcast index). Scoping runs
   // on the shared world grid cell (`WORLD_TILE_SIZE`); a viewport (or dragged
   // cluster) overlapping more than broadcastMaxCells cells is treated as global,
@@ -213,6 +227,12 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
     wsHeartbeatIntervalMs: int("MPP_WS_HEARTBEAT_INTERVAL_MS", 30000),
+    maxActiveConnections: int("MPP_MAX_ACTIVE_CONNECTIONS", 0),
+    queueGrantTtlMs: int("MPP_QUEUE_GRANT_TTL_MS", 10000),
+    queueTicketTtlMs: int("MPP_QUEUE_TICKET_TTL_MS", 15000),
+    maxQueueLength: int("MPP_MAX_QUEUE_LENGTH", 50000),
+    queueRateMax: int("MPP_QUEUE_RATE_MAX", 180),
+    queueRateWindowSec: int("MPP_QUEUE_RATE_WINDOW_SEC", 60),
     broadcastMaxCells: int("MPP_BROADCAST_MAX_CELLS", 256),
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),

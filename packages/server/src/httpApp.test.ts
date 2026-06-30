@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import type { Request, Response } from "express";
+import express, { type Request, type Response } from "express";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { AdmissionController } from "./admission.js";
 import {
   makeProfilePseudoHandler,
   makeProfileCountryHandler,
@@ -10,10 +13,14 @@ import {
   makeSpectatorGuard,
   makeLandingHandler,
   makeInterestedHandler,
+  makeQueueGuard,
+  makeQueueTicketHandler,
+  makeQueueStatusHandler,
   type GuestStore,
   type GuestSessionMinter,
   type InterestedStore,
   type LandingSnapshot,
+  type AdmissionGate,
 } from "./httpApp.js";
 import type { LandingResponse } from "@mpp/shared";
 import { hashClaimToken } from "./auth.js";
@@ -703,5 +710,164 @@ describe("makeInterestedHandler", () => {
     const r = res as unknown as { statusCode: number; body: unknown };
     expect(r.statusCode).toBe(200);
     expect(r.body).toEqual({ count: 0, me: true });
+  });
+});
+
+describe("makeQueueGuard", () => {
+  function queueReq(over: Partial<Request> = {}): Request {
+    return {
+      method: "GET",
+      headers: {},
+      socket: { remoteAddress: "1.1.1.1" },
+      query: {},
+      ...over,
+    } as unknown as Request;
+  }
+
+  it("answers a preflight with 204 and wildcard CORS, without continuing", async () => {
+    const guard = makeQueueGuard(
+      new RedisFixedWindow(fakeRedisAllowing(true), "queue", 180, 60),
+      true,
+    );
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(queueReq({ method: "OPTIONS" }), res, next);
+    const r = res as unknown as { statusCode: number; headers: Record<string, string> };
+    expect(r.statusCode).toBe(204);
+    expect(r.headers["Access-Control-Allow-Origin"]).toBe("*");
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("lets a request under budget through with a ticket query preserved", async () => {
+    const guard = makeQueueGuard(
+      new RedisFixedWindow(fakeRedisAllowing(true), "queue", 180, 60),
+      true,
+    );
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(queueReq({ query: { ticket: "t1" } as Request["query"] }), res, next);
+    expect(next).toHaveBeenCalled();
+    expect((res as unknown as { headers: Record<string, string> }).headers["Cache-Control"]).toBe(
+      "no-store",
+    );
+  });
+
+  it("429s when over budget", async () => {
+    const guard = makeQueueGuard(
+      new RedisFixedWindow(fakeRedisAllowing(false), "queue", 180, 60),
+      true,
+    );
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(queueReq(), res, next);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(429);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("fails open when Redis errors", async () => {
+    const redis = {
+      incr: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+      expire: vi.fn(),
+    } as unknown as Redis;
+    const guard = makeQueueGuard(new RedisFixedWindow(redis, "queue", 180, 60), true);
+    const res = fakeRes();
+    const next = vi.fn();
+    await guard(queueReq(), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+describe("makeQueueTicketHandler / makeQueueStatusHandler", () => {
+  const gate: AdmissionGate = {
+    requestTicket: () => ({ state: "ready", ticket: "t1", grant: "g1" }),
+    status: (id: string) =>
+      id === "t1" ? { state: "queued", ticket: "t1", position: 3 } : { state: "expired" },
+  };
+
+  it("returns the controller's ticket result as JSON", () => {
+    const handler = makeQueueTicketHandler({ admission: gate });
+    const res = fakeRes();
+    handler({} as Request, res);
+    const r = res as unknown as { statusCode: number; body: unknown };
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toEqual({ state: "ready", ticket: "t1", grant: "g1" });
+  });
+
+  it("400s a status poll with no ticket param", () => {
+    const handler = makeQueueStatusHandler({ admission: gate });
+    const res = fakeRes();
+    handler({ query: {} } as unknown as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+  });
+
+  it("returns the controller's status result for a known ticket", () => {
+    const handler = makeQueueStatusHandler({ admission: gate });
+    const res = fakeRes();
+    handler({ query: { ticket: "t1" } } as unknown as Request, res);
+    const r = res as unknown as { statusCode: number; body: unknown };
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toEqual({ state: "queued", ticket: "t1", position: 3 });
+  });
+});
+
+// Drives the queue routes through a real Express app over a live socket, backed by
+// a real AdmissionController, so the route paths, the guard, query parsing and the
+// JSON round-trip are exercised together (the handler tests above stub the gate).
+describe("queue endpoints over HTTP", () => {
+  async function withApp(cap: number, run: (base: string) => Promise<void>): Promise<void> {
+    const admission = new AdmissionController({
+      cap,
+      grantTtlMs: 10_000,
+      ticketTtlMs: 15_000,
+      maxQueueLength: 100,
+    });
+    const app = express();
+    const limiter = new RedisFixedWindow(fakeRedisAllowing(true), "queue", 180, 60);
+    app.all(["/queue/ticket", "/queue/status"], makeQueueGuard(limiter, true));
+    app.post("/queue/ticket", makeQueueTicketHandler({ admission }));
+    app.get("/queue/status", makeQueueStatusHandler({ admission }));
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      await run(base);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  it("issues a grant under the cap, queues past it, and tracks the ticket on poll", async () => {
+    await withApp(1, async (base) => {
+      const first = await (await fetch(`${base}/queue/ticket`, { method: "POST" })).json();
+      expect(first).toMatchObject({ state: "ready" });
+      expect(typeof first.grant).toBe("string");
+
+      const second = await (await fetch(`${base}/queue/ticket`, { method: "POST" })).json();
+      expect(second).toMatchObject({ state: "queued", position: 1 });
+
+      const polled = await (
+        await fetch(`${base}/queue/status?ticket=${encodeURIComponent(second.ticket)}`)
+      ).json();
+      expect(polled).toMatchObject({ state: "queued", position: 1 });
+    });
+  });
+
+  it("reports disabled when no cap is set", async () => {
+    await withApp(0, async (base) => {
+      const body = await (await fetch(`${base}/queue/ticket`, { method: "POST" })).json();
+      expect(body).toEqual({ state: "disabled" });
+    });
+  });
+
+  it("400s a status poll with no ticket and expires an unknown one", async () => {
+    await withApp(1, async (base) => {
+      const missing = await fetch(`${base}/queue/status`);
+      expect(missing.status).toBe(400);
+
+      const unknown = await (await fetch(`${base}/queue/status?ticket=nope`)).json();
+      expect(unknown).toEqual({ state: "expired" });
+    });
   });
 });

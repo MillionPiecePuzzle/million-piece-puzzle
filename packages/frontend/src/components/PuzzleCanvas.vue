@@ -127,6 +127,22 @@ const isProgressPhase = computed(
 
 const errorMessage = computed(() => (state.value.kind === "error" ? state.value.message : null));
 
+// Admission-queue wait: the loading cover shows a place-in-line message instead of
+// the staged-load steps while the client waits past the server cap.
+const isQueued = computed(() => state.value.kind === "queued");
+const queuePosition = computed(() => (state.value.kind === "queued" ? state.value.position : 0));
+
+const coverKicker = computed(() => {
+  if (errorMessage.value) return t("loading.error");
+  if (isQueued.value) return t("queue.kicker");
+  return t("loading.loading");
+});
+const coverHeading = computed(() => {
+  if (errorMessage.value) return t("loading.couldNotLoad");
+  if (isQueued.value) return t("queue.heading");
+  return phaseHeading.value;
+});
+
 const showStatus = computed(() => state.value.kind !== "ready" || building.value);
 
 // Publish playability to the shell so it can hide overlay panels until the
@@ -421,9 +437,26 @@ onBeforeUnmount(() => {
 <template>
   <div ref="host" class="canvas-host">
     <div v-if="showStatus" class="status" role="status" aria-live="polite">
-      <p class="kicker">{{ errorMessage ? t("loading.error") : t("loading.loading") }}</p>
-      <p class="value">{{ errorMessage ? t("loading.couldNotLoad") : phaseHeading }}</p>
-      <template v-if="!errorMessage">
+      <p class="kicker">{{ coverKicker }}</p>
+      <p class="value">{{ coverHeading }}</p>
+      <template v-if="isQueued">
+        <p class="detail queue-detail">
+          {{
+            queuePosition > 0
+              ? t("queue.position", { n: formatNumber(queuePosition) })
+              : t("queue.waiting")
+          }}
+        </p>
+        <div
+          class="progress indeterminate"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          <div class="bar" />
+        </div>
+      </template>
+      <template v-if="!errorMessage && !isQueued">
         <ol class="steps" aria-hidden="true">
           <li
             v-for="(phase, i) in LOAD_PHASES"

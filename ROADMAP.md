@@ -119,7 +119,7 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 - [x] Options menu (Chantier A): a gear icon by the pseudo (top-right) opens a modal (sync account, sign out, change pseudo, change country), replacing the "become a contributor" card above the minimap. `ContributeFab` removed; sync hands off to the (repurposed) auth modal, which on return claims the guest's contributions. See DECISIONS
 
 ### `backend-realtime`
-- [ ] Admission queue (Chantier B): a global cap (`MPP_MAX_ACTIVE_CONNECTIONS`) on `hub.allClients().size`, a ticket queue (`POST /queue/ticket`, `GET /queue/status`) issuing TTL'd grants, the WS upgrade admitting `?grant=`. Exit: past the cap a new client waits and is admitted when a slot frees. See DECISIONS
+- [x] Admission queue (Chantier B): a global cap (`MPP_MAX_ACTIVE_CONNECTIONS`) on `hub.allClients().size`, a ticket queue (`POST /queue/ticket`, `GET /queue/status`) issuing TTL'd grants, the WS upgrade admitting `?grant=`. Exit: past the cap a new client waits and is admitted when a slot frees. See DECISIONS
 - [ ] Retire the spectator read-path (Chantier C): remove `GET /keyframe` + `GET /events`, the `EventLog`, the spectator rate limiter, and the spectator-only fields of the keyframe. `KeyframePublisher`, the `minimap` broadcast and the landing snapshot are kept as-is. Exit: no public read-stream endpoint remains, minimap and landing live figures still work
 
 ### `frontend-canvas`
