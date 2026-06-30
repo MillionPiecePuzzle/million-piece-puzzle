@@ -251,6 +251,7 @@ async function main(): Promise<void> {
     pseudoStore: mongo,
     countryStore: mongo,
     guestStore: mongo,
+    claimStore: mongo,
     guestSessionMinter,
     authCookieName: sessionCookieName(config.authSecure),
     authSecure: config.authSecure,

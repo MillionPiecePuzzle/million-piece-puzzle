@@ -4,6 +4,7 @@ import {
   makeProfilePseudoHandler,
   makeProfileCountryHandler,
   makeGuestHandler,
+  makeClaimHandler,
   makeCors,
   makeRateLimit,
   makeSpectatorGuard,
@@ -342,6 +343,74 @@ describe("makeGuestHandler", () => {
     const r = res as unknown as { statusCode: number; cookies: unknown[] };
     expect(r.statusCode).toBe(500);
     expect(r.cookies).toHaveLength(0);
+  });
+});
+
+describe("makeClaimHandler", () => {
+  const claimedProfile: UserProfile = {
+    id: "google1",
+    guest: false,
+    name: "G",
+    image: null,
+    pseudo: "Alice",
+    country: "fr",
+  };
+
+  it("401 when no session user, claiming nothing", async () => {
+    const claimGuest = vi.fn();
+    const handler = makeClaimHandler({ getUserId: async () => null, claimStore: { claimGuest } });
+    const res = fakeRes();
+    await handler({ body: { claimToken: "tok" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(401);
+    expect(claimGuest).not.toHaveBeenCalled();
+  });
+
+  it("400 when the claim token is missing, claiming nothing", async () => {
+    const claimGuest = vi.fn();
+    const handler = makeClaimHandler({
+      getUserId: async () => "google1",
+      claimStore: { claimGuest },
+    });
+    const res = fakeRes();
+    await handler({ body: {} } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(claimGuest).not.toHaveBeenCalled();
+  });
+
+  it("404 when no claimable guest matches the token", async () => {
+    const handler = makeClaimHandler({
+      getUserId: async () => "google1",
+      claimStore: { claimGuest: async () => ({ status: "not_found" as const }) },
+    });
+    const res = fakeRes();
+    await handler({ body: { claimToken: "tok" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(404);
+  });
+
+  it("409 when the caller claims its own guest session", async () => {
+    const handler = makeClaimHandler({
+      getUserId: async () => "g1",
+      claimStore: { claimGuest: async () => ({ status: "self" as const }) },
+    });
+    const res = fakeRes();
+    await handler({ body: { claimToken: "tok" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(409);
+  });
+
+  it("200 reattributes by token hash and returns the updated profile", async () => {
+    const claimGuest = vi.fn(async () => ({ status: "ok" as const, user: claimedProfile }));
+    const handler = makeClaimHandler({
+      getUserId: async () => "google1",
+      claimStore: { claimGuest },
+    });
+    const res = fakeRes();
+    await handler({ body: { claimToken: "raw-token" } } as Request, res);
+    const r = res as unknown as { statusCode: number; body: { user: UserProfile } };
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toEqual({ user: claimedProfile });
+    // The handler hashes the token before it reaches the store; the raw token never does.
+    expect(claimGuest).toHaveBeenCalledWith("google1", hashClaimToken("raw-token"));
+    expect(claimGuest).not.toHaveBeenCalledWith("google1", "raw-token");
   });
 });
 

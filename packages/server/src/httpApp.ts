@@ -11,7 +11,7 @@ import { normalizeCountry, normalizePseudo } from "@mpp/shared";
 import type { ActivityItem, LandingResponse, LeaderboardEntry } from "@mpp/shared";
 import { clientIp, type RedisFixedWindow } from "./limits.js";
 import { generateClaimToken, hashClaimToken } from "./auth.js";
-import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
+import { DuplicatePseudoError, type ClaimResult, type UserProfile } from "./mongo.js";
 import {
   makeAdminAuth,
   makeAdminClearHandler,
@@ -35,6 +35,10 @@ export type GuestStore = {
     country: string;
     claimTokenHash: string;
   }) => Promise<{ id: string; user: UserProfile }>;
+};
+
+export type ClaimStore = {
+  claimGuest: (targetUserId: string, claimTokenHash: string) => Promise<ClaimResult>;
 };
 
 // Mints the DB session for a freshly created guest and returns the raw session
@@ -65,6 +69,7 @@ export type CreateAppDeps = {
   pseudoStore: PseudoStore;
   countryStore: CountryStore;
   guestStore: GuestStore;
+  claimStore: ClaimStore;
   guestSessionMinter: GuestSessionMinter;
   // Session cookie identity, mirrored from the Auth.js cookie config so a guest
   // cookie is indistinguishable from a Google one to the WS gate.
@@ -157,6 +162,18 @@ export function createApp(deps: CreateAppDeps): Express {
       cookieName: deps.authCookieName,
       cookieSecure: deps.authSecure,
       cookieDomain: deps.authCookieDomain,
+    }),
+  );
+
+  // Claim a guest's contributions for the signed-in user. Rides the shared /guest
+  // CORS + auth window (app.use above) but not the signup window: it reattributes,
+  // it does not create an account, so the per-IP creation cap must not gate it.
+  app.post(
+    "/guest/claim",
+    express.json(),
+    makeClaimHandler({
+      getUserId: (req) => sessionUserId(req, deps.authConfig),
+      claimStore: deps.claimStore,
     }),
   );
 
@@ -463,6 +480,48 @@ export function makeGuestHandler(deps: GuestDeps) {
         return;
       }
       console.error("[guest]", (e as Error).message);
+      res.status(500).json({ error: "server" });
+    }
+  };
+}
+
+export type ClaimDeps = {
+  getUserId: (req: Request) => Promise<string | null>;
+  claimStore: ClaimStore;
+};
+
+// POST /guest/claim: a signed-in user presents a guest's one-time claim token to
+// absorb that guest's contributions. The session resolves the claim target (no
+// session is minted, the Google session already exists); the store moves the
+// guest's cluster_merges to the target, carries over pseudo/country, and deletes
+// the guest. A token matching no claimable guest (unknown or already claimed) is
+// 404; a caller claiming its own guest session is 409. The raw token never
+// reaches the store: only its hash is compared, the same posture as the mint.
+export function makeClaimHandler(deps: ClaimDeps) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const userId = await deps.getUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "unauthenticated" });
+      return;
+    }
+    const token = (req.body as { claimToken?: unknown } | undefined)?.claimToken;
+    if (typeof token !== "string" || token.length === 0) {
+      res.status(400).json({ error: "invalid_token" });
+      return;
+    }
+    try {
+      const result = await deps.claimStore.claimGuest(userId, hashClaimToken(token));
+      if (result.status === "not_found") {
+        res.status(404).json({ error: "no_claimable_guest" });
+        return;
+      }
+      if (result.status === "self") {
+        res.status(409).json({ error: "self_claim" });
+        return;
+      }
+      res.status(200).json({ user: result.user });
+    } catch (e) {
+      console.error("[guest/claim]", (e as Error).message);
       res.status(500).json({ error: "server" });
     }
   };

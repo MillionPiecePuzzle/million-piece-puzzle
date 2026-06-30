@@ -32,6 +32,14 @@ export type UserProfile = {
   country: string | null;
 };
 
+// Outcome of POST /guest/claim, mapped to an HTTP status by the route. "self" is
+// a caller trying to claim its own guest session; "not_found" is an unknown or
+// already-claimed token (indistinguishable once the guest doc is deleted).
+export type ClaimResult =
+  | { status: "ok"; user: UserProfile }
+  | { status: "not_found" }
+  | { status: "self" };
+
 // Thrown by setPseudo when the chosen pseudo is already taken (Mongo duplicate
 // key on the partial-unique index). The route maps it to a 409.
 export class DuplicatePseudoError extends Error {
@@ -193,6 +201,36 @@ export class MongoLogger {
       throw e;
     }
     return { id: doc._id.toString(), user: toProfile(doc) };
+  }
+
+  // Fold a guest into a signed-in user: verify the claim token, move the guest's
+  // cluster_merges onto the target, overwrite the target's pseudo/country with the
+  // guest's, and delete the guest. The findOneAndDelete keyed by the guest _id is
+  // the concurrency lock, so two concurrent claims of one token cannot both
+  // reattribute (the loser reads a gone doc). A self-claim (the caller is the
+  // guest) is rejected before any delete, so the caller never deletes its own
+  // account. Deleting the guest before setting its pseudo on the target frees the
+  // pseudo first, so the carry-over cannot transiently collide on the
+  // partial-unique index.
+  async claimGuest(targetUserId: string, claimTokenHash: string): Promise<ClaimResult> {
+    const guest = await this.users.findOne({ claimTokenHash, guest: true });
+    if (!guest) return { status: "not_found" };
+    if (guest._id.toString() === targetUserId) return { status: "self" };
+    const deleted = await this.users.findOneAndDelete({
+      _id: guest._id,
+      claimTokenHash,
+      guest: true,
+    });
+    if (!deleted) return { status: "not_found" };
+    const guestId = deleted._id.toString();
+    await this.merges.updateMany({ userId: guestId }, { $set: { userId: targetUserId } });
+    const target = await this.users.findOneAndUpdate(
+      { _id: new ObjectId(targetUserId) },
+      { $set: { pseudo: deleted.pseudo ?? null, country: deleted.country ?? null } },
+      { returnDocument: "after" },
+    );
+    if (!target) throw new Error(`claim target ${targetUserId} not found`);
+    return { status: "ok", user: toProfile(target) };
   }
 
   // Set a contributor's pseudo, enforcing global uniqueness through the
