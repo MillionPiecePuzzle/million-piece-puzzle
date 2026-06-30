@@ -7,9 +7,9 @@ import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
 
 const { t } = useI18n();
-const { open, mode, hide } = usePseudoModal();
+const { open, mode, initialError, hide } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
-const { user, submitPseudo } = useAuth();
+const { user, submitPseudo, setGuestPseudo } = useAuth();
 
 const draft = ref("");
 const error = ref<string | null>(null);
@@ -28,13 +28,21 @@ const lede = computed(() => (mode.value === "edit" ? t("pseudo.ledeEdit") : t("p
 watch(open, (isOpen) => {
   if (!isOpen) return;
   draft.value = mode.value === "edit" ? (user.value?.pseudo ?? "") : "";
-  error.value = null;
+  error.value = initialError.value ? t(initialError.value) : null;
   void nextTick(() => inputEl.value?.focus());
 });
 
 async function save() {
   const name = normalized.value;
   if (name === null || saving.value) return;
+  // Guest onboarding: no session yet, so just capture the pseudo and advance to
+  // the country step, which mints via POST /guest. Uniqueness is enforced there.
+  if (mode.value === "guest") {
+    setGuestPseudo(name);
+    hide();
+    showNationality("guest");
+    return;
+  }
   saving.value = true;
   error.value = null;
   const res = await submitPseudo(name);

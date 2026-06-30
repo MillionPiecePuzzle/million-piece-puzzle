@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { COUNTRIES } from "@mpp/shared";
 import { useNationalityModal } from "../composables/useNationalityModal";
+import { usePseudoModal } from "../composables/usePseudoModal";
 import { useAuth } from "../composables/useAuth";
 import { useMode } from "../composables/useMode";
 import { LOCALE_TAGS, type AppLocale } from "../i18n";
@@ -10,7 +11,8 @@ import { flagUrl } from "../data/flags";
 
 const { t, locale } = useI18n();
 const { open, mode, hide } = useNationalityModal();
-const { user, submitCountry } = useAuth();
+const { show: showPseudo } = usePseudoModal();
+const { user, submitCountry, createGuest, guestPseudo } = useAuth();
 const { setMode } = useMode();
 
 // Localize country labels from their code, falling back to the dataset's English
@@ -57,6 +59,24 @@ async function save() {
   if (code === "" || saving.value) return;
   saving.value = true;
   error.value = null;
+  // Guest onboarding: mint the guest from the captured pseudo + this country. A
+  // taken pseudo (409) sends the player back to the pseudo step with the error
+  // shown; createGuest sets contributor mode, which is what connects the canvas.
+  if (mode.value === "guest") {
+    const res = await createGuest(guestPseudo.value ?? "", code);
+    saving.value = false;
+    if (!res.ok) {
+      if (res.reason === "taken") {
+        hide();
+        showPseudo("guest", { error: "pseudo.taken" });
+        return;
+      }
+      error.value = t("common.saveError");
+      return;
+    }
+    hide();
+    return;
+  }
   const res = await submitCountry(code);
   saving.value = false;
   if (!res.ok) {

@@ -15,13 +15,15 @@ onMounted(() => {
   void bootstrap();
 });
 
-// Forced onboarding (pseudo then nationality) only starts on /play, the page
-// where contribution happens. Re-checked on navigation and once the session
-// resolves, so a user who signs in elsewhere is onboarded when they reach it.
+// Identity onboarding only starts on /play, the page where contribution happens,
+// and only once the session has resolved (ready): a fresh visitor is minted as a
+// guest, a signed-in user finishes any missing pseudo/country. Re-checked on
+// navigation and as the session resolves, so the gate never fires before we know
+// whether a session exists.
 watch(
   [() => route.name, ready, user],
   () => {
-    if (route.name === "play") startOnboardingIfNeeded();
+    if (route.name === "play" && ready.value) startOnboardingIfNeeded();
   },
   { immediate: true },
 );

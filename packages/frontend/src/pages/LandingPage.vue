@@ -7,7 +7,6 @@ import BrandMark from "../components/BrandMark.vue";
 import CountdownTimer from "../components/CountdownTimer.vue";
 import LanguageSwitcher from "../components/LanguageSwitcher.vue";
 import LeaderboardRow from "../components/LeaderboardRow.vue";
-import { useMode } from "../composables/useMode";
 import { useCountdown } from "../composables/useCountdown";
 import { useLocaleFormat } from "../i18n/format";
 import { interestedUrl } from "../data/spectatorUrl";
@@ -15,7 +14,6 @@ import { loadLanding, type InterestState } from "../data/landing";
 import { toLeaderboardRows } from "../data/leaderboard";
 
 const router = useRouter();
-const { setMode } = useMode();
 const { t } = useI18n();
 const { formatNumber, formatDate } = useLocaleFormat();
 
@@ -107,7 +105,8 @@ function rememberInterested(): void {
 }
 
 function enterCanvas(): void {
-  setMode("spectator");
+  // Guest-first: the canvas mints a guest on arrival (or reuses an existing
+  // session), so the landing CTA just navigates. No spectator/contributor split.
   void router.push("/play");
 }
 

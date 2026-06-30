@@ -111,11 +111,11 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 Migration order under the single prod, no staging: A is pure addition (the spectator still cohabits), B puts the admission safety valve in place before C removes the CDN read-path. Each ships on its own and leaves the app working.
 
 ### `auth-and-accounts`
-- [~] Guest players (Chantier A): `POST /guest` mints a real User (`guest:true`, chosen unique pseudo + country, no email) plus a DB session, rate-limited per IP; the WS session gate is unchanged. Exit: a fresh visitor reaches `/play` and drags a piece with no Google step. Backend landed (endpoint, schema, session, indexes). Pending: the Single Play entry that calls it. See DECISIONS
+- [x] Guest players (Chantier A): `POST /guest` mints a real User (`guest:true`, chosen unique pseudo + country, no email) plus a DB session, rate-limited per IP; the WS session gate is unchanged. A fresh visitor reaches `/play` and drags a piece with no Google step. See DECISIONS
 - [x] Claim on sign-in (Chantier A): `POST /guest/claim` reattributes the guest's `cluster_merges` to the Google user, carries over pseudo/country, deletes the guest doc; one path for new and existing Google accounts. Exit: a guest who placed pieces then signs in keeps them credited under one identity. See DECISIONS
 
 ### `frontend-shell`
-- [ ] Single "Play" entry (Chantier A): the landing CTA goes straight to `/play`, guest minted on demand; the spectator/contributor split is gone. Exit: no mode toggle remains in the UI
+- [x] Single "Play" entry (Chantier A): the landing CTA goes straight to `/play`; on arrival a guest is minted in-site (pseudo then country modal, `POST /guest`) or an existing session is reused, then the WS connects. No spectator/contributor mode toggle remains in the UI (the spectator transport still cohabits, retired in Chantier C)
 - [ ] Options menu (Chantier A): a gear icon by the pseudo (top-right) opens a modal (sync account, sign out, change pseudo, change country), replacing the "become a contributor" card above the minimap. Exit: `ContributeFab` removed, the gear modal drives sync/sign-out/profile edits
 
 ### `backend-realtime`

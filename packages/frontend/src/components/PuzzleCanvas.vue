@@ -22,7 +22,6 @@ const {
   transport,
   shouldTail,
   startContributor,
-  startSpectator,
   close,
   onMessage,
   onKeyframe,
@@ -303,23 +302,22 @@ onMounted(async () => {
     }
   });
   unsubscribeWindow = onWindowEvents((events) => stage?.ingestEvents(events));
+  // Guest-first: the canvas is WS-only. It connects once a complete identity
+  // exists (mode flips to contributor on a resolved session or a freshly minted
+  // guest); until then the onboarding modals collect the guest pseudo + country.
   if (mode.value === "contributor") {
     await startContributor();
-  } else {
-    await startSpectator();
   }
 });
 
-// Switch transport when the user signs in (spectator -> contributor). The
-// session tears down the keyframe/window stream and opens a WebSocket; the fresh
-// `welcome` then drives a clean rebuild on the same stage.
+// Connect when the identity becomes ready: a resolved returning session or a
+// just-minted guest flips mode to contributor, which opens the WebSocket; the
+// `welcome` then drives the board build on the freshly mounted stage.
 watch(mode, async (next, prev) => {
   if (next === prev) return;
   close();
   if (next === "contributor") {
     await startContributor();
-  } else {
-    await startSpectator();
   }
 });
 
