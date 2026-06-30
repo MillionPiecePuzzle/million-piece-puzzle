@@ -6,8 +6,7 @@ import BrandMark from "./BrandMark.vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { formatCountdown } from "../composables/useCountdown";
 import { useAuth } from "../composables/useAuth";
-import { usePseudoModal } from "../composables/usePseudoModal";
-import { useNationalityModal } from "../composables/useNationalityModal";
+import { useOptionsModal } from "../composables/useOptionsModal";
 import { useLocaleFormat } from "../i18n/format";
 import { flagUrl } from "../data/flags";
 
@@ -15,8 +14,7 @@ const { t } = useI18n();
 const { formatNumber } = useLocaleFormat();
 const { eventStartsAt, totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
-const { show: showPseudoModal } = usePseudoModal();
-const { show: showNationalityModal } = useNationalityModal();
+const { show: showOptions } = useOptionsModal();
 
 const progressPct = computed(() =>
   totalPieces.value > 0 ? (lockedCount.value / totalPieces.value) * 100 : 0,
@@ -61,24 +59,41 @@ const playTime = computed(() => {
     <div class="top-right">
       <div v-if="user && user.pseudo" class="presence">
         <span class="dot" :aria-label="t('topbar.connected')"></span>
-        <button
+        <span
           v-if="user.country"
-          type="button"
           class="flag"
           :title="t('topbar.nationalityTitle', { code: user.country.toUpperCase() })"
-          @click="showNationalityModal('edit')"
         >
           <img :src="flagUrl(user.country)" :alt="user.country" width="18" height="18" />
-        </button>
+        </span>
+        <span class="pseudo" :title="t('topbar.signedInAs', { pseudo: user.pseudo })">
+          {{ user.pseudo }}
+        </span>
+        <span class="status">{{ t("topbar.connected") }}</span>
         <button
           type="button"
-          class="pseudo"
-          :title="t('topbar.signedInAs', { pseudo: user.pseudo })"
-          @click="showPseudoModal('edit')"
+          class="gear"
+          :title="t('topbar.options')"
+          :aria-label="t('topbar.options')"
+          @click="showOptions"
         >
-          {{ user.pseudo }}
+          <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3.2" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
         </button>
-        <span class="status">{{ t("topbar.connected") }}</span>
       </div>
     </div>
   </header>
@@ -176,7 +191,6 @@ const playTime = computed(() => {
 }
 .presence .flag {
   display: inline-flex;
-  cursor: pointer;
   border-radius: 50%;
   line-height: 0;
 }
@@ -188,14 +202,6 @@ const playTime = computed(() => {
   font-size: 13px;
   letter-spacing: -0.005em;
   color: var(--ink);
-  cursor: pointer;
-  padding: 2px 6px;
-  margin: -2px -6px;
-  border-radius: var(--radius-pill);
-  transition: background 160ms ease;
-}
-.presence .pseudo:hover {
-  background: var(--ground-2);
 }
 .presence .status {
   font-family: var(--mono);
@@ -203,5 +209,23 @@ const playTime = computed(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-4);
+}
+.presence .gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px -4px 0;
+  border-radius: var(--radius-pill);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+.presence .gear:hover {
+  background: var(--ground-2);
+  color: var(--ink);
 }
 </style>

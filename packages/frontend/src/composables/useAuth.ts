@@ -5,9 +5,12 @@ import { useNationalityModal } from "./useNationalityModal";
 import { authBaseUrl } from "../data/authBaseUrl";
 
 // The authenticated contributor as exposed by GET /auth/session. pseudo and
-// country are null until the user completes the forced onboarding steps.
+// country are null until the user completes the forced onboarding steps. guest
+// is true for an in-site guest (no Google account), which drives the account-sync
+// affordance in the options menu.
 export type SessionUser = {
   id: string;
+  guest: boolean;
   name?: string | null;
   image?: string | null;
   pseudo: string | null;
@@ -24,6 +27,10 @@ const GUEST_CLAIM_TOKEN_KEY = "mpp.guestClaimToken";
 
 const user = ref<SessionUser | null>(null);
 const ready = ref(false);
+// False while a guest-claim is pending on boot, so the onboarding gate does not
+// flash a forced-pseudo modal at a freshly synced Google account before the
+// claim carries over the guest's pseudo and country.
+const claimSettled = ref(true);
 // Pseudo captured in the first guest-onboarding modal, sent with the country to
 // POST /guest in the second.
 const guestPseudo = ref<string | null>(null);
@@ -163,16 +170,73 @@ async function createGuest(pseudo: string, country: string): Promise<GuestResult
   }
 }
 
-// App boot and return-from-redirect: resolve the session and, for a user who
-// already finished onboarding, restore contributor mode. The forced onboarding
-// itself is deferred to startOnboardingIfNeeded, which the app only runs on
-// /play.
-async function bootstrap(): Promise<void> {
-  const u = await getSession();
-  if (!u) return;
-  if (u.pseudo !== null && u.country !== null) {
-    useMode().setMode("contributor");
+function hasClaimToken(): boolean {
+  try {
+    return localStorage.getItem(GUEST_CLAIM_TOKEN_KEY) !== null;
+  } catch {
+    return false;
   }
+}
+
+function clearClaimToken(): void {
+  try {
+    localStorage.removeItem(GUEST_CLAIM_TOKEN_KEY);
+  } catch {
+    // best effort: a leftover token only triggers a redundant claim that 404s
+  }
+}
+
+// Reattribute the stored guest's contributions to the now signed-in Google
+// account (POST /guest/claim), carrying over its pseudo and country. A 200
+// updates the session user and consumes the token; a 404 means the token is
+// stale (guest already claimed or gone), so it is dropped; any other status
+// keeps the token for a later retry (a 409 self-claim means we are still the
+// guest, so a sync has not happened yet).
+async function claimGuestContributions(): Promise<void> {
+  let token: string | null = null;
+  try {
+    token = localStorage.getItem(GUEST_CLAIM_TOKEN_KEY);
+  } catch {
+    return;
+  }
+  if (!token) return;
+  try {
+    const res = await fetch(`${authBaseUrl()}/guest/claim`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claimToken: token }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { user: SessionUser };
+      user.value = data.user;
+      clearClaimToken();
+      return;
+    }
+    if (res.status === 404) clearClaimToken();
+  } catch {
+    // network error: keep the token, a later boot retries
+  }
+}
+
+// App boot and return-from-redirect: resolve the session and, for a user who
+// already finished onboarding, restore contributor mode. A stored claim token on
+// a non-guest (Google) session means the user just synced: the guest's
+// contributions are claimed before onboarding runs, so the carried-over pseudo
+// and country suppress the forced modals. The forced onboarding itself is
+// deferred to startOnboardingIfNeeded, which the app only runs on /play.
+async function bootstrap(): Promise<void> {
+  const maybeClaim = hasClaimToken();
+  if (maybeClaim) claimSettled.value = false;
+  const u = await getSession();
+  if (!u) {
+    claimSettled.value = true;
+    return;
+  }
+  if (maybeClaim && u.guest === false) await claimGuestContributions();
+  const c = user.value;
+  if (c && c.pseudo !== null && c.country !== null) useMode().setMode("contributor");
+  claimSettled.value = true;
 }
 
 // Identity gate for /play, run once the session has resolved. A fresh visitor
@@ -196,6 +260,7 @@ export function useAuth() {
   return {
     user: computed(() => user.value),
     ready: computed(() => ready.value),
+    claimSettled: computed(() => claimSettled.value),
     getSession,
     signIn,
     signOut,

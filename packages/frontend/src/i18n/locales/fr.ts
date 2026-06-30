@@ -54,14 +54,9 @@ const fr: MessageSchema = {
     playTime: "Temps de jeu",
     puzzleProgress: "Progression du puzzle",
     connected: "Connecté",
-    nationalityTitle: "Nationalité : {code}. Cliquez pour changer.",
-    signedInAs: "Connecté en tant que {pseudo}. Cliquez pour changer.",
-  },
-  contribute: {
-    spectatorMode: "Mode spectateur",
-    status: "Vous êtes actuellement en mode spectateur",
-    prompt: "Devenir contributeur",
-    cta: "Contribuer",
+    nationalityTitle: "Nationalité : {code}",
+    signedInAs: "Connecté en tant que {pseudo}",
+    options: "Options du compte",
   },
   zoom: {
     in: "Zoom avant",
@@ -80,9 +75,17 @@ const fr: MessageSchema = {
     label: "Mini-carte",
   },
   auth: {
-    title: "Devenir contributeur",
-    lede: "Connectez-vous pour poser des pièces sur le canevas sous votre pseudo. Le mode spectateur reste ouvert à tous.",
+    title: "Synchroniser votre compte",
+    lede: "Connectez-vous avec Google pour conserver vos contributions de façon permanente et les réunir sous un seul compte.",
     continueGoogle: "Continuer avec Google",
+  },
+  options: {
+    title: "Compte",
+    sync: "Synchroniser le compte",
+    syncHint: "Connectez-vous avec Google pour conserver vos contributions de façon permanente.",
+    changePseudo: "Changer de pseudo",
+    changeCountry: "Changer de pays",
+    signOut: "Se déconnecter",
   },
   pseudo: {
     titleEdit: "Changer de pseudo",

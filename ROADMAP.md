@@ -116,7 +116,7 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 
 ### `frontend-shell`
 - [x] Single "Play" entry (Chantier A): the landing CTA goes straight to `/play`; on arrival a guest is minted in-site (pseudo then country modal, `POST /guest`) or an existing session is reused, then the WS connects. No spectator/contributor mode toggle remains in the UI (the spectator transport still cohabits, retired in Chantier C)
-- [ ] Options menu (Chantier A): a gear icon by the pseudo (top-right) opens a modal (sync account, sign out, change pseudo, change country), replacing the "become a contributor" card above the minimap. Exit: `ContributeFab` removed, the gear modal drives sync/sign-out/profile edits
+- [x] Options menu (Chantier A): a gear icon by the pseudo (top-right) opens a modal (sync account, sign out, change pseudo, change country), replacing the "become a contributor" card above the minimap. `ContributeFab` removed; sync hands off to the (repurposed) auth modal, which on return claims the guest's contributions. See DECISIONS
 
 ### `backend-realtime`
 - [ ] Admission queue (Chantier B): a global cap (`MPP_MAX_ACTIVE_CONNECTIONS`) on `hub.allClients().size`, a ticket queue (`POST /queue/ticket`, `GET /queue/status`) issuing TTL'd grants, the WS upgrade admitting `?grant=`. Exit: past the cap a new client waits and is admitted when a slot frees. See DECISIONS

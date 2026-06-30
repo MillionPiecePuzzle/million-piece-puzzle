@@ -69,15 +69,17 @@ export function buildAuthConfig(opts: AuthConfigOptions): ExpressAuthConfig {
         if (url.startsWith("/")) return `${baseUrl}${url}`;
         return opts.appOrigin;
       },
-      // Database strategy: surface the user id, pseudo and country so
-      // GET /auth/session can drive the forced onboarding steps and snap
-      // attribution.
+      // Database strategy: surface the user id, pseudo, country and guest flag so
+      // GET /auth/session can drive the forced onboarding steps, snap attribution
+      // and the account-sync affordance (shown for a guest, hidden for a Google
+      // account).
       session({ session, user }) {
         session.user.id = user.id;
         (session.user as { pseudo?: string | null }).pseudo =
           (user as { pseudo?: string | null }).pseudo ?? null;
         (session.user as { country?: string | null }).country =
           (user as { country?: string | null }).country ?? null;
+        (session.user as { guest?: boolean }).guest = (user as { guest?: boolean }).guest ?? false;
         return session;
       },
     },

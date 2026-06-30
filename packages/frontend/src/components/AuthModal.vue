@@ -1,31 +1,23 @@
 <script setup lang="ts">
-import { watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAuthModal } from "../composables/useAuthModal";
 import { useAuth } from "../composables/useAuth";
-import { usePuzzleSession } from "../composables/usePuzzleSession";
 
 const { t } = useI18n();
 const { open, hide } = useAuthModal();
 const { signIn } = useAuth();
-const { completed } = usePuzzleSession();
-
-// A finished puzzle has no contributor entry point: close the modal if it is
-// open when completion lands and keep it from rendering afterwards.
-watch(completed, (done) => {
-  if (done) hide();
-});
 
 function continueWithGoogle() {
-  // Navigates away to Google; the forced pseudo modal is shown on return when
-  // the session has no pseudo yet (see useAuth.bootstrap).
+  // Navigates away to Google; on return the guest's contributions are claimed
+  // into this account and the carried-over pseudo/country skip onboarding (see
+  // useAuth.bootstrap).
   void signIn("google");
 }
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="open && !completed" class="auth-backdrop" @click.self="hide">
+    <div v-if="open" class="auth-backdrop" @click.self="hide">
       <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
         <header>
           <h2 id="auth-title">{{ t("auth.title") }}</h2>

@@ -52,14 +52,9 @@ const en = {
     playTime: "Play time",
     puzzleProgress: "Puzzle progress",
     connected: "Connected",
-    nationalityTitle: "Nationality: {code}. Click to change.",
-    signedInAs: "Signed in as {pseudo}. Click to change.",
-  },
-  contribute: {
-    spectatorMode: "Spectator mode",
-    status: "You are currently in spectator mode",
-    prompt: "Become a contributor",
-    cta: "Contribute",
+    nationalityTitle: "Nationality: {code}",
+    signedInAs: "Signed in as {pseudo}",
+    options: "Account options",
   },
   zoom: {
     in: "Zoom in",
@@ -78,9 +73,17 @@ const en = {
     label: "Minimap",
   },
   auth: {
-    title: "Become a contributor",
-    lede: "Sign in to drop pieces on the canvas under your pseudo. Spectator mode stays open to everyone.",
+    title: "Sync your account",
+    lede: "Sign in with Google to save your contributions permanently and keep them under one account.",
     continueGoogle: "Continue with Google",
+  },
+  options: {
+    title: "Account",
+    sync: "Sync account",
+    syncHint: "Sign in with Google to save your contributions permanently.",
+    changePseudo: "Change pseudo",
+    changeCountry: "Change country",
+    signOut: "Sign out",
   },
   pseudo: {
     titleEdit: "Change your pseudo",

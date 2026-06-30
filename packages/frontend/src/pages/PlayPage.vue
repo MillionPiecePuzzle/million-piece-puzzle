@@ -8,7 +8,6 @@ import ActivityTicker from "../components/ActivityTicker.vue";
 import LeaderboardPanel from "../components/LeaderboardPanel.vue";
 import ReferencePanel from "../components/ReferencePanel.vue";
 import MiniMap from "../components/MiniMap.vue";
-import ContributeFab from "../components/ContributeFab.vue";
 import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
 import { GRID_WORLD_CELL } from "@mpp/shared";
@@ -38,8 +37,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
         <ActivityTicker />
         <LeaderboardPanel />
         <ReferencePanel />
-        <div class="corner-stack">
-          <ContributeFab />
+        <div class="minimap-corner">
           <MiniMap />
         </div>
         <DevControls v-if="devButtonsEnabled" />
@@ -80,16 +78,13 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   background-position: var(--grid-x, 0) var(--grid-y, 0);
 }
 
-/* Stacks the Contribute card above the minimap with a fixed gap, so the
-   spacing holds whatever height the minimap takes for the play zone shape. */
-.corner-stack {
+/* Anchors the minimap to the bottom-right corner of the stage. */
+.minimap-corner {
   position: absolute;
   right: 16px;
   bottom: 16px;
   z-index: 30;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 16px;
+  justify-content: flex-end;
 }
 </style>

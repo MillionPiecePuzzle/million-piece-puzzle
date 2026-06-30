@@ -54,14 +54,9 @@ const es: MessageSchema = {
     playTime: "Tiempo de juego",
     puzzleProgress: "Progreso del puzle",
     connected: "Conectado",
-    nationalityTitle: "Nacionalidad: {code}. Haz clic para cambiar.",
-    signedInAs: "Conectado como {pseudo}. Haz clic para cambiar.",
-  },
-  contribute: {
-    spectatorMode: "Modo espectador",
-    status: "Actualmente estás en modo espectador",
-    prompt: "Conviértete en colaborador",
-    cta: "Colaborar",
+    nationalityTitle: "Nacionalidad: {code}",
+    signedInAs: "Conectado como {pseudo}",
+    options: "Opciones de la cuenta",
   },
   zoom: {
     in: "Acercar",
@@ -80,9 +75,17 @@ const es: MessageSchema = {
     label: "Minimapa",
   },
   auth: {
-    title: "Conviértete en colaborador",
-    lede: "Inicia sesión para colocar piezas en el lienzo con tu pseudónimo. El modo espectador sigue abierto para todos.",
+    title: "Sincroniza tu cuenta",
+    lede: "Inicia sesión con Google para guardar tus contribuciones de forma permanente y reunirlas en una sola cuenta.",
     continueGoogle: "Continuar con Google",
+  },
+  options: {
+    title: "Cuenta",
+    sync: "Sincronizar cuenta",
+    syncHint: "Inicia sesión con Google para guardar tus contribuciones de forma permanente.",
+    changePseudo: "Cambiar pseudónimo",
+    changeCountry: "Cambiar país",
+    signOut: "Cerrar sesión",
   },
   pseudo: {
     titleEdit: "Cambiar tu pseudónimo",
