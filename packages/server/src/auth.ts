@@ -5,9 +5,25 @@
 // instance backs both the HTTP auth routes and the WS upgrade, which reads the
 // parent-domain session cookie to authenticate the connection.
 
+import { createHash, randomBytes } from "node:crypto";
 import type { ExpressAuthConfig } from "@auth/express";
 import Google from "@auth/express/providers/google";
 import type { Adapter, AdapterSession, AdapterUser } from "@auth/core/adapters";
+
+// Guest session lifetime, matching the Auth.js database-session default (30 days)
+// so a guest cookie ages out like a Google one.
+export const GUEST_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+// Claim token handed to a guest at creation (stored client-side) and verified by
+// POST /guest/claim. Only its sha256 is stored on the guest doc, so a leaked
+// database row cannot impersonate the guest, the same posture as a session token.
+export function generateClaimToken(): string {
+  return randomBytes(32).toString("hex");
+}
+
+export function hashClaimToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 export type AuthConfigOptions = {
   adapter: Adapter;

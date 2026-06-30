@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage } from "node:http";
+import { randomUUID } from "node:crypto";
 import { Redis as IORedis } from "ioredis";
 import { MongoClient } from "mongodb";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
@@ -20,7 +21,12 @@ import { GroupIndex } from "./groupIndex.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { KeyframePublisher, makeKeyframeHandler, makeEventsHandler } from "./keyframe.js";
 import { EventLog } from "./eventLog.js";
-import { buildAuthConfig, resolveSessionUser } from "./auth.js";
+import {
+  buildAuthConfig,
+  resolveSessionUser,
+  sessionCookieName,
+  GUEST_SESSION_MAX_AGE_MS,
+} from "./auth.js";
 import { createApp } from "./httpApp.js";
 import { RedisInterested } from "./interested.js";
 
@@ -135,6 +141,19 @@ async function main(): Promise<void> {
     appOrigin: config.appOrigin,
   });
 
+  // Mint a guest's DB session through the same adapter the WS gate resolves, so a
+  // guest cookie is accepted identically to a Google one. The token is a random
+  // UUID in the Auth.js database-session shape; createSession stores it.
+  const guestSessionMinter = {
+    async mint(userId: string): Promise<{ token: string; expires: Date }> {
+      if (!adapter.createSession) throw new Error("auth adapter has no createSession");
+      const token = randomUUID();
+      const expires = new Date(Date.now() + GUEST_SESSION_MAX_AGE_MS);
+      await adapter.createSession({ sessionToken: token, userId, expires });
+      return { token, expires };
+    },
+  };
+
   // Spectator stream: a keyframe (full state, regenerated only while the event is
   // live) plus an ordered event log of drops and snaps addressed as immutable
   // wall-clock windows. The publisher keeps the latest keyframe body in memory;
@@ -231,6 +250,11 @@ async function main(): Promise<void> {
     authConfig,
     pseudoStore: mongo,
     countryStore: mongo,
+    guestStore: mongo,
+    guestSessionMinter,
+    authCookieName: sessionCookieName(config.authSecure),
+    authSecure: config.authSecure,
+    authCookieDomain: config.authCookieDomain,
     authLimiter: new RedisFixedWindow(redis, "auth", config.authRateMax, config.authRateWindowSec),
     signupLimiter: new RedisFixedWindow(
       redis,

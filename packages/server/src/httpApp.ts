@@ -10,6 +10,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { normalizeCountry, normalizePseudo } from "@mpp/shared";
 import type { ActivityItem, LandingResponse, LeaderboardEntry } from "@mpp/shared";
 import { clientIp, type RedisFixedWindow } from "./limits.js";
+import { generateClaimToken, hashClaimToken } from "./auth.js";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
 import {
   makeAdminAuth,
@@ -26,6 +27,22 @@ export type PseudoStore = {
 
 export type CountryStore = {
   setCountry: (userId: string, country: string) => Promise<UserProfile>;
+};
+
+export type GuestStore = {
+  createGuest: (input: {
+    pseudo: string;
+    country: string;
+    claimTokenHash: string;
+  }) => Promise<{ id: string; user: UserProfile }>;
+};
+
+// Mints the DB session for a freshly created guest and returns the raw session
+// token + expiry for the cookie. Implemented over the Auth.js adapter's
+// createSession in index.ts, the same store the WS upgrade reads, so a guest
+// cookie passes the session gate with no change to the gate.
+export type GuestSessionMinter = {
+  mint: (userId: string) => Promise<{ token: string; expires: Date }>;
 };
 
 export type InterestedStore = {
@@ -47,6 +64,13 @@ export type CreateAppDeps = {
   authConfig: ExpressAuthConfig;
   pseudoStore: PseudoStore;
   countryStore: CountryStore;
+  guestStore: GuestStore;
+  guestSessionMinter: GuestSessionMinter;
+  // Session cookie identity, mirrored from the Auth.js cookie config so a guest
+  // cookie is indistinguishable from a Google one to the WS gate.
+  authCookieName: string;
+  authSecure: boolean;
+  authCookieDomain: string;
   authLimiter: RedisFixedWindow;
   signupLimiter: RedisFixedWindow;
   spectatorLimiter: RedisFixedWindow;
@@ -112,13 +136,29 @@ export function createApp(deps: CreateAppDeps): Express {
   );
 
   // Credentialed CORS for the SPA, then the per-IP auth-route window.
-  app.use(["/auth", "/profile"], makeCors(deps.appOrigin));
-  app.use(["/auth", "/profile"], makeRateLimit(deps.authLimiter, deps.devEnabled));
+  app.use(["/auth", "/profile", "/guest"], makeCors(deps.appOrigin));
+  app.use(["/auth", "/profile", "/guest"], makeRateLimit(deps.authLimiter, deps.devEnabled));
   // Stricter per-IP window on the OAuth callback (the GET redirect Google sends
   // back), the account-creation chokepoint. Runs in addition to the auth window.
   app.use("/auth/callback/google", makeRateLimit(deps.signupLimiter, deps.devEnabled));
 
   app.use("/auth/*", ExpressAuth(deps.authConfig));
+
+  // Guest mint: a real User + DB session with no Google step. The signup window
+  // (the same account-creation chokepoint the OAuth callback uses) is route-scoped
+  // here so it caps guest creation per IP without touching future /guest/* routes.
+  app.post(
+    "/guest",
+    makeRateLimit(deps.signupLimiter, deps.devEnabled),
+    express.json(),
+    makeGuestHandler({
+      guestStore: deps.guestStore,
+      sessionMinter: deps.guestSessionMinter,
+      cookieName: deps.authCookieName,
+      cookieSecure: deps.authSecure,
+      cookieDomain: deps.authCookieDomain,
+    }),
+  );
 
   app.post(
     "/profile/pseudo",
@@ -368,6 +408,61 @@ export function makeProfileCountryHandler(deps: ProfileCountryDeps) {
       res.status(200).json({ user: profile });
     } catch (e) {
       console.error("[profile/country]", (e as Error).message);
+      res.status(500).json({ error: "server" });
+    }
+  };
+}
+
+export type GuestDeps = {
+  guestStore: GuestStore;
+  sessionMinter: GuestSessionMinter;
+  cookieName: string;
+  cookieSecure: boolean;
+  cookieDomain: string;
+};
+
+// POST /guest: mint a guest User (chosen unique pseudo + country, no email) plus a
+// DB session, set the session cookie, and return the profile with the one-time
+// claim token (the client stores it for a later account sync). A taken pseudo is
+// the same 409 a Google account's pseudo change gets, off the same partial-unique
+// index. The session is minted through the Auth.js adapter (see the minter), so
+// the returned cookie passes the WS session gate unchanged.
+export function makeGuestHandler(deps: GuestDeps) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const body = req.body as { pseudo?: unknown; country?: unknown } | undefined;
+    const pseudo = normalizePseudo(body?.pseudo);
+    if (pseudo === null) {
+      res.status(400).json({ error: "invalid_pseudo" });
+      return;
+    }
+    const country = normalizeCountry(body?.country);
+    if (country === null) {
+      res.status(400).json({ error: "invalid_country" });
+      return;
+    }
+    const claimToken = generateClaimToken();
+    try {
+      const { id, user } = await deps.guestStore.createGuest({
+        pseudo,
+        country,
+        claimTokenHash: hashClaimToken(claimToken),
+      });
+      const session = await deps.sessionMinter.mint(id);
+      res.cookie(deps.cookieName, session.token, {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: deps.cookieSecure,
+        expires: session.expires,
+        ...(deps.cookieDomain ? { domain: deps.cookieDomain } : {}),
+      });
+      res.status(201).json({ user, claimToken });
+    } catch (e) {
+      if (e instanceof DuplicatePseudoError) {
+        res.status(409).json({ error: "pseudo_taken" });
+        return;
+      }
+      console.error("[guest]", (e as Error).message);
       res.status(500).json({ error: "server" });
     }
   };

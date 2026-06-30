@@ -111,7 +111,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 Migration order under the single prod, no staging: A is pure addition (the spectator still cohabits), B puts the admission safety valve in place before C removes the CDN read-path. Each ships on its own and leaves the app working.
 
 ### `auth-and-accounts`
-- [ ] Guest players (Chantier A): `POST /guest` mints a real User (`guest:true`, chosen unique pseudo + country, no email) plus a DB session, rate-limited per IP; the WS session gate is unchanged. Exit: a fresh visitor reaches `/play` and drags a piece with no Google step. See DECISIONS
+- [~] Guest players (Chantier A): `POST /guest` mints a real User (`guest:true`, chosen unique pseudo + country, no email) plus a DB session, rate-limited per IP; the WS session gate is unchanged. Exit: a fresh visitor reaches `/play` and drags a piece with no Google step. Backend landed (endpoint, schema, session, indexes). Pending: the Single Play entry that calls it. See DECISIONS
 - [ ] Claim on sign-in (Chantier A): `POST /guest/claim` reattributes the guest's `cluster_merges` to the Google user, carries over pseudo/country, deletes the guest doc; one path for new and existing Google accounts. Exit: a guest who placed pieces then signs in keeps them credited under one identity. See DECISIONS
 
 ### `frontend-shell`

@@ -8,7 +8,7 @@
  * `sessions` (it creates the documents) but does NOT create their indexes, so
  * the server ensures them at boot (see server `ensureIndexes`):
  *   users.pseudo            partial-unique (only docs where pseudo is a string)
- *   users.email             unique
+ *   users.email             partial-unique (only docs where email is a string; guests have none)
  *   accounts (provider, providerAccountId)    unique
  *   sessions.sessionToken   unique
  *   cluster_merges (puzzleId, at)             timelapse replay
@@ -31,19 +31,26 @@ export type Puzzle = {
   completedAt: Date | null;
 };
 
-// Authenticated contributor. The OAuth profile fields (email, name, image) are
-// written by the Auth.js adapter on first sign-in; pseudo and country are set
-// later through the forced onboarding modals and are null until then. pseudo is
-// the public-facing identity shown for snap attribution; country is an ISO
-// 3166-1 alpha-2 code shown as a flag avatar in the leaderboard.
+// A contributor. Two ways to exist: a guest (minted by POST /guest with a chosen
+// pseudo + country and no email) or a Google account (the OAuth profile fields
+// email, name, image are written by the Auth.js adapter on first sign-in). For a
+// Google account pseudo and country are null until the forced onboarding modals
+// set them; a guest carries them from creation. pseudo is the public-facing
+// identity shown for snap attribution; country is an ISO 3166-1 alpha-2 code
+// shown as a flag avatar in the leaderboard. claimTokenHash is set on a guest:
+// it is the sha256 of the claim token handed to the client at creation, which
+// POST /guest/claim verifies to reattribute the guest's contributions to a
+// Google account.
 export type User = {
   _id: string;
-  email: string;
+  guest: boolean;
+  email: string | null;
   name?: string | null;
   image?: string | null;
   emailVerified?: Date | null;
   pseudo: string | null;
   country: string | null;
+  claimTokenHash: string | null;
   createdAt: Date;
   lastSeenAt: Date;
 };

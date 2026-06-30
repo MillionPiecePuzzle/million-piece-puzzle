@@ -1,11 +1,35 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Adapter } from "@auth/core/adapters";
-import { readCookie, sessionCookieName, resolveSessionUser } from "./auth.js";
+import {
+  readCookie,
+  sessionCookieName,
+  resolveSessionUser,
+  generateClaimToken,
+  hashClaimToken,
+} from "./auth.js";
 
 describe("sessionCookieName", () => {
   it("prefixes with __Secure- only when secure", () => {
     expect(sessionCookieName(true)).toBe("__Secure-authjs.session-token");
     expect(sessionCookieName(false)).toBe("authjs.session-token");
+  });
+});
+
+describe("claim token", () => {
+  it("generates a 32-byte hex token, distinct each call", () => {
+    const a = generateClaimToken();
+    const b = generateClaimToken();
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(b).toMatch(/^[0-9a-f]{64}$/);
+    expect(a).not.toBe(b);
+  });
+
+  it("hashes a token to a stable sha256 that is not the token", () => {
+    const token = generateClaimToken();
+    const hash = hashClaimToken(token);
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(hash).toBe(hashClaimToken(token));
+    expect(hash).not.toBe(token);
   });
 });
 

@@ -3,15 +3,19 @@ import type { Request, Response } from "express";
 import {
   makeProfilePseudoHandler,
   makeProfileCountryHandler,
+  makeGuestHandler,
   makeCors,
   makeRateLimit,
   makeSpectatorGuard,
   makeLandingHandler,
   makeInterestedHandler,
+  type GuestStore,
+  type GuestSessionMinter,
   type InterestedStore,
   type LandingSnapshot,
 } from "./httpApp.js";
 import type { LandingResponse } from "@mpp/shared";
+import { hashClaimToken } from "./auth.js";
 import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
 import { RedisFixedWindow } from "./limits.js";
 import type { Redis } from "ioredis";
@@ -22,8 +26,13 @@ function fakeRes() {
     body: undefined as unknown,
     ended: false,
     headers: {} as Record<string, string>,
+    cookies: [] as { name: string; value: string; options: Record<string, unknown> }[],
   };
   const r = res as unknown as Response & typeof res;
+  r.cookie = vi.fn((name: string, value: string, options: Record<string, unknown>) => {
+    res.cookies.push({ name, value, options });
+    return r;
+  }) as unknown as Response["cookie"];
   r.status = vi.fn((code: number) => {
     res.statusCode = code;
     return r;
@@ -52,7 +61,14 @@ function fakeRes() {
   return r;
 }
 
-const profile: UserProfile = { id: "u1", name: "N", image: null, pseudo: "Alice", country: "fr" };
+const profile: UserProfile = {
+  id: "u1",
+  guest: false,
+  name: "N",
+  image: null,
+  pseudo: "Alice",
+  country: "fr",
+};
 
 describe("makeProfilePseudoHandler", () => {
   it("401 when no session user", async () => {
@@ -171,6 +187,161 @@ describe("makeProfileCountryHandler", () => {
     const res = fakeRes();
     await handler({ body: { country: "fr" } } as Request, res);
     expect((res as unknown as { statusCode: number }).statusCode).toBe(500);
+  });
+});
+
+describe("makeGuestHandler", () => {
+  const guestProfile: UserProfile = {
+    id: "g1",
+    guest: true,
+    name: null,
+    image: null,
+    pseudo: "Alice",
+    country: "fr",
+  };
+  const okStore = (): GuestStore => ({
+    createGuest: vi.fn(
+      async (_input: { pseudo: string; country: string; claimTokenHash: string }) => ({
+        id: "g1",
+        user: guestProfile,
+      }),
+    ),
+  });
+  const okMinter = (
+    token = "sess-tok",
+    expires = new Date(Date.now() + 1000),
+  ): GuestSessionMinter => ({
+    mint: vi.fn(async () => ({ token, expires })),
+  });
+
+  it("400 on an invalid pseudo, minting nothing", async () => {
+    const store = okStore();
+    const minter = okMinter();
+    const handler = makeGuestHandler({
+      guestStore: store,
+      sessionMinter: minter,
+      cookieName: "authjs.session-token",
+      cookieSecure: false,
+      cookieDomain: "",
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "x", country: "fr" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(store.createGuest).not.toHaveBeenCalled();
+    expect(minter.mint).not.toHaveBeenCalled();
+  });
+
+  it("400 on an invalid country, minting nothing", async () => {
+    const store = okStore();
+    const handler = makeGuestHandler({
+      guestStore: store,
+      sessionMinter: okMinter(),
+      cookieName: "authjs.session-token",
+      cookieSecure: false,
+      cookieDomain: "",
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "Alice", country: "zz" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(store.createGuest).not.toHaveBeenCalled();
+  });
+
+  it("201 mints the guest, stores the hash of the returned token, and sets the cookie", async () => {
+    const store = okStore();
+    const expires = new Date(Date.now() + 1000);
+    const minter = okMinter("sess-tok", expires);
+    const handler = makeGuestHandler({
+      guestStore: store,
+      sessionMinter: minter,
+      cookieName: "__Secure-authjs.session-token",
+      cookieSecure: true,
+      cookieDomain: ".mpp.test",
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "  Alice  ", country: "FR" } } as Request, res);
+    const r = res as unknown as {
+      statusCode: number;
+      body: { user: UserProfile; claimToken: string };
+      cookies: { name: string; value: string; options: Record<string, unknown> }[];
+    };
+    expect(r.statusCode).toBe(201);
+    const call = (store.createGuest as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      pseudo: string;
+      country: string;
+      claimTokenHash: string;
+    };
+    // pseudo trimmed/collapsed, country lowercased before minting.
+    expect(call.pseudo).toBe("Alice");
+    expect(call.country).toBe("fr");
+    // The stored value is the sha256 of the token handed back, never the token itself.
+    expect(call.claimTokenHash).toBe(hashClaimToken(r.body.claimToken));
+    expect(call.claimTokenHash).not.toBe(r.body.claimToken);
+    expect(minter.mint).toHaveBeenCalledWith("g1");
+    expect(r.body.user).toEqual(guestProfile);
+    expect(r.cookies).toHaveLength(1);
+    expect(r.cookies[0]).toMatchObject({
+      name: "__Secure-authjs.session-token",
+      value: "sess-tok",
+    });
+    expect(r.cookies[0].options).toMatchObject({
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      secure: true,
+      domain: ".mpp.test",
+      expires,
+    });
+  });
+
+  it("omits the cookie domain when host-only", async () => {
+    const handler = makeGuestHandler({
+      guestStore: okStore(),
+      sessionMinter: okMinter("t", new Date()),
+      cookieName: "authjs.session-token",
+      cookieSecure: false,
+      cookieDomain: "",
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "Alice", country: "fr" } } as Request, res);
+    const r = res as unknown as { cookies: { options: Record<string, unknown> }[] };
+    expect(r.cookies[0].options).not.toHaveProperty("domain");
+    expect(r.cookies[0].options.secure).toBe(false);
+  });
+
+  it("409 when the pseudo is taken", async () => {
+    const handler = makeGuestHandler({
+      guestStore: {
+        createGuest: async () => {
+          throw new DuplicatePseudoError();
+        },
+      },
+      sessionMinter: okMinter(),
+      cookieName: "authjs.session-token",
+      cookieSecure: false,
+      cookieDomain: "",
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "Alice", country: "fr" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(409);
+  });
+
+  it("500 and no cookie when the session mint fails", async () => {
+    const handler = makeGuestHandler({
+      guestStore: okStore(),
+      sessionMinter: {
+        mint: async () => {
+          throw new Error("boom");
+        },
+      },
+      cookieName: "authjs.session-token",
+      cookieSecure: false,
+      cookieDomain: "",
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "Alice", country: "fr" } } as Request, res);
+    const r = res as unknown as { statusCode: number; cookies: unknown[] };
+    expect(r.statusCode).toBe(500);
+    expect(r.cookies).toHaveLength(0);
   });
 });
 

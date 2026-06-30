@@ -3,23 +3,29 @@ import type { ActivityItem, ClusterMerge, LeaderboardEntry } from "@mpp/shared";
 
 export type ClusterMergeDoc = Omit<ClusterMerge, "_id">;
 
-// User document as written by the Auth.js Mongo adapter (OAuth profile) plus the
-// fields this app adds: pseudo and country (set through onboarding), createdAt,
+// User document: either a guest (minted by createGuest, no email, carries
+// claimTokenHash) or a Google account written by the Auth.js Mongo adapter (OAuth
+// profile). Both carry the fields this app adds: pseudo and country, createdAt,
 // lastSeenAt.
 type UserDoc = {
   _id: ObjectId;
+  guest?: boolean;
   email?: string;
   name?: string | null;
   image?: string | null;
   pseudo?: string | null;
   country?: string | null;
+  claimTokenHash?: string | null;
   createdAt?: Date;
   lastSeenAt?: Date;
 };
 
-// Public-facing profile returned to the SPA after a pseudo or country update.
+// Public-facing profile returned to the SPA after a guest mint or a pseudo /
+// country update. guest lets the client show the account-sync affordance to a
+// guest and hide it for a Google account.
 export type UserProfile = {
   id: string;
+  guest: boolean;
   name: string | null;
   image: string | null;
   pseudo: string | null;
@@ -160,6 +166,35 @@ export class MongoLogger {
     return { firstAt: first.at.getTime(), lastAt: last.at.getTime() };
   }
 
+  // Mint a guest: a real User with guest:true, the chosen pseudo and country, no
+  // email, and the claim token hash. The pseudo passes through the same
+  // partial-unique index as a Google account's, so a taken pseudo surfaces the
+  // same DuplicatePseudoError (the route maps it to 409). Returns the new id (for
+  // the session) and the public profile.
+  async createGuest(input: {
+    pseudo: string;
+    country: string;
+    claimTokenHash: string;
+  }): Promise<{ id: string; user: UserProfile }> {
+    const now = new Date();
+    const doc: UserDoc = {
+      _id: new ObjectId(),
+      guest: true,
+      pseudo: input.pseudo,
+      country: input.country,
+      claimTokenHash: input.claimTokenHash,
+      createdAt: now,
+      lastSeenAt: now,
+    };
+    try {
+      await this.users.insertOne(doc);
+    } catch (e) {
+      if ((e as { code?: number }).code === MONGO_DUPLICATE_KEY) throw new DuplicatePseudoError();
+      throw e;
+    }
+    return { id: doc._id.toString(), user: toProfile(doc) };
+  }
+
   // Set a contributor's pseudo, enforcing global uniqueness through the
   // partial-unique index. A duplicate surfaces as DuplicatePseudoError.
   async setPseudo(userId: string, pseudo: string): Promise<UserProfile> {
@@ -198,6 +233,7 @@ export class MongoLogger {
 function toProfile(doc: UserDoc): UserProfile {
   return {
     id: doc._id.toString(),
+    guest: doc.guest ?? false,
     name: doc.name ?? null,
     image: doc.image ?? null,
     pseudo: doc.pseudo ?? null,
@@ -212,14 +248,35 @@ export async function ensureIndexes(db: Db): Promise<void> {
     { key: { puzzleId: 1, at: 1 }, name: "puzzleId_at" },
     { key: { puzzleId: 1, droppedPieceIds: 1 }, name: "puzzleId_droppedPieces" },
   ]);
-  await db.collection("users").createIndexes([
+  // email was a plain unique index before guests existed. Guests have no email,
+  // so it becomes partial-unique (only docs where email is a string).
+  // createIndexes cannot redefine an existing index name with new options, so the
+  // legacy non-partial index is dropped first: a no-op on a fresh DB or once it is
+  // already partial.
+  const users = db.collection("users");
+  try {
+    const emailIdx = (await users.indexes()).find(
+      (i) => (i as { name?: string }).name === "email_unique",
+    ) as { partialFilterExpression?: unknown } | undefined;
+    if (emailIdx && !emailIdx.partialFilterExpression) await users.dropIndex("email_unique");
+  } catch (e) {
+    // NamespaceNotFound (the users collection does not exist yet) means there is
+    // nothing to drop.
+    if ((e as { code?: number }).code !== 26) throw e;
+  }
+  await users.createIndexes([
     {
       key: { pseudo: 1 },
       name: "pseudo_unique",
       unique: true,
       partialFilterExpression: { pseudo: { $type: "string" } },
     },
-    { key: { email: 1 }, name: "email_unique", unique: true },
+    {
+      key: { email: 1 },
+      name: "email_unique",
+      unique: true,
+      partialFilterExpression: { email: { $type: "string" } },
+    },
   ]);
   await db
     .collection("accounts")
