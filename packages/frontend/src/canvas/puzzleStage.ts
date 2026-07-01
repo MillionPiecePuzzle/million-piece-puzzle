@@ -29,7 +29,7 @@ import { resyncShouldApply } from "./resync";
 import { resolveSnap } from "./membership";
 import { cellContentPending, coalesceDirtyCells, residencyDecision } from "./reconcile";
 
-export type Mode = "spectator" | "contributor";
+export type Mode = "pending" | "contributor";
 
 // Visible world rectangle, reported to the server so it can scope drag and
 // drop broadcasts to this client. Also drives client-side frustum culling.
@@ -312,7 +312,7 @@ export class PuzzleStage {
   // Cached visible world rectangle, recomputed on every camera change and
   // resize; null until the first camera update. Drives frustum culling.
   private viewport: Viewport | null = null;
-  private mode: Mode = "spectator";
+  private mode: Mode = "pending";
   private localUserId: string | null = null;
   private callbacks: StageCallbacks | null = null;
   onCameraChange: ((camera: { x: number; y: number; zoom: number }) => void) | null = null;
