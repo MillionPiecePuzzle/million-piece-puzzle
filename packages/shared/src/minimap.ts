@@ -1,9 +1,9 @@
 // A downsampled density grid of the whole board for the minimap overview. Each
 // cell carries the count of loose and locked pieces whose body center falls in
-// it, row-major over cols*rows cells. The server computes it once per keyframe;
+// it, row-major over cols*rows cells. The server computes it once per snapshot;
 // the contributor renders this global overview decoupled from its (now partial)
-// local board, and the spectator reads the same grid from the keyframe. Cells
-// are roughly square, with the larger play-zone axis split into MINIMAP_TARGET_CELLS.
+// local board. Cells are roughly square, with the larger play-zone axis split into
+// MINIMAP_TARGET_CELLS.
 
 import type { GroupRuntime } from "./piece.js";
 import type { PlayZone } from "./playzone.js";
@@ -28,8 +28,9 @@ export type MinimapGrid = {
 const MINIMAP_TARGET_CELLS = 96;
 
 // Bins every piece into a play-zone-aligned grid by its body center, splitting
-// loose from locked so the map reads progress. Pure: drives both the keyframe
-// build and the periodic WS `minimap` broadcast off the same already-read board.
+// loose from locked so the map reads progress. Pure: the board snapshot build
+// calls it once off the already-read board, feeding the periodic WS `minimap`
+// broadcast.
 // A piece references its group for the live origin; its solved cell (id % cols,
 // id / cols) gives the body offset, so the world center is origin + offset + half.
 export function buildMinimapGrid(

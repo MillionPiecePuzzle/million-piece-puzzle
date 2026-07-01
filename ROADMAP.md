@@ -126,7 +126,7 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 - [x] Remove the spectator transport (Chantier C): the keyframe-tailing/window ingest is gone from `usePuzzleSession` and `puzzleStage` and the spectator branches from `PuzzleCanvas`; the canvas is WS-only. `landing`/`interested` moved onto the WS host (`authBaseUrl`), `VITE_SPECTATOR_BASE_URL` dropped. Manual follow-up: remove `VITE_SPECTATOR_BASE_URL` from the Cloudflare Pages env and retire the `snapshot.*` proxied hostname once the backend stream is gone
 
 ### `shared-protocol`
-- [ ] Drop the spectator wire types (Chantier C): remove `SpectatorKeyframe`/`SpectatorEvent`/`SpectatorEventWindow` and `SPECTATOR_FORMAT_VERSION`; keep the minimap grid; bump `PROTOCOL_VERSION`. Exit: build green, version asserted at handshake
+- [x] Drop the spectator wire types (Chantier C): `SpectatorKeyframe`/`SpectatorEvent`/`SpectatorEventWindow`/`compareSpectatorSeq` and `SPECTATOR_FORMAT_VERSION` are gone, the minimap grid stays, and `PROTOCOL_VERSION` is bumped to 6 (asserted at the `hello` handshake). Build green
 
 ---
 
