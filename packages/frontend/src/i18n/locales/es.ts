@@ -179,7 +179,7 @@ const es: MessageSchema = {
     discord: "servidor de Discord",
     collectedHead: "Datos recopilados",
     collectedBody:
-      "Los espectadores exploran el lienzo de forma anónima y no se crea ninguna cuenta para ellos. Cuando inicias sesión para colaborar, se almacena lo siguiente: un identificador de usuario único, el pseudónimo que eliges y el país que seleccionas durante el registro. Como el inicio de sesión usa Google, también se almacenan tu dirección de correo electrónico y tu nombre de Google. Tus contribuciones (qué piezas colocaste y cuándo) se registran y se muestran públicamente para la actividad y la clasificación. Los registros técnicos (dirección IP, navegador) los procesa el proveedor de alojamiento por motivos de seguridad y fiabilidad.",
+      "Entrar en el lienzo crea una cuenta de invitado: un identificador de usuario único, el pseudónimo que eliges y el país que seleccionas durante el registro, sin necesidad de correo electrónico. Si inicias sesión con Google para conservar tus contribuciones bajo una sola identidad, también se almacenan tu dirección de correo electrónico y tu nombre de Google. Tus contribuciones (qué piezas colocaste y cuándo) se registran y se muestran públicamente para la actividad y la clasificación. Los registros técnicos (dirección IP, navegador) los procesa el proveedor de alojamiento por motivos de seguridad y fiabilidad.",
     purposesHead: "Finalidades",
     purposesBody:
       "Los datos se usan únicamente para que el juego funcione: autenticarte, guardar tu progreso, atribuir las piezas colocadas y mostrar la clasificación. Ningún dato se vende ni se usa con fines publicitarios.",

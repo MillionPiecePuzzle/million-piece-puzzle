@@ -174,7 +174,7 @@ const en = {
     discord: "Discord server",
     collectedHead: "Data collected",
     collectedBody:
-      "Spectators browse the canvas anonymously and no account is created for them. When you sign in to contribute, the following are stored: a unique user identifier, the pseudo you choose, and the country you select during onboarding. Because sign-in uses Google, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the leaderboard. Technical logs (IP address, browser) are processed by the host for security and reliability.",
+      "Entering the canvas creates a guest account: a unique user identifier, the pseudo you choose, and the country you select during onboarding, no email required. If you sign in with Google to keep your contributions under one identity, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the leaderboard. Technical logs (IP address, browser) are processed by the host for security and reliability.",
     purposesHead: "Purposes",
     purposesBody:
       "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the leaderboard. No data is sold or used for advertising.",
