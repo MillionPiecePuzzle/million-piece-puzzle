@@ -7,7 +7,7 @@ import * as keys from "./redis/keys.js";
 
 // Per-IP fixed-window counter backed by Redis: INCR the window key, set its TTL
 // on the first hit of the window, allow while the count stays within `max`.
-// Used for the auth routes and the anonymous spectator stream, where a Redis
+// Used for the auth routes and the public landing/queue guards, where a Redis
 // counter stays correct even if the writer is later sharded, unlike the
 // in-process TokenBucket the high-frequency WS path keeps. Over-budget callers
 // get a 429.

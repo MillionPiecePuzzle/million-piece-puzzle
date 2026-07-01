@@ -206,7 +206,7 @@ async function main(): Promise<void> {
         setEventStartsAt: async (at: number) => {
           await redis.set(adminEventStart(), String(at));
           ctx.eventStartsAt = at;
-          // Push the new start into the frozen spectator keyframe immediately
+          // Push the new start into the frozen board snapshot immediately
           // rather than waiting for the next periodic regenerate.
           await keyframePublisher.regenerate(true);
         },
@@ -239,9 +239,9 @@ async function main(): Promise<void> {
     );
   }
 
-  // Express hosts the auth routes, the pseudo-profile route, the spectator
-  // stream, and (when a password is set) the admin page. The WebSocket upgrade
-  // attaches to the same http.Server below.
+  // Express hosts the auth routes, the pseudo-profile route, the public
+  // landing and queue endpoints, and (when a password is set) the admin page.
+  // The WebSocket upgrade attaches to the same http.Server below.
   const app = createApp({
     authConfig,
     pseudoStore: mongo,
@@ -500,7 +500,7 @@ async function releaseHeldGroups(ctx: Context, client: Client, hub: Hub): Promis
       if (!g || g.heldBy !== userId) continue;
       await ctx.state.releaseGroup(id);
       // Encode the held group's grid id + internal origin to the wire (permuted id
-      // + anchor world position) for both the broadcast and the spectator log.
+      // + anchor world position) for the broadcast.
       const wireId = toWireId(ctx.wire, id);
       const wireX = anchorWorldX(ctx.wire, id, g.worldX);
       const wireY = anchorWorldY(ctx.wire, id, g.worldY);

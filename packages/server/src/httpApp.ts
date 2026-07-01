@@ -289,7 +289,7 @@ export function makePublicGuard(limiter: RedisFixedWindow, devEnabled: boolean) 
         return;
       }
     } catch (e) {
-      console.error("[spectator ratelimit]", (e as Error).message);
+      console.error("[public ratelimit]", (e as Error).message);
       next();
       return;
     }
@@ -323,7 +323,7 @@ export type LandingDeps = {
 // GET /landing: the event start, the interested count and this IP's opt-in state,
 // plus the live progress/standings (from the cached keyframe snapshot) and, once
 // completed, the recap span. Fail-open on a Redis error (same posture as the
-// spectator guard): a transient outage still serves the landing, just with a
+// public guard): a transient outage still serves the landing, just with a
 // zeroed interested block. The span lookup is skipped unless completed.
 export function makeLandingHandler(deps: LandingDeps) {
   return async (req: Request, res: Response): Promise<void> => {
@@ -378,7 +378,7 @@ export function makeInterestedHandler(deps: InterestedDeps) {
 
 // Per-IP guard for the queue endpoints: wildcard CORS + no-store on every
 // response, a preflight answered 204, and a per-IP fixed window sized for a
-// waiting client's poll cadence. Unlike the spectator guard it permits a query
+// waiting client's poll cadence. Unlike the public guard it permits a query
 // string (GET /queue/status carries `ticket`), since the queue is never CDN
 // cached. Fail-open on a Redis error so a transient outage does not seal the
 // entrance.

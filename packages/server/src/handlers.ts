@@ -505,7 +505,7 @@ async function applyMerge(
   // Encode the merge for the wire once: the permuted surviving group id, the
   // anchor world position from the internal target origin, and the added pieces
   // with their grid-unit offsets from the new anchor. The same encoded shape feeds
-  // the live snap broadcast and the spectator event log.
+  // the live snap broadcast.
   const wireNewGroupId = toWireId(ctx.wire, newId);
   const wireWorldX = anchorWorldX(ctx.wire, newId, targetWorldX);
   const wireWorldY = anchorWorldY(ctx.wire, newId, targetWorldY);
