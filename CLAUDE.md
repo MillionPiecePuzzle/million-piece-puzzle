@@ -34,9 +34,7 @@ A community-built online jigsaw puzzle: 1,000,000 pieces on a single shared canv
 
 ## Architecture
 
-Read/write split for scaling:
-- Passive viewers load a CDN-cached keyframe and tail immutable event-log windows a few seconds behind live, interpolating between them (per-tick payload independent of piece count)
-- Active solvers connect via WebSocket for real-time updates
+Single real-time path: every client, guest or signed-in, connects over WebSocket, gated by an admission queue past a global connection cap (ticket + poll, first-in-first-out) so the server sheds load into an orderly wait instead of accepting connections until it falls over.
 
 Three-tier event hierarchy:
 - **Drag**: broadcast to viewport-neighbor clients only, no persistence
@@ -135,8 +133,9 @@ GitHub Organization: `MillionPiecePuzzle`
 
 ## User Flow
 
-Landing page
-- "Enter the canvas": Spectator mode (no auth, read-only, loads `GET /keyframe` then tails `GET /events/<t0>` windows)
-- "Become a contributor": Auth.js Google sign-in, then pseudo onboarding, then Player mode (can drag/drop pieces)
+Landing page has a single "Play" entry point:
+- A first-time visitor is minted an in-site guest identity (pseudo then country onboarding), with no OAuth step, and reaches the canvas immediately
+- A returning visitor's existing session is reused
+- Signing in with Google (from the options menu) claims the guest's contributions under a persistent account; pseudo and country carry over
 
-Mandatory authentication for contribution: the WebSocket upgrade requires a valid session, so anonymous connections are rejected. Pseudo stored in Mongo and shown publicly for snap attribution.
+The WebSocket upgrade always requires a valid session (guest or Google), so anonymous connections are rejected. Pseudo stored in Mongo and shown publicly for snap attribution.
