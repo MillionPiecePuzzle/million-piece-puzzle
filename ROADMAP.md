@@ -120,7 +120,7 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 
 ### `backend-realtime`
 - [x] Admission queue (Chantier B): a global cap (`MPP_MAX_ACTIVE_CONNECTIONS`) on `hub.allClients().size`, a ticket queue (`POST /queue/ticket`, `GET /queue/status`) issuing TTL'd grants, the WS upgrade admitting `?grant=`. Exit: past the cap a new client waits and is admitted when a slot frees. See DECISIONS
-- [ ] Retire the spectator read-path (Chantier C): remove `GET /keyframe` + `GET /events`, the `EventLog`, the spectator rate limiter, and the spectator-only fields of the keyframe. `KeyframePublisher`, the `minimap` broadcast and the landing snapshot are kept as-is. Exit: no public read-stream endpoint remains, minimap and landing live figures still work
+- [x] Retire the spectator read-path (Chantier C): `GET /keyframe` + `GET /events` and the `EventLog` are gone, the spectator rate limiter is repurposed as the public-landing guard (`MPP_PUBLIC_RATE_MAX`), and `KeyframePublisher` now holds a slim `BoardSnapshot` (minimap grid + landing figures). `landing`/`interested` and the `minimap` broadcast still work. Manual follow-up: rename `MPP_SPECTATOR_RATE_MAX`/`MPP_SPECTATOR_RATE_WINDOW_SEC` in the Coolify env if they were set (defaults unchanged)
 
 ### `frontend-canvas`
 - [x] Remove the spectator transport (Chantier C): the keyframe-tailing/window ingest is gone from `usePuzzleSession` and `puzzleStage` and the spectator branches from `PuzzleCanvas`; the canvas is WS-only. `landing`/`interested` moved onto the WS host (`authBaseUrl`), `VITE_SPECTATOR_BASE_URL` dropped. Manual follow-up: remove `VITE_SPECTATOR_BASE_URL` from the Cloudflare Pages env and retire the `snapshot.*` proxied hostname once the backend stream is gone

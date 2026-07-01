@@ -15,10 +15,11 @@ services:
     # local runs; Coolify deploys docker-compose.yml alone, so prod keeps the
     # image ENV. Override any of these via this directory's `.env`.
     environment:
-      # The in-memory keyframe snapshot holds the whole board (and is retained), so
-      # at 1M pieces it exceeds Node's default ~2 GB heap. Raise it for a local 1M
-      # run; the Docker VM has room. Harmless for the small test puzzle. (Prod runs
-      # the committed image CMD, so the real 1M deploy needs the same treatment.)
+      # The snapshot rebuild reads the whole board into memory transiently and the
+      # live working set is large, so at 1M pieces it exceeds Node's default ~2 GB
+      # heap. Raise it for a local 1M run; the Docker VM has room. Harmless for the
+      # small test puzzle. (Prod runs the committed image CMD, so the real 1M deploy
+      # needs the same treatment.)
       NODE_OPTIONS: "${NODE_OPTIONS:---max-old-space-size=5120}"
       # Which R2-hosted puzzle the dev server serves. Defaults to synthetic-1m,
       # the same 1M puzzle prod serves; override via this directory's `.env` (with

@@ -1,5 +1,6 @@
-import type { ImageManifest, PlayZone, SpectatorKeyframe } from "@mpp/shared";
+import type { ImageManifest, PlayZone } from "@mpp/shared";
 import { PROTOCOL_VERSION } from "@mpp/shared";
+import type { BoardSnapshot } from "./keyframe.js";
 import type { Hub, Client } from "./hub.js";
 import { LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { forceInitPuzzle, playZoneForManifest, rebuildGroupIndex } from "./init.js";
@@ -20,7 +21,7 @@ export class PuzzleLifecycle {
   // gives `sendWelcome` the current minimap grid without a per-join board read.
   private keyframePublisher: {
     regenerate: (force?: boolean) => Promise<void>;
-    latest: () => { keyframe: SpectatorKeyframe } | null;
+    latest: () => BoardSnapshot | null;
   } | null = null;
 
   constructor(
@@ -32,7 +33,7 @@ export class PuzzleLifecycle {
 
   attachKeyframePublisher(publisher: {
     regenerate: (force?: boolean) => Promise<void>;
-    latest: () => { keyframe: SpectatorKeyframe } | null;
+    latest: () => BoardSnapshot | null;
   }): void {
     this.keyframePublisher = publisher;
   }
@@ -72,7 +73,7 @@ export class PuzzleLifecycle {
     // The minimap grid is reused from the latest keyframe (computed on the
     // keyframe cadence), so a join costs no extra full-board read. None yet at
     // the very first boot tick: the next periodic minimap broadcast fills it.
-    const grid = this.keyframePublisher?.latest()?.keyframe.minimapGrid;
+    const grid = this.keyframePublisher?.latest()?.minimapGrid;
     if (grid) this.ctx.hub.send(client, { t: "minimap", grid });
   }
 
@@ -84,9 +85,6 @@ export class PuzzleLifecycle {
       // The leaderboard and activity feed are derived from the merge log, so the
       // fresh board must start with an empty log, not just empty Redis state.
       await this.ctx.mongo.clearPuzzle(this.ctx.puzzleId);
-      // The spectator stream replays drops and snaps; clear the event log too so
-      // the fresh board's keyframe cursor starts at an empty stream.
-      await this.ctx.eventLog.clear();
       const meta = await forceInitPuzzle(this.ctx.state, this.manifest, this.ctx.generationSeed);
       this.ctx.meta = meta;
       // Fresh scattered board: rebuild the group index off the new Redis state so

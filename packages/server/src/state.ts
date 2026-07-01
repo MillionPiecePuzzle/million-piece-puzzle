@@ -12,7 +12,7 @@ export type StoredPiece = { id: number; groupId: number; rotation: number };
 // AABB (relative to the origin), persisted so the drag hot path scopes by the
 // cluster's full extent without a per-frame piece scan. `localAabb` is null for a
 // group written before AABBs were stored (caller falls back to point scoping).
-// The AABB never crosses the wire: `readAllGroups` (state + keyframe) returns
+// The AABB never crosses the wire: `readAllGroups` (state + snapshot) returns
 // plain `GroupRuntime`.
 export type StoredGroup = GroupRuntime & { localAabb: Aabb | null };
 

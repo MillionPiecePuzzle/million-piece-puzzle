@@ -24,20 +24,16 @@ ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
 # AUTH_SECRET, and must match the slicer's --seed for this puzzle's R2 assets.
 ENV MPP_DEV_ENABLED=1
 
-# Spectator stream cadence (keyframe + event-log windows). Baked as the prod
-# source of truth: keyframe regenerated at most every 300s while live, 3s event
-# windows, 6s interpolation delay, 900s event retention, 15s idle keyframe cache.
+# Board snapshot cadence: the in-memory snapshot (minimap grid + landing figures)
+# is regenerated at most every 300s while the event is live, frozen otherwise.
 ENV MPP_KEYFRAME_INTERVAL_MS=300000
-ENV MPP_EVENT_WINDOW_MS=3000
-ENV MPP_INTERP_DELAY_MS=6000
-ENV MPP_EVENT_RETENTION_MS=900000
-ENV MPP_KEYFRAME_IDLE_TTL_MS=15000
 
-# Node heap for the 1M board: the in-memory keyframe holds the whole board, which
-# exceeds Node's ~2 GB default at 1M. Baked here (not a Coolify env knob) so the
-# Coolify service env stays secrets-only; only meaningful on a box with the RAM
-# (12 GB+ target). Co-located with Redis + Mongo, whose WiredTiger cache is capped
-# in docker-compose.yml so the two do not fight for RAM.
+# Node heap for the 1M board: the snapshot rebuild reads the whole board into
+# memory (transiently) and the live working set is large, which exceeds Node's
+# ~2 GB default at 1M. Baked here (not a Coolify env knob) so the Coolify service
+# env stays secrets-only; only meaningful on a box with the RAM (12 GB+ target).
+# Co-located with Redis + Mongo, whose WiredTiger cache is capped in
+# docker-compose.yml so the two do not fight for RAM.
 ENV NODE_OPTIONS=--max-old-space-size=5120
 
 # Scheduled public start (unix ms), mirrored into welcome/snapshot to sync the

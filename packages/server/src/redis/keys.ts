@@ -21,17 +21,10 @@ export const groupPieces = (puzzleId: string, groupId: number) =>
 /** Integer: atomic counter of locked pieces, broadcast for live progress. */
 export const lockedCount = (puzzleId: string) => `puzzle:${puzzleId}:locked-count`;
 
-/**
- * Stream: ordered log of spectator-visible drops and snaps. Each entry holds the
- * event JSON in one field; the auto-assigned id (`<ms>-<n>`) is the event `seq`,
- * and its ms component is the wall-clock window key the spectator stream reads by.
- */
-export const events = (puzzleId: string) => `puzzle:${puzzleId}:events`;
-
 /** Hash: userId -> viewportX, viewportY, zoom, lastSeenAt. */
 export const presence = (puzzleId: string) => `puzzle:${puzzleId}:presence`;
 
-/** Integer with TTL: per-IP fixed-window counter for a named rate bucket (auth routes, spectator stream). */
+/** Integer with TTL: per-IP fixed-window counter for a named rate bucket (auth routes, public landing). */
 export const rateLimit = (bucket: string, ip: string) => `ratelimit:${bucket}:${ip}`;
 
 /**

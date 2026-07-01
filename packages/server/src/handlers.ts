@@ -4,7 +4,6 @@ import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
-import type { EventLog } from "./eventLog.js";
 import type { GroupQueue } from "./queue.js";
 import type { GroupIndex } from "./groupIndex.js";
 import { detectSnap } from "./snap.js";
@@ -30,9 +29,6 @@ export type Context = {
   meta: PuzzleMeta;
   puzzleId: string;
   mongo: MongoLogger;
-  // Ordered log of spectator-visible drops and snaps, recorded at the
-  // authoritative emission points so the spectator stream replays them in order.
-  eventLog: EventLog;
   devEnabled: boolean;
   eventStartsAt: number;
   // Server-only generation seed (never in the public manifest), used to derive the
@@ -398,14 +394,6 @@ export async function handleDrop(
       },
       rest,
     );
-    // Spectator stream: a non-merging drop is broadcast only and not persisted in
-    // Redis history, so log it (wire-encoded) for the event window the spectator
-    // interpolates.
-    await ctx.eventLog.recordDrop({
-      groupId: toWireId(ctx.wire, groupId),
-      worldX: anchorWorldX(ctx.wire, groupId, originX),
-      worldY: anchorWorldY(ctx.wire, groupId, originY),
-    });
     return;
   }
 
@@ -536,24 +524,6 @@ async function applyMerge(
     userId: client.userId,
     pseudo: client.pseudo,
     at: at.getTime(),
-    lockedCount,
-  });
-
-  // Spectator stream: mirror the snap into the event log so spectators replay it
-  // in order (animation, locked count, activity ticker). Same wire-encoded fields
-  // as the WS snap so the client reuses applySnap unchanged.
-  await ctx.eventLog.recordSnap({
-    at: at.getTime(),
-    mergeId,
-    newGroupId: wireNewGroupId,
-    addedPieceIds: wireAddedPieces,
-    worldX: wireWorldX,
-    worldY: wireWorldY,
-    anchored: willBeLocked,
-    droppedSize: droppedPieces.length,
-    mergedSize: allPieces.length,
-    userId: client.userId,
-    pseudo: client.pseudo,
     lockedCount,
   });
 

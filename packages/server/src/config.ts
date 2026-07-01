@@ -73,17 +73,9 @@ export type ServerConfig = {
   // escape hatch, e.g. set it low to exercise the rejection); 0 keeps the
   // density-relative cap above.
   tilePieceCapAbsolute: number;
-  // Spectator stream cadence (see DECISIONS: spectator keyframe + event log).
-  // The keyframe is regenerated at most this often while the event is live; the
-  // event window W and interpolation delay D set how the client tails the log;
-  // retention bounds how far back a joining client can replay; the idle TTL is
-  // the short edge cache used while the keyframe is frozen (pre-event / complete)
-  // so the start transition is seen promptly.
+  // Board snapshot cadence: the in-memory snapshot (minimap grid + landing figures)
+  // is regenerated at most this often while the event is live, frozen otherwise.
   keyframeIntervalMs: number;
-  eventWindowMs: number;
-  interpDelayMs: number;
-  eventRetentionMs: number;
-  keyframeIdleTtlMs: number;
   // Unix ms of the event start, carried in welcome and the snapshot so clients
   // sync the entrance cascade. 0 (default) means no scheduled start.
   eventStartsAt: number;
@@ -110,12 +102,11 @@ export type ServerConfig = {
   // chokepoint.
   signupMaxPerIp: number;
   signupWindowSec: number;
-  // Per-IP fixed window on the anonymous spectator stream (/keyframe + /events/*),
-  // the public read path. Sized well above a legitimate spectator's origin rate
-  // (most reads hit the CDN edge; the origin sees only cache misses) so it trips
-  // on a flood, not on a NAT of honest viewers.
-  spectatorRateMax: number;
-  spectatorRateWindowSec: number;
+  // Per-IP fixed window on the anonymous public landing endpoints (/landing,
+  // /interested). Sized well above a legitimate visitor's rate so it trips on a
+  // flood, not on a NAT of honest viewers.
+  publicRateMax: number;
+  publicRateWindowSec: number;
   // Shared password for the direct-URL admin page (Basic auth). Empty (the
   // default) leaves the /admin routes unmounted entirely, so the page is opt-in
   // per deployment. A secret, so it is passed through from the Coolify env, never
@@ -237,10 +228,6 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
-    eventWindowMs: int("MPP_EVENT_WINDOW_MS", 3000),
-    interpDelayMs: int("MPP_INTERP_DELAY_MS", 6000),
-    eventRetentionMs: int("MPP_EVENT_RETENTION_MS", 900000),
-    keyframeIdleTtlMs: int("MPP_KEYFRAME_IDLE_TTL_MS", 15000),
     eventStartsAt: overrides.eventStartsAt ?? int("MPP_EVENT_STARTS_AT", 0),
     authUrl,
     authSecure: authUrl.startsWith("https:"),
@@ -250,8 +237,8 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     authRateWindowSec: int("MPP_AUTH_RATE_WINDOW_SEC", 60),
     signupMaxPerIp: int("MPP_SIGNUP_MAX_PER_IP", 10),
     signupWindowSec: int("MPP_SIGNUP_WINDOW_SEC", 3600),
-    spectatorRateMax: int("MPP_SPECTATOR_RATE_MAX", 120),
-    spectatorRateWindowSec: int("MPP_SPECTATOR_RATE_WINDOW_SEC", 60),
+    publicRateMax: int("MPP_PUBLIC_RATE_MAX", 120),
+    publicRateWindowSec: int("MPP_PUBLIC_RATE_WINDOW_SEC", 60),
     adminPassword: str("MPP_ADMIN_PASSWORD", ""),
     adminPuzzles: parseAdminPuzzles(process.env.MPP_ADMIN_PUZZLES),
   };

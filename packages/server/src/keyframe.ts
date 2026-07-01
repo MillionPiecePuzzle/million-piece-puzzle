@@ -1,56 +1,41 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
-import type {
-  ActivityItem,
-  LeaderboardEntry,
-  PlayZone,
-  SpectatorEvent,
-  SpectatorKeyframe,
-} from "@mpp/shared";
-import { SPECTATOR_FORMAT_VERSION, buildMinimapGrid } from "@mpp/shared";
+import type { ActivityItem, LeaderboardEntry, MinimapGrid, PlayZone } from "@mpp/shared";
+import { buildMinimapGrid } from "@mpp/shared";
 import type { RedisState } from "./state.js";
-import type { EventLog } from "./eventLog.js";
-import { type WireContext, wireGroup, wirePieceRuntime } from "./wire.js";
+
+// The in-memory board snapshot the publisher rebuilds on a fixed cadence. It feeds
+// the periodic minimap broadcast (contributors) and the landing snapshot (public
+// progress and standings), so it carries only those: the live locked count, the
+// standings, the recent-placement feed, and the downsampled density grid. The full
+// board is read once to compute the grid; the board itself is not retained.
+export type BoardSnapshot = {
+  lockedCount: number;
+  totalPieces: number;
+  leaderboard: LeaderboardEntry[];
+  activity: ActivityItem[];
+  minimapGrid: MinimapGrid;
+};
 
 export type KeyframeSource = {
-  puzzleId: () => string;
   totalPieces: () => number;
   gridCols: () => number;
   pieceSize: () => number;
-  // The wire boundary context, so the keyframe's board is encoded (permuted ids,
-  // anchor positions, per-piece offsets) before it leaves the server. The minimap
-  // grid is computed from the internal board first, since it bins by grid id and
-  // group origin.
-  wire: () => WireContext;
   playZone: () => PlayZone;
-  eventStartsAt: () => number;
   // Current puzzle status, read live (reset reassigns ctx.meta), so the idle gate
-  // and the keyframe `live` flag always reflect the latest lifecycle state.
+  // always reflects the latest lifecycle state.
   status: () => "active" | "completed";
+  eventStartsAt: () => number;
   state: RedisState;
-  eventLog: EventLog;
   leaderboard: () => Promise<LeaderboardEntry[]>;
   activity: () => Promise<ActivityItem[]>;
-  windowMs: number;
-  delayMs: number;
 };
 
-// The board read is off the per-group dispatch queue and `readAllPieces` /
-// `readAllGroups` are independent pipelines (not a MULTI), so the keyframe can
-// capture a merge mid-apply: a piece reassigned before its group is repositioned,
-// or pointing at a deleted group (see DECISIONS: keyframe reads off the write
-// queue). That artifact is cosmetic and now healed twice over: by the next event
-// window the client replays, and by the next keyframe. The `cursor` is read
-// before the board so it is a lower bound on the board's logical time: any event
-// that already affected the board but lands after `cursor` is simply replayed by
-// the client (drops and snaps are idempotent on an already-applied state), which
-// is the safe direction (replay, never miss).
-export async function buildKeyframe(
-  source: KeyframeSource,
-  live: boolean,
-): Promise<SpectatorKeyframe> {
-  const puzzleId = source.puzzleId();
+// The board read is independent of the per-group dispatch queue, so it can capture
+// a merge mid-apply (a piece reassigned before its group is repositioned). That is
+// invisible here: the only consumer is the downsampled density grid, which bins by
+// cell, plus the scalar counts and standings, none of which a transient partial
+// merge perturbs. The next regenerate heals it regardless.
+export async function buildSnapshot(source: KeyframeSource): Promise<BoardSnapshot> {
   const totalPieces = source.totalPieces();
-  const cursor = await source.eventLog.head();
   const [pieces, groups, lockedCount, leaderboard, activity] = await Promise.all([
     source.state.readAllPieces(totalPieces),
     source.state.readAllGroups(totalPieces),
@@ -58,63 +43,35 @@ export async function buildKeyframe(
     source.leaderboard(),
     source.activity(),
   ]);
-  const playZone = source.playZone();
-  // Downsampled density grid for the minimap, computed off the internal board
-  // (grid ids + group origins) before the board is wire-encoded, so the spectator
-  // keyframe and the periodic contributor minimap broadcast share one builder and
-  // no extra full-board read.
   const minimapGrid = buildMinimapGrid(
     pieces,
     groups,
     source.gridCols(),
     source.pieceSize(),
-    playZone,
+    source.playZone(),
   );
-  const wire = source.wire();
-  return {
-    v: SPECTATOR_FORMAT_VERSION,
-    puzzleId,
-    generatedAt: Date.now(),
-    cursor,
-    windowMs: source.windowMs,
-    delayMs: source.delayMs,
-    live,
-    lockedCount,
-    totalPieces,
-    playZone,
-    eventStartsAt: source.eventStartsAt(),
-    // Wire-encoded board: permuted ids, anchor world positions, and per-piece
-    // grid-unit offsets, so a spectator receives no seed and no solved-space
-    // coordinate of an unsolved piece.
-    pieces: pieces.map((p) => wirePieceRuntime(wire, p)),
-    groups: groups.map((g) => wireGroup(wire, g)),
-    leaderboard,
-    activity,
-    minimapGrid,
-  };
+  return { lockedCount, totalPieces, leaderboard, activity, minimapGrid };
 }
 
-// In-memory publisher: a ticker regenerates the keyframe on a fixed interval and
-// the HTTP handler serves the last successful body. A regeneration failure keeps
-// the previous body served, so a transient Redis hiccup never produces a 5xx.
+// In-memory publisher: a ticker regenerates the board snapshot on a fixed interval
+// and the latest one feeds the minimap broadcast and the landing snapshot. A
+// regeneration failure keeps the previous snapshot, so a transient Redis hiccup
+// never blanks the minimap or the landing figures.
 //
 // Idle gate: a tick regenerates only while the event is live (status active and
-// past eventStartsAt). Before the start and after completion the publisher
-// freezes on its last body and does zero full-board reads; the spectator detects
-// the same states from eventStartsAt + lockedCount and stops tailing windows. One
-// body is built at boot regardless (force) so a pre-event spectator still gets
-// the scattered board, and a reset/complete transition forces a fresh body so the
-// frozen keyframe reflects it immediately.
+// past eventStartsAt). Before the start and after completion the publisher freezes
+// on its last snapshot and does zero full-board reads. One snapshot is built at
+// boot regardless (force) so a pre-event minimap exists, and a reset/complete
+// transition forces a fresh one so the frozen snapshot reflects it immediately.
 export class KeyframePublisher {
-  private latestBody: string | null = null;
-  private latestKeyframe: SpectatorKeyframe | null = null;
+  private latestSnapshot: BoardSnapshot | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private regenerating = false;
-  // Called after every successful regenerate with the new keyframe. index.ts
-  // wires it to broadcast the minimap grid to contributors, so the contributor
-  // minimap cadence is tied to the keyframe interval (and its idle gate) with no
-  // second full-board read.
-  onRegenerated: ((keyframe: SpectatorKeyframe) => void) | null = null;
+  // Called after every successful regenerate with the new snapshot. index.ts wires
+  // it to broadcast the minimap grid to contributors, so the contributor minimap
+  // cadence is tied to this interval (and its idle gate) with no second full-board
+  // read.
+  onRegenerated: ((snapshot: BoardSnapshot) => void) | null = null;
 
   constructor(
     private readonly intervalMs: number,
@@ -141,156 +98,24 @@ export class KeyframePublisher {
     }
   }
 
-  latest(): { body: string; keyframe: SpectatorKeyframe } | null {
-    if (this.latestBody === null || this.latestKeyframe === null) return null;
-    return { body: this.latestBody, keyframe: this.latestKeyframe };
+  latest(): BoardSnapshot | null {
+    return this.latestSnapshot;
   }
 
   async regenerate(force = false): Promise<void> {
     if (this.regenerating) return;
-    // Skip the Redis read and keep the last body when not live, unless forced or
-    // no body exists yet (boot).
-    if (!force && this.latestBody !== null && !this.isLive()) return;
+    // Skip the Redis read and keep the last snapshot when not live, unless forced
+    // or none exists yet (boot).
+    if (!force && this.latestSnapshot !== null && !this.isLive()) return;
     this.regenerating = true;
     try {
-      const kf = await buildKeyframe(this.source, this.isLive());
-      this.latestKeyframe = kf;
-      this.latestBody = JSON.stringify(kf);
-      this.onRegenerated?.(kf);
+      const snapshot = await buildSnapshot(this.source);
+      this.latestSnapshot = snapshot;
+      this.onRegenerated?.(snapshot);
     } catch (e) {
       console.error("[keyframe] regenerate failed:", (e as Error).message);
     } finally {
       this.regenerating = false;
     }
   }
-}
-
-const CORS = { "Access-Control-Allow-Origin": "*" } as const;
-
-function handlePreflightOrMethod(req: IncomingMessage, res: ServerResponse): boolean | "ok" {
-  if (req.method === "OPTIONS") {
-    res.writeHead(204, {
-      ...CORS,
-      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-      "Access-Control-Max-Age": "86400",
-    });
-    res.end();
-    return true;
-  }
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    res.writeHead(405, { ...CORS, Allow: "GET, HEAD, OPTIONS" });
-    res.end();
-    return true;
-  }
-  return "ok";
-}
-
-// HTTP handler for GET /keyframe. Serves the cached body with a Cache-Control
-// matched to liveness: a live body changes each interval (long max-age), a frozen
-// one (pre-event / completed) gets a short max-age so a reset/complete/start
-// transition is picked up by the edge promptly. CORS is wildcard so the edge
-// caches a single body for all callers (Cloudflare Free does not honor `Vary:
-// Origin`); the WS Origin allowlist is unrelated and stays strict.
-export function makeKeyframeHandler(
-  publisher: KeyframePublisher,
-  opts: { intervalMs: number; idleTtlMs: number },
-) {
-  const liveMaxAge = Math.max(1, Math.floor(opts.intervalMs / 1000));
-  const idleMaxAge = Math.max(1, Math.floor(opts.idleTtlMs / 1000));
-
-  return function handle(req: IncomingMessage, res: ServerResponse): boolean {
-    const path = (req.url ?? "").split("?", 1)[0];
-    if (path !== "/keyframe") return false;
-    const pre = handlePreflightOrMethod(req, res);
-    if (pre === true) return true;
-
-    const latest = publisher.latest();
-    if (!latest) {
-      res.writeHead(503, {
-        ...CORS,
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
-      res.end(req.method === "HEAD" ? undefined : '{"error":"keyframe_not_ready"}');
-      return true;
-    }
-    const maxAge = latest.keyframe.live ? liveMaxAge : idleMaxAge;
-    res.writeHead(200, {
-      ...CORS,
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": `public, max-age=${maxAge}`,
-      "Content-Length": Buffer.byteLength(latest.body).toString(),
-    });
-    res.end(req.method === "HEAD" ? undefined : latest.body);
-    return true;
-  };
-}
-
-const EVENTS_PREFIX = "/events/";
-
-// HTTP handler for GET /events/<t0>. Addresses immutable wall-clock windows:
-// rejects a non-W-aligned t0 (400), a not-yet-sealed window (425) and an
-// out-of-retention window (404) before any Redis read, so origin work is bounded
-// and only sealed, in-range windows reach Redis or the cache. A sealed window is
-// immutable, so it is served with a one-year immutable Cache-Control and the
-// wildcard CORS the keyframe uses.
-export function makeEventsHandler(opts: {
-  eventLog: EventLog;
-  windowMs: number;
-  retentionMs: number;
-  now?: () => number;
-}) {
-  const W = opts.windowMs;
-  const now = opts.now ?? (() => Date.now());
-
-  function reject(res: ServerResponse, status: number, error: string, isHead: boolean): void {
-    res.writeHead(status, {
-      ...CORS,
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-    });
-    res.end(isHead ? undefined : JSON.stringify({ error }));
-  }
-
-  return function handle(req: IncomingMessage, res: ServerResponse): boolean {
-    const path = (req.url ?? "").split("?", 1)[0] ?? "";
-    if (!path.startsWith(EVENTS_PREFIX)) return false;
-    const pre = handlePreflightOrMethod(req, res);
-    if (pre === true) return true;
-    const isHead = req.method === "HEAD";
-
-    const t0 = Number(path.slice(EVENTS_PREFIX.length));
-    if (!Number.isInteger(t0) || t0 < 0 || t0 % W !== 0) {
-      reject(res, 400, "misaligned_window", isHead);
-      return true;
-    }
-    const t = now();
-    if (t < t0 + W) {
-      // Too Early: the window is still open, so it is not yet immutable.
-      reject(res, 425, "window_not_sealed", isHead);
-      return true;
-    }
-    if (t0 < t - opts.retentionMs) {
-      reject(res, 404, "window_out_of_retention", isHead);
-      return true;
-    }
-
-    void (async () => {
-      try {
-        const events: SpectatorEvent[] = await opts.eventLog.readWindow(t0, W);
-        const body = JSON.stringify({ v: SPECTATOR_FORMAT_VERSION, t0, windowMs: W, events });
-        res.writeHead(200, {
-          ...CORS,
-          "Content-Type": "application/json; charset=utf-8",
-          "Cache-Control": "public, max-age=31536000, immutable",
-          "Content-Length": Buffer.byteLength(body).toString(),
-        });
-        res.end(isHead ? undefined : body);
-      } catch (e) {
-        console.error("[events] read failed:", (e as Error).message);
-        reject(res, 500, "server", isHead);
-      }
-    })();
-    return true;
-  };
 }

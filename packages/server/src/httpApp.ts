@@ -1,12 +1,11 @@
-// Express HTTP layer: auth routes, the profile routes (pseudo, country), the spectator
-// stream (keyframe + event windows), and a credentialed-CORS + per-IP
+// Express HTTP layer: auth routes, the profile routes (pseudo, country), the public
+// landing endpoints, the admission queue, and a credentialed-CORS + per-IP
 // rate-limit boundary in front of the SPA-facing routes. The WebSocket upgrade
 // attaches to the same server in index.ts. Helpers are exported so they can be
 // unit tested without booting the process (index.ts runs main() on import).
 
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { ExpressAuth, getSession, type ExpressAuthConfig } from "@auth/express";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { normalizeCountry, normalizePseudo } from "@mpp/shared";
 import type {
   ActivityItem,
@@ -92,7 +91,7 @@ export type CreateAppDeps = {
   authCookieDomain: string;
   authLimiter: RedisFixedWindow;
   signupLimiter: RedisFixedWindow;
-  spectatorLimiter: RedisFixedWindow;
+  publicLimiter: RedisFixedWindow;
   queueLimiter: RedisFixedWindow;
   admission: AdmissionGate;
   interested: InterestedStore;
@@ -104,11 +103,6 @@ export type CreateAppDeps = {
   puzzleSpan: () => Promise<{ firstAt: number; lastAt: number } | null>;
   appOrigin: string;
   devEnabled: boolean;
-  // Spectator stream handlers from keyframe.ts: each writes the response and
-  // returns whether it handled the path (always true here, the routes are
-  // path-scoped). The events handler serves its sealed-window body asynchronously.
-  handleKeyframe: (req: IncomingMessage, res: ServerResponse) => boolean;
-  handleEvents: (req: IncomingMessage, res: ServerResponse) => boolean;
   // The direct-URL admin page and its routes, mounted only when provided (i.e.
   // when MPP_ADMIN_PASSWORD is set). Absent leaves /admin unmapped (404).
   admin?: AdminDeps | undefined;
@@ -119,27 +113,13 @@ export function createApp(deps: CreateAppDeps): Express {
   app.set("trust proxy", true);
   app.disable("x-powered-by");
 
-  // Spectator stream: anonymous read-only state, wildcard-CORS and CDN-fronted
-  // (handled inside the handlers), so it sits outside the credentialed-CORS and
-  // auth rate-limit boundary. Its own boundary (per-IP rate limit + query-string
-  // rejection) runs first; the handlers then serve the cached body. app.all keeps
-  // req.url intact for the handlers' own path/method checks (app.use would strip
-  // the mount prefix).
-  app.all(["/keyframe", "/events/*"], makeSpectatorGuard(deps.spectatorLimiter, deps.devEnabled));
-  app.all("/keyframe", (req, res) => {
-    deps.handleKeyframe(req, res);
-  });
-  app.all("/events/*", (req, res) => {
-    deps.handleEvents(req, res);
-  });
-
   // Landing data: the event start (for the countdown) plus the interested count
   // and whether this IP already opted in. Both endpoints are anonymous, share the
-  // spectator per-IP guard, and answer with wildcard CORS + no-store. GET /landing
+  // public per-IP guard, and answer with wildcard CORS + no-store. GET /landing
   // sends no query string and POST /interested no body, so both stay CORS simple
   // requests with no preflight (a body or query would draw a preflight, and the
   // guard rejects query strings).
-  app.all(["/landing", "/interested"], makeSpectatorGuard(deps.spectatorLimiter, deps.devEnabled));
+  app.all(["/landing", "/interested"], makePublicGuard(deps.publicLimiter, deps.devEnabled));
   app.get(
     "/landing",
     makeLandingHandler({
@@ -281,17 +261,15 @@ export function makeRateLimit(limiter: RedisFixedWindow, devEnabled: boolean) {
   };
 }
 
-// Boundary in front of the anonymous spectator stream. A preflight passes
-// straight to the handler (which answers 204 with wildcard CORS). Every other
-// request is counted against a per-IP fixed window first, so a flood of any
-// request class (including cache-busting GETs) is capped per IP; survivors must
-// carry a clean URL. A query string is rejected because the edge keys its cache
-// by the full URL, so a random `?cb=` would miss the cache and hit the origin on
-// every request (the client never sends one). Rejections carry wildcard CORS so
-// a browser fetch can read the status and `no-store` so the CDN never caches a
-// 400/429. Fail-open on a Redis error: a transient outage must not take the
-// public read path down.
-export function makeSpectatorGuard(limiter: RedisFixedWindow, devEnabled: boolean) {
+// Boundary in front of the anonymous public landing endpoints (/landing,
+// /interested). A preflight passes straight through (answered 204 with wildcard
+// CORS). Every other request is counted against a per-IP fixed window first, so a
+// flood of any request class is capped per IP; survivors must carry a clean URL. A
+// query string is rejected so both stay CORS simple requests (no preflight) and an
+// edge fronting them keys one cache entry per path. Rejections carry wildcard CORS
+// so a browser fetch can read the status and `no-store`. Fail-open on a Redis
+// error: a transient outage must not take the public landing down.
+export function makePublicGuard(limiter: RedisFixedWindow, devEnabled: boolean) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (req.method === "OPTIONS") {
       next();

@@ -20,8 +20,7 @@ import { initPuzzleIfEmpty, rebuildGroupIndex } from "./init.js";
 import { GroupIndex } from "./groupIndex.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
-import { KeyframePublisher, makeKeyframeHandler, makeEventsHandler } from "./keyframe.js";
-import { EventLog } from "./eventLog.js";
+import { KeyframePublisher } from "./keyframe.js";
 import {
   buildAuthConfig,
   resolveSessionUser,
@@ -66,7 +65,6 @@ async function main(): Promise<void> {
 
   const manifest = config.manifest;
   const state = new RedisState(redis, manifest.puzzleId);
-  const eventLog = new EventLog(redis, manifest.puzzleId);
   const meta = await initPuzzleIfEmpty(state, manifest, config.generationSeed);
 
   // The wire boundary: the seed permutation (gridId <-> wireId) plus the grid
@@ -107,7 +105,6 @@ async function main(): Promise<void> {
     meta,
     puzzleId: manifest.puzzleId,
     mongo,
-    eventLog,
     devEnabled: config.devEnabled,
     eventStartsAt: config.eventStartsAt,
     generationSeed: config.generationSeed,
@@ -160,52 +157,29 @@ async function main(): Promise<void> {
     },
   };
 
-  // Spectator stream: a keyframe (full state, regenerated only while the event is
-  // live) plus an ordered event log of drops and snaps addressed as immutable
-  // wall-clock windows. The publisher keeps the latest keyframe body in memory;
-  // the HTTP handlers serve it and the sealed windows without re-querying Redis on
-  // a keyframe hit. Both endpoints are CDN-fronted (see DECISIONS).
+  // In-memory board snapshot (minimap grid + landing figures), regenerated only
+  // while the event is live and frozen otherwise. It feeds the periodic minimap
+  // broadcast to contributors and the public landing snapshot; no full board is
+  // retained between regenerations.
   const keyframePublisher = new KeyframePublisher(config.keyframeIntervalMs, {
     state,
-    eventLog,
-    puzzleId: () => ctx.puzzleId,
     totalPieces: () => ctx.meta.totalPieces,
     gridCols: () => ctx.meta.gridCols,
     pieceSize: () => ctx.meta.pieceSize,
-    wire: () => ctx.wire,
     playZone: () => lifecycle.currentPlayZone(),
     eventStartsAt: () => ctx.eventStartsAt,
     status: () => ctx.meta.status,
     leaderboard: () => mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT),
     activity: () => mongo.recentMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
-    windowMs: config.eventWindowMs,
-    delayMs: config.interpDelayMs,
   });
-  // Broadcast the minimap grid to contributors after each keyframe regenerate
-  // (periodic while live, forced on reset/complete), so the contributor minimap
-  // refreshes on the keyframe cadence without a second full-board read. The grid
-  // is also sent once per contributor on join (see lifecycle.sendWelcome).
-  keyframePublisher.onRegenerated = (kf) => hub.broadcast({ t: "minimap", grid: kf.minimapGrid });
+  // Broadcast the minimap grid to contributors after each regenerate (periodic
+  // while live, forced on reset/complete), so the contributor minimap refreshes on
+  // the snapshot cadence without a second full-board read. The grid is also sent
+  // once per contributor on join (see lifecycle.sendWelcome).
+  keyframePublisher.onRegenerated = (snap) =>
+    hub.broadcast({ t: "minimap", grid: snap.minimapGrid });
   lifecycle.attachKeyframePublisher(keyframePublisher);
   keyframePublisher.start();
-  const handleKeyframe = makeKeyframeHandler(keyframePublisher, {
-    intervalMs: config.keyframeIntervalMs,
-    idleTtlMs: config.keyframeIdleTtlMs,
-  });
-  const handleEvents = makeEventsHandler({
-    eventLog,
-    windowMs: config.eventWindowMs,
-    retentionMs: config.eventRetentionMs,
-  });
-
-  // Trim the event log to its retention horizon on the keyframe cadence. Only the
-  // live event adds entries, so trimming at the (slow) keyframe interval keeps the
-  // stream bounded without a dedicated fast timer.
-  const trimTimer = setInterval(() => {
-    void eventLog.trim(config.eventRetentionMs).catch((e: unknown) => {
-      console.error("[events] trim failed:", (e as Error).message);
-    });
-  }, config.keyframeIntervalMs);
 
   // Admin puzzle switch: the configured list plus the currently-running puzzle
   // (always selectable so a switch can be reverted), each mapped to its seed. The
@@ -285,11 +259,11 @@ async function main(): Promise<void> {
       config.signupMaxPerIp,
       config.signupWindowSec,
     ),
-    spectatorLimiter: new RedisFixedWindow(
+    publicLimiter: new RedisFixedWindow(
       redis,
-      "spectator",
-      config.spectatorRateMax,
-      config.spectatorRateWindowSec,
+      "public",
+      config.publicRateMax,
+      config.publicRateWindowSec,
     ),
     queueLimiter: new RedisFixedWindow(
       redis,
@@ -311,21 +285,19 @@ async function main(): Promise<void> {
     // snapshot (rebuilt on the keyframe cadence, forced on complete), so the
     // public landing never triggers a full-board read.
     landingSnapshot: () => {
-      const kf = keyframePublisher.latest()?.keyframe;
-      if (!kf) return null;
+      const snap = keyframePublisher.latest();
+      if (!snap) return null;
       return {
-        lockedCount: kf.lockedCount,
-        totalPieces: kf.totalPieces,
-        leaderboard: kf.leaderboard,
-        activity: kf.activity,
+        lockedCount: snap.lockedCount,
+        totalPieces: snap.totalPieces,
+        leaderboard: snap.leaderboard,
+        activity: snap.activity,
       };
     },
     puzzleStatus: () => ctx.meta.status,
     puzzleSpan: () => mongo.puzzleSpan(ctx.puzzleId),
     appOrigin: config.appOrigin,
     devEnabled: config.devEnabled,
-    handleKeyframe,
-    handleEvents,
     admin: adminDeps,
   });
   const httpServer = createServer(app);
@@ -377,7 +349,7 @@ async function main(): Promise<void> {
   });
   httpServer.listen(config.port, () => {
     console.log(
-      `[http] listening on ${config.port} (ws upgrade + /auth + /profile + GET /keyframe + GET /events/<t0>, keyframe interval ${config.keyframeIntervalMs}ms, window ${config.eventWindowMs}ms, delay ${config.interpDelayMs}ms)`,
+      `[http] listening on ${config.port} (ws upgrade + /auth + /profile + /landing, snapshot interval ${config.keyframeIntervalMs}ms)`,
     );
   });
 
@@ -488,7 +460,6 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     console.log("[shutdown] closing");
     keyframePublisher.stop();
-    clearInterval(trimTimer);
     clearInterval(heartbeatTimer);
     if (admissionSweepTimer) clearInterval(admissionSweepTimer);
     wss.close();
@@ -537,9 +508,6 @@ async function releaseHeldGroups(ctx: Context, client: Client, hub: Hub): Promis
         { t: "drop", groupId: wireId, worldX: wireX, worldY: wireY, userId },
         worldAabbFor(g.localAabb, g.worldX, g.worldY),
       );
-      // The disconnect-drop is a real position change, so it joins the spectator
-      // event log like a normal non-merging drop.
-      await ctx.eventLog.recordDrop({ groupId: wireId, worldX: wireX, worldY: wireY });
     }
   });
 }
