@@ -17,8 +17,14 @@ export type SessionUser = {
   country: string | null;
 };
 
-export type PseudoResult = { ok: true } | { ok: false; reason: "taken" | "invalid" | "error" };
-export type CountryResult = { ok: true } | { ok: false; reason: "invalid" | "error" };
+export type PseudoResult =
+  | { ok: true }
+  | { ok: false; reason: "taken" | "invalid" | "error" }
+  | { ok: false; reason: "cooldown"; retryAt: number };
+export type CountryResult =
+  | { ok: true }
+  | { ok: false; reason: "invalid" | "error" }
+  | { ok: false; reason: "cooldown"; retryAt: number };
 export type GuestResult = { ok: true } | { ok: false; reason: "taken" | "invalid" | "error" };
 
 // The one-time guest claim token, stored at mint so a later Google sign-in can
@@ -108,6 +114,10 @@ async function submitPseudo(pseudo: string): Promise<PseudoResult> {
     }
     if (res.status === 409) return { ok: false, reason: "taken" };
     if (res.status === 400) return { ok: false, reason: "invalid" };
+    if (res.status === 429) {
+      const data = (await res.json()) as { retryAt?: number };
+      return { ok: false, reason: "cooldown", retryAt: data.retryAt ?? Date.now() };
+    }
     return { ok: false, reason: "error" };
   } catch {
     return { ok: false, reason: "error" };
@@ -128,6 +138,10 @@ async function submitCountry(country: string): Promise<CountryResult> {
       return { ok: true };
     }
     if (res.status === 400) return { ok: false, reason: "invalid" };
+    if (res.status === 429) {
+      const data = (await res.json()) as { retryAt?: number };
+      return { ok: false, reason: "cooldown", retryAt: data.retryAt ?? Date.now() };
+    }
     return { ok: false, reason: "error" };
   } catch {
     return { ok: false, reason: "error" };

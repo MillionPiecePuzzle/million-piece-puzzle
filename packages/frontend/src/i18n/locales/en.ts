@@ -94,6 +94,8 @@ const en = {
     fieldLabel: "Pseudo",
     hint: "{min} to {max} characters: letters, digits, spaces, hyphens and underscores.",
     taken: "That pseudo is already taken.",
+    cooldownHint: "You can change your pseudo once every {hours} hours.",
+    cooldown: "You already changed your pseudo recently. Try again in {hours}h.",
   },
   nationality: {
     titleEdit: "Change your nationality",
@@ -103,6 +105,8 @@ const en = {
     selectLabel: "Country",
     selectPlaceholder: "Select your country...",
     noCountry: "no country selected",
+    cooldownHint: "You can change your country once every {hours} hours.",
+    cooldown: "You already changed your country recently. Try again in {hours}h.",
   },
   leaderboardModal: {
     label: "Full leaderboard",

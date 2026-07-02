@@ -24,7 +24,12 @@ import {
 } from "./httpApp.js";
 import type { LandingResponse } from "@mpp/shared";
 import { hashClaimToken } from "./auth.js";
-import { DuplicatePseudoError, type UserProfile } from "./mongo.js";
+import {
+  CountryCooldownError,
+  DuplicatePseudoError,
+  PseudoCooldownError,
+  type UserProfile,
+} from "./mongo.js";
 import { RedisFixedWindow } from "./limits.js";
 import type { Redis } from "ioredis";
 
@@ -143,6 +148,25 @@ describe("makeProfilePseudoHandler", () => {
     await handler({ body: { pseudo: "Alice" } } as Request, res);
     expect((res as unknown as { statusCode: number }).statusCode).toBe(500);
   });
+
+  it("429 with retryAt when the pseudo change is on cooldown", async () => {
+    const retryAt = new Date("2026-07-03T00:00:00.000Z");
+    const handler = makeProfilePseudoHandler({
+      getUserId: async () => "u1",
+      pseudoStore: {
+        setPseudo: async () => {
+          throw new PseudoCooldownError(retryAt);
+        },
+      },
+    });
+    const res = fakeRes();
+    await handler({ body: { pseudo: "Alice" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(429);
+    expect((res as unknown as { body: unknown }).body).toEqual({
+      error: "pseudo_cooldown",
+      retryAt: retryAt.getTime(),
+    });
+  });
 });
 
 describe("makeProfileCountryHandler", () => {
@@ -195,6 +219,25 @@ describe("makeProfileCountryHandler", () => {
     const res = fakeRes();
     await handler({ body: { country: "fr" } } as Request, res);
     expect((res as unknown as { statusCode: number }).statusCode).toBe(500);
+  });
+
+  it("429 with retryAt when the country change is on cooldown", async () => {
+    const retryAt = new Date("2026-07-03T00:00:00.000Z");
+    const handler = makeProfileCountryHandler({
+      getUserId: async () => "u1",
+      countryStore: {
+        setCountry: async () => {
+          throw new CountryCooldownError(retryAt);
+        },
+      },
+    });
+    const res = fakeRes();
+    await handler({ body: { country: "fr" } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(429);
+    expect((res as unknown as { body: unknown }).body).toEqual({
+      error: "country_cooldown",
+      retryAt: retryAt.getTime(),
+    });
   });
 });
 

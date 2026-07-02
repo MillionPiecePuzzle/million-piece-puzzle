@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { PSEUDO_MAX_LENGTH, PSEUDO_MIN_LENGTH, normalizePseudo } from "@mpp/shared";
+import {
+  PROFILE_COOLDOWN_MS,
+  PSEUDO_MAX_LENGTH,
+  PSEUDO_MIN_LENGTH,
+  normalizePseudo,
+} from "@mpp/shared";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
@@ -19,6 +24,7 @@ const inputEl = ref<HTMLInputElement | null>(null);
 const normalized = computed(() => normalizePseudo(draft.value));
 const valid = computed(() => normalized.value !== null);
 const dismissible = computed(() => mode.value === "edit");
+const cooldownHours = PROFILE_COOLDOWN_MS / 3_600_000;
 
 const title = computed(() =>
   mode.value === "edit" ? t("pseudo.titleEdit") : t("pseudo.titleNew"),
@@ -31,6 +37,11 @@ watch(open, (isOpen) => {
   error.value = initialError.value ? t(initialError.value) : null;
   void nextTick(() => inputEl.value?.focus());
 });
+
+// Whole hours remaining until retryAt, never below 1 while still on cooldown.
+function retryHours(retryAt: number): number {
+  return Math.max(1, Math.ceil((retryAt - Date.now()) / 3_600_000));
+}
 
 async function save() {
   const name = normalized.value;
@@ -48,7 +59,10 @@ async function save() {
   const res = await submitPseudo(name);
   saving.value = false;
   if (!res.ok) {
-    error.value = res.reason === "taken" ? t("pseudo.taken") : t("common.saveError");
+    if (res.reason === "taken") error.value = t("pseudo.taken");
+    else if (res.reason === "cooldown")
+      error.value = t("pseudo.cooldown", { hours: retryHours(res.retryAt) });
+    else error.value = t("common.saveError");
     return;
   }
   // First-time onboarding chains into the required nationality step, which is
@@ -88,6 +102,9 @@ function onBackdrop() {
         />
         <p class="hint">
           {{ t("pseudo.hint", { min: PSEUDO_MIN_LENGTH, max: PSEUDO_MAX_LENGTH }) }}
+        </p>
+        <p v-if="mode === 'edit'" class="hint">
+          {{ t("pseudo.cooldownHint", { hours: cooldownHours }) }}
         </p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { COUNTRIES } from "@mpp/shared";
+import { COUNTRIES, PROFILE_COOLDOWN_MS } from "@mpp/shared";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useAuth } from "../composables/useAuth";
@@ -39,6 +39,12 @@ const selectEl = ref<HTMLSelectElement | null>(null);
 
 const valid = computed(() => draft.value !== "");
 const dismissible = computed(() => mode.value === "edit");
+const cooldownHours = PROFILE_COOLDOWN_MS / 3_600_000;
+
+// Whole hours remaining until retryAt, never below 1 while still on cooldown.
+function retryHours(retryAt: number): number {
+  return Math.max(1, Math.ceil((retryAt - Date.now()) / 3_600_000));
+}
 
 const title = computed(() =>
   mode.value === "edit" ? t("nationality.titleEdit") : t("nationality.titleNew"),
@@ -80,7 +86,10 @@ async function save() {
   const res = await submitCountry(code);
   saving.value = false;
   if (!res.ok) {
-    error.value = t("common.saveError");
+    error.value =
+      res.reason === "cooldown"
+        ? t("nationality.cooldown", { hours: retryHours(res.retryAt) })
+        : t("common.saveError");
     return;
   }
   // The nationality step completes onboarding and unlocks contribution.
@@ -128,6 +137,9 @@ function onBackdrop() {
           </select>
         </div>
 
+        <p v-if="mode === 'edit'" class="hint">
+          {{ t("nationality.cooldownHint", { hours: cooldownHours }) }}
+        </p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
 
         <button class="save" :disabled="!valid || saving" @click="save">
@@ -210,6 +222,12 @@ h2 {
 .field:focus {
   outline: none;
   border-color: var(--ink-3);
+}
+.hint {
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
 }
 .error {
   margin: 12px 0 0;

@@ -40,7 +40,9 @@ export type Puzzle = {
 // shown as a flag avatar in the leaderboard. claimTokenHash is set on a guest:
 // it is the sha256 of the claim token handed to the client at creation, which
 // POST /guest/claim verifies to reattribute the guest's contributions to a
-// Google account.
+// Google account. pseudoChangedAt/countryChangedAt are null until the first
+// change (the initial onboarding choice does not set them) and back the
+// PROFILE_COOLDOWN_MS cooldown on further changes.
 export type User = {
   _id: string;
   guest: boolean;
@@ -51,6 +53,8 @@ export type User = {
   pseudo: string | null;
   country: string | null;
   claimTokenHash: string | null;
+  pseudoChangedAt: Date | null;
+  countryChangedAt: Date | null;
   createdAt: Date;
   lastSeenAt: Date;
 };

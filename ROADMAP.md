@@ -74,6 +74,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Auth.js wired with the Google provider
 - [x] Login anti-abuse: per-IP rate limit on auth routes + per-IP account-creation cap
 - [x] User profiles stored in Mongo, pseudo shown for snap attribution
+- [x] 24h cooldown on pseudo and country changes (the initial onboarding choice is exempt), enforced server-side and surfaced in the pseudo/nationality edit modals. See DECISIONS
 
 ### `infra-deploy`
 - [x] Production hardening: backup sidecar (gzipped `mongodump` + Redis RDB to private `mpp-backups` R2 every 6h, keep-3), secrets in the Coolify env, `ws.*` Cloudflare-proxied with an Origin CA cert (Full strict) + 30s WS heartbeat. Firewalling the origin to Cloudflare ranges stays the open DDoS gap (backlog). See DECISIONS

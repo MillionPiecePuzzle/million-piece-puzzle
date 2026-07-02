@@ -98,6 +98,9 @@ const de: MessageSchema = {
     fieldLabel: "Pseudonym",
     hint: "{min} bis {max} Zeichen: Buchstaben, Ziffern, Leerzeichen, Bindestriche und Unterstriche.",
     taken: "Dieses Pseudonym ist bereits vergeben.",
+    cooldownHint: "Du kannst dein Pseudonym nur alle {hours} Stunden ändern.",
+    cooldown:
+      "Du hast dein Pseudonym bereits vor Kurzem geändert. Versuch es in {hours} Std. erneut.",
   },
   nationality: {
     titleEdit: "Nationalität ändern",
@@ -109,6 +112,8 @@ const de: MessageSchema = {
     selectLabel: "Land",
     selectPlaceholder: "Wähle dein Land...",
     noCountry: "kein Land ausgewählt",
+    cooldownHint: "Du kannst dein Land nur alle {hours} Stunden ändern.",
+    cooldown: "Du hast dein Land bereits vor Kurzem geändert. Versuch es in {hours} Std. erneut.",
   },
   leaderboardModal: {
     label: "Vollständige Rangliste",

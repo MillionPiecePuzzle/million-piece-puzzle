@@ -97,6 +97,8 @@ const es: MessageSchema = {
     fieldLabel: "Pseudónimo",
     hint: "De {min} a {max} caracteres: letras, dígitos, espacios, guiones y guiones bajos.",
     taken: "Ese pseudónimo ya está en uso.",
+    cooldownHint: "Puedes cambiar tu pseudónimo una vez cada {hours} horas.",
+    cooldown: "Ya cambiaste tu pseudónimo hace poco. Vuelve a intentarlo en {hours} h.",
   },
   nationality: {
     titleEdit: "Cambiar tu nacionalidad",
@@ -107,6 +109,8 @@ const es: MessageSchema = {
     selectLabel: "País",
     selectPlaceholder: "Selecciona tu país...",
     noCountry: "ningún país seleccionado",
+    cooldownHint: "Puedes cambiar tu país una vez cada {hours} horas.",
+    cooldown: "Ya cambiaste tu país hace poco. Vuelve a intentarlo en {hours} h.",
   },
   leaderboardModal: {
     label: "Clasificación completa",

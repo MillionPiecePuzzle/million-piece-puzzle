@@ -1,12 +1,18 @@
 import { ObjectId, type Collection, type Db } from "mongodb";
-import type { ActivityItem, ClusterMerge, LeaderboardEntry } from "@mpp/shared";
+import {
+  PROFILE_COOLDOWN_MS,
+  type ActivityItem,
+  type ClusterMerge,
+  type LeaderboardEntry,
+} from "@mpp/shared";
 
 export type ClusterMergeDoc = Omit<ClusterMerge, "_id">;
 
 // User document: either a guest (minted by createGuest, no email, carries
 // claimTokenHash) or a Google account written by the Auth.js Mongo adapter (OAuth
 // profile). Both carry the fields this app adds: pseudo and country, createdAt,
-// lastSeenAt.
+// lastSeenAt. pseudoChangedAt/countryChangedAt are set on a change (not the
+// initial onboarding choice) and enforce PROFILE_COOLDOWN_MS.
 type UserDoc = {
   _id: ObjectId;
   guest?: boolean;
@@ -16,6 +22,8 @@ type UserDoc = {
   pseudo?: string | null;
   country?: string | null;
   claimTokenHash?: string | null;
+  pseudoChangedAt?: Date | null;
+  countryChangedAt?: Date | null;
   createdAt?: Date;
   lastSeenAt?: Date;
 };
@@ -46,6 +54,23 @@ export class DuplicatePseudoError extends Error {
   constructor() {
     super("pseudo already taken");
     this.name = "DuplicatePseudoError";
+  }
+}
+
+// Thrown by setPseudo/setCountry when the caller already changed it within
+// PROFILE_COOLDOWN_MS. retryAt is when the cooldown lifts. The route maps these
+// to a 429.
+export class PseudoCooldownError extends Error {
+  constructor(public readonly retryAt: Date) {
+    super("pseudo change is on cooldown");
+    this.name = "PseudoCooldownError";
+  }
+}
+
+export class CountryCooldownError extends Error {
+  constructor(public readonly retryAt: Date) {
+    super("country change is on cooldown");
+    this.name = "CountryCooldownError";
   }
 }
 
@@ -234,12 +259,23 @@ export class MongoLogger {
   }
 
   // Set a contributor's pseudo, enforcing global uniqueness through the
-  // partial-unique index. A duplicate surfaces as DuplicatePseudoError.
+  // partial-unique index. A duplicate surfaces as DuplicatePseudoError. The
+  // initial onboarding choice (existing pseudo is null) is free and does not
+  // start the cooldown; a change to an already-set pseudo is throttled to once
+  // per PROFILE_COOLDOWN_MS, surfaced as PseudoCooldownError.
   async setPseudo(userId: string, pseudo: string): Promise<UserProfile> {
+    const _id = new ObjectId(userId);
+    const existing = await this.users.findOne({ _id });
+    if (!existing) throw new Error(`user ${userId} not found`);
+    const isChange = existing.pseudo != null;
+    if (isChange && existing.pseudoChangedAt) {
+      const retryAt = new Date(existing.pseudoChangedAt.getTime() + PROFILE_COOLDOWN_MS);
+      if (retryAt.getTime() > Date.now()) throw new PseudoCooldownError(retryAt);
+    }
     try {
       const doc = await this.users.findOneAndUpdate(
-        { _id: new ObjectId(userId) },
-        { $set: { pseudo } },
+        { _id },
+        { $set: { pseudo, ...(isChange ? { pseudoChangedAt: new Date() } : {}) } },
         { returnDocument: "after" },
       );
       if (!doc) throw new Error(`user ${userId} not found`);
@@ -251,11 +287,20 @@ export class MongoLogger {
   }
 
   // Set a contributor's country (ISO 3166-1 alpha-2). No uniqueness constraint:
-  // many contributors share a country.
+  // many contributors share a country. Same cooldown posture as setPseudo: the
+  // initial onboarding choice is free, a later change is throttled.
   async setCountry(userId: string, country: string): Promise<UserProfile> {
+    const _id = new ObjectId(userId);
+    const existing = await this.users.findOne({ _id });
+    if (!existing) throw new Error(`user ${userId} not found`);
+    const isChange = existing.country != null;
+    if (isChange && existing.countryChangedAt) {
+      const retryAt = new Date(existing.countryChangedAt.getTime() + PROFILE_COOLDOWN_MS);
+      if (retryAt.getTime() > Date.now()) throw new CountryCooldownError(retryAt);
+    }
     const doc = await this.users.findOneAndUpdate(
-      { _id: new ObjectId(userId) },
-      { $set: { country } },
+      { _id },
+      { $set: { country, ...(isChange ? { countryChangedAt: new Date() } : {}) } },
       { returnDocument: "after" },
     );
     if (!doc) throw new Error(`user ${userId} not found`);

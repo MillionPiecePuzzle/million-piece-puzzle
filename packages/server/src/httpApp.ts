@@ -16,7 +16,13 @@ import type {
 } from "@mpp/shared";
 import { clientIp, type RedisFixedWindow } from "./limits.js";
 import { generateClaimToken, hashClaimToken } from "./auth.js";
-import { DuplicatePseudoError, type ClaimResult, type UserProfile } from "./mongo.js";
+import {
+  CountryCooldownError,
+  DuplicatePseudoError,
+  PseudoCooldownError,
+  type ClaimResult,
+  type UserProfile,
+} from "./mongo.js";
 import {
   makeAdminAuth,
   makeAdminClearHandler,
@@ -455,6 +461,10 @@ export function makeProfilePseudoHandler(deps: ProfilePseudoDeps) {
         res.status(409).json({ error: "pseudo_taken" });
         return;
       }
+      if (e instanceof PseudoCooldownError) {
+        res.status(429).json({ error: "pseudo_cooldown", retryAt: e.retryAt.getTime() });
+        return;
+      }
       console.error("[profile/pseudo]", (e as Error).message);
       res.status(500).json({ error: "server" });
     }
@@ -482,6 +492,10 @@ export function makeProfileCountryHandler(deps: ProfileCountryDeps) {
       const profile = await deps.countryStore.setCountry(userId, country);
       res.status(200).json({ user: profile });
     } catch (e) {
+      if (e instanceof CountryCooldownError) {
+        res.status(429).json({ error: "country_cooldown", retryAt: e.retryAt.getTime() });
+        return;
+      }
       console.error("[profile/country]", (e as Error).message);
       res.status(500).json({ error: "server" });
     }

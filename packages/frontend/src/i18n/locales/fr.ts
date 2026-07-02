@@ -98,6 +98,8 @@ const fr: MessageSchema = {
     fieldLabel: "Pseudo",
     hint: "{min} à {max} caractères : lettres, chiffres, espaces, traits d'union et tirets bas.",
     taken: "Ce pseudo est déjà pris.",
+    cooldownHint: "Vous pouvez changer de pseudo une fois toutes les {hours} heures.",
+    cooldown: "Vous avez déjà changé de pseudo récemment. Réessayez dans {hours} h.",
   },
   nationality: {
     titleEdit: "Changer de nationalité",
@@ -109,6 +111,8 @@ const fr: MessageSchema = {
     selectLabel: "Pays",
     selectPlaceholder: "Sélectionnez votre pays...",
     noCountry: "aucun pays sélectionné",
+    cooldownHint: "Vous pouvez changer de pays une fois toutes les {hours} heures.",
+    cooldown: "Vous avez déjà changé de pays récemment. Réessayez dans {hours} h.",
   },
   leaderboardModal: {
     label: "Classement complet",

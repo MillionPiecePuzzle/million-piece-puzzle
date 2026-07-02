@@ -7,6 +7,11 @@
 export const PSEUDO_MIN_LENGTH = 2;
 export const PSEUDO_MAX_LENGTH = 16;
 
+// Minimum time between two pseudo or country changes. Does not gate the initial
+// onboarding choice (a guest's minted pseudo/country, or a Google account's first
+// forced pick), only a change to an already-set value.
+export const PROFILE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
 // Letters, digits, spaces, hyphens and underscores. Letters and digits use the
 // Unicode classes so accented names are accepted.
 const PSEUDO_PATTERN = /^[\p{L}\p{N} _-]+$/u;
