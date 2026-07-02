@@ -102,6 +102,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Snap particle burst: a small spark burst radiates from each piece the instant it locks (snap or anchor), on the Pixi ticker, capped per snap event
 - [x] Brand mark as favicon and Discord icon: cream-tiled SVG favicon + apple-touch PNG in index.html, plus a 512px Discord server-icon PNG, generated from the BrandMark glyph via `npm run icons`
 - [x] Minimap navigation: a primary-button press on the overview recenters the camera on that world point, a hold-drag (tracked past the panel edge via pointer capture) sweeps it continuously, clamped to the play zone
+- [x] Topbar presence indicator: the "connected" label text is folded into a tooltip on the status dot instead of sitting next to the pseudo
 
 ---
 

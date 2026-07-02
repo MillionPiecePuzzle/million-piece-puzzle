@@ -58,7 +58,7 @@ const playTime = computed(() => {
 
     <div class="top-right">
       <div v-if="user && user.pseudo" class="presence">
-        <span class="dot" :aria-label="t('topbar.connected')"></span>
+        <span class="dot" :title="t('topbar.connected')" :aria-label="t('topbar.connected')"></span>
         <span
           v-if="user.country"
           class="flag"
@@ -69,7 +69,6 @@ const playTime = computed(() => {
         <span class="pseudo" :title="t('topbar.signedInAs', { pseudo: user.pseudo })">
           {{ user.pseudo }}
         </span>
-        <span class="status">{{ t("topbar.connected") }}</span>
         <button
           type="button"
           class="gear"
@@ -202,13 +201,6 @@ const playTime = computed(() => {
   font-size: 13px;
   letter-spacing: -0.005em;
   color: var(--ink);
-}
-.presence .status {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-4);
 }
 .presence .gear {
   display: inline-flex;
