@@ -28,6 +28,22 @@ export class World {
   readonly groups = new Map<number, GroupRuntime>();
   playZone: PlayZone = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
+  // Bounds memory: bot.ts jumps the viewport to a brand new random window every
+  // second rather than panning, so groups learned for the previous window are
+  // about to be irrelevant. Without this, region_state keeps upserting and
+  // nothing ever removes, so a bot's mirror grows toward the full board and a
+  // multi-bot run against a 1M-piece board OOMs well before the run duration
+  // elapses. The held group survives the reset: a drag in progress does not
+  // re-read it from this map once started, but the snap handler does check it
+  // is still here, and would otherwise wrongly treat every unrelated snap on
+  // the board as "my held group changed".
+  resetForNewViewport(keepGroupId: number | null): void {
+    const kept = keepGroupId !== null ? this.groups.get(keepGroupId) : undefined;
+    this.groups.clear();
+    this.pieces.clear();
+    if (kept) this.groups.set(keepGroupId as number, kept);
+  }
+
   // Upsert the groups in a region_state window. An unknown group is built; a
   // known one has its membership, size and locked state reconciled, and its
   // position adopted only when nobody holds it (a held group's live drag/drop is

@@ -307,6 +307,7 @@ export class Bot {
   }
 
   private sendViewport(): void {
+    this.world.resetForNewViewport(this.heldGroupId);
     const z = this.world.playZone;
     const w = (z.maxX - z.minX) * this.cfg.viewportFrac;
     const h = (z.maxY - z.minY) * this.cfg.viewportFrac;
