@@ -40,8 +40,11 @@ const es: MessageSchema = {
     pieces: "una pieza | {n} piezas",
   },
   countdown: {
-    untilOpen: "Hasta la apertura del lienzo",
     launchingSoon: "Lanzamiento inminente",
+    days: "Días",
+    hours: "Horas",
+    minutes: "Minutos",
+    seconds: "Segundos",
   },
   footer: {
     privacy: "Privacidad",

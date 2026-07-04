@@ -103,6 +103,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Brand mark as favicon and Discord icon: cream-tiled SVG favicon + apple-touch PNG in index.html, plus a 512px Discord server-icon PNG, generated from the BrandMark glyph via `npm run icons`
 - [x] Minimap navigation: a primary-button press on the overview recenters the camera on that world point, a hold-drag (tracked past the panel edge via pointer capture) sweeps it continuously, clamped to the play zone
 - [x] Topbar presence indicator: the "connected" label text is folded into a tooltip on the status dot instead of sitting next to the pseudo
+- [x] Countdown unit labels: each DD:HH:MM:SS digit group gets a Days/Hours/Minutes/Seconds label underneath, replacing the "Until the canvas opens" caption (kept only for the unscheduled placeholder state), localized across all four locales
 
 ---
 

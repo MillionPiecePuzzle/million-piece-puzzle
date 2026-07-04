@@ -14,21 +14,25 @@ const PLACEHOLDER = "--";
     <div class="units">
       <div class="unit">
         <span class="value">{{ scheduled ? parts.days : PLACEHOLDER }}</span>
+        <span class="label">{{ t("countdown.days") }}</span>
       </div>
       <span class="sep" aria-hidden="true">:</span>
       <div class="unit">
         <span class="value">{{ scheduled ? parts.hours : PLACEHOLDER }}</span>
+        <span class="label">{{ t("countdown.hours") }}</span>
       </div>
       <span class="sep" aria-hidden="true">:</span>
       <div class="unit">
         <span class="value">{{ scheduled ? parts.minutes : PLACEHOLDER }}</span>
+        <span class="label">{{ t("countdown.minutes") }}</span>
       </div>
       <span class="sep" aria-hidden="true">:</span>
       <div class="unit">
         <span class="value">{{ scheduled ? parts.seconds : PLACEHOLDER }}</span>
+        <span class="label">{{ t("countdown.seconds") }}</span>
       </div>
     </div>
-    <p class="caption">{{ scheduled ? t("countdown.untilOpen") : t("countdown.launchingSoon") }}</p>
+    <p v-if="!scheduled" class="caption">{{ t("countdown.launchingSoon") }}</p>
   </div>
 </template>
 
@@ -58,6 +62,13 @@ const PLACEHOLDER = "--";
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   color: var(--ink);
+}
+.label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-4);
 }
 .sep {
   font-size: clamp(36px, 7vw, 72px);

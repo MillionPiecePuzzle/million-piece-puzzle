@@ -40,8 +40,11 @@ const fr: MessageSchema = {
     pieces: "une pièce | {n} pièces",
   },
   countdown: {
-    untilOpen: "Avant l'ouverture du canevas",
     launchingSoon: "Lancement imminent",
+    days: "Jours",
+    hours: "Heures",
+    minutes: "Minutes",
+    seconds: "Secondes",
   },
   footer: {
     privacy: "Confidentialité",

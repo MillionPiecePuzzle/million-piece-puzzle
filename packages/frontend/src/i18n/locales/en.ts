@@ -38,8 +38,11 @@ const en = {
     pieces: "a piece | {n} pieces",
   },
   countdown: {
-    untilOpen: "Until the canvas opens",
     launchingSoon: "Launching soon",
+    days: "Days",
+    hours: "Hours",
+    minutes: "Minutes",
+    seconds: "Seconds",
   },
   footer: {
     privacy: "Privacy",

@@ -40,8 +40,11 @@ const de: MessageSchema = {
     pieces: "ein Teil | {n} Teile",
   },
   countdown: {
-    untilOpen: "Bis die Leinwand öffnet",
     launchingSoon: "Start in Kürze",
+    days: "Tage",
+    hours: "Stunden",
+    minutes: "Minuten",
+    seconds: "Sekunden",
   },
   footer: {
     privacy: "Datenschutz",
