@@ -9,12 +9,12 @@ import { loadConfig, DEFAULT_REDIS_URL } from "./config.js";
 import { readAdminOverrides, UnknownPuzzleError } from "./admin.js";
 import { adminEventStart, adminPuzzleOverride } from "./redis/keys.js";
 import { Hub, type Client } from "./hub.js";
-import { worldAabbFor } from "./worldGrid.js";
-import { buildWireContext, toWireId, anchorWorldX, anchorWorldY } from "./wire.js";
+import { buildWireContext } from "./wire.js";
 import { RedisState } from "./state.js";
 import { MongoLogger, ensureIndexes } from "./mongo.js";
 import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { GroupQueue } from "./queue.js";
+import { releaseHeldGroups, sweepStaleHolds } from "./holds.js";
 import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
 import { initPuzzleIfEmpty, rebuildGroupIndex } from "./init.js";
 import { GroupIndex } from "./groupIndex.js";
@@ -38,6 +38,11 @@ const CLOSE_TRY_AGAIN_LATER = 1013;
 // Cadence of the admission-queue sweep: reclaim expired grants and abandoned
 // waiters, then admit into the freed slots even when no one is polling.
 const ADMISSION_SWEEP_INTERVAL_MS = 5000;
+
+// Cadence of the stale-hold sweep (see DECISIONS: grab reservation + stale-hold
+// sweep). Independent of config.staleHoldMs (the age threshold): this is how
+// often the (normally empty) candidate list is checked.
+const STALE_HOLD_SWEEP_INTERVAL_MS = 30000;
 
 // User stashed on the upgrade request by verifyClient and read by the
 // connection handler, so the session is resolved exactly once at the upgrade.
@@ -457,11 +462,21 @@ async function main(): Promise<void> {
     ? setInterval(() => admission.sweep(), ADMISSION_SWEEP_INTERVAL_MS)
     : null;
 
+  // Periodic stale-hold sweep: always armed, independent of the admission queue.
+  // Reclaims a hold whose owner is gone for any reason the in-process release
+  // path missed (see DECISIONS: grab reservation + stale-hold sweep).
+  const staleHoldSweepTimer = setInterval(() => {
+    void sweepStaleHolds(ctx, hub, config.staleHoldMs).catch((e: unknown) => {
+      console.error("[stale-hold]", (e as Error).message);
+    });
+  }, STALE_HOLD_SWEEP_INTERVAL_MS);
+
   const shutdown = async () => {
     console.log("[shutdown] closing");
     keyframePublisher.stop();
     clearInterval(heartbeatTimer);
     if (admissionSweepTimer) clearInterval(admissionSweepTimer);
+    clearInterval(staleHoldSweepTimer);
     wss.close();
     httpServer.close();
     await redis.quit();
@@ -481,35 +496,6 @@ function grantFromUpgrade(req: IncomingMessage): string | null {
   } catch {
     return null;
   }
-}
-
-// Release every group a departing client still held. The connection tracks its
-// held group ids (see Client.held), so the cleanup is O(held), not a board scan,
-// and a client that never grabbed anything does nothing. The release runs on
-// those groups' queues: no other client can take a hold this user already owns,
-// and a stale id (the group merged away or anchored between the drop and the
-// disconnect) is re-checked under the lock before release, so the cleanup never
-// fights a concurrent merge on those groups.
-async function releaseHeldGroups(ctx: Context, client: Client, hub: Hub): Promise<void> {
-  const heldIds = [...client.held];
-  if (heldIds.length === 0) return;
-  const userId = client.userId;
-  await ctx.queue.run("release", heldIds, async () => {
-    for (const id of heldIds) {
-      const g = await ctx.state.readGroup(id);
-      if (!g || g.heldBy !== userId) continue;
-      await ctx.state.releaseGroup(id);
-      // Encode the held group's grid id + internal origin to the wire (permuted id
-      // + anchor world position) for the broadcast.
-      const wireId = toWireId(ctx.wire, id);
-      const wireX = anchorWorldX(ctx.wire, id, g.worldX);
-      const wireY = anchorWorldY(ctx.wire, id, g.worldY);
-      hub.broadcastOverlapping(
-        { t: "drop", groupId: wireId, worldX: wireX, worldY: wireY, userId },
-        worldAabbFor(g.localAabb, g.worldX, g.worldY),
-      );
-    }
-  });
 }
 
 main().catch((e: unknown) => {

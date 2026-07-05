@@ -23,11 +23,15 @@ export type Client = {
   // The authenticated user's profile pseudo, resolved at the WS upgrade and
   // fixed for the connection, null when the user has not set one yet.
   pseudo: string | null;
-  // Group ids this connection currently holds: added on a winning grab, removed
-  // on the drop that ends the hold. Lets disconnect cleanup release in O(held)
-  // instead of scanning the whole board. Entries can be stale (a held group
-  // merged away before disconnect), so the release re-checks ownership under the
-  // group's queue.
+  // Group ids this connection currently holds. Reserved synchronously when a
+  // grab is dispatched, before the Redis round trip that decides it, so a
+  // disconnect racing an in-flight grab still sees the id and releases it;
+  // dropped again if that grab turns out denied. Also removed on the drop that
+  // ends a winning hold. Lets disconnect cleanup release in O(held) instead of
+  // scanning the whole board. Entries can be stale (a held group merged away
+  // before disconnect), so the release re-checks ownership under the group's
+  // queue; a hold that outlives its connection for any other reason (crash,
+  // restart) is caught by the stale-hold sweep instead (see holds.ts).
   held: Set<number>;
   // Broadcast-grid cells this client's viewport currently overlaps. Empty means
   // the client is a global subscriber (no viewport yet, or a viewport larger than

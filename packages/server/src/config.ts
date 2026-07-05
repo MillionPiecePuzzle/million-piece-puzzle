@@ -44,6 +44,12 @@ export type ServerConfig = {
   // interval and terminates a socket that missed the previous pong, keeping idle
   // contributors connected and reaping half-open sockets.
   wsHeartbeatIntervalMs: number;
+  // Age (ms) past which the stale-hold sweep force-releases a held group (see
+  // DECISIONS: grab reservation + stale-hold sweep). A heuristic ceiling on how
+  // long any legitimate hold (drag-to-drop, or a carried cluster, itself capped
+  // at 30s idle) should ever take; comfortably above that so the sweep never
+  // fires on live play, only on a hold whose owner is actually gone.
+  staleHoldMs: number;
   // Admission queue (see DECISIONS: admission queue). A global cap on concurrent
   // WS connections with a FIFO wait list in front of it. 0 disables the queue, so
   // the WS upgrade requires no grant (the cap is opt-in per deployment). The grant
@@ -218,6 +224,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
     wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
     wsHeartbeatIntervalMs: int("MPP_WS_HEARTBEAT_INTERVAL_MS", 30000),
+    staleHoldMs: int("MPP_STALE_HOLD_MS", 180000),
     maxActiveConnections: int("MPP_MAX_ACTIVE_CONNECTIONS", 0),
     queueGrantTtlMs: int("MPP_QUEUE_GRANT_TTL_MS", 10000),
     queueTicketTtlMs: int("MPP_QUEUE_TICKET_TTL_MS", 15000),

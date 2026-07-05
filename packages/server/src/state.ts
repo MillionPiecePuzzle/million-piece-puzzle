@@ -76,6 +76,7 @@ export class RedisState {
     pipe.del(keys.puzzleMeta(this.puzzleId));
     pipe.del(keys.lockedCount(this.puzzleId));
     pipe.del(keys.presence(this.puzzleId));
+    pipe.del(keys.heldGroups(this.puzzleId));
     for (let i = 0; i < totalPieces; i++) {
       pipe.del(
         keys.piece(this.puzzleId, i),
@@ -147,7 +148,15 @@ export class RedisState {
   }
 
   async deleteGroup(id: number): Promise<void> {
-    await this.r.del(keys.group(this.puzzleId, id), keys.groupPieces(this.puzzleId, id));
+    // A merged-away group can have been held an instant ago (the merge only
+    // proceeds once the dropper's own hold is confirmed); drop its tracking
+    // entry too, or the stale-hold sweep would later find an id that no longer
+    // exists.
+    await this.r
+      .pipeline()
+      .del(keys.group(this.puzzleId, id), keys.groupPieces(this.puzzleId, id))
+      .zrem(keys.heldGroups(this.puzzleId), id)
+      .exec();
   }
 
   async setGroupPosition(id: number, worldX: number, worldY: number): Promise<void> {
@@ -157,7 +166,10 @@ export class RedisState {
   async tryAcquireGroup(id: number, userId: string): Promise<string | null> {
     const key = keys.group(this.puzzleId, id);
     // 'size' marks a fully written group (see parseGroup); reject acquiring a
-    // group id that has no group instead of creating a bare heldBy hash.
+    // group id that has no group instead of creating a bare heldBy hash. The
+    // acquired-at timestamp goes into the held-groups tracking ZSet in the same
+    // script as the HSET, so a hold is never recorded without also being tracked
+    // (see the stale-hold sweep in index.ts).
     const lua = `
       if redis.call('HEXISTS', KEYS[1], 'size') == 0 then return 'MISSING' end
       local locked = redis.call('HGET', KEYS[1], 'locked')
@@ -165,14 +177,41 @@ export class RedisState {
       local current = redis.call('HGET', KEYS[1], 'heldBy')
       if current and current ~= '' then return current end
       redis.call('HSET', KEYS[1], 'heldBy', ARGV[1])
+      redis.call('ZADD', KEYS[2], ARGV[2], ARGV[3])
       return ''
     `;
-    const result = (await this.r.eval(lua, 1, key, userId)) as string;
+    const result = (await this.r.eval(
+      lua,
+      2,
+      key,
+      keys.heldGroups(this.puzzleId),
+      userId,
+      Date.now(),
+      id,
+    )) as string;
     return result === "" ? null : result;
   }
 
   async releaseGroup(id: number): Promise<void> {
-    await this.r.hset(keys.group(this.puzzleId, id), "heldBy", "");
+    await this.r
+      .pipeline()
+      .hset(keys.group(this.puzzleId, id), "heldBy", "")
+      .zrem(keys.heldGroups(this.puzzleId), id)
+      .exec();
+  }
+
+  // Group ids the tracking ZSet has held since before `cutoffMs` (ms epoch): a
+  // candidate list for the stale-hold sweep in index.ts.
+  async staleHeldGroups(cutoffMs: number): Promise<number[]> {
+    const ids = await this.r.zrangebyscore(keys.heldGroups(this.puzzleId), "-inf", cutoffMs);
+    return ids.map(Number);
+  }
+
+  // Drop a tracking entry with no matching hold: the group was already released
+  // or merged away through a path that forgot to untrack it. A defensive no-op
+  // in the common case, used only by the stale-hold sweep.
+  async forgetHeldGroup(id: number): Promise<void> {
+    await this.r.zrem(keys.heldGroups(this.puzzleId), id);
   }
 
   async writeInitialPieces(

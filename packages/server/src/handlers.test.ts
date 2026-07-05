@@ -265,19 +265,68 @@ describe("handleGrab", () => {
     expect(send).toHaveBeenCalledWith(client, { t: "grab_denied", groupId: 5, heldBy: "" });
   });
 
-  it("tracks the held group id on a winning grab", async () => {
+  // dispatch reserves the group id in client.held synchronously, before this
+  // handler ever runs (see the "dispatch grab reservation" describe block
+  // below), so these tests seed `held` themselves to match that contract.
+
+  it("keeps the reservation on a winning grab", async () => {
     const { ctx, tryAcquireGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue(null);
-    const c = { userId: "u1", held: new Set<number>() } as unknown as Client;
+    const c = { userId: "u1", held: new Set<number>([7]) } as unknown as Client;
     await handleGrab(ctx, c, 7);
     expect([...c.held]).toEqual([7]);
   });
 
-  it("does not track the group when the grab is denied", async () => {
+  it("drops the reservation when the grab is denied by another holder", async () => {
+    const { ctx, tryAcquireGroup } = makeCtx();
+    tryAcquireGroup.mockResolvedValue("other-user");
+    const c = { userId: "u1", held: new Set<number>([7]) } as unknown as Client;
+    await handleGrab(ctx, c, 7);
+    expect(c.held.size).toBe(0);
+  });
+
+  it("drops the reservation when the group is missing", async () => {
+    const { ctx, tryAcquireGroup } = makeCtx();
+    tryAcquireGroup.mockResolvedValue("MISSING");
+    const c = { userId: "u1", held: new Set<number>([7]) } as unknown as Client;
+    await handleGrab(ctx, c, 7);
+    expect(c.held.size).toBe(0);
+  });
+
+  it("keeps the reservation when the grab is denied by the same client's own earlier hold", async () => {
+    // tryAcquireGroup returns the current holder's userId when it is already
+    // held, including by the same client re-sending grab for a group it
+    // legitimately holds. That must not be treated as "never acquired" and
+    // drop a real hold from client.held.
+    const { ctx, tryAcquireGroup } = makeCtx();
+    tryAcquireGroup.mockResolvedValue("u1");
+    const c = { userId: "u1", held: new Set<number>([7]) } as unknown as Client;
+    await handleGrab(ctx, c, 7);
+    expect([...c.held]).toEqual([7]);
+  });
+});
+
+describe("dispatch grab reservation", () => {
+  it("adds the group id to client.held synchronously, before the acquire resolves", async () => {
+    const { ctx, tryAcquireGroup } = makeCtx();
+    const gate = deferred();
+    tryAcquireGroup.mockReturnValue(gate.promise.then(() => null));
+    const c = { userId: "u1", held: new Set<number>() } as unknown as Client;
+    const pending = dispatch(ctx, c, JSON.stringify({ t: "grab", groupId: 7 }));
+    // A disconnect racing this in-flight grab (see index.ts releaseHeldGroups)
+    // snapshots client.held synchronously too, so it must already see the id
+    // here, well before tryAcquireGroup's Redis round trip settles.
+    expect(c.held.has(7)).toBe(true);
+    gate.resolve();
+    await pending;
+    expect(c.held.has(7)).toBe(true);
+  });
+
+  it("drops the reservation once dispatch learns the grab was denied", async () => {
     const { ctx, tryAcquireGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue("other-user");
     const c = { userId: "u1", held: new Set<number>() } as unknown as Client;
-    await handleGrab(ctx, c, 7);
+    await dispatch(ctx, c, JSON.stringify({ t: "grab", groupId: 7 }));
     expect(c.held.size).toBe(0);
   });
 });

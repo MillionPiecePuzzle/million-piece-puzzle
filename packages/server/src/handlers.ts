@@ -154,10 +154,15 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
 
 // `groupId` is the decoded grid id (dispatch maps the wire id before queueing);
 // the broadcast grab_ok/grab_denied re-encode it to the wire id every client knows.
+// The caller (dispatch) has already added `groupId` to `client.held` synchronously,
+// before this ever reaches the queue: a disconnect racing this call still finds
+// the id and releases it once this settles, instead of the hold outliving the
+// connection that requested it (see DECISIONS). Success simply keeps that
+// reservation; every non-success path other than "already held by this same
+// client" (a redundant grab) drops it again.
 export async function handleGrab(ctx: Context, client: Client, groupId: number): Promise<void> {
   const owner = await ctx.state.tryAcquireGroup(groupId, client.userId);
   if (owner === null) {
-    client.held.add(groupId);
     ctx.hub.broadcast({
       t: "grab_ok",
       groupId: toWireId(ctx.wire, groupId),
@@ -165,6 +170,7 @@ export async function handleGrab(ctx: Context, client: Client, groupId: number):
     });
     return;
   }
+  if (owner !== client.userId) client.held.delete(groupId);
   if (owner === "MISSING") {
     err(ctx, client, "unknown_group", `group ${groupId}`);
     return;
@@ -599,6 +605,12 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
         return;
       }
       const gridId = toGridId(ctx.wire, msg.groupId);
+      // Reserve synchronously, before the queue (and the Redis round trip inside
+      // it) ever runs: a disconnect racing this grab then still sees the id in
+      // client.held and releases it, instead of the acquire winning after the
+      // disconnect cleanup already took its snapshot (see DECISIONS). handleGrab
+      // drops the reservation again on anything but a win.
+      client.held.add(gridId);
       await ctx.queue.run("grab", [gridId], () => handleGrab(ctx, client, gridId));
       return;
     }

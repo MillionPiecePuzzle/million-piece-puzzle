@@ -14,6 +14,16 @@ export const piece = (puzzleId: string, pieceId: number) => `puzzle:${puzzleId}:
 /** Hash: worldX, worldY, locked, size, heldBy. */
 export const group = (puzzleId: string, groupId: number) => `puzzle:${puzzleId}:group:${groupId}`;
 
+/**
+ * ZSet: groupId -> ms-epoch it was acquired. Tracks every currently-held group
+ * so a periodic sweep (index.ts) can force-release one whose owner never came
+ * back (a race between an in-flight grab and a disconnect, a crash, or a
+ * restart while held). Every path that ends a hold (release, merge-away, wipe)
+ * removes its own id here, so a lingering entry past the sweep's threshold
+ * means the normal release path never ran.
+ */
+export const heldGroups = (puzzleId: string) => `puzzle:${puzzleId}:held-groups`;
+
 /** Set: pieceIds belonging to the group. */
 export const groupPieces = (puzzleId: string, groupId: number) =>
   `puzzle:${puzzleId}:group-pieces:${groupId}`;
