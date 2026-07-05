@@ -83,7 +83,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 
 ### `qa-and-load`
 - [x] Load-test bots authenticate past the WS session gate: harness seeds a disposable user + DB session per bot in Mongo and sends the matching cookie. Verified at 10 000 (anonymous rejected, ~160 drag/s sustained, clean teardown). See DECISIONS
-- [~] Soak test with simulated traffic at target scale passes without state corruption. Tooling built: `validate-state` asserts partition/locked/held invariants + Mongo-replay-equals-Redis at rest; harness `--spoof-ip-base` drives >cap bots from one host. See DECISIONS. Pending: run the prod soak + validator against the OVH VPS-3 (12 GB)
+- [x] Soak test with simulated traffic at target scale passes without state corruption. Tooling built: `validate-state` asserts partition/locked/held invariants + Mongo-replay-equals-Redis at rest; harness `--spoof-ip-base` drives >cap bots from one host. See DECISIONS. Verified on the OVH VPS-3 (12 GB): 50 bots, 15 min, in-network run against a freshly wiped board, validator reports a clean state (all ten checks pass, including no group held at rest)
 
 ### `legal`
 - [x] Privacy policy published: public `/privacy` page, linked from the landing footer

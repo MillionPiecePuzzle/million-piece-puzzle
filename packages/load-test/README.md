@@ -99,11 +99,15 @@ NET=$(docker inspect "$SRV" --format '{{range $k,$v := .NetworkSettings.Networks
 
 # 15-min, 50-bot soak. --secure-cookie because the prod server's auth host is
 # https, so it only reads the __Secure- cookie even over this ws:// hop.
+# --viewport-frac 0.05: the harness default (0.1) spans ~400 broadcast cells
+# against this puzzle's play zone, over MPP_BROADCAST_MAX_CELLS (256), so every
+# bot becomes a global subscriber and never streams region_state. 0.05 keeps
+# each bot's viewport under ~121 cells, comfortably inside the cap.
 docker run --rm --network "$NET" mpp-loadtest run \
   --target ws://server:8080 --puzzle synthetic-1m \
   --origin https://app.millionpiecepuzzle.com \
   --mongo mongodb://mongo:27017 --mongo-db mpp \
-  --bots 50 --duration 900 --spoof-ip-base 198.51.100.0 --secure-cookie
+  --bots 50 --duration 900 --viewport-frac 0.05 --spoof-ip-base 198.51.100.0 --secure-cookie
 
 # ~5s settle, then the corruption gate (also in-network, by service name)
 docker run --rm --network "$NET" mpp-loadtest validate \
