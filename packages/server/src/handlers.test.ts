@@ -812,8 +812,13 @@ class FakeWs {
 }
 
 const VIEWPORT_CELL = 1000;
+// Generous default so existing single-batch tests behave as before; tests that
+// exercise batching/pacing override these via makeViewportCtx's options.
+const DEFAULT_BATCH_CELLS = 256;
+const DEFAULT_PACE_THRESHOLD_BYTES = 1 << 20;
+const DEFAULT_POLL_INTERVAL_MS = 5;
 
-function makeViewportCtx() {
+function makeViewportCtx(overrides: Partial<Context> = {}) {
   const hub = new Hub(1 << 20, VIEWPORT_CELL, 256);
   const groupIndex = new GroupIndex(VIEWPORT_CELL);
   const getGroupPieces = vi.fn(async (id: number) => [id, id + 100]);
@@ -824,6 +829,11 @@ function makeViewportCtx() {
     groupIndex,
     state: { getGroupPieces },
     wire: transparentWire(1000, 100),
+    worldTileSize: VIEWPORT_CELL,
+    regionStreamBatchCells: DEFAULT_BATCH_CELLS,
+    regionStreamPaceThresholdBytes: DEFAULT_PACE_THRESHOLD_BYTES,
+    regionStreamPollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
+    ...overrides,
   } as unknown as Context;
   return { ctx, hub, groupIndex, getGroupPieces };
 }
@@ -838,6 +848,7 @@ function viewportClient(): { client: Client; ws: FakeWs } {
     ws,
     viewport: null,
     cells: new Set<number>(),
+    regionStreamSeq: 0,
   } as unknown as Client;
   return { client, ws };
 }
@@ -862,6 +873,14 @@ function lastRegionStateMsg(ws: FakeWs): (ServerMessage & { t: "region_state" })
     if (msg.t === "region_state") return msg;
   }
   return null;
+}
+
+// Every region_state message sent so far, in send order (for asserting on a
+// paced, multi-batch stream rather than just its most recent message).
+function regionStateMessages(ws: FakeWs): Array<ServerMessage & { t: "region_state" }> {
+  return ws.sent
+    .map((raw) => JSON.parse(raw) as ServerMessage)
+    .filter((msg): msg is ServerMessage & { t: "region_state" } => msg.t === "region_state");
 }
 
 describe("handleViewport region_state construction", () => {
@@ -961,7 +980,11 @@ describe("handleViewport region_state construction", () => {
     });
     const msg = lastRegionStateMsg(ws);
     expect(msg?.groups).toEqual([]);
-    expect(msg?.coverage).toEqual({ minX: 0, minY: 0, maxX: 500, maxY: 500 });
+    // Coverage is the entered cell's own tight bbox (cell (0,0) at VIEWPORT_CELL
+    // 1000), not the client's whole requested 500x500 rect: a deliberate
+    // tightening so a batch never claims a cell beyond what it actually sent
+    // (see DECISIONS: paced region_state batching).
+    expect(msg?.coverage).toEqual({ minX: 0, minY: 0, maxX: 1000, maxY: 1000 });
   });
 
   it("sends nothing when the viewport enters no new cells", async () => {
@@ -972,5 +995,125 @@ describe("handleViewport region_state construction", () => {
     ws.sent.length = 0;
     await handleViewport(ctx, client, view);
     expect(lastRegionStateMsg(ws)).toBeNull();
+  });
+
+  it("streams multiple batches when entered cells exceed the batch budget, each scoped to its own cells", async () => {
+    const { ctx, groupIndex } = makeViewportCtx({ regionStreamBatchCells: 1 });
+    groupIndex.set(5, 1500, 1500, single(1500, 1500)); // cell (1,1)
+    groupIndex.set(6, 2500, 1500, single(2500, 1500)); // cell (2,1)
+    const { client, ws } = viewportClient();
+
+    await handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 1000,
+      worldY: 1000,
+      worldW: 1500,
+      worldH: 500,
+    });
+
+    const messages = regionStateMessages(ws);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]!.groups.map((g) => g.groupId)).toEqual([5]);
+    expect(messages[0]!.coverage).toEqual({ minX: 1000, minY: 1000, maxX: 2000, maxY: 2000 });
+    expect(messages[1]!.groups.map((g) => g.groupId)).toEqual([6]);
+    expect(messages[1]!.coverage).toEqual({ minX: 2000, minY: 1000, maxX: 3000, maxY: 2000 });
+  });
+
+  it("pauses between batches while ws.bufferedAmount is over the pacing threshold", async () => {
+    const { ctx, groupIndex } = makeViewportCtx({
+      regionStreamBatchCells: 1,
+      regionStreamPaceThresholdBytes: 10,
+      regionStreamPollIntervalMs: 5,
+    });
+    groupIndex.set(5, 1500, 1500, single(1500, 1500)); // cell (1,1)
+    groupIndex.set(6, 2500, 1500, single(2500, 1500)); // cell (2,1)
+    const { client, ws } = viewportClient();
+    ws.bufferedAmount = 1000; // over the pacing threshold from the start
+
+    const done = handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 1000,
+      worldY: 1000,
+      worldW: 1500,
+      worldH: 500,
+    });
+
+    // The first batch sends with no pacing delay regardless of bufferedAmount
+    // (only the wait *between* batches checks it).
+    await waitFor(() => regionStateMessages(ws).length >= 1);
+    await flush();
+    await flush();
+    expect(regionStateMessages(ws)).toHaveLength(1);
+
+    ws.bufferedAmount = 0;
+    await waitFor(() => regionStateMessages(ws).length >= 2);
+    await done;
+    expect(regionStateMessages(ws)).toHaveLength(2);
+  });
+
+  it("supersedes an in-flight stream when a new viewport message arrives on the same connection", async () => {
+    const { ctx, groupIndex } = makeViewportCtx({
+      regionStreamBatchCells: 1,
+      regionStreamPaceThresholdBytes: 10,
+      regionStreamPollIntervalMs: 5,
+    });
+    groupIndex.set(5, 1500, 1500, single(1500, 1500)); // cell (1,1)
+    groupIndex.set(6, 2500, 1500, single(2500, 1500)); // cell (2,1)
+    groupIndex.set(9, 5500, 1500, single(5500, 1500)); // cell (5,1), a disjoint region
+    const { client, ws } = viewportClient();
+    ws.bufferedAmount = 1000; // paces the first stream's second batch indefinitely
+
+    const first = handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 1000,
+      worldY: 1000,
+      worldW: 1500,
+      worldH: 500,
+    });
+    await waitFor(() => regionStateMessages(ws).length >= 1);
+    expect(regionStateMessages(ws)[0]!.groups.map((g) => g.groupId)).toEqual([5]);
+
+    // A second viewport, over a disjoint region, arrives while the first stream
+    // is still paced waiting to send group 6's batch. Its synchronous prologue
+    // bumps regionStreamSeq before the first stream's paused loop can wake up
+    // and recheck, so the first stream stops without ever sending group 6.
+    ws.bufferedAmount = 0;
+    const second = handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 5000,
+      worldY: 1000,
+      worldW: 500,
+      worldH: 500,
+    });
+    await Promise.all([first, second]);
+
+    const groupIds = regionStateMessages(ws).flatMap((m) => m.groups.map((g) => g.groupId));
+    expect(groupIds).not.toContain(6);
+    expect(groupIds).toContain(9);
+  });
+
+  it("stops cleanly with no further sends when the connection closes mid-stream", async () => {
+    const { ctx, groupIndex } = makeViewportCtx({
+      regionStreamBatchCells: 1,
+      regionStreamPaceThresholdBytes: 10,
+      regionStreamPollIntervalMs: 5,
+    });
+    groupIndex.set(5, 1500, 1500, single(1500, 1500)); // cell (1,1)
+    groupIndex.set(6, 2500, 1500, single(2500, 1500)); // cell (2,1)
+    const { client, ws } = viewportClient();
+    ws.bufferedAmount = 1000; // paces the second batch so the close lands first
+
+    const done = handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 1000,
+      worldY: 1000,
+      worldW: 1500,
+      worldH: 500,
+    });
+    await waitFor(() => regionStateMessages(ws).length >= 1);
+    ws.close();
+
+    await expect(done).resolves.toBeUndefined();
+    expect(regionStateMessages(ws)).toHaveLength(1);
   });
 });

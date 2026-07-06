@@ -69,6 +69,20 @@ export type ServerConfig = {
   // cluster) overlapping more than broadcastMaxCells cells is treated as global,
   // bounding the subscription set and the per-event cell walk.
   broadcastMaxCells: number;
+  // Target cell count per region_state batch when a viewport's newly entered
+  // cells are paced across multiple messages instead of one send (see
+  // DECISIONS: paced region_state batching). Unmeasured heuristic, tune from
+  // the next soak.
+  regionStreamBatchCells: number;
+  // ws.bufferedAmount ceiling (bytes) below which a paced region_state stream
+  // is clear to send its next batch; above it, the stream polls until
+  // bufferedAmount drops. Derived from wsBufferedAmountLimitBytes (half of it)
+  // rather than its own env var, so it keeps scaling automatically if that
+  // limit is ever raised.
+  regionStreamPaceThresholdBytes: number;
+  // Poll interval (ms) while a paced region_state stream waits for
+  // bufferedAmount to clear. Unmeasured heuristic, tune from the next soak.
+  regionStreamPollIntervalMs: number;
   // Per-tile piece cap, as a multiple of a cell's solved density (the pieces that
   // fill one cell when solved, `(WORLD_TILE_SIZE / pieceSize)` squared). A
   // non-merging drop that would push the destination cell past this many pieces is
@@ -195,6 +209,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     );
   }
   const port = int("MPP_PORT", 8080);
+  const wsBufferedAmountLimitBytes = int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024);
   const allowedOrigins = parseAllowedOrigins(process.env.MPP_ALLOWED_ORIGINS);
   const authUrl = trimTrailingSlash(str("AUTH_URL", `http://localhost:${port}`));
   // The generation seed is the anti-solving secret, so an empty value must fail
@@ -222,7 +237,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     wsRateTokensPerSec: int("MPP_WS_RATE_TOKENS_PER_SEC", 200),
     wsRateBurst: int("MPP_WS_RATE_BURST", 400),
     wsMaxConnectionsPerIp: int("MPP_WS_MAX_CONNECTIONS_PER_IP", 10),
-    wsBufferedAmountLimitBytes: int("MPP_WS_BUFFERED_AMOUNT_LIMIT_BYTES", 4 * 1024 * 1024),
+    wsBufferedAmountLimitBytes,
     wsHeartbeatIntervalMs: int("MPP_WS_HEARTBEAT_INTERVAL_MS", 30000),
     staleHoldMs: int("MPP_STALE_HOLD_MS", 180000),
     maxActiveConnections: int("MPP_MAX_ACTIVE_CONNECTIONS", 0),
@@ -232,6 +247,9 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     queueRateMax: int("MPP_QUEUE_RATE_MAX", 180),
     queueRateWindowSec: int("MPP_QUEUE_RATE_WINDOW_SEC", 60),
     broadcastMaxCells: int("MPP_BROADCAST_MAX_CELLS", 256),
+    regionStreamBatchCells: int("MPP_REGION_STREAM_BATCH_CELLS", 16),
+    regionStreamPaceThresholdBytes: Math.floor(wsBufferedAmountLimitBytes / 2),
+    regionStreamPollIntervalMs: int("MPP_REGION_STREAM_POLL_INTERVAL_MS", 50),
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),

@@ -60,6 +60,15 @@ export function cellKey(cx: number, cy: number): number {
   return (cx + CELL_KEY_HALF) * CELL_KEY_STRIDE + (cy + CELL_KEY_HALF);
 }
 
+// Inverse of cellKey. Note the frontend packs the same world grid independently
+// (packages/frontend/src/canvas/groupGrid.ts, a different bit layout): the two
+// are not interchangeable, only the resulting Aabb crosses the wire.
+export function unpackCellKey(key: number): { cx: number; cy: number } {
+  const cx = Math.floor(key / CELL_KEY_STRIDE) - CELL_KEY_HALF;
+  const cy = (key % CELL_KEY_STRIDE) - CELL_KEY_HALF;
+  return { cx, cy };
+}
+
 // The cell keys a world rect overlaps, or null when it overlaps more than
 // maxCells. The caller reads null as "everyone": a viewport that large becomes a
 // global subscriber and a cluster that large fans its broadcast out to all

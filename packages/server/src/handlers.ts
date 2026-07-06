@@ -8,6 +8,7 @@ import type { GroupQueue } from "./queue.js";
 import type { GroupIndex } from "./groupIndex.js";
 import { detectSnap } from "./snap.js";
 import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
+import { batchEnteredCells, sleep } from "./regionStream.js";
 import {
   type WireContext,
   toWireId,
@@ -50,6 +51,20 @@ export type Context = {
   // Viewport scoping bound (config.broadcastMaxCells), carried in welcome so the
   // contributor client mirrors the scoped-vs-global decision for its loading cover.
   broadcastMaxCells: number;
+  // World-grid cell size the Hub and GroupIndex were both built with (see
+  // DECISIONS: spatial broadcast index). Needed here to convert a region_state
+  // batch's column/row range back to world coordinates for its coverage rect.
+  worldTileSize: number;
+  // Target cell count per region_state batch when a viewport's newly entered
+  // cells are paced across multiple messages (see DECISIONS: paced region_state
+  // batching).
+  regionStreamBatchCells: number;
+  // ws.bufferedAmount ceiling (bytes) a paced region_state stream waits under
+  // before sending its next batch.
+  regionStreamPaceThresholdBytes: number;
+  // Poll interval (ms) while a paced region_state stream waits for
+  // bufferedAmount to clear.
+  regionStreamPollIntervalMs: number;
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.
@@ -232,45 +247,71 @@ export async function handleViewport(ctx: Context, client: Client, msg: CViewpor
   // protocol v3 removes; the minimap carries its overview meanwhile.
   const entered = ctx.hub.updateSubscription(client);
   if (entered.length === 0) return;
-  // Build the region_state construction stream for the groups in the newly
-  // entered cells (a cell the client already held is not re-sent). Position,
-  // size and locked come from the in-memory index; piece ids are the singleton's
-  // own id when size === 1 (a size-1 group never merged, so it holds exactly the
-  // piece whose id equals the group id) and a Redis read for the few size > 1
-  // groups, so the common singleton case needs no read. The client builds an
-  // unknown group and additively reconciles a known one (see the stage upsert).
-  const groups = ctx.groupIndex.collect(entered);
-  // Encode each entry to the wire: permuted group id, the anchor world position
-  // from the internal origin the index reports, and the member pieces with their
-  // grid-unit offsets from the anchor.
-  const construction =
-    groups.length === 0
-      ? []
-      : await Promise.all(
-          groups.map(async (g) => {
-            const pieceGridIds =
-              g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId);
-            return {
-              groupId: toWireId(ctx.wire, g.groupId),
-              worldX: anchorWorldX(ctx.wire, g.groupId, g.worldX),
-              worldY: anchorWorldY(ctx.wire, g.groupId, g.worldY),
-              locked: g.locked,
-              size: g.size,
-              pieces: wirePieces(ctx.wire, g.groupId, pieceGridIds),
-            };
-          }),
-        );
-  // The whole bounded viewport is subscribed now, so its area is "known" to the
-  // client even where it held no groups. Always ack it (even with an empty
-  // construction) so the client can distinguish a not-yet-streamed region from an
-  // empty one and clear its loading indicator.
-  const coverage = {
-    minX: msg.worldX,
-    minY: msg.worldY,
-    maxX: msg.worldX + msg.worldW,
-    maxY: msg.worldY + msg.worldH,
-  };
-  send(ctx, client, { t: "region_state", groups: construction, coverage });
+  // Bumped synchronously (before any await) so a later `viewport` on this same
+  // connection always captures a strictly greater value and supersedes this
+  // stream (see DECISIONS: paced region_state batching).
+  const mySeq = ++client.regionStreamSeq;
+  await streamRegionState(ctx, client, entered, mySeq);
+}
+
+// Sends the region_state construction stream for a viewport's newly entered
+// cells as several paced batches instead of one, so a large jump on a
+// fragmented board (every piece its own group) does not risk the WS
+// backpressure close (Hub.write's slow-consumer guard). Batches are disjoint
+// world-grid column ranges (see regionStream.ts), so each batch's coverage is
+// safe to mark "known" as soon as it is sent, even before the whole stream
+// finishes. Stops silently (no error) the moment this stream is superseded by
+// a newer `viewport` on the same connection, or the connection is gone.
+async function streamRegionState(
+  ctx: Context,
+  client: Client,
+  entered: number[],
+  mySeq: number,
+): Promise<void> {
+  const batches = batchEnteredCells(entered, ctx.worldTileSize, ctx.regionStreamBatchCells);
+  for (let i = 0; i < batches.length; i++) {
+    if (i > 0) {
+      // Pace: never send two batches in the same tick (splitting alone does not
+      // help, ws.bufferedAmount only drops between real event-loop ticks), then
+      // keep waiting while the buffer is still over the pacing threshold.
+      do {
+        await sleep(ctx.regionStreamPollIntervalMs);
+        if (client.regionStreamSeq !== mySeq) return;
+        if (client.ws.readyState !== client.ws.OPEN) return;
+      } while (client.ws.bufferedAmount > ctx.regionStreamPaceThresholdBytes);
+    }
+    if (client.regionStreamSeq !== mySeq || client.ws.readyState !== client.ws.OPEN) return;
+    const batch = batches[i]!;
+    // Build the region_state construction entries for this batch's groups.
+    // Position, size and locked come from the in-memory index; piece ids are
+    // the singleton's own id when size === 1 (a size-1 group never merged, so
+    // it holds exactly the piece whose id equals the group id) and a Redis read
+    // for the few size > 1 groups, so the common singleton case needs no read.
+    const groups = ctx.groupIndex.collect(batch.cells);
+    const construction = await Promise.all(
+      groups.map(async (g) => {
+        const pieceGridIds =
+          g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId);
+        return {
+          groupId: toWireId(ctx.wire, g.groupId),
+          worldX: anchorWorldX(ctx.wire, g.groupId, g.worldX),
+          worldY: anchorWorldY(ctx.wire, g.groupId, g.worldY),
+          locked: g.locked,
+          size: g.size,
+          pieces: wirePieces(ctx.wire, g.groupId, pieceGridIds),
+        };
+      }),
+    );
+    // Re-check after the Redis round trip: a supersession or disconnect could
+    // have landed while awaiting it.
+    if (client.regionStreamSeq !== mySeq || client.ws.readyState !== client.ws.OPEN) return;
+    // This batch's cells are "known" now, even where it held no groups: the
+    // client distinguishes a not-yet-streamed region from an empty one by this
+    // coverage rect, scoped to exactly the cells just sent (not the client's
+    // whole requested viewport, which can be wider than this batch, or than the
+    // stream as a whole when panning only entered a thin band of it).
+    send(ctx, client, { t: "region_state", groups: construction, coverage: batch.coverage });
+  }
 }
 
 export function handleCursor(ctx: Context, client: Client, msg: CCursor): void {

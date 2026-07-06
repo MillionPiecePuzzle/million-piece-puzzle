@@ -118,6 +118,10 @@ async function main(): Promise<void> {
     groupIndex,
     tilePieceCap,
     broadcastMaxCells: config.broadcastMaxCells,
+    worldTileSize: cellSize,
+    regionStreamBatchCells: config.regionStreamBatchCells,
+    regionStreamPaceThresholdBytes: config.regionStreamPaceThresholdBytes,
+    regionStreamPollIntervalMs: config.regionStreamPollIntervalMs,
   };
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
   ctx.lifecycle = lifecycle;
@@ -402,6 +406,7 @@ async function main(): Promise<void> {
       held: new Set(),
       cells: new Set(),
       alive: true,
+      regionStreamSeq: 0,
     };
     ws.on("pong", () => {
       client.alive = true;

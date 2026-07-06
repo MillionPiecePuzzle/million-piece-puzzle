@@ -41,6 +41,12 @@ export type Client = {
   // Heartbeat liveness: set true on every pong, cleared when a ping is sent. A
   // client still false at the next heartbeat tick missed its pong and is dropped.
   alive: boolean;
+  // Bumped synchronously at the start of every `viewport` message that begins a
+  // region_state stream. A paced multi-batch stream captures the value and
+  // checks it before every batch: a mismatch means a newer `viewport` superseded
+  // it, so the stale stream stops (no error, no further sends). See DECISIONS:
+  // paced region_state batching.
+  regionStreamSeq: number;
 };
 
 // WebSocket close code 1013 ("Try Again Later") for slow consumers whose

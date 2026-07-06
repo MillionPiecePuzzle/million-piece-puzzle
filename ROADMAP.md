@@ -69,6 +69,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Viewport sharding for broadcasts: spatial broadcast index + cluster-AABB scoping. See DECISIONS
 - [x] Group index + partial-state resync on pan: `handleViewport` resyncs newly entered cells via `region_state` (an ordering guard skips held/just-dropped groups). See DECISIONS
 - [x] Viewport-scoped initial state on join: `welcome` carries no board (PROTOCOL_VERSION 3); groups stream in per viewport via a `region_state` construction stream from the `GroupIndex`. Minimap from a server-computed density grid plus a live overlay of known regions
+- [x] Paced `region_state` resync: a large viewport jump on a fragmented board chunks its newly entered cells into several paced `region_state` batches instead of one send, so it no longer risks the WS backpressure close (code 1013) the 2026-07-05 soak test logged 25 times. Coverage is scoped per batch, and a later `viewport` on the same connection supersedes an in-flight stream. Unit tests cover chunking, pacing and supersession
 
 ### `auth-and-accounts`
 - [x] Auth.js wired with the Google provider

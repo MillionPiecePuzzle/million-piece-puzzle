@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Hub, type Client, type Viewport } from "./hub.js";
-import { localAabbForPieces, worldAabbFor, type Aabb } from "./worldGrid.js";
+import { localAabbForPieces, worldAabbFor, cellKey, unpackCellKey, type Aabb } from "./worldGrid.js";
 import type { ServerMessage } from "@mpp/shared";
 
 class FakeWs {
@@ -31,6 +31,7 @@ function makeClient(viewport: Viewport | null): { client: Client; ws: FakeWs } {
     bucket: { consume: () => true },
     viewport,
     cells: new Set<number>(),
+    regionStreamSeq: 0,
   } as unknown as Client;
   return { client, ws };
 }
@@ -183,5 +184,20 @@ describe("worldAabbFor", () => {
 
   it("falls back to a zero-size rect at the origin when the local AABB is null", () => {
     expect(worldAabbFor(null, 5, 7)).toEqual({ minX: 5, minY: 7, maxX: 5, maxY: 7 });
+  });
+});
+
+describe("unpackCellKey", () => {
+  it("round-trips cellKey for positive, negative and zero coordinates", () => {
+    const samples: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+      [-1, -1],
+      [500, -500],
+      [-8_000_000, 8_000_000],
+    ];
+    for (const [cx, cy] of samples) {
+      expect(unpackCellKey(cellKey(cx, cy))).toEqual({ cx, cy });
+    }
   });
 });
