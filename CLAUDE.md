@@ -6,7 +6,7 @@
 
 ## Development Guidelines (MUST FOLLOW)
 
-- **English only.** All code, comments, commit messages, docs, identifiers, branch names, issue and PR titles and bodies are written in English. User-facing UI strings are also English by default (i18n comes later).
+- **English only.** All code, comments, commit messages, docs, identifiers, branch names, issue and PR titles and bodies are written in English. User-facing UI strings go through vue-i18n (EN/FR/ES/DE); English is the source locale.
 - **No em dashes (—).** Never use the em dash character in any output: code, comments, markdown, commit messages, chat replies. Use a period, a comma, parentheses, or a colon instead. The hyphen (-) is fine.
 - **Code as documentation.** Prefer clear names and small functions over comments. Do not write comments that restate what the code does. Only comment to explain a non-obvious *why* (hidden constraint, workaround, surprising invariant). No multi-line docstrings unless a public API genuinely needs one.
 - **Keep .md files in sync.** After any change that affects behavior, structure, stack, or workflow, update the relevant markdown (README.md, CLAUDE.md, package READMEs, ADRs). Treat docs drift as a bug. If a change makes a doc statement false, fix the doc in the same commit.
@@ -50,7 +50,7 @@ Locked pieces are permanent (no undo, no griefing).
 - **Clusters.** Each piece belongs to a group. Initially every piece is its own group. When two pieces of compatible neighboring positions touch with the correct relative offset (within tolerance), their groups merge: all pieces of both groups share the resulting `groupId` and their relative positions are frozen.
 - **Cluster drag.** Grabbing any piece grabs its whole cluster. All pieces of the cluster move together. Wire format broadcasts a single absolute position + `groupId`, not N piece positions.
 - **Anchoring.** The puzzle frame (the rectangle from `(0,0)` to `(cols*pieceSize, rows*pieceSize)`) is the anchor. A cluster is anchored (permanently locked) when a human drop brings its origin within `snapTolerance` of `(0,0)`, or when it merges with an already-locked cluster. There is no special anchor piece. Once anchored, the cluster cannot be moved.
-- **Rotation.** Reserved in the schema (`rotation` field, default 0) but disabled in Phase 0. May be enabled later based on user feedback without schema migration.
+- **Rotation.** Reserved in the schema (`rotation` field, default 0) but disabled. May be enabled later based on user feedback without schema migration.
 
 ### Concurrency model
 
@@ -84,21 +84,20 @@ Locked pieces are permanent (no undo, no griefing).
 ### Frontend
 - **Vue 3 + TypeScript + Vite**: UI shell
 - **PixiJS**: WebGL canvas rendering for pieces (with frustum culling and LOD)
-- **OpenSeadragon**: high-resolution viewing of the source image (reference panel, preview, replay, zoom-out LOD)
+- **OpenSeadragon**: high-resolution viewing of the source image (reference panel and enlarged reference modal)
 - Hosted on **Cloudflare Pages**
 
 ### Backend
 - **Node.js + TypeScript**: WebSocket server and game logic
-- **Redis**: live state of all pieces (~16-32 MB in memory)
+- **Redis**: live state of all pieces (~0.5 GB in memory for the 1M board)
 - **MongoDB**: snap events log, user profiles
 - **Auth.js** (`@auth/express`): Google OAuth, self-hosted in the Node server, Mongo adapter, database sessions. Login anti-abuse is internal per-IP rate limiting (Redis), not a third-party challenge.
-- **GlitchTip** (self-hosted, Sentry-compatible): error monitoring
 - All orchestrated by **Coolify** on an **OVH VPS**
 
 ### CDN & Storage
 - **Cloudflare Pages**: frontend hosting
 - **Cloudflare R2**: image tile pyramid + per-piece textures
-- **Cloudflare CDN**: caches snapshots, sits in front of the VPS for SSL/DDoS
+- **Cloudflare CDN**: fronts the R2 asset domain and the WS host for SSL/DDoS
 - **Cloudflare Web Analytics**: privacy-friendly traffic stats
 
 ### Packaging
@@ -110,9 +109,10 @@ Locked pieces are permanent (no undo, no griefing).
 Open-source monorepo:
 ```
 packages/
-  shared/    # Shared TypeScript types (WS messages, piece schema)
-  frontend/  # Vue + PixiJS + OpenSeadragon
-  server/    # Node + WebSocket + Redis/Mongo handlers
+  shared/     # Shared TypeScript types (WS messages, piece schema)
+  frontend/   # Vue + PixiJS + OpenSeadragon
+  server/     # Node + WebSocket + Redis/Mongo handlers
+  load-test/  # WS load/soak harness (bots + admission gate)
 ```
 
 GitHub Organization: `MillionPiecePuzzle`
@@ -126,10 +126,10 @@ GitHub Organization: `MillionPiecePuzzle`
 - No AI-generated content (community commitment)
 
 ## Piece Generation
-- Procedural Bezier silhouettes with ~7 shape parameters per edge
+- Procedural Bezier silhouettes with 8 shape parameters per edge
 - Continuous parameter sampling, every piece mathematically unique
 - ~2 million unique edges across the puzzle
-- 6 piece types based on tab/blank configuration
+- Each edge is flat (puzzle border) or a tab/blank pair, the side deriving from a canonical per-edge sign
 
 ## User Flow
 

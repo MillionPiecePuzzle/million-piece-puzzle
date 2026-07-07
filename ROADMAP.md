@@ -130,7 +130,7 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 - [x] Fix the grab/disconnect hold-leak race, add a stale-hold sweep: a grabbed group id is reserved synchronously at dispatch, so a disconnect racing an in-flight grab always releases it; a periodic sweep force-releases any hold whose owner is gone for any other reason (crash, restart). See DECISIONS
 
 ### `frontend-canvas`
-- [x] Remove the spectator transport (Chantier C): the canvas is WS-only; `landing`/`interested` moved onto the WS host. Manual follow-up: remove `VITE_SPECTATOR_BASE_URL` from the Cloudflare Pages env and retire the `snapshot.*` proxied hostname now that the backend stream is gone
+- [x] Remove the spectator transport (Chantier C): the canvas is WS-only; `landing`/`interested` moved onto the WS host. Manual follow-up: remove `VITE_SPECTATOR_BASE_URL` from the Cloudflare Pages env and retire the `snapshot.*` proxied hostname and its Cache Rule now that the backend stream is gone
 
 ### `shared-protocol`
 - [x] Drop the spectator wire types (Chantier C): spectator-only types are gone, the minimap grid stays, `PROTOCOL_VERSION` bumped to 6 (asserted at the `hello` handshake)

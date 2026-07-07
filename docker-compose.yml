@@ -51,8 +51,9 @@ services:
       MPP_GENERATION_SEED: "${MPP_GENERATION_SEED:-}"
       # Auth secrets: never committed, passed through from the host environment
       # (a local `.env` for `docker compose up`, the Coolify service env in prod).
-      # Without them the server boots (the public landing works), but contributor
-      # sign-in and the WebSocket are unavailable.
+      # Without AUTH_SECRET the /auth routes fail (sessions unreadable by the
+      # SPA); without the Google credentials only Google sign-in is unavailable,
+      # guest play still works.
       AUTH_SECRET: "${AUTH_SECRET:-}"
       AUTH_GOOGLE_ID: "${AUTH_GOOGLE_ID:-}"
       AUTH_GOOGLE_SECRET: "${AUTH_GOOGLE_SECRET:-}"
