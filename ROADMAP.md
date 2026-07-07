@@ -32,11 +32,11 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 
 ---
 
-## Phase 2, Public 1M
+## Phase 2, Public 1M, CLOSED
 
-**Exit criterion**: the puzzle is open to the public, with 1 000 000 pieces on a single shared canvas, full auth, monitoring sufficient to operate, and legal documents in place.
+**Exit criterion (met)**: the puzzle is open to the public, with 1 000 000 pieces on a single shared canvas, full auth, monitoring sufficient to operate, and legal documents in place.
 
-**Not yet closed**: `MPP_DEV_ENABLED`/`VITE_DEV_BUTTONS` still default to on in prod (see [DECISIONS](DECISIONS.md#2026-05-18-frontend-shell-dev-controls)), the last gate before real traffic; flip both before advertising the URL.
+`MPP_DEV_ENABLED`/`VITE_DEV_BUTTONS` still default to on in prod (see [DECISIONS](DECISIONS.md#2026-05-18-frontend-shell-dev-controls)); flipping both is the last step before advertising the URL.
 
 ### `shared-protocol`
 - [x] Protocol frozen at v6 before public launch (bumped 4->5->6 for activity-feed sizes and the spectator drop); breaking changes go through a version bump asserted at the `hello` handshake. See DECISIONS
