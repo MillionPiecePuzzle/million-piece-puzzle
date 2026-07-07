@@ -141,7 +141,9 @@ async function main(): Promise<void> {
   process.env.AUTH_URL ??= config.authUrl;
   process.env.AUTH_TRUST_HOST ??= "true";
   if (!process.env.AUTH_SECRET) {
-    console.warn("[auth] AUTH_SECRET is unset: auth routes and WS upgrades will fail.");
+    console.warn(
+      "[auth] AUTH_SECRET is unset: /auth routes will fail; guest play degrades to a fresh identity per visit.",
+    );
   }
   if (!process.env.AUTH_GOOGLE_ID || !process.env.AUTH_GOOGLE_SECRET) {
     console.warn("[auth] AUTH_GOOGLE_ID/AUTH_GOOGLE_SECRET unset: Google sign-in will fail.");
