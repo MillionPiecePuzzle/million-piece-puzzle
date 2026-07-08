@@ -1688,53 +1688,71 @@ export class PuzzleStage {
     }
   }
 
+  // World-space origin that places a local-space point of the held cluster (an
+  // (anchorX, anchorY) offset from its own origin) under the given screen
+  // position, clamped into the play zone. Shared by the three origin helpers
+  // below, which differ only in which point of the cluster they anchor to the
+  // cursor.
+  private originForScreenAnchor(
+    node: GroupNode,
+    screenX: number,
+    screenY: number,
+    anchorX: number,
+    anchorY: number,
+  ): { x: number; y: number } {
+    const world = this.screenToWorld(screenX, screenY);
+    return this.clampGroupOrigin(node, world.x - anchorX, world.y - anchorY);
+  }
+
   // World-space origin that puts the held cluster's grabbed point under the given
-  // screen position, clamped into the play zone. Used by press-drag move and drop,
-  // which keep the grabbed point under the cursor.
+  // screen position. Used by press-drag move and drop, which keep the grabbed
+  // point under the cursor.
   private heldGroupOrigin(
     node: GroupNode,
     screenX: number,
     screenY: number,
   ): { x: number; y: number } {
-    const world = this.screenToWorld(screenX, screenY);
-    return this.clampGroupOrigin(
+    return this.originForScreenAnchor(
       node,
-      world.x - (this.held?.pointerDx ?? 0),
-      world.y - (this.held?.pointerDy ?? 0),
+      screenX,
+      screenY,
+      this.held?.pointerDx ?? 0,
+      this.held?.pointerDy ?? 0,
     );
   }
 
   // World-space origin that floats the carried cluster to the upper-right of the
   // cursor: its bottom-left bounding-box corner (minX, maxY) is held HELD_CARRY_GAP
   // screen px to the right of and above the pointer, so the whole cluster clears
-  // the cursor whatever piece was grabbed and whatever the zoom. Clamped into the
-  // play zone.
+  // the cursor whatever piece was grabbed and whatever the zoom.
   private carryGroupOrigin(
     node: GroupNode,
     screenX: number,
     screenY: number,
   ): { x: number; y: number } {
-    const world = this.screenToWorld(screenX, screenY);
     const gap = HELD_CARRY_GAP / this.camera.zoom;
     const b = node.localBounds;
-    return this.clampGroupOrigin(node, world.x + gap - b.minX, world.y - gap - b.maxY);
+    return this.originForScreenAnchor(node, screenX, screenY, b.minX - gap, b.maxY + gap);
   }
 
   // World-space origin that lands the carried cluster centered on the cursor: its
   // bounding-box center sits at the pointer's world position (the symmetric tab
-  // margin keeps that center on the cluster's grid footprint center). Clamped into
-  // the play zone. Used by the carry drop, where the grab point is irrelevant since
-  // the cluster floats off the cursor while carried.
+  // margin keeps that center on the cluster's grid footprint center). Used by the
+  // carry drop, where the grab point is irrelevant since the cluster floats off
+  // the cursor while carried.
   private carryDropOrigin(
     node: GroupNode,
     screenX: number,
     screenY: number,
   ): { x: number; y: number } {
-    const world = this.screenToWorld(screenX, screenY);
     const b = node.localBounds;
-    const centerX = (b.minX + b.maxX) / 2;
-    const centerY = (b.minY + b.maxY) / 2;
-    return this.clampGroupOrigin(node, world.x - centerX, world.y - centerY);
+    return this.originForScreenAnchor(
+      node,
+      screenX,
+      screenY,
+      (b.minX + b.maxX) / 2,
+      (b.minY + b.maxY) / 2,
+    );
   }
 
   // Move the held cluster under the given screen position, clamped into the play
@@ -1782,20 +1800,27 @@ export class PuzzleStage {
     }
     if (this.held) {
       const node = this.groups.get(this.held.groupId);
-      if (node && this.callbacks) {
+      if (node) {
         const { x: nx, y: ny } = this.heldGroupOrigin(node, ev.global.x, ev.global.y);
-        this.moveGroup(node, nx, ny);
-        this.setGroupHeldVisual(node, false);
-        // The server's authoritative drop/snap has not landed yet, so guard the
-        // group against a resync rewinding it to its pre-drop position until it
-        // does (cleared in applyRemoteDrop/applySnap/applyRollback).
-        this.pendingDrops.add(node.id);
-        this.callbacks.onDrop(node.id, nx, ny);
-        this.releaseGroupHeld(node.id);
+        this.commitHeldDrop(node, nx, ny);
       }
       this.held = null;
     }
     this.pan.active = false;
+  }
+
+  // Commits a held cluster's position: places it, drops the held visual, and
+  // tells the server. Guards the group against a resync rewinding it to a stale
+  // position until the server's authoritative drop/snap lands (cleared in
+  // applyRemoteDrop/applySnap/applyRollback). Shared by the press-drag drop and
+  // the carry drop/cancel paths, which only differ in the (x, y) they commit to.
+  private commitHeldDrop(node: GroupNode, x: number, y: number): void {
+    if (!this.callbacks) return;
+    this.moveGroup(node, x, y);
+    this.setGroupHeldVisual(node, false);
+    this.pendingDrops.add(node.id);
+    this.callbacks.onDrop(node.id, x, y);
+    this.releaseGroupHeld(node.id);
   }
 
   // ----- sticky carry (double-click to stick a cluster to the cursor) -----
@@ -1855,15 +1880,11 @@ export class PuzzleStage {
   private dropCarried(): void {
     if (!this.held?.carry) return;
     const node = this.groups.get(this.held.groupId);
-    if (node && this.callbacks) {
+    if (node) {
       const { x, y } = this.pointerScreen
         ? this.carryDropOrigin(node, this.pointerScreen.x, this.pointerScreen.y)
         : { x: node.worldX, y: node.worldY };
-      this.moveGroup(node, x, y);
-      this.setGroupHeldVisual(node, false);
-      this.pendingDrops.add(node.id);
-      this.callbacks.onDrop(node.id, x, y);
-      this.releaseGroupHeld(node.id);
+      this.commitHeldDrop(node, x, y);
     }
     this.held = null;
     this.endCarry();
@@ -1879,13 +1900,7 @@ export class PuzzleStage {
   private cancelPressDrag(): void {
     if (!this.held || this.held.carry) return;
     const node = this.groups.get(this.held.groupId);
-    if (node && this.callbacks) {
-      this.moveGroup(node, this.held.originX, this.held.originY);
-      this.setGroupHeldVisual(node, false);
-      this.pendingDrops.add(node.id);
-      this.callbacks.onDrop(node.id, this.held.originX, this.held.originY);
-      this.releaseGroupHeld(node.id);
-    }
+    if (node) this.commitHeldDrop(node, this.held.originX, this.held.originY);
     this.held = null;
     this.pan.active = false;
   }
@@ -1895,13 +1910,9 @@ export class PuzzleStage {
   private cancelCarry(): void {
     if (!this.held?.carry) return;
     const node = this.groups.get(this.held.groupId);
-    if (node && this.callbacks) {
+    if (node) {
       this.markDirty(this.worldAabb(node));
-      this.moveGroup(node, this.held.originX, this.held.originY);
-      this.setGroupHeldVisual(node, false);
-      this.pendingDrops.add(node.id);
-      this.callbacks.onDrop(node.id, this.held.originX, this.held.originY);
-      this.releaseGroupHeld(node.id);
+      this.commitHeldDrop(node, this.held.originX, this.held.originY);
     }
     this.held = null;
     this.endCarry();
