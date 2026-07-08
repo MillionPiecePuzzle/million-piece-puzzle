@@ -127,8 +127,4 @@ export class IpRegistry {
     entry.connections -= 1;
     if (entry.connections <= 0) this.entries.delete(ip);
   }
-
-  size(): number {
-    return this.entries.size;
-  }
 }

@@ -8,8 +8,6 @@ import {
   originXFromAnchor,
   originYFromAnchor,
   wirePieces,
-  wireGroup,
-  wirePieceRuntime,
 } from "./wire.js";
 
 const GRID_COLS = 10;
@@ -63,38 +61,6 @@ describe("member offsets", () => {
     // Cluster {5, 10}: anchor 5 (col 5, row 0); piece 10 is col 0, row 1.
     const pieces = wirePieces(ctx, 5, [10]);
     expect(pieces[0]).toMatchObject({ dx: -5, dy: 1 });
-  });
-});
-
-describe("group encoding", () => {
-  it("encodes a loose group to its anchor world position and permuted id", () => {
-    const g = { id: 23, worldX: 100, worldY: 200, size: 1, locked: false, heldBy: null };
-    const w = wireGroup(ctx, g);
-    expect(w.id).toBe(toWireId(ctx, 23));
-    expect(w.worldX).toBe(100 + 3 * PIECE);
-    expect(w.worldY).toBe(200 + 2 * PIECE);
-    expect(w.size).toBe(1);
-    expect(w.locked).toBe(false);
-  });
-
-  it("encodes a locked cluster (origin 0,0) to its true solved position", () => {
-    const gridGroupId = 23; // col 3, row 2 -> solved (150, 100)
-    const g = { id: gridGroupId, worldX: 0, worldY: 0, size: 4, locked: true, heldBy: null };
-    const w = wireGroup(ctx, g);
-    expect(w.worldX).toBe(3 * PIECE);
-    expect(w.worldY).toBe(2 * PIECE);
-    expect(w.locked).toBe(true);
-  });
-});
-
-describe("piece runtime encoding", () => {
-  it("permutes id and groupId and attaches the anchor offset", () => {
-    // Piece 16 (col 6, row 1) in group anchored at 5 (col 5, row 0).
-    const w = wirePieceRuntime(ctx, { id: 16, groupId: 5, rotation: 0 });
-    expect(w.id).toBe(toWireId(ctx, 16));
-    expect(w.groupId).toBe(toWireId(ctx, 5));
-    expect(w.dx).toBe(1);
-    expect(w.dy).toBe(1);
   });
 });
 

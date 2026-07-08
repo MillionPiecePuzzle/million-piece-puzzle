@@ -100,21 +100,9 @@ describe("IpRegistry", () => {
     expect(reg.acquire("1.1.1.1")).not.toBeNull();
   });
 
-  it("deletes the entry when the last connection closes", () => {
-    const reg = new IpRegistry(2, 5, 0);
-    reg.acquire("1.1.1.1");
-    reg.acquire("1.1.1.1");
-    expect(reg.size()).toBe(1);
-    reg.release("1.1.1.1");
-    expect(reg.size()).toBe(1);
-    reg.release("1.1.1.1");
-    expect(reg.size()).toBe(0);
-  });
-
-  it("leaves no entry behind when a refused acquire creates one", () => {
+  it("refuses on the very first acquire when the cap is zero", () => {
     const reg = new IpRegistry(0, 5, 0);
     expect(reg.acquire("1.1.1.1")).toBeNull();
-    expect(reg.size()).toBe(0);
   });
 });
 

@@ -19,8 +19,7 @@
  * is correct (placed and visible to all) and not a leak.
  */
 
-import { buildPermutation, type GroupRuntime, type WirePiece } from "@mpp/shared";
-import type { StoredPiece } from "./state.js";
+import { buildPermutation, type WirePiece } from "@mpp/shared";
 
 export type WireContext = {
   gridCols: number;
@@ -90,32 +89,4 @@ export function wirePieces(
     out.push({ id: toWireId(ctx, gid), dx: colOf(ctx, gid) - ac, dy: rowOf(ctx, gid) - ar });
   }
   return out;
-}
-
-// Encode an internal group (origin space) into a wire GroupRuntime: permuted id
-// and anchor world position; size/locked/heldBy unchanged.
-export function wireGroup(ctx: WireContext, g: GroupRuntime): GroupRuntime {
-  return {
-    id: toWireId(ctx, g.id),
-    worldX: anchorWorldX(ctx, g.id, g.worldX),
-    worldY: anchorWorldY(ctx, g.id, g.worldY),
-    size: g.size,
-    locked: g.locked,
-    heldBy: g.heldBy,
-  };
-}
-
-// Encode an internal stored piece into a wire piece: permuted id and groupId plus
-// the grid-unit offset from its group anchor, so the client places it with no
-// seed and no `id % cols`.
-export function wirePieceRuntime(ctx: WireContext, p: StoredPiece) {
-  const ac = colOf(ctx, p.groupId);
-  const ar = rowOf(ctx, p.groupId);
-  return {
-    id: toWireId(ctx, p.id),
-    groupId: toWireId(ctx, p.groupId),
-    rotation: p.rotation,
-    dx: colOf(ctx, p.id) - ac,
-    dy: rowOf(ctx, p.id) - ar,
-  };
 }
