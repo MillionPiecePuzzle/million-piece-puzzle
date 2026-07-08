@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { usePuzzleSession, type ActivityEntry } from "../composables/usePuzzleSession";
+import { useRelativeTime } from "../composables/useRelativeTime";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
 const { formatNumber } = useLocaleFormat();
 const { activity } = usePuzzleSession();
+const { relativeTime } = useRelativeTime();
 
 // Indefinite article matching how the number is read aloud: "eight", "eleven",
 // "eighteen", "eighty...", "eight hundred...", "eight thousand..." all lead with a
@@ -45,27 +46,6 @@ function lineRest(entry: ActivityEntry): string {
   return entry.kind === "place"
     ? t("activityPanel.placedLine", { object })
     : t("activityPanel.connectedLine", { object });
-}
-
-const now = ref(Date.now());
-let timer: ReturnType<typeof setInterval> | null = null;
-
-onMounted(() => {
-  timer = setInterval(() => {
-    now.value = Date.now();
-  }, 10000);
-});
-onBeforeUnmount(() => {
-  if (timer) clearInterval(timer);
-});
-
-function relativeTime(at: number): string {
-  const seconds = Math.max(0, Math.round((now.value - at) / 1000));
-  if (seconds < 10) return t("time.justNow");
-  if (seconds < 60) return t("time.secondsAgo", { n: seconds });
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return t("time.minutesAgo", { n: minutes });
-  return t("time.hoursAgo", { n: Math.floor(minutes / 60) });
 }
 </script>
 

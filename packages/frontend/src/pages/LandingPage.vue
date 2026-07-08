@@ -8,6 +8,7 @@ import CountdownTimer from "../components/CountdownTimer.vue";
 import LanguageSwitcher from "../components/LanguageSwitcher.vue";
 import LeaderboardRow from "../components/LeaderboardRow.vue";
 import { useCountdown } from "../composables/useCountdown";
+import { useRelativeTime } from "../composables/useRelativeTime";
 import { useLocaleFormat } from "../i18n/format";
 import { interestedUrl, loadLanding, type InterestState } from "../data/landing";
 import { toLeaderboardRows } from "../data/leaderboard";
@@ -15,6 +16,7 @@ import { toLeaderboardRows } from "../data/leaderboard";
 const router = useRouter();
 const { t } = useI18n();
 const { formatNumber, formatDate } = useLocaleFormat();
+const { relativeTime } = useRelativeTime();
 
 const INTERESTED_KEY = "mpp.interested";
 
@@ -60,16 +62,6 @@ const activityLines = computed(() =>
 
 function piecePhrase(n: number): string {
   return t("landing.pieces", n, { named: { n: formatNumber(n) } });
-}
-
-function relativeTime(at: number): string {
-  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
-  if (seconds < 60) return t("time.justNow");
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return t("time.minutesAgo", { n: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("time.hoursAgo", { n: hours });
-  return t("time.daysAgo", { n: Math.floor(hours / 24) });
 }
 
 // Event duration: scheduled start to the final placement, falling back to the
