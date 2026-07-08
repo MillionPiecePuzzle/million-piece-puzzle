@@ -15,7 +15,7 @@
  *   cluster_merges (puzzleId, droppedPieceIds) per-piece attribution
  */
 
-export type PuzzleStatus = "draft" | "active" | "completed";
+export type PuzzleStatus = "active" | "completed";
 
 export type Puzzle = {
   _id: string;
@@ -24,7 +24,6 @@ export type Puzzle = {
   gridRows: number;
   gridCols: number;
   generationSeed: string;
-  imageManifestUrl: string;
   status: PuzzleStatus;
   createdAt: Date;
   startedAt: Date | null;
