@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { resolveSnap } from "./membership";
 
-// The partial-board snap decision: which added pieces reassign to the host, which
-// KNOWN source groups to remove, and whether the host is built on this client.
-// knownGroups is any `has` predicate (the stage passes its groups Map); here a Set.
+// The partial-board snap decision: which added pieces reassign to the host and
+// which KNOWN source groups to remove. knownGroups is any `has` predicate (the
+// stage passes its groups Map); here a Set.
 const known = (...ids: number[]): Set<number> => new Set(ids);
 const p2g = (pairs: [number, number][]): Map<number, number> => new Map(pairs);
 // resolveSnap takes wire pieces; it reads only the id, so the offsets are omitted.
@@ -21,7 +21,6 @@ describe("resolveSnap", () => {
         [4, 4],
       ]),
     );
-    expect(plan.hostKnown).toBe(true);
     expect(plan.removeGroups).toEqual([4]);
   });
 
@@ -50,7 +49,6 @@ describe("resolveSnap", () => {
         [9, 9],
       ]),
     );
-    expect(plan.hostKnown).toBe(true);
     expect(plan.removeGroups).toEqual([]);
   });
 
@@ -65,7 +63,6 @@ describe("resolveSnap", () => {
         [9, 9],
       ]),
     );
-    expect(plan.hostKnown).toBe(true);
     // Only the known source is removed; the unknown one has nothing to phantom.
     expect(plan.removeGroups).toEqual([4]);
   });
@@ -73,7 +70,6 @@ describe("resolveSnap", () => {
   it("host unknown: still reassigns the added pieces and removes known sources, so no phantom survives", () => {
     // Survivor id 2 was never visited; source group 4 is known and must be removed.
     const plan = resolveSnap(2, wp(4), known(4), p2g([[4, 4]]));
-    expect(plan.hostKnown).toBe(false);
     expect(plan.removeGroups).toEqual([4]);
   });
 

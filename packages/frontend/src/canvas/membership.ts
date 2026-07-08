@@ -3,15 +3,11 @@
 //
 // Under protocol v3 a contributor's board is partial: only visited regions are
 // built, so a snap can straddle the boundary (the merged host or some source
-// groups were never seen). The plan a snap produces:
-// - removeGroups: the KNOWN source groups, removed so no phantom survives a merge
-//   the server applied (an unknown source contributes nothing to remove).
-// - hostKnown: whether the surviving group is built on this client. When false the
-//   merged cluster is constructed wholesale by the next region_state for its cell,
-//   so the stage only reassigns membership and clears the known sources here.
+// groups were never seen). The plan a snap produces is the KNOWN source groups
+// to remove, so no phantom survives a merge the server applied (an unknown
+// source contributes nothing to remove).
 
 export type SnapPlan = {
-  hostKnown: boolean;
   removeGroups: number[];
 };
 
@@ -34,7 +30,6 @@ export function resolveSnap(
     if (gid !== undefined && knownGroups.has(gid)) removeGroups.add(gid);
   }
   return {
-    hostKnown: knownGroups.has(newGroupId),
     removeGroups: [...removeGroups],
   };
 }
