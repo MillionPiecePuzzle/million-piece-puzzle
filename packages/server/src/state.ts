@@ -3,9 +3,9 @@ import type { GroupRuntime } from "@mpp/shared";
 import * as keys from "./redis/keys.js";
 import type { Aabb } from "./worldGrid.js";
 
-// A piece as stored server-side: grid id, its group id, and rotation. The wire
-// PieceRuntime additionally carries the (dx, dy) anchor offset, attached only at
-// the wire boundary (see wire.ts); the internal model never needs it.
+// A piece as stored server-side: grid id, its group id, and rotation. The
+// (dx, dy) anchor offset a client sees is attached only at the wire boundary
+// (see wirePieces in wire.ts); the internal model never needs it.
 export type StoredPiece = { id: number; groupId: number; rotation: number };
 
 // A group as stored server-side: the wire `GroupRuntime` plus its group-local

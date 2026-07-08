@@ -4,13 +4,11 @@ import type {
   GroupRuntime,
   ImageManifest,
   LeaderboardEntry,
-  PieceRuntime,
   QueueStatusResponse,
   QueueTicketResponse,
   SActivity,
   SError,
   SSnap,
-  SState,
   SWelcome,
   ServerMessage,
 } from "@mpp/shared";
@@ -42,7 +40,6 @@ export type PuzzleSessionState =
       kind: "ready";
       manifest: ImageManifest;
       welcome: SWelcome;
-      pieces: PieceRuntime[];
       groups: GroupRuntime[];
       epoch: number;
     }
@@ -79,7 +76,6 @@ const completed = computed(() => totalPieces.value > 0 && lockedCount.value >= t
 let client: PuzzleWsClient | null = null;
 let welcome: SWelcome | null = null;
 let manifest: ImageManifest | null = null;
-let pendingState: SState | null = null;
 let started = false;
 // Admission-queue gate: an in-flight ticket/status fetch, the poll-delay timer,
 // and the delay's resolver, all torn down by close() so leaving the queue cancels
@@ -135,15 +131,14 @@ function applyActivity(msg: SActivity): void {
     .slice(0, ACTIVITY_LIMIT);
 }
 
-function applyState(msg: SState): void {
+function buildEmptyBoard(): void {
   if (!welcome || !manifest) return;
   buildEpoch += 1;
   state.value = {
     kind: "ready",
     manifest,
     welcome,
-    pieces: msg.pieces,
-    groups: msg.groups,
+    groups: [],
     epoch: buildEpoch,
   };
 }
@@ -175,11 +170,6 @@ async function loadManifestFor(puzzleId: string): Promise<void> {
   if (welcome) {
     state.value = { kind: "syncing", manifest, welcome };
   }
-  if (pendingState) {
-    const buffered = pendingState;
-    pendingState = null;
-    applyState(buffered);
-  }
 }
 
 async function handleWelcome(msg: SWelcome): Promise<void> {
@@ -189,7 +179,6 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   lockedCount.value = msg.lockedCount;
   activity.value = [];
   leaderboard.value = [];
-  pendingState = null;
   flushPendingDev();
   const needsLoad = !manifest || manifest.puzzleId !== msg.puzzleId;
   if (needsLoad) {
@@ -201,7 +190,7 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   // Welcome carries no board (protocol v6): build an empty board now and let groups
   // stream in per viewport via region_state.
   if (manifest && welcome) {
-    applyState({ t: "state", pieces: [], groups: [] });
+    buildEmptyBoard();
   }
 }
 
@@ -374,7 +363,6 @@ function close(): void {
   cancelQueueGate();
   welcome = null;
   manifest = null;
-  pendingState = null;
   started = false;
   transport.value = "none";
   state.value = { kind: "idle" };

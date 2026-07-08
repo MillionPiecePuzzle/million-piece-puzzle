@@ -315,7 +315,7 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   buildPhaseKind.value = "build";
   progressLoaded.value = 0;
   progressTotal.value = 0;
-  await stage.build(s.manifest, s.pieces, s.groups, s.welcome.playZone, (p) => {
+  await stage.build(s.manifest, s.groups, s.welcome.playZone, (p) => {
     buildPhaseKind.value = p.phase;
     progressLoaded.value = p.loaded;
     progressTotal.value = p.total;

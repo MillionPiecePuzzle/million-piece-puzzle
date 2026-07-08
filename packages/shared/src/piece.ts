@@ -14,16 +14,6 @@
  * position is its true solved position (placed and visible to all, not a leak).
  */
 
-export type PieceRuntime = {
-  id: number;
-  groupId: number;
-  rotation: number;
-  // Grid-unit offset from the group anchor. Server-provided; the client multiplies
-  // by pieceSize to place the piece in its group container.
-  dx: number;
-  dy: number;
-};
-
 // One member piece on a construction or snap message: its opaque id plus its
 // grid-unit offset from the group anchor. Static intra-cluster structure, so it
 // rides on construction/snap only, never on a per-frame drag.

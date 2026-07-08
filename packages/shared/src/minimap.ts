@@ -10,7 +10,7 @@ import type { PlayZone } from "./playzone.js";
 
 // Minimal internal piece shape this binner needs. It runs server-side over grid
 // ids and group origins (never the seed-permuted wire ids), so it takes only the
-// id and groupId, decoupled from the wire PieceRuntime's (dx, dy).
+// id and groupId, decoupled from WirePiece's anchor-relative (dx, dy).
 type GridPiece = { id: number; groupId: number };
 
 export type MinimapGrid = {

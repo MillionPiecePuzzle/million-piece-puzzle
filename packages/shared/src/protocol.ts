@@ -19,7 +19,7 @@
  * viewport-neighbor peers; join and leave bracket a peer's connection.
  */
 
-import type { GroupRuntime, PieceRuntime, WirePiece } from "./piece.js";
+import type { WirePiece } from "./piece.js";
 import type { PlayZone } from "./playzone.js";
 import type { MinimapGrid } from "./minimap.js";
 
@@ -116,12 +116,6 @@ export type SWelcome = {
   // loading cover should wait for region coverage. Optional in the schema; every
   // welcome the server sends includes it.
   broadcastMaxCells?: number;
-};
-
-export type SState = {
-  t: "state";
-  pieces: PieceRuntime[];
-  groups: GroupRuntime[];
 };
 
 // Recent anchoring history, sent once right after `state` on connect (and
@@ -349,7 +343,6 @@ export type QueueStatusResponse =
 
 export type ServerMessage =
   | SWelcome
-  | SState
   | SActivity
   | SLeaderboard
   | SGrabOk

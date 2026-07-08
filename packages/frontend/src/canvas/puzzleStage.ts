@@ -13,7 +13,6 @@ import {
   type GroupRuntime,
   type ImageManifest,
   type MinimapGrid,
-  type PieceRuntime,
   type PlayZone,
   type RegionGroup,
   type WirePiece,
@@ -580,7 +579,6 @@ export class PuzzleStage {
 
   async build(
     manifest: ImageManifest,
-    initialPieces: PieceRuntime[],
     initialGroups: GroupRuntime[],
     playZone: PlayZone,
     onProgress?: (p: { phase: "build" | "textures"; loaded: number; total: number }) => void,
@@ -631,10 +629,10 @@ export class PuzzleStage {
     this.coverageSeen = false;
     this.coldSweepFrame = 0;
 
-    // Cumulative "build" progress across the three passes over a combined total,
-    // so the loading cover walks a single determinate bar from 0 to 100 before
-    // the texture phase takes over.
-    const buildTotal = manifest.pieces.length + initialPieces.length + initialGroups.length;
+    // Cumulative "build" progress across the two passes over a combined total, so
+    // the loading cover walks a single determinate bar from 0 to 100 before the
+    // texture phase takes over.
+    const buildTotal = manifest.pieces.length + initialGroups.length;
     let buildBase = 0;
     const reportBuild = (done: number) =>
       onProgress?.({ phase: "build", loaded: buildBase + done, total: buildTotal });
@@ -655,30 +653,7 @@ export class PuzzleStage {
       return;
     buildBase += manifest.pieces.length;
 
-    // Pass B: group -> member pieces (id + anchor offset). The piece -> group map
-    // is set per group by constructGroup in Pass C, so this only buckets the wire
-    // pieces by group.
-    const piecesByGroup = new Map<number, WirePiece[]>();
-    if (
-      !(await this.chunkedPass(
-        token,
-        initialPieces.length,
-        (i) => {
-          const piece = initialPieces[i]!;
-          let members = piecesByGroup.get(piece.groupId);
-          if (!members) {
-            members = [];
-            piecesByGroup.set(piece.groupId, members);
-          }
-          members.push({ id: piece.id, dx: piece.dx, dy: piece.dy });
-        },
-        reportBuild,
-      ))
-    )
-      return;
-    buildBase += initialPieces.length;
-
-    // Pass C: one dehydrated container per group (empty container, no textures
+    // Pass B: one dehydrated container per group (empty container, no textures
     // fetched) plus its spatial-index entry, via the shared constructGroup. The
     // welcome carries no board, so initialGroups is empty and this loop is a no-op:
     // groups stream in later via applyRegionState, which reuses the same
@@ -694,7 +669,7 @@ export class PuzzleStage {
             worldX: group.worldX,
             worldY: group.worldY,
             locked: group.locked,
-            pieces: piecesByGroup.get(group.id) ?? [],
+            pieces: [],
           });
         },
         reportBuild,
