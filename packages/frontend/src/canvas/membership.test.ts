@@ -22,7 +22,6 @@ describe("resolveSnap", () => {
       ]),
     );
     expect(plan.hostKnown).toBe(true);
-    expect(plan.reassign).toEqual([4]);
     expect(plan.removeGroups).toEqual([4]);
   });
 
@@ -36,7 +35,6 @@ describe("resolveSnap", () => {
         [4, 4],
       ]),
     );
-    expect(plan.reassign).toEqual([4]);
     expect(plan.removeGroups).toEqual([4]);
   });
 
@@ -53,7 +51,6 @@ describe("resolveSnap", () => {
       ]),
     );
     expect(plan.hostKnown).toBe(true);
-    expect(plan.reassign).toEqual([9]);
     expect(plan.removeGroups).toEqual([]);
   });
 
@@ -69,7 +66,6 @@ describe("resolveSnap", () => {
       ]),
     );
     expect(plan.hostKnown).toBe(true);
-    expect(plan.reassign).toEqual([4, 9]);
     // Only the known source is removed; the unknown one has nothing to phantom.
     expect(plan.removeGroups).toEqual([4]);
   });
@@ -78,7 +74,6 @@ describe("resolveSnap", () => {
     // Survivor id 2 was never visited; source group 4 is known and must be removed.
     const plan = resolveSnap(2, wp(4), known(4), p2g([[4, 4]]));
     expect(plan.hostKnown).toBe(false);
-    expect(plan.reassign).toEqual([4]);
     expect(plan.removeGroups).toEqual([4]);
   });
 
@@ -93,7 +88,6 @@ describe("resolveSnap", () => {
         [5, 4],
       ]),
     );
-    expect(plan.reassign).toEqual([4, 5]);
     expect(plan.removeGroups).toEqual([4]);
   });
 });

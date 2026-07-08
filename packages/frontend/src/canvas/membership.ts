@@ -4,9 +4,6 @@
 // Under protocol v3 a contributor's board is partial: only visited regions are
 // built, so a snap can straddle the boundary (the merged host or some source
 // groups were never seen). The plan a snap produces:
-// - reassign: every added piece moves to the host id (membership is authoritative
-//   even when the piece's source group was never built, so a known host ends up
-//   with complete membership and a correct footprint).
 // - removeGroups: the KNOWN source groups, removed so no phantom survives a merge
 //   the server applied (an unknown source contributes nothing to remove).
 // - hostKnown: whether the surviving group is built on this client. When false the
@@ -15,7 +12,6 @@
 
 export type SnapPlan = {
   hostKnown: boolean;
-  reassign: number[];
   removeGroups: number[];
 };
 
@@ -31,17 +27,14 @@ export function resolveSnap(
   knownGroups: GroupMembership,
   pieceToGroup: ReadonlyMap<number, number>,
 ): SnapPlan {
-  const reassign: number[] = [];
   const removeGroups = new Set<number>();
   for (const { id: pieceId } of addedPieces) {
     const gid = pieceToGroup.get(pieceId);
     if (gid === newGroupId) continue;
-    reassign.push(pieceId);
     if (gid !== undefined && knownGroups.has(gid)) removeGroups.add(gid);
   }
   return {
     hostKnown: knownGroups.has(newGroupId),
-    reassign,
     removeGroups: [...removeGroups],
   };
 }
