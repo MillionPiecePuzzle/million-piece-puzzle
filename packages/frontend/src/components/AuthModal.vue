@@ -17,14 +17,14 @@ function continueWithGoogle() {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="auth-backdrop" @click.self="hide">
-      <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-        <header>
-          <h2 id="auth-title">{{ t("auth.title") }}</h2>
-          <button class="close" :aria-label="t('common.close')" @click="hide">×</button>
+    <div v-if="open" class="modal-backdrop auth-backdrop" @click.self="hide">
+      <div class="modal-shell auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        <header class="modal-header">
+          <h2 id="auth-title" class="modal-title">{{ t("auth.title") }}</h2>
+          <button class="modal-close" :aria-label="t('common.close')" @click="hide">×</button>
         </header>
 
-        <p class="lede">{{ t("auth.lede") }}</p>
+        <p class="modal-lede">{{ t("auth.lede") }}</p>
 
         <div class="providers">
           <button class="provider google" @click="continueWithGoogle">
@@ -39,52 +39,10 @@ function continueWithGoogle() {
 
 <style scoped>
 .auth-backdrop {
-  position: fixed;
-  inset: 0;
   z-index: 100;
-  background: rgba(21, 20, 15, 0.35);
-  backdrop-filter: blur(2px);
-  display: grid;
-  place-items: center;
 }
 .auth-modal {
   width: min(420px, calc(100vw - 32px));
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-panel);
-  padding: 20px;
-}
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-h2 {
-  margin: 0;
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 20px;
-  letter-spacing: -0.01em;
-}
-.close {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-pill);
-  color: var(--ink-3);
-  font-size: 20px;
-  line-height: 1;
-}
-.close:hover {
-  background: var(--ground-2);
-  color: var(--ink);
-}
-.lede {
-  margin: 0 0 14px;
-  color: var(--ink-3);
-  font-size: 13px;
-  line-height: 1.5;
 }
 .providers {
   display: flex;

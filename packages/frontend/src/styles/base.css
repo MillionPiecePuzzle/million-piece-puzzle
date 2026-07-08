@@ -51,3 +51,55 @@ a {
   text-transform: uppercase;
   color: var(--ink-3);
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(21, 20, 15, 0.35);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+}
+
+.modal-shell {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  padding: 20px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.modal-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.modal-close {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  color: var(--ink-3);
+  font-size: 20px;
+  line-height: 1;
+}
+.modal-close:hover {
+  background: var(--ground-2);
+  color: var(--ink);
+}
+
+.modal-lede {
+  margin: 0 0 14px;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}

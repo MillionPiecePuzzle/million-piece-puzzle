@@ -31,11 +31,16 @@ function changeCountry() {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="options-backdrop" @click.self="hide">
-      <div class="options-modal" role="dialog" aria-modal="true" aria-labelledby="options-title">
-        <header>
-          <h2 id="options-title">{{ t("options.title") }}</h2>
-          <button class="close" :aria-label="t('common.close')" @click="hide">×</button>
+    <div v-if="open" class="modal-backdrop options-backdrop" @click.self="hide">
+      <div
+        class="modal-shell options-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="options-title"
+      >
+        <header class="modal-header">
+          <h2 id="options-title" class="modal-title">{{ t("options.title") }}</h2>
+          <button class="modal-close" :aria-label="t('common.close')" @click="hide">×</button>
         </header>
 
         <div class="actions">
@@ -59,46 +64,13 @@ function changeCountry() {
 
 <style scoped>
 .options-backdrop {
-  position: fixed;
-  inset: 0;
   z-index: 109;
-  background: rgba(21, 20, 15, 0.35);
-  backdrop-filter: blur(2px);
-  display: grid;
-  place-items: center;
 }
 .options-modal {
   width: min(380px, calc(100vw - 32px));
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-panel);
-  padding: 20px;
 }
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.modal-header {
   margin-bottom: 14px;
-}
-h2 {
-  margin: 0;
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 20px;
-  letter-spacing: -0.01em;
-}
-.close {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-pill);
-  color: var(--ink-3);
-  font-size: 20px;
-  line-height: 1;
-}
-.close:hover {
-  background: var(--ground-2);
-  color: var(--ink);
 }
 .actions {
   display: flex;

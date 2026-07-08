@@ -104,16 +104,21 @@ function onBackdrop() {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="nat-backdrop" @click.self="onBackdrop">
-      <div class="nat-modal" role="dialog" aria-modal="true" aria-labelledby="nat-title">
-        <header>
-          <h2 id="nat-title">{{ title }}</h2>
-          <button v-if="dismissible" class="close" :aria-label="t('common.close')" @click="hide">
+    <div v-if="open" class="modal-backdrop nat-backdrop" @click.self="onBackdrop">
+      <div class="modal-shell nat-modal" role="dialog" aria-modal="true" aria-labelledby="nat-title">
+        <header class="modal-header">
+          <h2 id="nat-title" class="modal-title">{{ title }}</h2>
+          <button
+            v-if="dismissible"
+            class="modal-close"
+            :aria-label="t('common.close')"
+            @click="hide"
+          >
             ×
           </button>
         </header>
 
-        <p class="lede">{{ lede }}</p>
+        <p class="modal-lede">{{ lede }}</p>
 
         <div class="picker">
           <img
@@ -152,52 +157,10 @@ function onBackdrop() {
 
 <style scoped>
 .nat-backdrop {
-  position: fixed;
-  inset: 0;
   z-index: 111;
-  background: rgba(21, 20, 15, 0.35);
-  backdrop-filter: blur(2px);
-  display: grid;
-  place-items: center;
 }
 .nat-modal {
   width: min(380px, calc(100vw - 32px));
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-panel);
-  padding: 20px;
-}
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-h2 {
-  margin: 0;
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 20px;
-  letter-spacing: -0.01em;
-}
-.close {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-pill);
-  color: var(--ink-3);
-  font-size: 20px;
-  line-height: 1;
-}
-.close:hover {
-  background: var(--ground-2);
-  color: var(--ink);
-}
-.lede {
-  margin: 0 0 14px;
-  color: var(--ink-3);
-  font-size: 13px;
-  line-height: 1.5;
 }
 .picker {
   display: flex;

@@ -1,15 +1,7 @@
-import { ref, readonly } from "vue";
+import { useModal } from "./useModal";
 
-const open = ref(false);
+const modal = useModal();
 
 export function useAuthModal() {
-  return {
-    open: readonly(open),
-    show: () => {
-      open.value = true;
-    },
-    hide: () => {
-      open.value = false;
-    },
-  };
+  return modal;
 }
