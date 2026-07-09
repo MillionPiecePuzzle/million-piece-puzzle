@@ -3,7 +3,12 @@ import { PROTOCOL_VERSION } from "@mpp/shared";
 import type { BoardSnapshot } from "./keyframe.js";
 import type { Hub, Client } from "./hub.js";
 import { LEADERBOARD_LIMIT, type Context } from "./handlers.js";
-import { forceInitPuzzle, playZoneForManifest, rebuildGroupIndex } from "./init.js";
+import {
+  forceInitPuzzle,
+  playZoneForManifest,
+  rebuildGroupIndex,
+  rebuildMinimapGrid,
+} from "./init.js";
 
 // Anchoring entries sent to seed a connecting client's activity ticker. Matches
 // the ticker's display capacity on the frontend.
@@ -40,10 +45,6 @@ export class PuzzleLifecycle {
 
   currentManifest(): ImageManifest {
     return this.manifest;
-  }
-
-  currentPlayZone(): PlayZone {
-    return this.playZone;
   }
 
   // Protocol v3: welcome carries no board. The client builds an empty board and
@@ -90,6 +91,9 @@ export class PuzzleLifecycle {
       // Fresh scattered board: rebuild the group index off the new Redis state so
       // resyncs reflect the reset, not the old positions.
       await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, meta.totalPieces);
+      // Same for the minimap grid: the incremental tracker has no way to know
+      // about a wipe, so it must be reseeded from the fresh board too.
+      await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, meta.totalPieces);
       // Regenerate before resending welcome so the welcome's minimap grid (read
       // from the latest keyframe) reflects the fresh scatter, not the old board.
       await this.keyframePublisher?.regenerate(true);
@@ -136,6 +140,9 @@ export class PuzzleLifecycle {
     // positions match the assembled board (force-complete moves groups directly,
     // outside the per-group drop/merge paths that maintain the index).
     await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, total);
+    // Same reasoning for the minimap grid: anchorAllGroups moves every group
+    // directly, bypassing the incremental applyTranslation calls in handleDrop.
+    await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, total);
     // forceComplete sets state directly (no per-group snaps), so the assembled
     // board only reaches the frozen keyframe through a forced regeneration;
     // regenerate before resending welcome so its minimap grid is the assembled one.

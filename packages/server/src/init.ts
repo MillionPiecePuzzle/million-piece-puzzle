@@ -5,6 +5,7 @@ import {
   seedFromString,
   subseed,
   type ImageManifest,
+  type MinimapGridTracker,
   type PlayZone,
 } from "@mpp/shared";
 import type { RedisState, PuzzleMeta } from "./state.js";
@@ -174,4 +175,21 @@ export async function rebuildGroupIndex(
       locked: p.locked,
     });
   }
+}
+
+// Rebuild the minimap density grid from current Redis state: the one O(board)
+// read the incremental grid ever pays outside the per-drop hot path. Used at
+// boot, after a reset or force-complete (alongside rebuildGroupIndex), and by
+// the slow periodic resync that guards against incremental drift (see
+// DECISIONS: server-computed minimap grid).
+export async function rebuildMinimapGrid(
+  grid: MinimapGridTracker,
+  state: RedisState,
+  totalPieces: number,
+): Promise<void> {
+  const [pieces, groups] = await Promise.all([
+    state.readAllPieces(totalPieces),
+    state.readAllGroups(totalPieces),
+  ]);
+  grid.rebuildFromBoard(pieces, groups);
 }

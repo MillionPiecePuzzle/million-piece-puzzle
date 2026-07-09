@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CCursor, CHello, CViewport, ClientMessage, ServerMessage } from "@mpp/shared";
-import { PROTOCOL_VERSION } from "@mpp/shared";
+import { PROTOCOL_VERSION, type MinimapGridTracker } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
@@ -45,6 +45,11 @@ export type Context = {
   // cell. Maintained on every committed position change (drop, merge) and read by
   // handleViewport to resync a client panning into new cells.
   groupIndex: GroupIndex;
+  // Incrementally-maintained minimap density grid (see DECISIONS: server-computed
+  // minimap grid). Updated on every committed position/lock change (drop, merge)
+  // instead of the periodic snapshot re-scanning the whole board; rebuilt from
+  // scratch at boot, reset, force-complete, and a slow defense-in-depth resync.
+  minimapGrid: MinimapGridTracker;
   // Max pieces allowed to rest in one world grid cell (one LOD tile). A non-merging
   // drop that would push the destination cell past this is rejected (see handleDrop).
   tilePieceCap: number;
@@ -149,6 +154,8 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
   const candidates = groups.filter((g) => !g.locked && g.heldBy === null);
   if (candidates.length === 0) return;
   const chosen = candidates[Math.floor(Math.random() * candidates.length)]!;
+  const prevX = chosen.worldX;
+  const prevY = chosen.worldY;
 
   await ctx.state.setGroupPosition(chosen.id, 0, 0);
   chosen.worldX = 0;
@@ -164,7 +171,18 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
     droppedPieces,
   );
 
-  await applyMerge(ctx, client, chosen.id, droppedPieces, match?.matchedGroupIds ?? [], 0, 0, true);
+  await applyMerge(
+    ctx,
+    client,
+    chosen.id,
+    droppedPieces,
+    match?.matchedGroupIds ?? [],
+    0,
+    0,
+    true,
+    prevX,
+    prevY,
+  );
 }
 
 // `groupId` is the decoded grid id (dispatch maps the wire id before queueing);
@@ -290,8 +308,7 @@ async function streamRegionState(
     const groups = ctx.groupIndex.collect(batch.cells);
     const construction = await Promise.all(
       groups.map(async (g) => {
-        const pieceGridIds =
-          g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId);
+        const pieceGridIds = g.size === 1 ? [g.groupId] : await ctx.state.getGroupPieces(g.groupId);
         return {
           groupId: toWireId(ctx.wire, g.groupId),
           worldX: anchorWorldX(ctx.wire, g.groupId, g.worldX),
@@ -431,6 +448,11 @@ export async function handleDrop(
       size: g.size,
       locked: false,
     });
+    ctx.minimapGrid.applyTranslation(
+      droppedPieces,
+      { originX: prevX, originY: prevY, locked: false },
+      { originX, originY, locked: false },
+    );
     ctx.hub.broadcastOverlapping(
       {
         t: "drop",
@@ -456,6 +478,8 @@ export async function handleDrop(
     targetWorldX,
     targetWorldY,
     frameAnchor,
+    prevX,
+    prevY,
   );
 }
 
@@ -468,6 +492,8 @@ async function applyMerge(
   targetWorldX: number,
   targetWorldY: number,
   frameAnchor: boolean,
+  droppedPrevX: number,
+  droppedPrevY: number,
 ): Promise<void> {
   const allIds = [droppedGroupId, ...matchedGroupIds];
   const newId = Math.min(...allIds);
@@ -485,6 +511,23 @@ async function applyMerge(
     .filter((s) => s.group?.locked)
     .reduce((acc, s) => acc + (s.group?.size ?? 0), 0);
   const willBeLocked = frameAnchor || lockedSizeBefore > 0;
+
+  // Every group folding into this merge moves (or stays put) to the same target.
+  // The dropped group's own pre-merge snapshot was already overwritten in Redis
+  // by handleDrop's setGroupPosition before this ran, so its "from" state has to
+  // come from the caller (droppedPrevX/Y) rather than groupSnapshots; every other
+  // matched group's snapshot is untouched by this operation and is used as-is
+  // (a candidate can sit up to snapTolerance away from the target, so this may
+  // move it a few pixels too, not just relabel it).
+  const to = { originX: targetWorldX, originY: targetWorldY, locked: willBeLocked };
+  for (const { id, group } of groupSnapshots) {
+    if (!group) continue;
+    const from =
+      id === droppedGroupId
+        ? { originX: droppedPrevX, originY: droppedPrevY, locked: false }
+        : { originX: group.worldX, originY: group.worldY, locked: group.locked };
+    ctx.minimapGrid.applyTranslation(piecesByGroup.get(id) ?? [], from, to);
+  }
 
   const allPieces = allIds.flatMap((id) => piecesByGroup.get(id) ?? []);
   const addedPieceIds = allIds

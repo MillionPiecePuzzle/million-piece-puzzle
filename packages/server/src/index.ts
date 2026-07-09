@@ -4,7 +4,7 @@ import { Redis as IORedis } from "ioredis";
 import { MongoClient } from "mongodb";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import { WebSocketServer, type WebSocket, type VerifyClientCallbackAsync } from "ws";
-import { PROTOCOL_VERSION, WORLD_TILE_SIZE } from "@mpp/shared";
+import { PROTOCOL_VERSION, WORLD_TILE_SIZE, MinimapGridTracker } from "@mpp/shared";
 import { loadConfig, DEFAULT_REDIS_URL } from "./config.js";
 import { readAdminOverrides, UnknownPuzzleError } from "./admin.js";
 import { adminEventStart, adminPuzzleOverride } from "./redis/keys.js";
@@ -16,7 +16,12 @@ import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { GroupQueue } from "./queue.js";
 import { releaseHeldGroups, sweepStaleHolds } from "./holds.js";
 import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
-import { initPuzzleIfEmpty, rebuildGroupIndex } from "./init.js";
+import {
+  initPuzzleIfEmpty,
+  playZoneForManifest,
+  rebuildGroupIndex,
+  rebuildMinimapGrid,
+} from "./init.js";
 import { GroupIndex } from "./groupIndex.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
@@ -91,6 +96,13 @@ async function main(): Promise<void> {
   // (and on reset). Drives the pan resync (see DECISIONS: group index + resync).
   const groupIndex = new GroupIndex(cellSize);
   await rebuildGroupIndex(groupIndex, state, meta.totalPieces);
+  // Minimap density grid, maintained incrementally on every drop/merge instead of
+  // rescanning the board on the keyframe cadence (see DECISIONS: server-computed
+  // minimap grid). Seeded once here from Redis, the same one-off cost boot
+  // already pays for the group index above.
+  const playZone = playZoneForManifest(manifest, config.generationSeed);
+  const minimapGrid = new MinimapGridTracker(meta.gridCols, meta.pieceSize, playZone);
+  await rebuildMinimapGrid(minimapGrid, state, meta.totalPieces);
   // Per-tile piece cap = the cell's solved density (how many pieces fill one cell
   // when solved, (cellSize / pieceSize) squared) times the configured multiple, so
   // the cap scales with the cell. An absolute MPP_TILE_PIECE_CAP overrides it when
@@ -116,6 +128,7 @@ async function main(): Promise<void> {
     queue,
     wire,
     groupIndex,
+    minimapGrid,
     tilePieceCap,
     broadcastMaxCells: config.broadcastMaxCells,
     worldTileSize: cellSize,
@@ -173,15 +186,13 @@ async function main(): Promise<void> {
   // broadcast to contributors and the public landing snapshot; no full board is
   // retained between regenerations.
   const keyframePublisher = new KeyframePublisher(config.keyframeIntervalMs, {
-    state,
     totalPieces: () => ctx.meta.totalPieces,
-    gridCols: () => ctx.meta.gridCols,
-    pieceSize: () => ctx.meta.pieceSize,
-    playZone: () => lifecycle.currentPlayZone(),
     eventStartsAt: () => ctx.eventStartsAt,
     status: () => ctx.meta.status,
+    getLockedCount: () => state.getLockedCount(),
     leaderboard: () => mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT),
     activity: () => mongo.recentMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
+    minimapGrid: () => minimapGrid.snapshot(),
   });
   // Broadcast the minimap grid to contributors after each regenerate (periodic
   // while live, forced on reset/complete), so the contributor minimap refreshes on
@@ -478,12 +489,33 @@ async function main(): Promise<void> {
     });
   }, STALE_HOLD_SWEEP_INTERVAL_MS);
 
+  // Defense-in-depth minimap grid resync: a slow, independent full-board
+  // recompute that overwrites the incrementally-maintained grid (see DECISIONS:
+  // server-computed minimap grid). The synchronous applyTranslation calls in
+  // handleDrop are the fix at the root; this is the periodic safety net for
+  // whatever they do not cover, the same dual-layer shape as the stale-hold
+  // sweep above. Guarded against overlap the same way KeyframePublisher guards
+  // its own regenerate.
+  let minimapGridResyncing = false;
+  const minimapGridResyncTimer = setInterval(() => {
+    if (minimapGridResyncing) return;
+    minimapGridResyncing = true;
+    void rebuildMinimapGrid(minimapGrid, state, ctx.meta.totalPieces)
+      .catch((e: unknown) => {
+        console.error("[minimap-resync]", (e as Error).message);
+      })
+      .finally(() => {
+        minimapGridResyncing = false;
+      });
+  }, config.minimapGridResyncIntervalMs);
+
   const shutdown = async () => {
     console.log("[shutdown] closing");
     keyframePublisher.stop();
     clearInterval(heartbeatTimer);
     if (admissionSweepTimer) clearInterval(admissionSweepTimer);
     clearInterval(staleHoldSweepTimer);
+    clearInterval(minimapGridResyncTimer);
     wss.close();
     httpServer.close();
     await redis.quit();

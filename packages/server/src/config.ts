@@ -93,9 +93,18 @@ export type ServerConfig = {
   // escape hatch, e.g. set it low to exercise the rejection); 0 keeps the
   // density-relative cap above.
   tilePieceCapAbsolute: number;
-  // Board snapshot cadence: the in-memory snapshot (minimap grid + landing figures)
-  // is regenerated at most this often while the event is live, frozen otherwise.
+  // Board snapshot cadence: the in-memory snapshot (locked count, leaderboard,
+  // activity, and the current minimap grid) is regenerated at most this often
+  // while the event is live, frozen otherwise. The minimap grid itself is
+  // maintained incrementally (see DECISIONS: server-computed minimap grid), so
+  // this tick reads it rather than re-scanning the board.
   keyframeIntervalMs: number;
+  // Cadence of the minimap grid's defense-in-depth full resync: a from-scratch
+  // O(board) recompute that overwrites the incrementally-maintained grid, in
+  // case a bug or an unforeseen code path ever let it drift from the true board
+  // state. Deliberately far slower than keyframeIntervalMs since it pays the
+  // same board scan the incremental update exists to avoid.
+  minimapGridResyncIntervalMs: number;
   // Unix ms of the event start, carried in welcome and the snapshot so clients
   // sync the entrance cascade. 0 (default) means no scheduled start.
   eventStartsAt: number;
@@ -253,6 +262,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
+    minimapGridResyncIntervalMs: int("MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS", 3600000),
     eventStartsAt: overrides.eventStartsAt ?? int("MPP_EVENT_STARTS_AT", 0),
     authUrl,
     authSecure: authUrl.startsWith("https:"),

@@ -24,16 +24,26 @@ ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
 # AUTH_SECRET, and must match the slicer's --seed for this puzzle's R2 assets.
 ENV MPP_DEV_ENABLED=1
 
-# Board snapshot cadence: the in-memory snapshot (minimap grid + landing figures)
-# is regenerated at most every 300s while the event is live, frozen otherwise.
+# Board snapshot cadence: the in-memory snapshot (locked count, leaderboard,
+# activity, current minimap grid) is regenerated at most every 300s while the
+# event is live, frozen otherwise. The minimap grid is maintained incrementally
+# (see DECISIONS: server-computed minimap grid), so this tick no longer scans
+# the board.
 ENV MPP_KEYFRAME_INTERVAL_MS=300000
 
-# Node heap for the 1M board: the snapshot rebuild reads the whole board into
-# memory (transiently) and the live working set is large, which exceeds Node's
-# ~2 GB default at 1M. Baked here (not a Coolify env knob) so the Coolify service
-# env stays secrets-only; only meaningful on a box with the RAM (12 GB+ target).
-# Co-located with Redis + Mongo, whose WiredTiger cache is capped in
-# docker-compose.yml so the two do not fight for RAM.
+# Defense-in-depth full resync of the minimap grid: a from-scratch board scan
+# that overwrites the incrementally-maintained grid, guarding against drift. Far
+# slower than the keyframe cadence above since it pays the board scan the
+# incremental update exists to avoid.
+ENV MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS=3600000
+
+# Node heap for the 1M board: boot, reset, force-complete, and the minimap grid
+# resync above each read the whole board into memory (transiently), and the live
+# working set (group index, broadcast index, wire permutation) is large, which
+# exceeds Node's ~2 GB default at 1M. Baked here (not a Coolify env knob) so the
+# Coolify service env stays secrets-only; only meaningful on a box with the RAM
+# (12 GB+ target). Co-located with Redis + Mongo, whose WiredTiger cache is
+# capped in docker-compose.yml so the two do not fight for RAM.
 ENV NODE_OPTIONS=--max-old-space-size=5120
 
 # Scheduled public start (unix ms), mirrored into welcome/snapshot to sync the

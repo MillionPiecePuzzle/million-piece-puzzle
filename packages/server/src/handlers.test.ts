@@ -4,8 +4,10 @@ import type { Context } from "./handlers.js";
 import { Hub, type Client } from "./hub.js";
 import type { PuzzleMeta } from "./state.js";
 import {
+  MinimapGridTracker,
   WORLD_TILE_SIZE,
   type GroupRuntime,
+  type PlayZone,
   type ServerMessage,
   type WirePiece,
 } from "@mpp/shared";
@@ -34,6 +36,15 @@ const meta: PuzzleMeta = {
   status: "active",
   startedAt: 0,
 };
+
+// Generous enough that no test's world coordinates fall outside it (the tracker
+// clamps out-of-range positions to the nearest cell rather than throwing, but a
+// zone this size keeps that clamping out of the picture entirely). None of these
+// handler tests assert on minimap grid contents (see minimap.test.ts for that);
+// this only needs to exist so applyTranslation has somewhere to write.
+const TEST_ZONE: PlayZone = { minX: -100000, minY: -100000, maxX: 100000, maxY: 100000 };
+const testMinimapGrid = (gridCols: number, pieceSize: number): MinimapGridTracker =>
+  new MinimapGridTracker(gridCols, pieceSize, TEST_ZONE);
 
 const client = {
   userId: "u1",
@@ -77,6 +88,7 @@ function makeCtx() {
     queue: new GroupQueue(),
     wire: transparentWire(meta.totalPieces, meta.gridCols),
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
+    minimapGrid: testMinimapGrid(meta.gridCols, meta.pieceSize),
   } as unknown as Context;
   return {
     ctx,
@@ -440,6 +452,7 @@ function makeDropCtx() {
     queue: new GroupQueue(),
     wire: transparentWire(dropMeta.totalPieces, dropMeta.gridCols),
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
+    minimapGrid: testMinimapGrid(dropMeta.gridCols, dropMeta.pieceSize),
     tilePieceCap: 2048,
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastOverlapping, logMerge, leaderboard, state };
@@ -629,6 +642,7 @@ describe("handleDrop", () => {
       queue: new GroupQueue(),
       wire: transparentWire(onePieceMeta.totalPieces, onePieceMeta.gridCols),
       groupIndex: new GroupIndex(WORLD_TILE_SIZE),
+      minimapGrid: testMinimapGrid(onePieceMeta.gridCols, onePieceMeta.pieceSize),
       lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);
