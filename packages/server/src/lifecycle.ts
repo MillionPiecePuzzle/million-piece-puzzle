@@ -43,10 +43,6 @@ export class PuzzleLifecycle {
     this.keyframePublisher = publisher;
   }
 
-  currentManifest(): ImageManifest {
-    return this.manifest;
-  }
-
   // Protocol v3: welcome carries no board. The client builds an empty board and
   // streams groups per viewport via region_state, so this sends only welcome,
   // the activity backfill, the leaderboard, and one minimap grid (so a fresh
