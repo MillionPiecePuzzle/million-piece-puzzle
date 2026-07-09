@@ -262,7 +262,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
-    minimapGridResyncIntervalMs: int("MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS", 3600000),
+    minimapGridResyncIntervalMs: int("MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS", 86400000),
     eventStartsAt: overrides.eventStartsAt ?? int("MPP_EVENT_STARTS_AT", 0),
     authUrl,
     authSecure: authUrl.startsWith("https:"),

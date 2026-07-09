@@ -35,7 +35,7 @@ ENV MPP_KEYFRAME_INTERVAL_MS=300000
 # that overwrites the incrementally-maintained grid, guarding against drift. Far
 # slower than the keyframe cadence above since it pays the board scan the
 # incremental update exists to avoid.
-ENV MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS=3600000
+ENV MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS=86400000
 
 # Node heap for the 1M board: boot, reset, force-complete, and the minimap grid
 # resync above each read the whole board into memory (transiently), and the live
