@@ -113,6 +113,7 @@ const fr: MessageSchema = {
       "Choisissez votre pays. Son drapeau est affiché à côté de votre pseudo dans le classement.",
     selectLabel: "Pays",
     selectPlaceholder: "Sélectionnez votre pays...",
+    international: "International",
     noCountry: "aucun pays sélectionné",
     cooldownHint: "Vous pouvez changer de pays une fois toutes les {hours} heures.",
     cooldown: "Vous avez déjà changé de pays récemment. Réessayez dans {hours} h.",

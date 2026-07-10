@@ -114,6 +114,7 @@ const de: MessageSchema = {
       "Wähle dein Land. Seine Flagge wird in der Rangliste neben deinem Pseudonym angezeigt.",
     selectLabel: "Land",
     selectPlaceholder: "Wähle dein Land...",
+    international: "International",
     noCountry: "kein Land ausgewählt",
     cooldownHint: "Du kannst dein Land nur alle {hours} Stunden ändern.",
     cooldown: "Du hast dein Land bereits vor Kurzem geändert. Versuch es in {hours} Std. erneut.",

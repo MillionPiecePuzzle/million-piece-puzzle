@@ -111,6 +111,7 @@ const es: MessageSchema = {
     ledeNew: "Elige tu país. Su bandera se muestra junto a tu pseudónimo en la clasificación.",
     selectLabel: "País",
     selectPlaceholder: "Selecciona tu país...",
+    international: "Internacional",
     noCountry: "ningún país seleccionado",
     cooldownHint: "Puedes cambiar tu país una vez cada {hours} horas.",
     cooldown: "Ya cambiaste tu país hace poco. Vuelve a intentarlo en {hours} h.",

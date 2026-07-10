@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { COUNTRIES, PROFILE_COOLDOWN_MS } from "@mpp/shared";
+import { COUNTRIES, INTERNATIONAL, PROFILE_COOLDOWN_MS } from "@mpp/shared";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useAuth } from "../composables/useAuth";
@@ -136,6 +136,7 @@ function onBackdrop() {
             @keyup.enter="save"
           >
             <option value="" disabled>{{ t("nationality.selectPlaceholder") }}</option>
+            <option :value="INTERNATIONAL.code">{{ t("nationality.international") }}</option>
             <option v-for="c in COUNTRIES" :key="c.code" :value="c.code">
               {{ countryName(c) }}
             </option>

@@ -96,6 +96,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 ### `complementary`
 - [x] Landing interested counter: opt-in button registers the visitor and shows the public count, deduped per IP via a hashed-IP Redis set. See DECISIONS
 - [x] Contributor nationality: required onboarding step after the pseudo; leaderboard avatar is the round country flag
+- [x] International opt-out in the nationality picker: a pinned, i18n-labeled choice using the existing `un` globe flag asset, no real country required. See DECISIONS
 - [x] Edge-pan navigation: during a press-drag the camera scrolls toward a canvas edge when the pointer rests in an edge band (RTS-style)
 - [x] Sticky carry mode: double-click sticks a cluster to the cursor, double-click drops, Escape returns it, 30s idle timeout. See DECISIONS
 - [x] Sticky-carry cursor offset: a carried cluster floats clear of the pointer at any zoom; pan and zoom work mid-carry

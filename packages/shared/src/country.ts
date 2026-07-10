@@ -8,6 +8,13 @@
 
 export type Country = { code: string; name: string };
 
+// Opt-out of sharing a real country: "un" is not an ISO 3166-1 code, but the
+// circle-flags package ships it (a globe glyph) alongside the real ISO set, so
+// it slots into the same code/flag/leaderboard plumbing with no new asset. The
+// picker shows it as its own labeled option (frontend/NationalityModal.vue),
+// not mixed into the alphabetical COUNTRIES list.
+export const INTERNATIONAL: Country = { code: "un", name: "International" };
+
 export const COUNTRIES: readonly Country[] = [
   { code: "af", name: "Afghanistan" },
   { code: "ax", name: "Åland Islands" },
@@ -265,11 +272,13 @@ const COUNTRY_CODES = new Set(COUNTRIES.map((c) => c.code));
 
 /**
  * Normalize a raw country: lower-case, then accept only a known ISO 3166-1
- * alpha-2 code that has a flag asset. Returns the code or null. Shared so the
- * client picker and the server validation agree with no drift.
+ * alpha-2 code that has a flag asset, or the INTERNATIONAL opt-out code.
+ * Returns the code or null. Shared so the client picker and the server
+ * validation agree with no drift.
  */
 export function normalizeCountry(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const code = raw.trim().toLowerCase();
+  if (code === INTERNATIONAL.code) return code;
   return COUNTRY_CODES.has(code) ? code : null;
 }

@@ -207,6 +207,18 @@ describe("makeProfileCountryHandler", () => {
     expect((res as unknown as { body: unknown }).body).toEqual({ user: profile });
   });
 
+  it("200 for the international opt-out code", async () => {
+    const setCountry = vi.fn(async () => profile);
+    const handler = makeProfileCountryHandler({
+      getUserId: async () => "u1",
+      countryStore: { setCountry },
+    });
+    const res = fakeRes();
+    await handler({ body: { country: "un" } } as Request, res);
+    expect(setCountry).toHaveBeenCalledWith("u1", "un");
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(200);
+  });
+
   it("500 on an unexpected store error", async () => {
     const handler = makeProfileCountryHandler({
       getUserId: async () => "u1",

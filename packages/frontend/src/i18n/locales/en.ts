@@ -107,6 +107,7 @@ const en = {
     ledeNew: "Pick your country. Its flag is shown next to your pseudo in the leaderboard.",
     selectLabel: "Country",
     selectPlaceholder: "Select your country...",
+    international: "International",
     noCountry: "no country selected",
     cooldownHint: "You can change your country once every {hours} hours.",
     cooldown: "You already changed your country recently. Try again in {hours}h.",

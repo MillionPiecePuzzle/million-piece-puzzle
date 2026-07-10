@@ -1,7 +1,7 @@
 // Real leaderboard data: server LeaderboardEntry values (userId + piece count)
 // turned into the display rows consumed by LeaderboardRow.vue and the panels.
 
-import { COUNTRIES, type LeaderboardEntry } from "@mpp/shared";
+import { COUNTRIES, INTERNATIONAL, type LeaderboardEntry } from "@mpp/shared";
 
 export type LeaderboardRow = {
   rank: number;
@@ -58,7 +58,7 @@ export function toLeaderboardRows(
   });
 }
 
-const countryNames = new Map(COUNTRIES.map((c) => [c.code, c.name]));
+const countryNames = new Map([...COUNTRIES, INTERNATIONAL].map((c) => [c.code, c.name]));
 
 // Fold the per-person standings into a per-country ranking: every contributor
 // with a country adds their pieces to that country's total, ranked by pieces.
