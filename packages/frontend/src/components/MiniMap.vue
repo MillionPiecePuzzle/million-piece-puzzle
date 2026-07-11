@@ -217,16 +217,6 @@ onBeforeUnmount(() => {
   <aside v-show="ready" class="panel minimap" :aria-label="t('minimap.label')">
     <div class="minimap-head">
       <h3>{{ t("minimap.overview") }}</h3>
-    </div>
-    <div class="mm-canvas" :style="{ aspectRatio: canvasAspect }">
-      <canvas
-        ref="canvasEl"
-        :class="{ dragging }"
-        @pointerdown="onPointerDown"
-        @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
-        @pointercancel="onPointerUp"
-      ></canvas>
       <button
         type="button"
         class="expand"
@@ -243,6 +233,16 @@ onBeforeUnmount(() => {
           />
         </svg>
       </button>
+    </div>
+    <div class="mm-canvas" :style="{ aspectRatio: canvasAspect }">
+      <canvas
+        ref="canvasEl"
+        :class="{ dragging }"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+      ></canvas>
     </div>
   </aside>
 
@@ -281,18 +281,18 @@ onBeforeUnmount(() => {
   cursor: grabbing;
 }
 .expand {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 22px;
-  height: 22px;
+  flex: none;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
   color: var(--ink-2);
-  background: rgba(255, 255, 255, 0.92);
+  background: none;
   border-radius: var(--radius-btn);
-  box-shadow: var(--shadow-panel);
   cursor: pointer;
+}
+.expand:hover:not(:disabled) {
+  background: var(--paper-2);
 }
 .expand:disabled {
   cursor: default;
