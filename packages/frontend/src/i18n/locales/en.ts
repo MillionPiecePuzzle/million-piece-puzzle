@@ -54,7 +54,6 @@ const en = {
   topbar: {
     playTime: "Play time",
     puzzleProgress: "Puzzle progress",
-    connected: "Connected",
     nationalityTitle: "Nationality: {code}",
     signedInAs: "Signed in as {pseudo}",
     options: "Account options",

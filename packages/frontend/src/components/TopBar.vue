@@ -58,7 +58,6 @@ const playTime = computed(() => {
 
     <div class="top-right">
       <div v-if="user && user.pseudo" class="presence">
-        <span class="dot" :title="t('topbar.connected')" :aria-label="t('topbar.connected')"></span>
         <span
           v-if="user.country"
           class="flag"
@@ -180,13 +179,6 @@ const playTime = computed(() => {
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   background: var(--paper);
-}
-.presence .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 99px;
-  background: #2ecc71;
-  box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.2);
 }
 .presence .flag {
   display: inline-flex;
