@@ -106,9 +106,9 @@ export type SWelcome = {
   // for every client regardless of join time: camera limits, the held-piece
   // clamp, and the minimap extent all derive from it.
   playZone: PlayZone;
-  // Unix ms at which the event starts and the entrance cascade triggers, the
-  // same value for every client so they can fire it in sync. 0 means no
-  // scheduled start (already running): clients skip the wait and the cascade.
+  // Unix ms at which the event starts, the same value for every client so the
+  // landing countdown and the /play entry gate agree. 0 means no scheduled
+  // start (already running): clients skip the wait entirely.
   eventStartsAt: number;
   // The server's viewport scoping bound (config.broadcastMaxCells): a viewport
   // overlapping more than this many world-tile cells is a global subscriber that

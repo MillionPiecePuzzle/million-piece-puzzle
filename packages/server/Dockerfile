@@ -46,10 +46,11 @@ ENV MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS=86400000
 # capped in docker-compose.yml so the two do not fight for RAM.
 ENV NODE_OPTIONS=--max-old-space-size=5120
 
-# Scheduled public start (unix ms), mirrored into welcome/snapshot to sync the
-# entrance cascade. 0 = no scheduled start (/play open, no countdown). This is the
-# boot default; the admin page (/admin) can set it live and persists the override
-# in Redis, which survives a restart and supersedes this until a full admin wipe.
+# Scheduled public start (unix ms), mirrored into welcome/snapshot to drive the
+# landing countdown and the /play entry gate. 0 = no scheduled start (/play open,
+# no countdown). This is the boot default; the admin page (/admin) can set it live
+# and persists the override in Redis, which survives a restart and supersedes this
+# until a full admin wipe.
 ENV MPP_EVENT_STARTS_AT=0
 
 # Non-secret prod config (auth host/cookie/origin + WS Origin allowlist). The

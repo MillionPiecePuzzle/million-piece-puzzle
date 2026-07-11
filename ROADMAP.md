@@ -40,7 +40,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 
 ### `shared-protocol`
 - [x] Protocol frozen at v6 before public launch (bumped 4->5->6 for activity-feed sizes and the spectator drop); breaking changes go through a version bump asserted at the `hello` handshake. See DECISIONS
-- [x] `eventStartsAt` (unix ms) in `welcome` syncs the cascade trigger (`MPP_EVENT_STARTS_AT`, default 0 = no scheduled start)
+- [x] `eventStartsAt` (unix ms) in `welcome` drives the landing countdown and the `/play` entry gate (`MPP_EVENT_STARTS_AT`, default 0 = no scheduled start)
 - [x] Anti-programmatic-solving: seed-permuted wire ids, anchor-relative member offsets, server-only seed. See DECISIONS
 
 ### `piece-generation`

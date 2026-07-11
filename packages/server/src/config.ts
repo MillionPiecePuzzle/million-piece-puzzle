@@ -105,8 +105,8 @@ export type ServerConfig = {
   // state. Deliberately far slower than keyframeIntervalMs since it pays the
   // same board scan the incremental update exists to avoid.
   minimapGridResyncIntervalMs: number;
-  // Unix ms of the event start, carried in welcome and the snapshot so clients
-  // sync the entrance cascade. 0 (default) means no scheduled start.
+  // Unix ms of the event start, carried in welcome and the snapshot to drive the
+  // landing countdown and the /play entry gate. 0 (default) means no scheduled start.
   eventStartsAt: number;
   // Auth.js host base (e.g. https://ws.millionpiecepuzzle.com). The Google
   // callback URL and session action URLs derive from it. The secrets

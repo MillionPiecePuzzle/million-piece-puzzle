@@ -17,6 +17,11 @@
  * Materialize a real source file the slicer can read:
  *   tsx scripts/synthetic-source.ts materialize --out samples/source/synthetic.tif \
  *     --cols 200 --rows 200 --piece-size 80
+ *
+ * This libvips build (sharp 0.34.5 / libvips 8.17.3 on Windows) segfaults writing
+ * any single image past ~6 gigapixels, regardless of tiling, codec or RAM (a blank
+ * image crashes identically). For a full 1000x1000 run, keep cols*rows*pieceSize^2
+ * under that, e.g. --piece-size 72 (5.18 GP); --piece-size 80 (6.4 GP) crashes.
  */
 
 import { mkdir, mkdtemp, rm } from "node:fs/promises";

@@ -41,6 +41,9 @@ function curvedEdge(edgeSeed: number, flipped: boolean): Edge {
   const rng = mulberry32(edgeSeed);
   const canonicalSign: 1 | -1 = rng() < 0.5 ? -1 : 1;
   const sign = (flipped ? -canonicalSign : canonicalSign) as 1 | -1;
+  // headRoundness/depth ranges are chosen so the bulb radius (headRoundness * depth)
+  // always exceeds the neck half-width (0.45 * 0.24 > 0.085): a narrower bulb reads
+  // as a rectangular tab instead of a lightbulb silhouette.
   return {
     type: "curved",
     sign,
