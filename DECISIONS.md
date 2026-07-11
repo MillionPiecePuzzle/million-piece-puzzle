@@ -383,3 +383,9 @@ Revisit when: never expected; a second opt-out-style code would need generalizin
 Choice: a viewport's `region_state` resync for newly entered cells is split into several paced messages, batched by non-overlapping world-grid columns (`MPP_REGION_STREAM_BATCH_CELLS` cells each), sent with a poll-and-wait between batches until `ws.bufferedAmount` clears half the hard limit. A new `viewport` on the same connection supersedes an in-flight stream.
 Why: a big viewport jump (minimap jump, fast zoom) could enter up to 256 cells at once, sending close enough to the 4MB buffered-amount limit to trip the slow-consumer close; column-range batches keep `coverage` provably correct per batch.
 Revisit when: `MPP_REGION_STREAM_BATCH_CELLS`/`_POLL_INTERVAL_MS` held clean through a 2026-07-06 re-soak (50 bots) but real public traffic could still exceed that; tighten if 1013 closes reappear. Raising the buffered-amount limit itself is a separate, deferred follow-up.
+
+### 2026-07-11, frontend-canvas, minimap memory readout is internal accounting
+
+Choice: the minimap detail modal's memory line sums the client's own resident-texture accounting (resident piece-node count times `manifest.tileSize^2 * 4` bytes, plus the LOD tile layer's resident bytes) against their existing soft budgets (`RESIDENT_PIECE_BUDGET`, `LOD_VRAM_BUDGET_MB`), not `performance.memory` or any OS/GPU-level VRAM read.
+Why: true GPU VRAM isn't readable from JS; `performance.memory` is Chrome-only and measures JS heap, not GPU texture memory, so it would mislabel a diagnostic meant to explain the app's own streaming behavior. The app's internal counters are exact for what they track.
+Revisit when: never expected; if a budget ever becomes dynamic (e.g. the LOD screen-cover floor pushing resident tiles past the nominal soft budget) rather than a fixed constant, decide whether the readout should track the nominal or the effective ceiling.

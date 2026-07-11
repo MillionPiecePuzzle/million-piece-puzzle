@@ -73,6 +73,13 @@ const en = {
   minimap: {
     overview: "Overview",
     label: "Minimap",
+    openDetail: "Open tile detail view",
+    detailTitle: "Tile load detail",
+    legendLoaded: "Loaded",
+    legendLoading: "Loading",
+    legendNotLoaded: "Not loaded",
+    tilesLoaded: "{loaded} / {total} tiles loaded",
+    memoryUsage: "{used} / {budget}",
   },
   auth: {
     title: "Sync your account",

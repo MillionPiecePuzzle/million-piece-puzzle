@@ -75,6 +75,13 @@ const es: MessageSchema = {
   minimap: {
     overview: "Vista general",
     label: "Minimapa",
+    openDetail: "Abrir la vista detallada de las casillas",
+    detailTitle: "Detalle de carga de las casillas",
+    legendLoaded: "Cargada",
+    legendLoading: "Cargando",
+    legendNotLoaded: "No cargada",
+    tilesLoaded: "{loaded} / {total} casillas cargadas",
+    memoryUsage: "{used} / {budget}",
   },
   auth: {
     title: "Sincroniza tu cuenta",

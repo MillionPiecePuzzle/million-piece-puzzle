@@ -1,6 +1,7 @@
-// Pure decision helpers for the per-frame reconcile in puzzleStage, kept free of
-// Pixi so they can be unit tested in isolation. The stage gathers the Pixi-coupled
-// facts (ring membership, tile readiness, hydration state) and feeds them here.
+// Pure decision helpers for puzzleStage's per-frame reconcile and its on-demand
+// diagnostics, kept free of Pixi so they can be unit tested in isolation. The
+// stage gathers the Pixi-coupled facts (ring membership, tile readiness,
+// hydration state) and feeds them here.
 
 import { cellKeysForRect, type CellKey } from "./groupGrid";
 import type { Aabb } from "./cull";
@@ -46,4 +47,26 @@ export function cellContentPending(f: {
   if (f.lodActive) return f.hasGroups && !f.tileReady;
   if (f.coverageSeen && !f.known) return true;
   return f.hasUnhydratedInRingGroup;
+}
+
+export type TileState = "not-loaded" | "loading" | "loaded";
+
+// Three-state classification for a whole-play-zone diagnostic view (the minimap
+// detail modal), not to be confused with cellContentPending above: that one folds
+// in coverageSeen so an intentionally-unscoped zoomed-out viewport never reads as
+// "stuck loading". A whole-zone view has no such nuance to protect against: most
+// of the board being unstreamed at any moment is the honest, by-design state of
+// viewport-scoped streaming, not an error, so "not known" always just means
+// "not loaded" here.
+export function classifyTile(f: {
+  known: boolean;
+  hasGroups: boolean;
+  lodActive: boolean;
+  tileReady: boolean;
+  allHydrated: boolean;
+}): TileState {
+  if (!f.known) return "not-loaded";
+  if (!f.hasGroups) return "loaded";
+  const stillLoading = f.lodActive ? !f.tileReady : !f.allHydrated;
+  return stillLoading ? "loading" : "loaded";
 }

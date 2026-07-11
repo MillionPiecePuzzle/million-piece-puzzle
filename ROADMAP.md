@@ -1,6 +1,6 @@
 # Roadmap
 
-Four phases, eleven tracks. A phase is closed only when its exit criterion is met. Each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
+Five phases, eleven tracks. A phase is closed only when its exit criterion is met. Each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
 
 Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
@@ -136,6 +136,16 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 
 ### `shared-protocol`
 - [x] Drop the spectator wire types (Chantier C): spectator-only types are gone, the minimap grid stays, `PROTOCOL_VERSION` bumped to 6 (asserted at the `hello` handshake)
+
+---
+
+## Phase 4, Player Diagnostics
+
+**Exit criterion**: a player can open a tile-by-tile load-state view of the whole play zone with a compact resident-memory readout from the minimap, and pin individual tiles to keep them resident past normal eviction.
+
+### `frontend-canvas`
+- [x] Minimap detail modal: whole-play-zone tile grid (not loaded / loading / loaded) plus a compact memory readout, opened from the minimap via an expand button. See DECISIONS
+- [ ] Tile pinning: click a tile in the detail modal to keep it resident past normal eviction, bounded by a small per-client cap
 
 ---
 

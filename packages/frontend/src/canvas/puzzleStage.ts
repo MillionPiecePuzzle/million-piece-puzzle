@@ -26,7 +26,13 @@ import { LodTileLayer } from "./lodTiles";
 import { LoadingOverlay } from "./loadingOverlay";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap } from "./membership";
-import { cellContentPending, coalesceDirtyCells, residencyDecision } from "./reconcile";
+import {
+  cellContentPending,
+  classifyTile,
+  coalesceDirtyCells,
+  residencyDecision,
+  type TileState,
+} from "./reconcile";
 
 export type Mode = "pending" | "contributor";
 
@@ -54,6 +60,22 @@ export type MinimapSnapshot = {
   knownCells: Set<number>;
   viewport: Viewport | null;
 };
+
+// One LOD-tile-grid cell of the whole play zone, for the minimap detail modal's
+// tile-by-tile load-state view. cx/cy are grid coordinates (world position is
+// cx/cy * TileOverview.cellWorld), matching the cell-coordinate idiom used
+// elsewhere (groupGrid, MinimapGrid) rather than raw world floats.
+export type TileOverviewCell = { cx: number; cy: number; state: TileState };
+export type TileOverview = { cellWorld: number; cells: TileOverviewCell[] };
+
+// Resident bytes vs the combined soft budget across both texture pools (per-piece
+// nodes and LOD tiles), for the minimap detail modal's compact memory line. Exact
+// internal accounting, not performance.memory or GPU-level VRAM (neither is
+// readable from JS, and the former is Chrome-only and measures JS heap, not
+// texture memory). See DECISIONS.
+export type MemoryStats = { usedBytes: number; budgetBytes: number };
+
+export type MinimapDetailSnapshot = { tiles: TileOverview; memory: MemoryStats };
 
 // Grid-unit offset of a piece from its group anchor, server-provided so the
 // client never derives a solved-space coordinate. A piece's local container
@@ -2118,6 +2140,78 @@ export class PuzzleStage {
       knownCells,
       viewport: this.viewport,
     };
+  }
+
+  // Every LOD-tile-grid cell overlapping the play zone, classified for the
+  // minimap detail modal. Unlike the per-frame loading-badge scan (viewport-only,
+  // via cellContentPending), this walks the whole zone: cheap at this board's
+  // tile-grid resolution (same order of magnitude as the server density grid),
+  // and only ever called while the modal is mounted, on a throttled interval.
+  getTileOverview(): TileOverview | null {
+    if (!this.playZone) return null;
+    const cells: TileOverviewCell[] = [];
+    for (const key of cellKeysForRect(this.playZone, LOD_TILE_WORLD)) {
+      const { cx, cy } = unpackCell(key);
+      const groups = this.groupGrid.cellGroups(key);
+      const hasGroups = groups !== undefined && groups.size > 0;
+      const known = this.knownCells.has(key);
+      // The group hydration scan is the only costly fact, so it only runs for the
+      // one case that reads it (zoomed in, cell known and non-empty), mirroring
+      // the same guard computeLoadingCells uses for its viewport-scoped version.
+      let allHydrated = true;
+      if (groups && groups.size > 0 && known && !this.lodActive) {
+        for (const gid of groups) {
+          const node = this.groups.get(gid);
+          if (node && !node.hydrated) {
+            allHydrated = false;
+            break;
+          }
+        }
+      }
+      const state = classifyTile({
+        known,
+        hasGroups,
+        lodActive: this.lodActive,
+        tileReady: this.lodLayer?.isReady(key) ?? false,
+        allHydrated,
+      });
+      cells.push({ cx, cy, state });
+    }
+    return { cellWorld: LOD_TILE_WORLD, cells };
+  }
+
+  // Combined resident-vs-budget bytes across both texture pools, for the minimap
+  // detail modal's memory line.
+  getMemoryStats(): MemoryStats | null {
+    if (!this.manifest) return null;
+    const pieceBytes = this.manifest.tileSize * this.manifest.tileSize * 4;
+    const lodUsed = this.lodLayer?.residentBytes() ?? 0;
+    const lodBudget = this.lodLayer?.budgetBytes() ?? 0;
+    return {
+      usedBytes: this.residentPieceNodeCount() * pieceBytes + lodUsed,
+      budgetBytes: RESIDENT_PIECE_BUDGET * pieceBytes + lodBudget,
+    };
+  }
+
+  // Pull-based snapshot for the minimap detail modal, same idiom as
+  // getMinimapSnapshot() above.
+  getMinimapDetailSnapshot(): MinimapDetailSnapshot | null {
+    const tiles = this.getTileOverview();
+    const memory = this.getMemoryStats();
+    if (!tiles || !memory) return null;
+    return { tiles, memory };
+  }
+
+  // Total per-piece nodes currently resident (hydrated or in flight), for the
+  // memory readout. A separate small scan from evictResidentsOverBudget's, which
+  // interleaves the same count with building its evictable-candidates list.
+  private residentPieceNodeCount(): number {
+    let total = 0;
+    for (const gid of this.resident.keys()) {
+      const node = this.groups.get(gid);
+      if (node) total += node.pieces.length;
+    }
+    return total;
   }
 
   // Places (worldCx, worldCy) at the screen center, then lets applyCamera's

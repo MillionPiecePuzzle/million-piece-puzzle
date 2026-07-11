@@ -75,6 +75,13 @@ const de: MessageSchema = {
   minimap: {
     overview: "Übersicht",
     label: "Minikarte",
+    openDetail: "Detailansicht der Felder öffnen",
+    detailTitle: "Ladedetails der Felder",
+    legendLoaded: "Geladen",
+    legendLoading: "Wird geladen",
+    legendNotLoaded: "Nicht geladen",
+    tilesLoaded: "{loaded} / {total} Felder geladen",
+    memoryUsage: "{used} / {budget}",
   },
   auth: {
     title: "Konto synchronisieren",

@@ -29,7 +29,7 @@ const {
   sendCursor,
 } = usePuzzleSession();
 const { setControls, setCamera, setReady } = useStageControls();
-const { setMinimapSource, setMinimapNavigate } = useMinimap();
+const { setMinimapSource, setMinimapNavigate, setMinimapDetailSource } = useMinimap();
 const { mode } = useMode();
 
 let stage: PuzzleStage | null = null;
@@ -280,6 +280,7 @@ onMounted(async () => {
   });
   setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
   setMinimapNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
+  setMinimapDetailSource(() => stage?.getMinimapDetailSnapshot() ?? null);
   unsubscribe = onMessage(routeMessage);
   // Guest-first: the canvas is WS-only. It connects once a complete identity
   // exists (mode flips to contributor on a resolved session or a freshly minted
@@ -372,6 +373,7 @@ onBeforeUnmount(() => {
   setReady(false);
   setMinimapSource(null);
   setMinimapNavigate(null);
+  setMinimapDetailSource(null);
   close();
   stage?.destroy();
   stage = null;

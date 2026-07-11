@@ -75,6 +75,13 @@ const fr: MessageSchema = {
   minimap: {
     overview: "Aperçu",
     label: "Mini-carte",
+    openDetail: "Ouvrir la vue détaillée des cases",
+    detailTitle: "Détail du chargement des cases",
+    legendLoaded: "Chargée",
+    legendLoading: "En chargement",
+    legendNotLoaded: "Non chargée",
+    tilesLoaded: "{loaded} / {total} cases chargées",
+    memoryUsage: "{used} / {budget}",
   },
   auth: {
     title: "Synchroniser votre compte",

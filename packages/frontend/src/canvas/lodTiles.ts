@@ -118,6 +118,18 @@ export class LodTileLayer {
     return this.tiles.get(key)?.ready === true;
   }
 
+  // Current resident tile bytes and the nominal soft budget, for the minimap
+  // detail modal's memory readout. Reports the configured LOD_VRAM_BUDGET_MB
+  // rather than the screen-cover-adjusted maxResident, so the readout stays a
+  // stable reference point rather than shifting with viewport size.
+  residentBytes(): number {
+    return this.tiles.size * this.bytesPerTile;
+  }
+
+  budgetBytes(): number {
+    return LOD_VRAM_BUDGET_MB * 1e6;
+  }
+
   // Ensures the tile is resident and returns its bake target. The stage renders
   // the tile's groups into it, then calls markBaked.
   prepareBake(key: CellKey): { texture: RenderTexture; matrix: Matrix } | null {

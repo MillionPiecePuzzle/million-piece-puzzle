@@ -2,12 +2,14 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useMinimap } from "../composables/useMinimap";
+import MinimapModal from "./MinimapModal.vue";
 
 const { t } = useI18n();
 const { source, navigate } = useMinimap();
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
 const dragging = ref(false);
+const showDetail = ref(false);
 let raf = 0;
 
 // Last canvas->world mapping the draw loop produced, captured so a pointer press
@@ -225,8 +227,26 @@ onBeforeUnmount(() => {
         @pointerup="onPointerUp"
         @pointercancel="onPointerUp"
       ></canvas>
+      <button
+        type="button"
+        class="expand"
+        :disabled="!ready"
+        :aria-label="t('minimap.openDetail')"
+        @click="showDetail = true"
+      >
+        <svg viewBox="0 0 16 16" fill="none">
+          <path
+            d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
+            stroke="currentColor"
+            stroke-width="1.4"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
     </div>
   </aside>
+
+  <MinimapModal v-if="showDetail" @close="showDetail = false" />
 </template>
 
 <style scoped>
@@ -259,5 +279,28 @@ onBeforeUnmount(() => {
 }
 .mm-canvas canvas.dragging {
   cursor: grabbing;
+}
+.expand {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-panel);
+  cursor: pointer;
+}
+.expand:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.expand svg {
+  width: 13px;
+  height: 13px;
+  display: block;
 }
 </style>
