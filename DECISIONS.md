@@ -389,3 +389,9 @@ Revisit when: `MPP_REGION_STREAM_BATCH_CELLS`/`_POLL_INTERVAL_MS` held clean thr
 Choice: the minimap detail modal's memory line sums the client's own resident-texture accounting (resident piece-node count times `manifest.tileSize^2 * 4` bytes, plus the LOD tile layer's resident bytes) against their existing soft budgets (`RESIDENT_PIECE_BUDGET`, `LOD_VRAM_BUDGET_MB`), not `performance.memory` or any OS/GPU-level VRAM read.
 Why: true GPU VRAM isn't readable from JS; `performance.memory` is Chrome-only and measures JS heap, not GPU texture memory, so it would mislabel a diagnostic meant to explain the app's own streaming behavior. The app's internal counters are exact for what they track.
 Revisit when: never expected; if a budget ever becomes dynamic (e.g. the LOD screen-cover floor pushing resident tiles past the nominal soft budget) rather than a fixed constant, decide whether the readout should track the nominal or the effective ceiling.
+
+### 2026-07-11, frontend-canvas, minimap loose/locked layers scale independently
+
+Choice: the density-grid overview paints the loose and locked layers each against their own per-layer max cell count, not one shared max.
+Why: loose pieces vastly outnumber locked ones for most of the puzzle's life (nearly all 1M start loose), so a shared max diluted locked cells to near-background alpha right when "which pieces are placed" is the signal a player most wants to read; verified live on the dev board (35 locked of 1M), a locked cell rendered at alpha 0.2 (indistinguishable from the loose tint) under the shared max versus 0.75 under the independent one.
+Revisit when: never expected; a lone locked cell now reads at near-full alpha regardless of how sparse it is relative to the rest of the board, the intended trade-off (progress must stay legible over calibrated density), mirroring how the loose layer already scales against its own max.
