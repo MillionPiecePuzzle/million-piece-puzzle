@@ -2183,12 +2183,18 @@ export class PuzzleStage {
       const known = this.knownCells.has(key);
       // The group hydration scan is the only costly fact, so it only runs for the
       // one case that reads it (zoomed in, cell known and non-empty), mirroring
-      // the same guard computeLoadingCells uses for its viewport-scoped version.
+      // the same guard computeLoadingCells uses for its viewport-scoped version. A
+      // load-gate-closed group (dynamic loading off, unlocked, unpinned) is skipped
+      // the same way bakeTile skips it: it is meant to stay unbaked, not counted
+      // against the cell ever finishing.
       let allHydrated = true;
       if (groups && groups.size > 0 && known && !this.lodActive) {
         for (const gid of groups) {
           const node = this.groups.get(gid);
-          if (node && !node.hydrated) {
+          if (!node) continue;
+          if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid)))
+            continue;
+          if (!node.hydrated) {
             allHydrated = false;
             break;
           }
@@ -2704,10 +2710,7 @@ export class PuzzleStage {
   // from covered-cold eviction (isCoveredCold) and, with dynamic loading off,
   // still loads (loadGateOpen).
   private isGroupPinned(gid: number): boolean {
-    for (const key of this.groupGrid.cellsOf(gid)) {
-      if (this.pinnedTiles.has(key)) return true;
-    }
-    return false;
+    return this.groupGrid.cellsOf(gid).some((key) => this.pinnedTiles.has(key));
   }
 
   // A covered, idle cluster: the LOD is active, it is not held, every tile it
@@ -2777,9 +2780,13 @@ export class PuzzleStage {
     // reconcileGroupResidency), so count over that same predicate. Counting the
     // coarse candidates would inflate total with groups that are never hydrated,
     // leaving loaded < total forever and wedging the loading cover at a cold start.
+    // A load-gate-closed group (dynamic loading off, unlocked, unpinned) is
+    // excluded the same way: it is never enqueued either, so counting it against
+    // total would wedge the cover for the rest of the session, not just a cold start.
     for (const gid of this.groupGrid.queryRect(ring)) {
       const node = this.groups.get(gid);
       if (!node || !this.groupInRing(node, HYDRATE_MARGIN_FRAC)) continue;
+      if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) continue;
       total++;
       if (node.hydrated) loaded++;
     }
@@ -2876,12 +2883,16 @@ export class PuzzleStage {
   }
 
   // Whether a cell holds a group still hydrating inside the hydrate ring, the
-  // zoomed-in "textures loading" loading-cell case.
+  // zoomed-in "textures loading" loading-cell case. A load-gate-closed group
+  // (dynamic loading off, unlocked, unpinned) never hydrates, so it is skipped
+  // rather than pending forever.
   private cellHasUnhydratedInRingGroup(groups: ReadonlySet<number> | undefined): boolean {
     if (!groups) return false;
     for (const gid of groups) {
       const node = this.groups.get(gid);
-      if (node && !node.hydrated && this.groupInRing(node, HYDRATE_MARGIN_FRAC)) return true;
+      if (!node) continue;
+      if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) continue;
+      if (!node.hydrated && this.groupInRing(node, HYDRATE_MARGIN_FRAC)) return true;
     }
     return false;
   }
@@ -2967,7 +2978,13 @@ export class PuzzleStage {
     } else {
       for (const gid of this.lodHidden) {
         const node = this.groups.get(gid);
-        if (node) node.container.visible = true;
+        if (!node) continue;
+        // A load-gate-closed node (dynamic loading off, unlocked, unpinned) stays
+        // hidden even as the LOD deactivates: it was hidden by the gate, not just
+        // by the tile covering it, so exiting the LOD must not reveal it either.
+        if (loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) {
+          node.container.visible = true;
+        }
       }
       this.lodHidden.clear();
     }
@@ -3117,7 +3134,8 @@ export class PuzzleStage {
         if (this.isLive(gid)) continue;
         const node = this.groups.get(gid);
         if (!node) continue;
-        if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) continue;
+        if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid)))
+          continue;
         if (!node.hydrated) {
           this.enqueueHydrate(gid);
           pending = true;
@@ -3202,10 +3220,19 @@ export class PuzzleStage {
     this.lodLayer.setVisible(this.lodActive);
     this.lodLayer.markBaked(key);
     for (const node of liveHidden) node.container.visible = true;
-    for (const node of [...forced, ...gated]) {
+    for (const node of forced) {
       this.cullGroup(node);
       if (this.lodActive) this.applyGroupLodVisibility(node);
       else node.container.visible = true;
+    }
+    // Gated nodes stay hidden regardless of lodActive. In the warm band (not yet
+    // active) they would otherwise fall through to the same unconditional
+    // `visible = true` as forced above, undoing the hide moments after the gate
+    // closed on a group that was already hydrated from before the toggle.
+    for (const node of gated) {
+      this.cullGroup(node);
+      if (this.lodActive) this.applyGroupLodVisibility(node);
+      else node.container.visible = false;
     }
     return true;
   }
