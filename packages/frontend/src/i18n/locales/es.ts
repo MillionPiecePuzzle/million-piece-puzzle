@@ -82,6 +82,10 @@ const es: MessageSchema = {
     legendNotLoaded: "No cargada",
     tilesLoaded: "{loaded} / {total} casillas cargadas",
     memoryUsage: "{used} / {budget}",
+    pinnedCount: "{pinned} / {cap} fijadas",
+    pinTile: "Fijar esta casilla",
+    unpinTile: "Dejar de fijar esta casilla",
+    unpinAll: "Dejar de fijar todas",
   },
   auth: {
     title: "Sincroniza tu cuenta",
@@ -94,6 +98,10 @@ const es: MessageSchema = {
     syncHint: "Inicia sesión con Google para guardar tus contribuciones de forma permanente.",
     changePseudo: "Cambiar pseudónimo",
     changeCountry: "Cambiar país",
+    display: "Visualización",
+    dynamicLoading: "Carga dinámica",
+    dynamicLoadingHint:
+      "Desactivada, solo cargan las piezas bloqueadas y las casillas fijadas. Fija una casilla desde el lienzo para seguir cargándola.",
     signOut: "Cerrar sesión",
   },
   pseudo: {
@@ -170,6 +178,7 @@ const es: MessageSchema = {
   },
   toast: {
     tileFull: "Demasiadas piezas en esta casilla.",
+    pinLimit: "Límite de casillas fijadas alcanzado.",
   },
   carry: {
     hint: "Pieza en mano. Haz doble clic para soltarla, Esc para devolverla.",

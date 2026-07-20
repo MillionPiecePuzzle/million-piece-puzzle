@@ -49,6 +49,15 @@ export function cellContentPending(f: {
   return f.hasUnhydratedInRingGroup;
 }
 
+// Whether loading is allowed for a group/cell, on top of whatever the ring or
+// tile-need logic already decided. Dynamic loading on: always open, today's
+// behavior. Off: only a locked (anchored) group or a pinned cell may still
+// load, so a player can restrict the client to a manual working set while the
+// emerging picture (locked pieces) keeps loading regardless of pins.
+export function loadGateOpen(dynamicLoadingEnabled: boolean, locked: boolean, pinned: boolean): boolean {
+  return dynamicLoadingEnabled || locked || pinned;
+}
+
 export type TileState = "not-loaded" | "loading" | "loaded";
 
 // Three-state classification for a whole-play-zone diagnostic view (the minimap

@@ -8,11 +8,13 @@ import { useLocaleFormat } from "../i18n/format";
 const { t } = useI18n();
 const { formatNumber } = useLocaleFormat();
 const emit = defineEmits<{ close: [] }>();
-const { source, detailSource } = useMinimap();
+const { source, detailSource, unpinAll } = useMinimap();
 
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const memoryLabel = ref("");
 const tilesLabel = ref("");
+const pinnedLabel = ref("");
+const pinnedCount = ref(0);
 
 // Same clamp MiniMap.vue applies to the same play zone, so a strongly non-square
 // zone cannot make this grid absurdly wide or tall either.
@@ -98,6 +100,11 @@ function draw(): void {
     used: formatBytes(detail.memory.usedBytes),
     budget: formatBytes(detail.memory.budgetBytes),
   });
+  pinnedCount.value = detail.pinnedCount;
+  pinnedLabel.value = t("minimap.pinnedCount", {
+    pinned: formatNumber(detail.pinnedCount),
+    cap: formatNumber(detail.pinCap),
+  });
 }
 
 function onKey(e: KeyboardEvent): void {
@@ -133,13 +140,24 @@ onBeforeUnmount(() => {
         <div class="readout">
           <div>{{ memoryLabel }}</div>
           <div>{{ tilesLabel }}</div>
+          <div>{{ pinnedLabel }}</div>
         </div>
       </div>
-      <ul class="legend">
-        <li><span class="swatch loaded"></span>{{ t("minimap.legendLoaded") }}</li>
-        <li><span class="swatch loading"></span>{{ t("minimap.legendLoading") }}</li>
-        <li><span class="swatch not-loaded"></span>{{ t("minimap.legendNotLoaded") }}</li>
-      </ul>
+      <div class="footer">
+        <ul class="legend">
+          <li><span class="swatch loaded"></span>{{ t("minimap.legendLoaded") }}</li>
+          <li><span class="swatch loading"></span>{{ t("minimap.legendLoading") }}</li>
+          <li><span class="swatch not-loaded"></span>{{ t("minimap.legendNotLoaded") }}</li>
+        </ul>
+        <button
+          type="button"
+          class="unpin-all"
+          :disabled="pinnedCount === 0"
+          @click="unpinAll?.()"
+        >
+          {{ t("minimap.unpinAll") }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -200,6 +218,13 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-btn);
   box-shadow: var(--shadow-panel);
 }
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -209,6 +234,27 @@ onBeforeUnmount(() => {
   list-style: none;
   font-size: 13px;
   color: var(--ink-2);
+}
+.unpin-all {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+.unpin-all:hover:not(:disabled) {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.unpin-all:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 .legend li {
   display: flex;

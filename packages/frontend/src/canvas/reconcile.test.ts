@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { cellContentPending, classifyTile, coalesceDirtyCells, residencyDecision } from "./reconcile";
+import {
+  cellContentPending,
+  classifyTile,
+  coalesceDirtyCells,
+  loadGateOpen,
+  residencyDecision,
+} from "./reconcile";
 import { packCell } from "./groupGrid";
 import type { Aabb } from "./cull";
 
@@ -50,6 +56,25 @@ describe("residencyDecision", () => {
 
   it("retains an in-ring covered-cold group for budget eviction", () => {
     expect(residencyDecision(true, true)).toBe("retain");
+  });
+});
+
+describe("loadGateOpen", () => {
+  it("is always open while dynamic loading is enabled", () => {
+    expect(loadGateOpen(true, false, false)).toBe(true);
+    expect(loadGateOpen(true, true, true)).toBe(true);
+  });
+
+  it("stays open for a locked group with dynamic loading off", () => {
+    expect(loadGateOpen(false, true, false)).toBe(true);
+  });
+
+  it("stays open for a pinned cell with dynamic loading off", () => {
+    expect(loadGateOpen(false, false, true)).toBe(true);
+  });
+
+  it("closes for an unlocked, unpinned group with dynamic loading off", () => {
+    expect(loadGateOpen(false, false, false)).toBe(false);
   });
 });
 

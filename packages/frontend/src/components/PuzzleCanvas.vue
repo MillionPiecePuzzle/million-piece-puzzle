@@ -6,8 +6,9 @@ import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuz
 import { useStageControls } from "../composables/useStageControls";
 import { useMinimap } from "../composables/useMinimap";
 import { useMode } from "../composables/useMode";
+import { useDynamicLoading } from "../composables/useDynamicLoading";
 import { useLocaleFormat } from "../i18n/format";
-import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
+import { PuzzleStage, type PinnableTile, type ViewportRect } from "../canvas/puzzleStage";
 import { toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardRow from "./LeaderboardRow.vue";
 
@@ -28,9 +29,11 @@ const {
   sendViewport,
   sendCursor,
 } = usePuzzleSession();
-const { setControls, setCamera, setReady } = useStageControls();
-const { setMinimapSource, setMinimapNavigate, setMinimapDetailSource } = useMinimap();
+const { setControls, setCamera, setReady, camera } = useStageControls();
+const { setMinimapSource, setMinimapNavigate, setMinimapDetailSource, setMinimapUnpinAll } =
+  useMinimap();
 const { mode } = useMode();
+const { dynamicLoadingEnabled } = useDynamicLoading();
 
 let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
@@ -54,6 +57,25 @@ function showToast(message: string): void {
     toast.value = null;
     toastTimer = null;
   }, TOAST_DURATION_MS);
+}
+
+// Pin overlay: a small pin icon over every ready LOD tile on screen, refreshed
+// every frame (own rAF loop, same idiom as MiniMap.vue's draw loop) so it
+// tracks the camera smoothly during a pan instead of lagging behind it.
+const pinTiles = ref<PinnableTile[]>([]);
+let pinRaf = 0;
+function drawPinOverlay(): void {
+  pinRaf = requestAnimationFrame(drawPinOverlay);
+  pinTiles.value = stage?.pinnableTiles() ?? [];
+}
+// The button's own center sits just inside the tile's top-right world corner.
+const PIN_ICON_INSET = 4;
+function pinButtonStyle(tile: PinnableTile): { left: string; top: string } {
+  const { zoom, x, y } = camera.value;
+  return {
+    left: `${tile.rect.maxX * zoom + x - PIN_ICON_INSET}px`,
+    top: `${tile.rect.minY * zoom + y + PIN_ICON_INSET}px`,
+  };
 }
 // True while a build() is rebuilding the board for a new epoch. Keeps the
 // loading cover up across the syncing -> ready transition and through the async
@@ -267,11 +289,14 @@ onMounted(async () => {
   stage.onCursorMove = (x, y) => queueCursor(x, y);
   stage.onNotice = (kind) => {
     if (kind === "tile_full") showToast(t("toast.tileFull"));
+    if (kind === "pin_limit") showToast(t("toast.pinLimit"));
   };
   stage.onCarryChange = (c) => {
     carrying.value = c;
   };
   await stage.mount(host.value);
+  stage.setDynamicLoadingEnabled(dynamicLoadingEnabled.value);
+  pinRaf = requestAnimationFrame(drawPinOverlay);
   setControls({
     zoomIn: () => stage?.zoomIn(),
     zoomOut: () => stage?.zoomOut(),
@@ -281,6 +306,7 @@ onMounted(async () => {
   setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
   setMinimapNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
   setMinimapDetailSource(() => stage?.getMinimapDetailSnapshot() ?? null);
+  setMinimapUnpinAll(() => stage?.unpinAllTiles());
   unsubscribe = onMessage(routeMessage);
   // Guest-first: the canvas is WS-only. It connects once a complete identity
   // exists (mode flips to contributor on a resolved session or a freshly minted
@@ -354,6 +380,10 @@ watch(mode, (m) => {
   stage?.setMode(m);
 });
 
+watch(dynamicLoadingEnabled, (enabled) => {
+  stage?.setDynamicLoadingEnabled(enabled);
+});
+
 onBeforeUnmount(() => {
   unsubscribe?.();
   unsubscribe = null;
@@ -369,11 +399,13 @@ onBeforeUnmount(() => {
     clearTimeout(toastTimer);
     toastTimer = null;
   }
+  cancelAnimationFrame(pinRaf);
   setControls(null);
   setReady(false);
   setMinimapSource(null);
   setMinimapNavigate(null);
   setMinimapDetailSource(null);
+  setMinimapUnpinAll(null);
   close();
   stage?.destroy();
   stage = null;
@@ -474,6 +506,25 @@ onBeforeUnmount(() => {
         {{ t("completion.summary") }}
       </button>
     </Transition>
+    <div class="pin-overlay">
+      <button
+        v-for="tile in pinTiles"
+        :key="tile.key"
+        type="button"
+        class="pin-btn"
+        :class="{ pinned: tile.pinned }"
+        :style="pinButtonStyle(tile)"
+        :aria-label="t(tile.pinned ? 'minimap.unpinTile' : 'minimap.pinTile')"
+        :aria-pressed="tile.pinned"
+        @click="stage?.togglePinnedTile(tile.key)"
+      >
+        <svg viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.3">
+          <path
+            d="M8 1.6c-2.16 0-3.9 1.75-3.9 3.9 0 2.85 3.9 8.9 3.9 8.9s3.9-6.05 3.9-8.9c0-2.15-1.74-3.9-3.9-3.9z"
+          />
+        </svg>
+      </button>
+    </div>
     <Transition name="toast">
       <div v-if="toast" class="toast" role="status" aria-live="polite">{{ toast }}</div>
     </Transition>
@@ -772,6 +823,50 @@ onBeforeUnmount(() => {
 .reopen-leave-to {
   opacity: 0;
   transform: translate(-50%, -8px);
+}
+.pin-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.pin-btn {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+}
+.pin-btn:hover {
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--ink);
+}
+.pin-btn svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+.pin-btn svg path {
+  fill: none;
+  transition: fill 150ms ease;
+}
+.pin-btn.pinned {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.pin-btn.pinned svg path {
+  fill: currentColor;
 }
 .toast {
   position: absolute;

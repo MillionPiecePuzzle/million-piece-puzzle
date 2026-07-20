@@ -118,6 +118,22 @@ export class LodTileLayer {
     return this.tiles.get(key)?.ready === true;
   }
 
+  // Ready tile keys strictly inside a rect (no margin ring), for UI that acts on
+  // the tiles a player can actually see right now, e.g. the canvas pin overlay.
+  tilesInRect(view: Viewport): CellKey[] {
+    const box: Aabb = {
+      minX: view.worldX,
+      minY: view.worldY,
+      maxX: view.worldX + view.worldW,
+      maxY: view.worldY + view.worldH,
+    };
+    const out: CellKey[] = [];
+    for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) {
+      if (this.cellOverlapsZone(key) && this.isReady(key)) out.push(key);
+    }
+    return out;
+  }
+
   // Current resident tile bytes and the nominal soft budget, for the minimap
   // detail modal's memory readout. Reports the configured LOD_VRAM_BUDGET_MB
   // rather than the screen-cover-adjusted maxResident, so the readout stays a
@@ -154,6 +170,12 @@ export class LodTileLayer {
     if (tile) this.markTileDirty(tile);
   }
 
+  // Marks every resident tile stale, forcing a full re-bake. Used when a global
+  // bake input changes rather than one cell, e.g. the dynamic-loading gate.
+  markAllDirty(): void {
+    for (const tile of this.tiles.values()) this.markTileDirty(tile);
+  }
+
   // World rectangle of one tile cell, for the stage to query the cell's groups.
   cellRect(key: CellKey): Aabb {
     const { cx, cy } = unpackCell(key);
@@ -163,8 +185,9 @@ export class LodTileLayer {
   }
 
   // Marks needed tiles recently used, then evicts the least-recently-used tiles
-  // beyond the resident cap. Needed tiles are never evicted (cap >= screen-cover).
-  cull(view: Viewport): void {
+  // beyond the resident cap. Needed tiles are never evicted (cap >= screen-cover),
+  // nor are pinned ones: a pin is a player-chosen exemption from the LRU budget.
+  cull(view: Viewport, pinned: ReadonlySet<CellKey>): void {
     const needed = new Set(this.neededTiles(view));
     for (const key of needed) {
       const tile = this.tiles.get(key);
@@ -172,7 +195,7 @@ export class LodTileLayer {
     }
     if (this.tiles.size <= this.maxResident) return;
     const evictable = [...this.tiles.values()]
-      .filter((t) => !needed.has(t.key))
+      .filter((t) => !needed.has(t.key) && !pinned.has(t.key))
       .sort((a, b) => a.lru - b.lru);
     let over = this.tiles.size - this.maxResident;
     for (const tile of evictable) {

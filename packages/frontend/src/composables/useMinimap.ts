@@ -15,9 +15,14 @@ export type MinimapNavigate = (worldX: number, worldY: number) => void;
 // bridge, read at a throttled interval only while the modal is mounted.
 export type MinimapDetailSource = () => MinimapDetailSnapshot | null;
 
+// Push side for the modal's unpin-all action: pinning itself only happens on the
+// canvas overlay, so this is the modal's one write into stage pin state.
+export type MinimapUnpinAll = () => void;
+
 const source = shallowRef<MinimapSource | null>(null);
 const navigate = shallowRef<MinimapNavigate | null>(null);
 const detailSource = shallowRef<MinimapDetailSource | null>(null);
+const unpinAll = shallowRef<MinimapUnpinAll | null>(null);
 
 export function useMinimap() {
   function setMinimapSource(next: MinimapSource | null): void {
@@ -29,12 +34,17 @@ export function useMinimap() {
   function setMinimapDetailSource(next: MinimapDetailSource | null): void {
     detailSource.value = next;
   }
+  function setMinimapUnpinAll(next: MinimapUnpinAll | null): void {
+    unpinAll.value = next;
+  }
   return {
     source,
     navigate,
     detailSource,
+    unpinAll,
     setMinimapSource,
     setMinimapNavigate,
     setMinimapDetailSource,
+    setMinimapUnpinAll,
   };
 }

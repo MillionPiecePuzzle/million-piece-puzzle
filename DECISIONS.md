@@ -395,3 +395,9 @@ Revisit when: never expected; if a budget ever becomes dynamic (e.g. the LOD scr
 Choice: the density-grid overview paints the loose and locked layers each against their own per-layer max cell count, not one shared max.
 Why: loose pieces vastly outnumber locked ones for most of the puzzle's life (nearly all 1M start loose), so a shared max diluted locked cells to near-background alpha right when "which pieces are placed" is the signal a player most wants to read; verified live on the dev board (35 locked of 1M), a locked cell rendered at alpha 0.2 (indistinguishable from the loose tint) under the shared max versus 0.75 under the independent one.
 Revisit when: never expected; a lone locked cell now reads at near-full alpha regardless of how sparse it is relative to the rest of the board, the intended trade-off (progress must stay legible over calibrated density), mirroring how the loose layer already scales against its own max.
+
+### 2026-07-20, frontend-canvas, tile pins and the dynamic-loading gate
+
+Choice: pinning a tile (client cap 12, session-only) exempts it from LOD-tile and per-piece budget eviction regardless of the dynamic-loading toggle (`isCoveredCold`, `LodTileLayer.cull`). With the toggle off, a loose group only hydrates or bakes if its cell is pinned (`loadGateOpen`); locked (anchored) groups stay exempt from the gate entirely, at any zoom level. The pin icon overlay is plain DOM positioned over the Pixi canvas from the tracked camera, not a Pixi-interactive sprite per tile, so the LOD layer's `eventMode: "none"` stays untouched.
+Why: the toggle is an opt-in manual working set; locked pieces stay visible regardless so the emerging picture always reads. Pins are session state, not a saved preference, so no schema change for a client rendering choice.
+Revisit when: the 12-tile cap needs tuning against real usage, or pins are asked to survive a reload or follow the account, which would need real persistence.

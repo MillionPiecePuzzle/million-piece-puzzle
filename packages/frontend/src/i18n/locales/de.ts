@@ -82,6 +82,10 @@ const de: MessageSchema = {
     legendNotLoaded: "Nicht geladen",
     tilesLoaded: "{loaded} / {total} Felder geladen",
     memoryUsage: "{used} / {budget}",
+    pinnedCount: "{pinned} / {cap} angeheftet",
+    pinTile: "Dieses Feld anheften",
+    unpinTile: "Dieses Feld lösen",
+    unpinAll: "Alle lösen",
   },
   auth: {
     title: "Konto synchronisieren",
@@ -94,6 +98,10 @@ const de: MessageSchema = {
     syncHint: "Melde dich mit Google an, um deine Beiträge dauerhaft zu sichern.",
     changePseudo: "Pseudonym ändern",
     changeCountry: "Land ändern",
+    display: "Anzeige",
+    dynamicLoading: "Dynamisches Laden",
+    dynamicLoadingHint:
+      "Aus lädt nur gesperrte Teile und angeheftete Felder. Heft ein Feld auf der Leinwand an, damit es weiter lädt.",
     signOut: "Abmelden",
   },
   pseudo: {
@@ -173,6 +181,7 @@ const de: MessageSchema = {
   },
   toast: {
     tileFull: "Zu viele Teile auf diesem Feld.",
+    pinLimit: "Maximale Anzahl angehefteter Felder erreicht.",
   },
   carry: {
     hint: "Teil in der Hand. Doppelklicke zum Ablegen, Esc zum Zurücklegen.",
