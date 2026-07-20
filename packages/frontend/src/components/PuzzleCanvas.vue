@@ -7,7 +7,9 @@ import { useStageControls } from "../composables/useStageControls";
 import { useMinimap } from "../composables/useMinimap";
 import { useMode } from "../composables/useMode";
 import { useDynamicLoading } from "../composables/useDynamicLoading";
+import { useRafLoop } from "../composables/useRafLoop";
 import { useLocaleFormat } from "../i18n/format";
+import { worldToScreen } from "../canvas/camera";
 import { PuzzleStage, type PinnableTile, type ViewportRect } from "../canvas/puzzleStage";
 import { toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardRow from "./LeaderboardRow.vue";
@@ -59,22 +61,22 @@ function showToast(message: string): void {
   }, TOAST_DURATION_MS);
 }
 
-// Pin overlay: a small pin icon over every ready LOD tile on screen, refreshed
-// every frame (own rAF loop, same idiom as MiniMap.vue's draw loop) so it
-// tracks the camera smoothly during a pan instead of lagging behind it.
+// Pin overlay: a small pin icon over every ready LOD tile on screen. Screen
+// position tracks the camera through Vue's own reactivity in pinButtonStyle
+// below, so only the set of ready tiles needs periodic refresh; polled on a
+// throttled rAF loop (same idiom as MiniMap.vue's draw loop).
+const PIN_POLL_EVERY_N_FRAMES = 6;
 const pinTiles = ref<PinnableTile[]>([]);
-let pinRaf = 0;
-function drawPinOverlay(): void {
-  pinRaf = requestAnimationFrame(drawPinOverlay);
+useRafLoop(() => {
   pinTiles.value = stage?.pinnableTiles() ?? [];
-}
+}, PIN_POLL_EVERY_N_FRAMES);
 // The button's own center sits just inside the tile's top-right world corner.
 const PIN_ICON_INSET = 4;
 function pinButtonStyle(tile: PinnableTile): { left: string; top: string } {
-  const { zoom, x, y } = camera.value;
+  const { x, y } = worldToScreen(tile.rect.maxX, tile.rect.minY, camera.value);
   return {
-    left: `${tile.rect.maxX * zoom + x - PIN_ICON_INSET}px`,
-    top: `${tile.rect.minY * zoom + y + PIN_ICON_INSET}px`,
+    left: `${x - PIN_ICON_INSET}px`,
+    top: `${y + PIN_ICON_INSET}px`,
   };
 }
 // True while a build() is rebuilding the board for a new epoch. Keeps the
@@ -296,7 +298,6 @@ onMounted(async () => {
   };
   await stage.mount(host.value);
   stage.setDynamicLoadingEnabled(dynamicLoadingEnabled.value);
-  pinRaf = requestAnimationFrame(drawPinOverlay);
   setControls({
     zoomIn: () => stage?.zoomIn(),
     zoomOut: () => stage?.zoomOut(),
@@ -399,7 +400,6 @@ onBeforeUnmount(() => {
     clearTimeout(toastTimer);
     toastTimer = null;
   }
-  cancelAnimationFrame(pinRaf);
   setControls(null);
   setReady(false);
   setMinimapSource(null);

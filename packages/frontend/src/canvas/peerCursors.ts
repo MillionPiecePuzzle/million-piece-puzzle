@@ -1,9 +1,8 @@
 import { Container, Graphics, Text } from "pixi.js";
+import { worldToScreen, type CameraTransform } from "./camera";
 
-// Camera transform shared with the stage: world maps to screen as
-// `screen = world * zoom + offset`. The cursor layer lives in screen space so
-// pointers keep a constant size regardless of zoom.
-export type CameraTransform = { x: number; y: number; zoom: number };
+// The cursor layer lives in screen space (not reparented under world's camera
+// transform) so pointers keep a constant size regardless of zoom.
 
 // A peer is registered on `join` but drawn only after its first cursor
 // position, so a peer that has not moved yet stays invisible without any mode
@@ -110,8 +109,8 @@ export class PeerCursorLayer {
       peer.container.visible = true;
       peer.renderX += (peer.targetX - peer.renderX) * smooth;
       peer.renderY += (peer.targetY - peer.renderY) * smooth;
-      const sx = peer.renderX * camera.zoom + camera.x;
-      let sy = peer.renderY * camera.zoom + camera.y;
+      const { x: sx, y: screenY } = worldToScreen(peer.renderX, peer.renderY, camera);
+      let sy = screenY;
       const idleFor = now - peer.lastMoveMs;
       if (idleFor > IDLE_AFTER_MS) {
         const ramp = Math.min(1, (idleFor - IDLE_AFTER_MS) / BOB_RAMP_MS);

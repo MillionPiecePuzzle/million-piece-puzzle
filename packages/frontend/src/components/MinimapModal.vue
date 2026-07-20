@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { TileState } from "../canvas/reconcile";
 import { useMinimap } from "../composables/useMinimap";
+import { useRafLoop } from "../composables/useRafLoop";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
@@ -26,8 +27,6 @@ const shellAspect = ref(MIN_ASPECT);
 // frame rate would be wasted work for a diagnostic view, so it is throttled to a
 // few times a second instead of every rAF.
 const POLL_EVERY_N_FRAMES = 15;
-let raf = 0;
-let frame = 0;
 
 function formatBytes(bytes: number): string {
   return `${formatNumber(Math.round(bytes / 1e6))} MB`;
@@ -45,10 +44,6 @@ function colorForState(state: TileState): string {
 }
 
 function draw(): void {
-  raf = requestAnimationFrame(draw);
-  frame++;
-  if (frame % POLL_EVERY_N_FRAMES !== 0) return;
-
   const canvas = canvasEl.value;
   const snap = source.value?.() ?? null;
   const detail = detailSource.value?.() ?? null;
@@ -111,13 +106,13 @@ function onKey(e: KeyboardEvent): void {
   if (e.key === "Escape") emit("close");
 }
 
+useRafLoop(draw, POLL_EVERY_N_FRAMES);
+
 onMounted(() => {
-  raf = requestAnimationFrame(draw);
   window.addEventListener("keydown", onKey);
 });
 
 onBeforeUnmount(() => {
-  cancelAnimationFrame(raf);
   window.removeEventListener("keydown", onKey);
 });
 </script>
@@ -149,12 +144,7 @@ onBeforeUnmount(() => {
           <li><span class="swatch loading"></span>{{ t("minimap.legendLoading") }}</li>
           <li><span class="swatch not-loaded"></span>{{ t("minimap.legendNotLoaded") }}</li>
         </ul>
-        <button
-          type="button"
-          class="unpin-all"
-          :disabled="pinnedCount === 0"
-          @click="unpinAll?.()"
-        >
+        <button type="button" class="unpin-all" :disabled="pinnedCount === 0" @click="unpinAll?.()">
           {{ t("minimap.unpinAll") }}
         </button>
       </div>

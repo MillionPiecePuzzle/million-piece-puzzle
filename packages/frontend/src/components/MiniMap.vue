@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useMinimap } from "../composables/useMinimap";
+import { useRafLoop } from "../composables/useRafLoop";
 import MinimapModal from "./MinimapModal.vue";
 
 const { t } = useI18n();
@@ -10,7 +11,6 @@ const canvasEl = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
 const dragging = ref(false);
 const showDetail = ref(false);
-let raf = 0;
 
 // Last canvas->world mapping the draw loop produced, captured so a pointer press
 // can invert it without recomputing the layout. Null until the first real frame.
@@ -41,7 +41,6 @@ const canvasAspect = ref(MIN_CANVAS_ASPECT);
 // thousand fillRects) and keeps the frustum tracking pan and zoom with no
 // extra plumbing.
 function draw(): void {
-  raf = requestAnimationFrame(draw);
   // The minimap stays hidden until the stage has a play zone, so it never
   // shows a placeholder shape that would resize once real data arrives.
   const snap = source.value?.() ?? null;
@@ -210,13 +209,7 @@ function onPointerUp(ev: PointerEvent): void {
   canvasEl.value?.releasePointerCapture(ev.pointerId);
 }
 
-onMounted(() => {
-  raf = requestAnimationFrame(draw);
-});
-
-onBeforeUnmount(() => {
-  cancelAnimationFrame(raf);
-});
+useRafLoop(draw);
 </script>
 
 <template>
