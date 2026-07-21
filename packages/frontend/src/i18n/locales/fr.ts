@@ -82,9 +82,6 @@ const fr: MessageSchema = {
     legendNotLoaded: "Non chargée",
     tilesLoaded: "{loaded} / {total} cases chargées",
     memoryUsage: "{used} / {budget}",
-    pinnedCount: "{pinned} / {cap} épinglées",
-    pinHint: "Cliquez sur une case pour l'épingler. Glissez pour déplacer la vue, molette pour zoomer.",
-    unpinAll: "Tout désépingler",
   },
   auth: {
     title: "Synchroniser votre compte",
@@ -97,10 +94,6 @@ const fr: MessageSchema = {
     syncHint: "Connectez-vous avec Google pour conserver vos contributions de façon permanente.",
     changePseudo: "Changer de pseudo",
     changeCountry: "Changer de pays",
-    display: "Affichage",
-    dynamicLoading: "Chargement dynamique",
-    dynamicLoadingHint:
-      "Désactivé, seules les pièces verrouillées et les cases épinglées se chargent. Épinglez une case depuis le canevas pour continuer à la charger.",
     signOut: "Se déconnecter",
   },
   pseudo: {
@@ -179,7 +172,6 @@ const fr: MessageSchema = {
   },
   toast: {
     tileFull: "Trop de pièces sur cette case.",
-    pinLimit: "Nombre maximal de cases épinglées atteint.",
   },
   carry: {
     hint: "Pièce en main. Double-cliquez pour la déposer, Échap pour la remettre.",

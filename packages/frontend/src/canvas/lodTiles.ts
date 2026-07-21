@@ -169,9 +169,8 @@ export class LodTileLayer {
   }
 
   // Marks needed tiles recently used, then evicts the least-recently-used tiles
-  // beyond the resident cap. Needed tiles are never evicted (cap >= screen-cover),
-  // nor are pinned ones: a pin is a player-chosen exemption from the LRU budget.
-  cull(view: Viewport, pinned: ReadonlySet<CellKey>): void {
+  // beyond the resident cap. Needed tiles are never evicted (cap >= screen-cover).
+  cull(view: Viewport): void {
     const needed = new Set(this.neededTiles(view));
     for (const key of needed) {
       const tile = this.tiles.get(key);
@@ -179,7 +178,7 @@ export class LodTileLayer {
     }
     if (this.tiles.size <= this.maxResident) return;
     const evictable = [...this.tiles.values()]
-      .filter((t) => !needed.has(t.key) && !pinned.has(t.key))
+      .filter((t) => !needed.has(t.key))
       .sort((a, b) => a.lru - b.lru);
     let over = this.tiles.size - this.maxResident;
     for (const tile of evictable) {

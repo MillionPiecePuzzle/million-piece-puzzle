@@ -49,15 +49,6 @@ export function cellContentPending(f: {
   return f.hasUnhydratedInRingGroup;
 }
 
-// Whether loading is allowed for a group/cell, on top of whatever the ring or
-// tile-need logic already decided. Dynamic loading on: always open, today's
-// behavior. Off: only a locked (anchored) group or a pinned cell may still
-// load, so a player can restrict the client to a manual working set while the
-// emerging picture (locked pieces) keeps loading regardless of pins.
-export function loadGateOpen(dynamicLoadingEnabled: boolean, locked: boolean, pinned: boolean): boolean {
-  return dynamicLoadingEnabled || locked || pinned;
-}
-
 export type TileState = "not-loaded" | "loading" | "loaded";
 
 // Three-state classification for a whole-play-zone diagnostic view (the minimap
@@ -73,16 +64,9 @@ export function classifyTile(f: {
   lodActive: boolean;
   tileReady: boolean;
   allHydrated: boolean;
-  anyGated: boolean;
 }): TileState {
   if (!f.known) return "not-loaded";
   if (!f.hasGroups) return "loaded";
   const stillLoading = f.lodActive ? !f.tileReady : !f.allHydrated;
-  if (stillLoading) return "loading";
-  // A gated group (dynamic loading off, unlocked, unpinned) is excluded from both
-  // the hydration scan and the tile bake on purpose (see getTileOverview), so a
-  // cell whose only content is gated would otherwise read as trivially "loaded"
-  // the moment its (content-less) bake or hydration pass completes. It is not
-  // going to load under the current settings, so it must read as not-loaded.
-  return f.anyGated ? "not-loaded" : "loaded";
+  return stillLoading ? "loading" : "loaded";
 }

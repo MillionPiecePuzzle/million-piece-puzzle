@@ -3,7 +3,6 @@ import {
   cellContentPending,
   classifyTile,
   coalesceDirtyCells,
-  loadGateOpen,
   residencyDecision,
 } from "./reconcile";
 import { packCell } from "./groupGrid";
@@ -56,25 +55,6 @@ describe("residencyDecision", () => {
 
   it("retains an in-ring covered-cold group for budget eviction", () => {
     expect(residencyDecision(true, true)).toBe("retain");
-  });
-});
-
-describe("loadGateOpen", () => {
-  it("is always open while dynamic loading is enabled", () => {
-    expect(loadGateOpen(true, false, false)).toBe(true);
-    expect(loadGateOpen(true, true, true)).toBe(true);
-  });
-
-  it("stays open for a locked group with dynamic loading off", () => {
-    expect(loadGateOpen(false, true, false)).toBe(true);
-  });
-
-  it("stays open for a pinned cell with dynamic loading off", () => {
-    expect(loadGateOpen(false, false, true)).toBe(true);
-  });
-
-  it("closes for an unlocked, unpinned group with dynamic loading off", () => {
-    expect(loadGateOpen(false, false, false)).toBe(false);
   });
 });
 
@@ -156,7 +136,6 @@ describe("classifyTile", () => {
       lodActive: false,
       tileReady: false,
       allHydrated: false,
-      anyGated: false,
       ...over,
     });
 
@@ -208,26 +187,6 @@ describe("classifyTile", () => {
       expect(facts({ known: true, hasGroups: true, lodActive: false, allHydrated: true })).toBe(
         "loaded",
       );
-    });
-  });
-
-  describe("gated content (dynamic loading off, unlocked, unpinned)", () => {
-    it("is not-loaded, not loaded, once an otherwise-hydrated cell has gated content", () => {
-      expect(
-        facts({ known: true, hasGroups: true, lodActive: false, allHydrated: true, anyGated: true }),
-      ).toBe("not-loaded");
-    });
-
-    it("is not-loaded, not loaded, once an otherwise-baked cell has gated content, zoomed out", () => {
-      expect(
-        facts({ known: true, hasGroups: true, lodActive: true, tileReady: true, anyGated: true }),
-      ).toBe("not-loaded");
-    });
-
-    it("still reads as loading when other content in the cell is genuinely hydrating", () => {
-      expect(
-        facts({ known: true, hasGroups: true, lodActive: false, allHydrated: false, anyGated: true }),
-      ).toBe("loading");
     });
   });
 });

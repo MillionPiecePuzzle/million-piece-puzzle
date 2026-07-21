@@ -139,14 +139,12 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 
 ---
 
-## Phase 4, Player Diagnostics
+## Phase 4, Player Diagnostics, CLOSED
 
-**Exit criterion**: a player can open a tile-by-tile load-state view of the whole play zone with a compact resident-memory readout from the minimap, and pin individual tiles to keep them resident past normal eviction.
+**Exit criterion (met)**: a player can open a tile-by-tile load-state view of the whole play zone with a compact resident-memory readout from the minimap.
 
 ### `frontend-canvas`
 - [x] Minimap detail modal: whole-play-zone tile grid (not loaded / loading / loaded) plus a compact memory readout, opened from the minimap via an expand button. See DECISIONS
-- [x] Tile pinning: click a cell in the minimap detail modal's pannable, zoomable tile grid to keep it resident past normal eviction, bounded by a small per-client cap; the modal gains an unpin-all action. See DECISIONS
-- [x] Dynamic-loading toggle: a settings switch restricts loading to pinned tiles only, except locked pieces which always load regardless. See DECISIONS
 
 ---
 

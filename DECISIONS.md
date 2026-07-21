@@ -33,7 +33,6 @@ Quick scan of choices with a genuine open trigger: something not yet resolved an
 - [Paced region_state batching](#2026-07-06-backend-realtime-paced-region_state-batching) -> batch size and poll interval held clean through one re-soak; real public traffic could still exceed that.
 - [Edge uniqueness validated per-seed](#2026-06-09-piece-generation-edge-uniqueness-validated-per-seed) -> still pending: the production seed is for the real photo, which has not replaced the synthetic placeholder yet.
 - [Anti-programmatic-solving via permuted wire ids](#2026-06-12-shared-protocol-anti-programmatic-solving-via-permuted-wire-ids-and-anchor-offsets) -> still pending: `MPP_PUZZLE_ID` is `synthetic-1m` today, so the real photo's R2 re-upload under wire-id paths has not happened yet.
-- [Minimap detail modal downgrades gated content to not-loaded](#2026-07-21-frontend-canvas-minimap-detail-modal-downgrades-gated-content-to-not-loaded) -> the whole-zone group scan now also runs zoomed out; check it isn't measurably expensive at 1M scale.
 
 ---
 
@@ -396,21 +395,3 @@ Revisit when: never expected; if a budget ever becomes dynamic (e.g. the LOD scr
 Choice: the density-grid overview paints the loose and locked layers each against their own per-layer max cell count, not one shared max.
 Why: loose pieces vastly outnumber locked ones for most of the puzzle's life (nearly all 1M start loose), so a shared max diluted locked cells to near-background alpha right when "which pieces are placed" is the signal a player most wants to read; verified live on the dev board (35 locked of 1M), a locked cell rendered at alpha 0.2 (indistinguishable from the loose tint) under the shared max versus 0.75 under the independent one.
 Revisit when: never expected; a lone locked cell now reads at near-full alpha regardless of how sparse it is relative to the rest of the board, the intended trade-off (progress must stay legible over calibrated density), mirroring how the loose layer already scales against its own max.
-
-### 2026-07-20, frontend-canvas, tile pins and the dynamic-loading gate
-
-Choice: pinning a tile (client cap 12, session-only) exempts it from LOD-tile and per-piece budget eviction regardless of the dynamic-loading toggle (`isCoveredCold`, `LodTileLayer.cull`). With the toggle off, a loose group only hydrates or bakes if its cell is pinned (`loadGateOpen`); locked (anchored) groups stay exempt from the gate entirely, at any zoom level. Pinning happens by clicking a cell in the minimap detail modal's tile grid (`MinimapModal.vue`), not a per-tile control on the main canvas.
-Why: the toggle is an opt-in manual working set; locked pieces stay visible regardless so the emerging picture always reads. Pins are session state, not a saved preference, so no schema change for a client rendering choice. The modal is the only place that can pin a cell that has never loaded: a control living on the main canvas can only ever sit over a tile already baked (`LodTileLayer.isReady`), a dead end once the toggle defaults off, since a never-loaded, unpinned cell has no baked tile to put a control over in the first place.
-Revisit when: the 12-tile cap needs tuning against real usage, or pins are asked to survive a reload or follow the account, which would need real persistence.
-
-### 2026-07-21, frontend-canvas, minimap detail modal pan/zoom and pin-through-click
-
-Choice: the modal's tile grid has its own local pan/zoom (wheel zooms at the cursor, drag pans, both clamped to the play zone), independent of the main camera; a plain click (no drag, under a small movement threshold) toggles the pin on the cell under the pointer. The tile-state layer paints as a translucent wash over a density-grid background (loose/locked piece counts, `paintDensityGrid` shared with `MiniMap.vue`) rather than an opaque fill; a not-loaded cell paints no wash at all so the density shows through there.
-Why: the whole-zone modal is the only place a pin can target a distant or never-loaded cell (see the entry above), but that needs a way to aim at one cell precisely among ~39,000, hence the zoom; showing density lets a player see where the interesting, not-yet-loaded areas actually are before picking what to pin. OpenSeadragon (already used for the reference-image modal) was considered and rejected for the zoom: it targets a pre-tiled image pyramid, not a programmatically-drawn grid, and its WebGL drawer already had to be forced to Canvas2D once to avoid contention with the PixiJS WebGL context on the same page.
-Revisit when: never expected for the pan/zoom mechanism itself; if the whole-zone group scan behind the grid (see the entry above) ever needs throttling further, the modal's own polling cadence is the first lever, not this.
-
-### 2026-07-21, frontend-canvas, minimap detail modal downgrades gated content to not-loaded
-
-Choice: `getTileOverview`'s per-cell classification now also tracks whether any group in a cell is gate-closed (`loadGateOpen` false: unlocked, unpinned, dynamic loading off) at both zoom levels, and reports that cell as "not-loaded" rather than "loaded" even once its gate-excluded content finishes hydrating or its LOD tile bakes.
-Why: a gated group is deliberately excluded from both the hydration scan and the tile bake, so before this fix an unpinned cell read as trivially "loaded" the moment its content-less bake completed, the opposite of what the toggle is supposed to communicate. The group scan now also runs while zoomed out, where it was previously skipped since classification ignored hydration at that zoom level.
-Revisit when: the whole-zone group scan shows up expensive on a 1M deep zoomed-out overview with the modal open; today it is throttled to a few polls per second and only runs while the modal is mounted.

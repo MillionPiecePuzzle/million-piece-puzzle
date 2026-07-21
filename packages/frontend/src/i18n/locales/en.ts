@@ -80,9 +80,6 @@ const en = {
     legendNotLoaded: "Not loaded",
     tilesLoaded: "{loaded} / {total} tiles loaded",
     memoryUsage: "{used} / {budget}",
-    pinnedCount: "{pinned} / {cap} pinned",
-    pinHint: "Click a tile to pin it. Drag to pan, scroll to zoom.",
-    unpinAll: "Unpin all",
   },
   auth: {
     title: "Sync your account",
@@ -95,10 +92,6 @@ const en = {
     syncHint: "Sign in with Google to save your contributions permanently.",
     changePseudo: "Change pseudo",
     changeCountry: "Change country",
-    display: "Display",
-    dynamicLoading: "Dynamic loading",
-    dynamicLoadingHint:
-      "Off loads only locked pieces and pinned tiles. Pin a tile from the canvas to keep it loading.",
     signOut: "Sign out",
   },
   pseudo: {
@@ -173,7 +166,6 @@ const en = {
   },
   toast: {
     tileFull: "Too many pieces on this tile.",
-    pinLimit: "Pin limit reached.",
   },
   carry: {
     hint: "Holding a piece. Double-click to drop it, Esc to put it back.",

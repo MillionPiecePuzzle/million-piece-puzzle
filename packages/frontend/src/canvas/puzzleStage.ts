@@ -30,7 +30,6 @@ import {
   cellContentPending,
   classifyTile,
   coalesceDirtyCells,
-  loadGateOpen,
   residencyDecision,
   type TileState,
 } from "./reconcile";
@@ -66,7 +65,7 @@ export type MinimapSnapshot = {
 // tile-by-tile load-state view. cx/cy are grid coordinates (world position is
 // cx/cy * TileOverview.cellWorld), matching the cell-coordinate idiom used
 // elsewhere (groupGrid, MinimapGrid) rather than raw world floats.
-export type TileOverviewCell = { cx: number; cy: number; state: TileState; pinned: boolean };
+export type TileOverviewCell = { cx: number; cy: number; state: TileState };
 export type TileOverview = { cellWorld: number; cells: TileOverviewCell[] };
 
 // Resident bytes vs the combined soft budget across both texture pools (per-piece
@@ -79,8 +78,6 @@ export type MemoryStats = { usedBytes: number; budgetBytes: number };
 export type MinimapDetailSnapshot = {
   tiles: TileOverview;
   memory: MemoryStats;
-  pinnedCount: number;
-  pinCap: number;
 };
 
 // Grid-unit offset of a piece from its group anchor, server-provided so the
@@ -227,10 +224,6 @@ const LOD_COLD_SWEEP_FRAMES = 6;
 // count times one per-piece texture, the knob to tune against device VRAM.
 const RESIDENT_PIECE_BUDGET = 24000;
 
-// Max tiles a client can pin at once. Small on purpose: a pin is an exemption
-// from both eviction budgets above, so an unbounded pin set could defeat them.
-const PIN_CAP = 12;
-
 // Viewport-driven texture streaming. Per-piece AVIF textures and their nodes are
 // built on demand for groups within the hydrate ring around the viewport and
 // freed when they leave the (wider) keep ring or become covered by a ready LOD
@@ -351,8 +344,7 @@ export class PuzzleStage {
   onCursorMove: ((worldX: number, worldY: number) => void) | null = null;
   // A user-facing notice the canvas cannot render itself (a DOM toast).
   // "tile_full": a drop the server rejected for exceeding the per-tile cap.
-  // "pin_limit": a pin attempt past PIN_CAP.
-  onNotice: ((kind: "tile_full" | "pin_limit") => void) | null = null;
+  onNotice: ((kind: "tile_full") => void) | null = null;
   // Fired when the local sticky-carry state changes, so the shell can show or hide
   // the carry hint. Contributor mode only.
   onCarryChange: ((carrying: boolean) => void) | null = null;
@@ -511,14 +503,6 @@ export class PuzzleStage {
   private residentLru = 0;
   private hydrateQueue: number[] = [];
   private hydrateQueued = new Set<number>();
-  // Player-chosen tiles exempt from LOD-tile and per-piece budget eviction (see
-  // isCoveredCold, LodTileLayer.cull), capped at PIN_CAP. Session-only: it
-  // describes this client's current working set, not a saved preference.
-  private pinnedTiles = new Set<CellKey>();
-  // Settings toggle. Off (default): a group only loads if it is locked or its
-  // cell is pinned (see loadGateOpen), everywhere the ring/tile-need logic would
-  // otherwise load it. On: today's viewport-driven streaming.
-  private dynamicLoadingEnabled = false;
   private inFlight = 0;
   private initialFill: {
     resolve: () => void;
@@ -947,7 +931,6 @@ export class PuzzleStage {
     this.pendingDrag = null;
     this.pointerScreen = null;
     this.pendingDrops.clear();
-    this.pinnedTiles.clear();
     this.dirtyRects = [];
   }
 
@@ -1026,7 +1009,6 @@ export class PuzzleStage {
     this.manifest = null;
     this.textureBase = "";
     this.pendingDrops.clear();
-    this.pinnedTiles.clear();
     this.dirtyRects = [];
     this.worldSize = null;
     this.playZone = null;
@@ -2176,24 +2158,13 @@ export class PuzzleStage {
       const groups = this.groupGrid.cellGroups(key);
       const hasGroups = groups !== undefined && groups.size > 0;
       const known = this.knownCells.has(key);
-      // The group scan runs for every known, non-empty cell regardless of zoom: the
-      // gate fact below is needed at both levels, since a gated group is excluded
-      // from the tile bake exactly like it is excluded from the hydration count
-      // (bakeTile skips it too), and either way the cell must not read as "loaded"
-      // for content that is not going to load under the current settings. The
-      // hydration sub-check itself still only matters zoomed in; classifyTile
-      // ignores it while the LOD tile's own ready flag governs instead.
+      // Only matters zoomed in; classifyTile ignores it while the LOD tile's own
+      // ready flag governs instead.
       let allHydrated = true;
-      let anyGated = false;
-      if (groups && groups.size > 0 && known) {
+      if (!this.lodActive && groups && groups.size > 0 && known) {
         for (const gid of groups) {
           const node = this.groups.get(gid);
-          if (!node) continue;
-          if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) {
-            anyGated = true;
-            continue;
-          }
-          if (!this.lodActive && !node.hydrated) allHydrated = false;
+          if (node && !node.hydrated) allHydrated = false;
         }
       }
       const state = classifyTile({
@@ -2202,9 +2173,8 @@ export class PuzzleStage {
         lodActive: this.lodActive,
         tileReady: this.lodLayer?.isReady(key) ?? false,
         allHydrated,
-        anyGated,
       });
-      cells.push({ cx, cy, state, pinned: this.pinnedTiles.has(key) });
+      cells.push({ cx, cy, state });
     }
     return { cellWorld: LOD_TILE_WORLD, cells };
   }
@@ -2228,38 +2198,7 @@ export class PuzzleStage {
     const tiles = this.getTileOverview();
     const memory = this.getMemoryStats();
     if (!tiles || !memory) return null;
-    return { tiles, memory, pinnedCount: this.pinnedTiles.size, pinCap: PIN_CAP };
-  }
-
-  // Toggles one tile's pin, marking it dirty so the bake picks up or drops its
-  // gated content on the next pass. Silently capped: pinning past PIN_CAP fires
-  // onNotice("pin_limit") instead of pinning.
-  togglePinnedTile(key: CellKey): void {
-    if (this.pinnedTiles.has(key)) {
-      this.pinnedTiles.delete(key);
-    } else {
-      if (this.pinnedTiles.size >= PIN_CAP) {
-        this.onNotice?.("pin_limit");
-        return;
-      }
-      this.pinnedTiles.add(key);
-    }
-    this.lodLayer?.markDirtyCell(key);
-  }
-
-  unpinAllTiles(): void {
-    if (this.pinnedTiles.size === 0) return;
-    for (const key of this.pinnedTiles) this.lodLayer?.markDirtyCell(key);
-    this.pinnedTiles.clear();
-  }
-
-  // Every resident tile is re-baked against the new gate: a stale bake would
-  // otherwise keep showing (or hiding) content the flip just changed the rule
-  // for, until something unrelated happened to touch that cell.
-  setDynamicLoadingEnabled(enabled: boolean): void {
-    if (this.dynamicLoadingEnabled === enabled) return;
-    this.dynamicLoadingEnabled = enabled;
-    this.lodLayer?.markAllDirty();
+    return { tiles, memory };
   }
 
   // Total per-piece nodes currently resident (hydrated or in flight), for the
@@ -2397,7 +2336,7 @@ export class PuzzleStage {
           if (this.bakeTile(key)) baked++;
         }
       }
-      this.lodLayer.cull(view, this.pinnedTiles);
+      this.lodLayer.cull(view);
     }
 
     // Loading cells: the cover gate consumes the full set; the per-cell badges are a
@@ -2690,13 +2629,6 @@ export class PuzzleStage {
     return false;
   }
 
-  // Whether any tile the group occupies is pinned. A pinned group is exempt
-  // from covered-cold eviction (isCoveredCold) and, with dynamic loading off,
-  // still loads (loadGateOpen).
-  private isGroupPinned(gid: number): boolean {
-    return this.groupGrid.cellsOf(gid).some((key) => this.pinnedTiles.has(key));
-  }
-
   // A covered, idle cluster: the LOD is active, it is not held, every tile it
   // occupies is baked (the tiles draw it), and none of those tiles changed within
   // the hot window. Such a cluster adds nothing on screen, so it is eligible for
@@ -2712,8 +2644,7 @@ export class PuzzleStage {
       this.lodActive &&
       !this.isLive(node.id) &&
       this.allCellsReady(node.id) &&
-      !this.isGroupHot(node.id, now) &&
-      !this.isGroupPinned(node.id)
+      !this.isGroupHot(node.id, now)
     );
   }
 
@@ -2727,7 +2658,6 @@ export class PuzzleStage {
   private reconcileGroupResidency(node: GroupNode, now: number): void {
     const inRing = this.groupInRing(node, HYDRATE_MARGIN_FRAC);
     if (residencyDecision(inRing, inRing && this.isCoveredCold(node, now)) !== "hydrate") return;
-    if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(node.id))) return;
     this.enqueueHydrate(node.id);
     this.touchResident(node.id);
   }
@@ -2764,13 +2694,9 @@ export class PuzzleStage {
     // reconcileGroupResidency), so count over that same predicate. Counting the
     // coarse candidates would inflate total with groups that are never hydrated,
     // leaving loaded < total forever and wedging the loading cover at a cold start.
-    // A load-gate-closed group (dynamic loading off, unlocked, unpinned) is
-    // excluded the same way: it is never enqueued either, so counting it against
-    // total would wedge the cover for the rest of the session, not just a cold start.
     for (const gid of this.groupGrid.queryRect(ring)) {
       const node = this.groups.get(gid);
       if (!node || !this.groupInRing(node, HYDRATE_MARGIN_FRAC)) continue;
-      if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) continue;
       total++;
       if (node.hydrated) loaded++;
     }
@@ -2867,15 +2793,12 @@ export class PuzzleStage {
   }
 
   // Whether a cell holds a group still hydrating inside the hydrate ring, the
-  // zoomed-in "textures loading" loading-cell case. A load-gate-closed group
-  // (dynamic loading off, unlocked, unpinned) never hydrates, so it is skipped
-  // rather than pending forever.
+  // zoomed-in "textures loading" loading-cell case.
   private cellHasUnhydratedInRingGroup(groups: ReadonlySet<number> | undefined): boolean {
     if (!groups) return false;
     for (const gid of groups) {
       const node = this.groups.get(gid);
       if (!node) continue;
-      if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) continue;
       if (!node.hydrated && this.groupInRing(node, HYDRATE_MARGIN_FRAC)) return true;
     }
     return false;
@@ -2962,13 +2885,7 @@ export class PuzzleStage {
     } else {
       for (const gid of this.lodHidden) {
         const node = this.groups.get(gid);
-        if (!node) continue;
-        // A load-gate-closed node (dynamic loading off, unlocked, unpinned) stays
-        // hidden even as the LOD deactivates: it was hidden by the gate, not just
-        // by the tile covering it, so exiting the LOD must not reveal it either.
-        if (loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) {
-          node.container.visible = true;
-        }
+        if (node) node.container.visible = true;
       }
       this.lodHidden.clear();
     }
@@ -3107,19 +3024,15 @@ export class PuzzleStage {
   private bakeTile(key: CellKey): boolean {
     if (!this.app || !this.world || !this.lodLayer) return false;
     const groupIds = this.groupGrid.cellGroups(key);
-    // Defer until every non-live, load-gate-open cluster in the cell is hydrated:
-    // baking from missing textures would mark the tile ready with blank pieces.
-    // Enqueue the missing ones so a later frame can complete the bake. A
-    // gate-closed cluster (dynamic loading off, unlocked, unpinned) is not
-    // pending: it is meant to stay unbaked, not waited on.
+    // Defer until every non-live cluster in the cell is hydrated: baking from
+    // missing textures would mark the tile ready with blank pieces. Enqueue the
+    // missing ones so a later frame can complete the bake.
     if (groupIds) {
       let pending = false;
       for (const gid of groupIds) {
         if (this.isLive(gid)) continue;
         const node = this.groups.get(gid);
         if (!node) continue;
-        if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid)))
-          continue;
         if (!node.hydrated) {
           this.enqueueHydrate(gid);
           pending = true;
@@ -3143,10 +3056,6 @@ export class PuzzleStage {
     this.lodLayer.setVisible(false);
     const liveHidden: GroupNode[] = [];
     const forced: GroupNode[] = [];
-    // Load-gate-closed clusters (dynamic loading off, unlocked, unpinned): hidden
-    // out of this bake same as a live cluster, but restored through the same
-    // cull/LOD-visibility recompute as forced below, not an unconditional show.
-    const gated: GroupNode[] = [];
     if (groupIds) {
       for (const gid of groupIds) {
         const node = this.groups.get(gid);
@@ -3154,11 +3063,6 @@ export class PuzzleStage {
         if (this.isLive(gid)) {
           node.container.visible = false;
           liveHidden.push(node);
-          continue;
-        }
-        if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) {
-          node.container.visible = false;
-          gated.push(node);
           continue;
         }
         // Render only the cluster's pieces that fall inside the tile: a large
@@ -3208,15 +3112,6 @@ export class PuzzleStage {
       this.cullGroup(node);
       if (this.lodActive) this.applyGroupLodVisibility(node);
       else node.container.visible = true;
-    }
-    // Gated nodes stay hidden regardless of lodActive. In the warm band (not yet
-    // active) they would otherwise fall through to the same unconditional
-    // `visible = true` as forced above, undoing the hide moments after the gate
-    // closed on a group that was already hydrated from before the toggle.
-    for (const node of gated) {
-      this.cullGroup(node);
-      if (this.lodActive) this.applyGroupLodVisibility(node);
-      else node.container.visible = false;
     }
     return true;
   }

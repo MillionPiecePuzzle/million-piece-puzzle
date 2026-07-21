@@ -6,7 +6,6 @@ import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuz
 import { useStageControls } from "../composables/useStageControls";
 import { useMinimap } from "../composables/useMinimap";
 import { useMode } from "../composables/useMode";
-import { useDynamicLoading } from "../composables/useDynamicLoading";
 import { useLocaleFormat } from "../i18n/format";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 import { toLeaderboardRows } from "../data/leaderboard";
@@ -30,15 +29,8 @@ const {
   sendCursor,
 } = usePuzzleSession();
 const { setControls, setCamera, setReady } = useStageControls();
-const {
-  setMinimapSource,
-  setMinimapNavigate,
-  setMinimapDetailSource,
-  setMinimapUnpinAll,
-  setMinimapTogglePin,
-} = useMinimap();
+const { setMinimapSource, setMinimapNavigate, setMinimapDetailSource } = useMinimap();
 const { mode } = useMode();
-const { dynamicLoadingEnabled } = useDynamicLoading();
 
 let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
@@ -276,13 +268,11 @@ onMounted(async () => {
   stage.onCursorMove = (x, y) => queueCursor(x, y);
   stage.onNotice = (kind) => {
     if (kind === "tile_full") showToast(t("toast.tileFull"));
-    if (kind === "pin_limit") showToast(t("toast.pinLimit"));
   };
   stage.onCarryChange = (c) => {
     carrying.value = c;
   };
   await stage.mount(host.value);
-  stage.setDynamicLoadingEnabled(dynamicLoadingEnabled.value);
   setControls({
     zoomIn: () => stage?.zoomIn(),
     zoomOut: () => stage?.zoomOut(),
@@ -292,8 +282,6 @@ onMounted(async () => {
   setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
   setMinimapNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
   setMinimapDetailSource(() => stage?.getMinimapDetailSnapshot() ?? null);
-  setMinimapUnpinAll(() => stage?.unpinAllTiles());
-  setMinimapTogglePin((key) => stage?.togglePinnedTile(key));
   unsubscribe = onMessage(routeMessage);
   // Guest-first: the canvas is WS-only. It connects once a complete identity
   // exists (mode flips to contributor on a resolved session or a freshly minted
@@ -367,10 +355,6 @@ watch(mode, (m) => {
   stage?.setMode(m);
 });
 
-watch(dynamicLoadingEnabled, (enabled) => {
-  stage?.setDynamicLoadingEnabled(enabled);
-});
-
 onBeforeUnmount(() => {
   unsubscribe?.();
   unsubscribe = null;
@@ -391,8 +375,6 @@ onBeforeUnmount(() => {
   setMinimapSource(null);
   setMinimapNavigate(null);
   setMinimapDetailSource(null);
-  setMinimapUnpinAll(null);
-  setMinimapTogglePin(null);
   close();
   stage?.destroy();
   stage = null;
