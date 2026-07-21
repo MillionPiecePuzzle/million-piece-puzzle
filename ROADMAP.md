@@ -145,7 +145,7 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 
 ### `frontend-canvas`
 - [x] Minimap detail modal: whole-play-zone tile grid (not loaded / loading / loaded) plus a compact memory readout, opened from the minimap via an expand button. See DECISIONS
-- [x] Tile pinning: pin icon on each visible LOD tile in the canvas keeps it resident past normal eviction, bounded by a small per-client cap; the modal gains an unpin-all action. See DECISIONS
+- [x] Tile pinning: click a cell in the minimap detail modal's pannable, zoomable tile grid to keep it resident past normal eviction, bounded by a small per-client cap; the modal gains an unpin-all action. See DECISIONS
 - [x] Dynamic-loading toggle: a settings switch restricts loading to pinned tiles only, except locked pieces which always load regardless. See DECISIONS
 
 ---

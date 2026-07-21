@@ -83,8 +83,7 @@ const es: MessageSchema = {
     tilesLoaded: "{loaded} / {total} casillas cargadas",
     memoryUsage: "{used} / {budget}",
     pinnedCount: "{pinned} / {cap} fijadas",
-    pinTile: "Fijar esta casilla",
-    unpinTile: "Dejar de fijar esta casilla",
+    pinHint: "Haz clic en una casilla para fijarla. Arrastra para desplazar la vista, rueda para hacer zoom.",
     unpinAll: "Dejar de fijar todas",
   },
   auth: {

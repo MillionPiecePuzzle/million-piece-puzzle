@@ -83,8 +83,7 @@ const de: MessageSchema = {
     tilesLoaded: "{loaded} / {total} Felder geladen",
     memoryUsage: "{used} / {budget}",
     pinnedCount: "{pinned} / {cap} angeheftet",
-    pinTile: "Dieses Feld anheften",
-    unpinTile: "Dieses Feld lösen",
+    pinHint: "Klicke auf ein Feld, um es anzuheften. Ziehen zum Verschieben, Mausrad zum Zoomen.",
     unpinAll: "Alle lösen",
   },
   auth: {

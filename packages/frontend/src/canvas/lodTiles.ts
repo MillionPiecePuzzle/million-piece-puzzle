@@ -118,22 +118,6 @@ export class LodTileLayer {
     return this.tiles.get(key)?.ready === true;
   }
 
-  // Ready tile keys strictly inside a rect (no margin ring), for UI that acts on
-  // the tiles a player can actually see right now, e.g. the canvas pin overlay.
-  tilesInRect(view: Viewport): CellKey[] {
-    const box: Aabb = {
-      minX: view.worldX,
-      minY: view.worldY,
-      maxX: view.worldX + view.worldW,
-      maxY: view.worldY + view.worldH,
-    };
-    const out: CellKey[] = [];
-    for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) {
-      if (this.cellOverlapsZone(key) && this.isReady(key)) out.push(key);
-    }
-    return out;
-  }
-
   // Current resident tile bytes and the nominal soft budget, for the minimap
   // detail modal's memory readout. Reports the configured LOD_VRAM_BUDGET_MB
   // rather than the screen-cover-adjusted maxResident, so the readout stays a

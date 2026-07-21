@@ -66,7 +66,7 @@ export type MinimapSnapshot = {
 // tile-by-tile load-state view. cx/cy are grid coordinates (world position is
 // cx/cy * TileOverview.cellWorld), matching the cell-coordinate idiom used
 // elsewhere (groupGrid, MinimapGrid) rather than raw world floats.
-export type TileOverviewCell = { cx: number; cy: number; state: TileState };
+export type TileOverviewCell = { cx: number; cy: number; state: TileState; pinned: boolean };
 export type TileOverview = { cellWorld: number; cells: TileOverviewCell[] };
 
 // Resident bytes vs the combined soft budget across both texture pools (per-piece
@@ -82,11 +82,6 @@ export type MinimapDetailSnapshot = {
   pinnedCount: number;
   pinCap: number;
 };
-
-// One ready LOD tile currently on screen, for the canvas pin overlay. rect is
-// world-space; PuzzleCanvas projects it to screen via the camera it already
-// tracks (onCameraChange), so the stage stays screen-agnostic.
-export type PinnableTile = { key: CellKey; rect: Aabb; pinned: boolean };
 
 // Grid-unit offset of a piece from its group anchor, server-provided so the
 // client never derives a solved-space coordinate. A piece's local container
@@ -2209,7 +2204,7 @@ export class PuzzleStage {
         allHydrated,
         anyGated,
       });
-      cells.push({ cx, cy, state });
+      cells.push({ cx, cy, state, pinned: this.pinnedTiles.has(key) });
     }
     return { cellWorld: LOD_TILE_WORLD, cells };
   }
@@ -2234,19 +2229,6 @@ export class PuzzleStage {
     const memory = this.getMemoryStats();
     if (!tiles || !memory) return null;
     return { tiles, memory, pinnedCount: this.pinnedTiles.size, pinCap: PIN_CAP };
-  }
-
-  // Pull-based snapshot for the canvas pin overlay: every ready LOD tile
-  // currently on screen (no margin ring, only what the player can actually see
-  // and click), same idiom as getMinimapSnapshot() above.
-  pinnableTiles(): PinnableTile[] {
-    if (!this.lodLayer || !this.viewport || !this.lodActive) return [];
-    const layer = this.lodLayer;
-    return layer.tilesInRect(this.viewport).map((key) => ({
-      key,
-      rect: layer.cellRect(key),
-      pinned: this.pinnedTiles.has(key),
-    }));
   }
 
   // Toggles one tile's pin, marking it dirty so the bake picks up or drops its

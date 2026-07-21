@@ -83,8 +83,7 @@ const fr: MessageSchema = {
     tilesLoaded: "{loaded} / {total} cases chargées",
     memoryUsage: "{used} / {budget}",
     pinnedCount: "{pinned} / {cap} épinglées",
-    pinTile: "Épingler cette case",
-    unpinTile: "Désépingler cette case",
+    pinHint: "Cliquez sur une case pour l'épingler. Glissez pour déplacer la vue, molette pour zoomer.",
     unpinAll: "Tout désépingler",
   },
   auth: {

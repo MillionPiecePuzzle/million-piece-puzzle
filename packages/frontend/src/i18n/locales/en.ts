@@ -81,8 +81,7 @@ const en = {
     tilesLoaded: "{loaded} / {total} tiles loaded",
     memoryUsage: "{used} / {budget}",
     pinnedCount: "{pinned} / {cap} pinned",
-    pinTile: "Pin this tile",
-    unpinTile: "Unpin this tile",
+    pinHint: "Click a tile to pin it. Drag to pan, scroll to zoom.",
     unpinAll: "Unpin all",
   },
   auth: {
