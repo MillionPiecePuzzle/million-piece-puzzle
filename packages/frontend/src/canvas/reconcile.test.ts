@@ -136,14 +136,21 @@ describe("classifyTile", () => {
       lodActive: false,
       tileReady: false,
       allHydrated: false,
+      activelyLoading: false,
       ...over,
     });
 
   it("is not-loaded outside knownCells regardless of any other fact", () => {
     expect(facts({ known: false })).toBe("not-loaded");
-    expect(facts({ known: false, hasGroups: true, allHydrated: true, tileReady: true })).toBe(
-      "not-loaded",
-    );
+    expect(
+      facts({
+        known: false,
+        hasGroups: true,
+        allHydrated: true,
+        tileReady: true,
+        activelyLoading: true,
+      }),
+    ).toBe("not-loaded");
   });
 
   it("is loaded for a known, empty cell", () => {
@@ -151,10 +158,28 @@ describe("classifyTile", () => {
   });
 
   describe("zoom-out (LOD active)", () => {
-    it("is loading while the cell's tile has not baked", () => {
-      expect(facts({ known: true, hasGroups: true, lodActive: true, tileReady: false })).toBe(
-        "loading",
-      );
+    it("is loading while the cell's tile has not baked and is in the active bake set", () => {
+      expect(
+        facts({
+          known: true,
+          hasGroups: true,
+          lodActive: true,
+          tileReady: false,
+          activelyLoading: true,
+        }),
+      ).toBe("loading");
+    });
+
+    it("is not-loaded while the tile has not baked but nothing is baking it right now", () => {
+      expect(
+        facts({
+          known: true,
+          hasGroups: true,
+          lodActive: true,
+          tileReady: false,
+          activelyLoading: false,
+        }),
+      ).toBe("not-loaded");
     });
 
     it("is loaded once the tile is baked", () => {
@@ -177,10 +202,28 @@ describe("classifyTile", () => {
   });
 
   describe("zoom-in (LOD inactive)", () => {
-    it("is loading while some group in the cell is unhydrated", () => {
-      expect(facts({ known: true, hasGroups: true, lodActive: false, allHydrated: false })).toBe(
-        "loading",
-      );
+    it("is loading while some group in the cell is unhydrated and actively fetching", () => {
+      expect(
+        facts({
+          known: true,
+          hasGroups: true,
+          lodActive: false,
+          allHydrated: false,
+          activelyLoading: true,
+        }),
+      ).toBe("loading");
+    });
+
+    it("is not-loaded while some group is unhydrated but idle (evicted, not queued)", () => {
+      expect(
+        facts({
+          known: true,
+          hasGroups: true,
+          lodActive: false,
+          allHydrated: false,
+          activelyLoading: false,
+        }),
+      ).toBe("not-loaded");
     });
 
     it("is loaded once every group in the cell is hydrated", () => {

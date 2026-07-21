@@ -58,15 +58,24 @@ export type TileState = "not-loaded" | "loading" | "loaded";
 // of the board being unstreamed at any moment is the honest, by-design state of
 // viewport-scoped streaming, not an error, so "not known" always just means
 // "not loaded" here.
+//
+// A not-ready known cell reads "loading" only while activelyLoading holds, i.e.
+// something is fetching or baking it right now. A cell that was visited earlier
+// and has since been dehydrated by budget eviction (or dropped from the LOD bake
+// set once the viewport moved on) is not currently doing anything and would not
+// render instantly if jumped to, so it reads "not-loaded" too, same as a cell
+// never visited at all.
 export function classifyTile(f: {
   known: boolean;
   hasGroups: boolean;
   lodActive: boolean;
   tileReady: boolean;
   allHydrated: boolean;
+  activelyLoading: boolean;
 }): TileState {
   if (!f.known) return "not-loaded";
   if (!f.hasGroups) return "loaded";
-  const stillLoading = f.lodActive ? !f.tileReady : !f.allHydrated;
-  return stillLoading ? "loading" : "loaded";
+  const ready = f.lodActive ? f.tileReady : f.allHydrated;
+  if (ready) return "loaded";
+  return f.activelyLoading ? "loading" : "not-loaded";
 }

@@ -2153,6 +2153,12 @@ export class PuzzleStage {
   getTileOverview(): TileOverview | null {
     if (!this.playZone) return null;
     const cells: TileOverviewCell[] = [];
+    // The LOD bake set a not-ready cell must belong to for "loading" to mean
+    // something is baking it right now rather than just "not baked yet".
+    const neededLod =
+      this.lodActive && this.lodLayer && this.viewport
+        ? new Set(this.lodLayer.neededTiles(this.viewport))
+        : null;
     for (const key of cellKeysForRect(this.playZone, LOD_TILE_WORLD)) {
       const { cx, cy } = unpackCell(key);
       const groups = this.groupGrid.cellGroups(key);
@@ -2161,10 +2167,14 @@ export class PuzzleStage {
       // Only matters zoomed in; classifyTile ignores it while the LOD tile's own
       // ready flag governs instead.
       let allHydrated = true;
+      let anyHydrating = false;
       if (!this.lodActive && groups && groups.size > 0 && known) {
         for (const gid of groups) {
           const node = this.groups.get(gid);
-          if (node && !node.hydrated) allHydrated = false;
+          if (node && !node.hydrated) {
+            allHydrated = false;
+            if (node.hydrating || this.hydrateQueued.has(gid)) anyHydrating = true;
+          }
         }
       }
       const state = classifyTile({
@@ -2173,6 +2183,7 @@ export class PuzzleStage {
         lodActive: this.lodActive,
         tileReady: this.lodLayer?.isReady(key) ?? false,
         allHydrated,
+        activelyLoading: this.lodActive ? (neededLod?.has(key) ?? false) : anyHydrating,
       });
       cells.push({ cx, cy, state });
     }

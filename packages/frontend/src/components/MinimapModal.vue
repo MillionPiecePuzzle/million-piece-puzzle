@@ -85,6 +85,34 @@ function draw(): void {
     if (cell.state === "loaded") loaded++;
   }
 
+  // Puzzle frame, over the tile grid: the same anchor rectangle MiniMap.vue
+  // outlines, so the load state reads against a fixed reference instead of
+  // floating in blank space.
+  const fx = toX(0);
+  const fy = toY(0);
+  const fw = snap.frame.w * scale;
+  const fh = snap.frame.h * scale;
+  ctx.fillStyle = "rgba(21,20,15,0.05)";
+  ctx.fillRect(fx, fy, fw, fh);
+  ctx.strokeStyle = "rgba(21,20,15,0.45)";
+  ctx.lineWidth = Math.max(1, dpr);
+  ctx.strokeRect(fx, fy, fw, fh);
+
+  // Camera frustum, on top of everything: where the player is looking right
+  // now relative to the load state around it.
+  if (snap.viewport) {
+    const v = snap.viewport;
+    const vx = toX(v.worldX);
+    const vy = toY(v.worldY);
+    const vw = v.worldW * scale;
+    const vh = v.worldH * scale;
+    ctx.fillStyle = "rgba(213,135,90,0.14)";
+    ctx.fillRect(vx, vy, vw, vh);
+    ctx.strokeStyle = "rgb(213,135,90)";
+    ctx.lineWidth = Math.max(1, 1.5 * dpr);
+    ctx.strokeRect(vx, vy, vw, vh);
+  }
+
   tilesLabel.value = t("minimap.tilesLoaded", {
     loaded: formatNumber(loaded),
     total: formatNumber(detail.tiles.cells.length),
