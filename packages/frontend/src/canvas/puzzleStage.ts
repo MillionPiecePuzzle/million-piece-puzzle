@@ -520,10 +520,10 @@ export class PuzzleStage {
   // isCoveredCold, LodTileLayer.cull), capped at PIN_CAP. Session-only: it
   // describes this client's current working set, not a saved preference.
   private pinnedTiles = new Set<CellKey>();
-  // Settings toggle. On (default): today's viewport-driven streaming. Off: a
-  // group only loads if it is locked or its cell is pinned (see loadGateOpen),
-  // everywhere the ring/tile-need logic would otherwise load it.
-  private dynamicLoadingEnabled = true;
+  // Settings toggle. Off (default): a group only loads if it is locked or its
+  // cell is pinned (see loadGateOpen), everywhere the ring/tile-need logic would
+  // otherwise load it. On: today's viewport-driven streaming.
+  private dynamicLoadingEnabled = false;
   private inFlight = 0;
   private initialFill: {
     resolve: () => void;
@@ -2181,23 +2181,24 @@ export class PuzzleStage {
       const groups = this.groupGrid.cellGroups(key);
       const hasGroups = groups !== undefined && groups.size > 0;
       const known = this.knownCells.has(key);
-      // The group hydration scan is the only costly fact, so it only runs for the
-      // one case that reads it (zoomed in, cell known and non-empty), mirroring
-      // the same guard computeLoadingCells uses for its viewport-scoped version. A
-      // load-gate-closed group (dynamic loading off, unlocked, unpinned) is skipped
-      // the same way bakeTile skips it: it is meant to stay unbaked, not counted
-      // against the cell ever finishing.
+      // The group scan runs for every known, non-empty cell regardless of zoom: the
+      // gate fact below is needed at both levels, since a gated group is excluded
+      // from the tile bake exactly like it is excluded from the hydration count
+      // (bakeTile skips it too), and either way the cell must not read as "loaded"
+      // for content that is not going to load under the current settings. The
+      // hydration sub-check itself still only matters zoomed in; classifyTile
+      // ignores it while the LOD tile's own ready flag governs instead.
       let allHydrated = true;
-      if (groups && groups.size > 0 && known && !this.lodActive) {
+      let anyGated = false;
+      if (groups && groups.size > 0 && known) {
         for (const gid of groups) {
           const node = this.groups.get(gid);
           if (!node) continue;
-          if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid)))
+          if (!loadGateOpen(this.dynamicLoadingEnabled, node.locked, this.isGroupPinned(gid))) {
+            anyGated = true;
             continue;
-          if (!node.hydrated) {
-            allHydrated = false;
-            break;
           }
+          if (!this.lodActive && !node.hydrated) allHydrated = false;
         }
       }
       const state = classifyTile({
@@ -2206,6 +2207,7 @@ export class PuzzleStage {
         lodActive: this.lodActive,
         tileReady: this.lodLayer?.isReady(key) ?? false,
         allHydrated,
+        anyGated,
       });
       cells.push({ cx, cy, state });
     }

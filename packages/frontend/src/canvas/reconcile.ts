@@ -73,9 +73,16 @@ export function classifyTile(f: {
   lodActive: boolean;
   tileReady: boolean;
   allHydrated: boolean;
+  anyGated: boolean;
 }): TileState {
   if (!f.known) return "not-loaded";
   if (!f.hasGroups) return "loaded";
   const stillLoading = f.lodActive ? !f.tileReady : !f.allHydrated;
-  return stillLoading ? "loading" : "loaded";
+  if (stillLoading) return "loading";
+  // A gated group (dynamic loading off, unlocked, unpinned) is excluded from both
+  // the hydration scan and the tile bake on purpose (see getTileOverview), so a
+  // cell whose only content is gated would otherwise read as trivially "loaded"
+  // the moment its (content-less) bake or hydration pass completes. It is not
+  // going to load under the current settings, so it must read as not-loaded.
+  return f.anyGated ? "not-loaded" : "loaded";
 }

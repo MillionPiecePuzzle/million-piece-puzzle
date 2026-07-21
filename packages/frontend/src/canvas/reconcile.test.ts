@@ -156,6 +156,7 @@ describe("classifyTile", () => {
       lodActive: false,
       tileReady: false,
       allHydrated: false,
+      anyGated: false,
       ...over,
     });
 
@@ -207,6 +208,26 @@ describe("classifyTile", () => {
       expect(facts({ known: true, hasGroups: true, lodActive: false, allHydrated: true })).toBe(
         "loaded",
       );
+    });
+  });
+
+  describe("gated content (dynamic loading off, unlocked, unpinned)", () => {
+    it("is not-loaded, not loaded, once an otherwise-hydrated cell has gated content", () => {
+      expect(
+        facts({ known: true, hasGroups: true, lodActive: false, allHydrated: true, anyGated: true }),
+      ).toBe("not-loaded");
+    });
+
+    it("is not-loaded, not loaded, once an otherwise-baked cell has gated content, zoomed out", () => {
+      expect(
+        facts({ known: true, hasGroups: true, lodActive: true, tileReady: true, anyGated: true }),
+      ).toBe("not-loaded");
+    });
+
+    it("still reads as loading when other content in the cell is genuinely hydrating", () => {
+      expect(
+        facts({ known: true, hasGroups: true, lodActive: false, allHydrated: false, anyGated: true }),
+      ).toBe("loading");
     });
   });
 });

@@ -33,6 +33,7 @@ Quick scan of choices with a genuine open trigger: something not yet resolved an
 - [Paced region_state batching](#2026-07-06-backend-realtime-paced-region_state-batching) -> batch size and poll interval held clean through one re-soak; real public traffic could still exceed that.
 - [Edge uniqueness validated per-seed](#2026-06-09-piece-generation-edge-uniqueness-validated-per-seed) -> still pending: the production seed is for the real photo, which has not replaced the synthetic placeholder yet.
 - [Anti-programmatic-solving via permuted wire ids](#2026-06-12-shared-protocol-anti-programmatic-solving-via-permuted-wire-ids-and-anchor-offsets) -> still pending: `MPP_PUZZLE_ID` is `synthetic-1m` today, so the real photo's R2 re-upload under wire-id paths has not happened yet.
+- [Minimap detail modal downgrades gated content to not-loaded](#2026-07-21-frontend-canvas-minimap-detail-modal-downgrades-gated-content-to-not-loaded) -> the whole-zone group scan now also runs zoomed out; check it isn't measurably expensive at 1M scale.
 
 ---
 
@@ -401,3 +402,9 @@ Revisit when: never expected; a lone locked cell now reads at near-full alpha re
 Choice: pinning a tile (client cap 12, session-only) exempts it from LOD-tile and per-piece budget eviction regardless of the dynamic-loading toggle (`isCoveredCold`, `LodTileLayer.cull`). With the toggle off, a loose group only hydrates or bakes if its cell is pinned (`loadGateOpen`); locked (anchored) groups stay exempt from the gate entirely, at any zoom level. The pin icon overlay is plain DOM positioned over the Pixi canvas from the tracked camera, not a Pixi-interactive sprite per tile, so the LOD layer's `eventMode: "none"` stays untouched.
 Why: the toggle is an opt-in manual working set; locked pieces stay visible regardless so the emerging picture always reads. Pins are session state, not a saved preference, so no schema change for a client rendering choice.
 Revisit when: the 12-tile cap needs tuning against real usage, or pins are asked to survive a reload or follow the account, which would need real persistence.
+
+### 2026-07-21, frontend-canvas, minimap detail modal downgrades gated content to not-loaded
+
+Choice: `getTileOverview`'s per-cell classification now also tracks whether any group in a cell is gate-closed (`loadGateOpen` false: unlocked, unpinned, dynamic loading off) at both zoom levels, and reports that cell as "not-loaded" rather than "loaded" even once its gate-excluded content finishes hydrating or its LOD tile bakes.
+Why: a gated group is deliberately excluded from both the hydration scan and the tile bake, so before this fix an unpinned cell read as trivially "loaded" the moment its content-less bake completed, the opposite of what the toggle is supposed to communicate. The group scan now also runs while zoomed out, where it was previously skipped since classification ignored hydration at that zoom level.
+Revisit when: the whole-zone group scan shows up expensive on a 1M deep zoomed-out overview with the modal open; today it is throttled to a few polls per second and only runs while the modal is mounted.

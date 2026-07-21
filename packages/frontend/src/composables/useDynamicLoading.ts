@@ -8,7 +8,7 @@ const STORAGE_KEY = "mpp.dynamicLoading";
 
 function readInitial(): boolean {
   const stored = readLocalStorage(STORAGE_KEY);
-  return stored === null ? true : stored === "1";
+  return stored === null ? false : stored === "1";
 }
 
 const dynamicLoadingEnabled = ref(readInitial());
