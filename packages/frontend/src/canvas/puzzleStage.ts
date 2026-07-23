@@ -2533,10 +2533,16 @@ export class PuzzleStage {
 
   // Starts queued group loads up to the in-flight cap. Drained once per frame, so
   // a deep zoom-out that enqueues thousands of groups fetches them progressively
-  // instead of firing every request at once.
+  // instead of firing every request at once. Reorders first when the queue holds
+  // more than this frame can start: entries pile up in discovery order while
+  // panning, which tracks the path the camera swept, not where it stops, so
+  // without this the pieces under a just-settled viewport would wait behind
+  // whatever the pan passed through on the way there.
   private pumpHydration(): void {
+    const capacity = HYDRATE_MAX_INFLIGHT - this.inFlight;
+    if (capacity > 0 && this.hydrateQueue.length > capacity) this.reorderHydrateQueue();
     while (this.inFlight < HYDRATE_MAX_INFLIGHT && this.hydrateQueue.length > 0) {
-      const gid = this.hydrateQueue.shift();
+      const gid = this.hydrateQueue.pop();
       if (gid === undefined) break;
       if (!this.hydrateQueued.has(gid)) continue;
       this.hydrateQueued.delete(gid);
@@ -2547,6 +2553,33 @@ export class PuzzleStage {
         this.inFlight--;
       });
     }
+  }
+
+  // Sorts the pending queue nearest-to-viewport-center last, so the pop() above
+  // always serves the closest group next, and drops any entry already removed
+  // from hydrateQueued (left behind by a group dehydrated or forgotten before its
+  // turn came up). Not kept sorted on push: the viewport moves every frame during
+  // a pan, so a push-time order would be stale before it was ever used; only
+  // worth the pass when the queue outgrows what this frame can drain anyway
+  // (checked by the caller).
+  private reorderHydrateQueue(): void {
+    const view = this.viewport;
+    if (!view) return;
+    const cx = view.worldX + view.worldW / 2;
+    const cy = view.worldY + view.worldH / 2;
+    const live = this.hydrateQueue.filter((gid) => this.hydrateQueued.has(gid));
+    live.sort((a, b) => this.groupDistanceSq(b, cx, cy) - this.groupDistanceSq(a, cx, cy));
+    this.hydrateQueue = live;
+  }
+
+  // Squared distance from a group's origin to a point. Ordering only, so the
+  // unsquared root and the exact centroid (vs. origin) are not worth computing.
+  private groupDistanceSq(gid: number, cx: number, cy: number): number {
+    const node = this.groups.get(gid);
+    if (!node) return 0;
+    const dx = node.worldX - cx;
+    const dy = node.worldY - cy;
+    return dx * dx + dy * dy;
   }
 
   // Fetches every piece texture of a group and builds its nodes. Tolerant of a
