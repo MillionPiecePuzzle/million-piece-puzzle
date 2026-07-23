@@ -9,8 +9,10 @@ import type { PlayZone } from "./playzone.js";
 
 // Minimal internal piece shape this binner needs. It runs server-side over grid
 // ids and group origins (never the seed-permuted wire ids), so it takes only the
-// id and groupId, decoupled from WirePiece's anchor-relative (dx, dy).
-type GridPiece = { id: number; groupId: number };
+// id and groupId, decoupled from WirePiece's anchor-relative (dx, dy). A locked
+// piece has no live group (see DECISIONS: locked pieces stop being a group), so
+// locked state is carried on the piece itself, not resolved through groupId.
+type GridPiece = { id: number; groupId: number; locked: boolean };
 
 export type MinimapGrid = {
   cols: number;
@@ -85,11 +87,19 @@ export function buildMinimapGrid(
   const groupById = new Map<number, GroupRuntime>();
   for (const g of groups) groupById.set(g.id, g);
   for (const p of pieces) {
+    // A locked piece has no group: its position is its own canonical solved
+    // cell, the same origin-(0,0) convention a freshly anchored group used
+    // before it was ever persisted (see wire.ts: anchorWorldX at origin 0
+    // is a piece's true solved position).
+    if (p.locked) {
+      const idx = cellIndexForPiece(p.id, 0, 0, gridCols, pieceSize, playZone, dims);
+      locked[idx] = locked[idx]! + 1;
+      continue;
+    }
     const g = groupById.get(p.groupId);
     if (!g) continue;
     const idx = cellIndexForPiece(p.id, g.worldX, g.worldY, gridCols, pieceSize, playZone, dims);
-    if (g.locked) locked[idx] = locked[idx]! + 1;
-    else loose[idx] = loose[idx]! + 1;
+    loose[idx] = loose[idx]! + 1;
   }
   return {
     cols: dims.cols,

@@ -28,6 +28,5 @@ export type GroupRuntime = {
   worldX: number;
   worldY: number;
   size: number;
-  locked: boolean;
   heldBy: string | null;
 };

@@ -53,6 +53,10 @@ export type Context = {
   // Max pieces allowed to rest in one world grid cell (one LOD tile). A non-merging
   // drop that would push the destination cell past this is rejected (see handleDrop).
   tilePieceCap: number;
+  // Hard cap on a merge between two unlocked clusters (see handleDrop). Exempt
+  // when the merge anchors: an anchored cluster dissolves into piece-level
+  // locked flags rather than growing a persisted group.
+  clusterPieceCap: number;
   // Viewport scoping bound (config.broadcastMaxCells), carried in welcome so the
   // contributor client mirrors the scoped-vs-global decision for its loading cover.
   broadcastMaxCells: number;
@@ -150,8 +154,10 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
     err(ctx, client, "dev_disabled", "dev controls disabled");
     return;
   }
+  // Every live group is unlocked by construction (see DECISIONS: locked pieces
+  // stop being a group), so only heldBy needs filtering here.
   const groups = await ctx.state.readAllGroups(ctx.meta.totalPieces);
-  const candidates = groups.filter((g) => !g.locked && g.heldBy === null);
+  const candidates = groups.filter((g) => g.heldBy === null);
   if (candidates.length === 0) return;
   const chosen = candidates[Math.floor(Math.random() * candidates.length)]!;
   const prevX = chosen.worldX;
@@ -211,7 +217,7 @@ export async function handleGrab(ctx: Context, client: Client, groupId: number):
   send(ctx, client, {
     t: "grab_denied",
     groupId: toWireId(ctx.wire, groupId),
-    heldBy: owner === "LOCKED" ? "" : owner,
+    heldBy: owner,
   });
 }
 
@@ -389,7 +395,17 @@ export async function handleDrop(
     g,
     droppedPieces,
   );
-  const matchedGroupIds = match?.matchedGroupIds ?? [];
+  const anchored = frameAnchor || (match?.anchored ?? false);
+  // Hard cap on a loose-loose merge (see MPP_CLUSTER_PIECE_CAP): over the
+  // combined size, skip the merge entirely rather than partially honour it, so
+  // both clusters stay separate and the drop falls through to a plain,
+  // non-merging rest. An anchoring match is exempt: it dissolves into
+  // piece-level locked flags, never a persisted group, so it cannot grow one
+  // unboundedly.
+  const cappedOut =
+    !anchored && !!match && droppedPieces.length + match.matchedSize > ctx.clusterPieceCap;
+  const hasMatch = !!match && !cappedOut;
+  const matchedGroupIds = hasMatch ? match!.matchedGroupIds : [];
 
   if (lockedGroups) {
     const required = [groupId, ...matchedGroupIds];
@@ -405,7 +421,7 @@ export async function handleDrop(
   // pile (which defeats the LOD). Merges and frame anchors are exempt: a merge
   // removes a loose cluster and an anchor locks to the frame. Checked before the
   // position is persisted, so a rejected drop leaves Redis untouched.
-  if (!frameAnchor && !match) {
+  if (!frameAnchor && !hasMatch) {
     const rest = worldAabbFor(g.localAabb, originX, originY);
     const cellPieces = ctx.groupIndex.cellPieceCount(rest.minX, rest.minY, groupId);
     if (cellPieces + g.size > ctx.tilePieceCap) {
@@ -434,7 +450,7 @@ export async function handleDrop(
 
   await ctx.state.setGroupPosition(groupId, originX, originY);
 
-  if (!frameAnchor && !match) {
+  if (!frameAnchor && !hasMatch) {
     await ctx.state.releaseGroup(groupId);
     // The group's resting position changed without a merge: update the group
     // index so a peer panning into the new region resyncs to it. The cell is
@@ -477,7 +493,7 @@ export async function handleDrop(
     matchedGroupIds,
     targetWorldX,
     targetWorldY,
-    frameAnchor,
+    anchored,
     prevX,
     prevY,
   );
@@ -491,7 +507,7 @@ async function applyMerge(
   matchedGroupIds: number[],
   targetWorldX: number,
   targetWorldY: number,
-  frameAnchor: boolean,
+  anchored: boolean,
   droppedPrevX: number,
   droppedPrevY: number,
 ): Promise<void> {
@@ -504,28 +520,24 @@ async function applyMerge(
     piecesByGroup.set(id, await ctx.state.getGroupPieces(id));
   }
 
-  const groupSnapshots = await Promise.all(
-    allIds.map(async (id) => ({ id, group: await ctx.state.readGroup(id) })),
-  );
-  const lockedSizeBefore = groupSnapshots
-    .filter((s) => s.group?.locked)
-    .reduce((acc, s) => acc + (s.group?.size ?? 0), 0);
-  const willBeLocked = frameAnchor || lockedSizeBefore > 0;
-
   // Every group folding into this merge moves (or stays put) to the same target.
   // The dropped group's own pre-merge snapshot was already overwritten in Redis
   // by handleDrop's setGroupPosition before this ran, so its "from" state has to
-  // come from the caller (droppedPrevX/Y) rather than groupSnapshots; every other
-  // matched group's snapshot is untouched by this operation and is used as-is
-  // (a candidate can sit up to snapTolerance away from the target, so this may
-  // move it a few pixels too, not just relabel it).
-  const to = { originX: targetWorldX, originY: targetWorldY, locked: willBeLocked };
+  // come from the caller (droppedPrevX/Y) rather than a fresh read; every matched
+  // group is always loose (a locked neighbor never has a group to match, see
+  // detectSnap), so its "from" is just its own stored, unheld position (a
+  // candidate can sit up to snapTolerance away from the target, so this may move
+  // it a few pixels too, not just relabel it).
+  const groupSnapshots = await Promise.all(
+    allIds.map(async (id) => ({ id, group: await ctx.state.readGroup(id) })),
+  );
+  const to = { originX: targetWorldX, originY: targetWorldY, locked: anchored };
   for (const { id, group } of groupSnapshots) {
     if (!group) continue;
     const from =
       id === droppedGroupId
         ? { originX: droppedPrevX, originY: droppedPrevY, locked: false }
-        : { originX: group.worldX, originY: group.worldY, locked: group.locked };
+        : { originX: group.worldX, originY: group.worldY, locked: false };
     ctx.minimapGrid.applyTranslation(piecesByGroup.get(id) ?? [], from, to);
   }
 
@@ -534,49 +546,64 @@ async function applyMerge(
     .filter((id) => id !== newId)
     .flatMap((id) => piecesByGroup.get(id) ?? []);
 
-  for (const oldId of allIds) {
-    if (oldId === newId) continue;
-    for (const p of piecesByGroup.get(oldId) ?? []) {
-      await ctx.state.setPieceGroup(p, newId);
+  if (anchored) {
+    // No live group is ever locked: every piece the merge touches locks
+    // individually and every group it touches (including what would have been
+    // the surviving newId) is deleted rather than grown, closing the unbounded
+    // hydration risk a single ever-growing locked group would otherwise be.
+    await ctx.state.lockPieces(allPieces);
+    for (const id of allIds) {
+      await ctx.state.deleteGroup(id);
+      ctx.groupIndex.remove(id);
     }
-    await ctx.state.deleteGroup(oldId);
-    // The merged-away group no longer exists, so drop it from the group index.
-    ctx.groupIndex.remove(oldId);
+  } else {
+    for (const oldId of allIds) {
+      if (oldId === newId) continue;
+      for (const p of piecesByGroup.get(oldId) ?? []) {
+        await ctx.state.setPieceGroup(p, newId);
+      }
+      await ctx.state.deleteGroup(oldId);
+      // The merged-away group no longer exists, so drop it from the group index.
+      ctx.groupIndex.remove(oldId);
+    }
+
+    await ctx.state.addGroupPieces(newId, allPieces);
+    // The merged cluster's footprint changes here, so recompute its group-local
+    // AABB once from the union of member pieces and store it on the group. The
+    // drag hot path then reads it with the group, no per-frame piece scan.
+    const mergedLocalAabb = localAabbForPieces(allPieces, ctx.meta.gridCols, ctx.meta.pieceSize);
+    await ctx.state.writeGroup({
+      id: newId,
+      worldX: targetWorldX,
+      worldY: targetWorldY,
+      size: allPieces.length,
+      heldBy: null,
+      localAabb: mergedLocalAabb,
+    });
+    // Re-key the surviving group to its new footprint and position in the index. A
+    // merge is globally broadcast, so a peer already learns of it; indexing it
+    // keeps the read model consistent (and harmlessly idempotent) for later resyncs,
+    // and serves the construction payload when a client pans into its cell.
+    const mergedRest = worldAabbFor(mergedLocalAabb, targetWorldX, targetWorldY);
+    ctx.groupIndex.set(newId, mergedRest.minX, mergedRest.minY, {
+      originX: targetWorldX,
+      originY: targetWorldY,
+      size: allPieces.length,
+      locked: false,
+    });
   }
 
-  await ctx.state.addGroupPieces(newId, allPieces);
-  // The merged cluster's footprint changes here, so recompute its group-local
-  // AABB once from the union of member pieces and store it on the group. The drag
-  // hot path then reads it with the group, no per-frame piece scan.
-  const mergedLocalAabb = localAabbForPieces(allPieces, ctx.meta.gridCols, ctx.meta.pieceSize);
-  await ctx.state.writeGroup({
-    id: newId,
-    worldX: targetWorldX,
-    worldY: targetWorldY,
-    size: allPieces.length,
-    locked: willBeLocked,
-    heldBy: null,
-    localAabb: mergedLocalAabb,
-  });
-  // Re-key the surviving group to its new footprint and position in the index. A
-  // merge is globally broadcast, so a peer already learns of it; indexing it
-  // keeps the read model consistent (and harmlessly idempotent) for later resyncs,
-  // and serves the construction payload when a client pans into its cell.
-  const mergedRest = worldAabbFor(mergedLocalAabb, targetWorldX, targetWorldY);
-  ctx.groupIndex.set(newId, mergedRest.minX, mergedRest.minY, {
-    originX: targetWorldX,
-    originY: targetWorldY,
-    size: allPieces.length,
-    locked: willBeLocked,
-  });
-
   let lockedCount = await ctx.state.getLockedCount();
-  const lockedDelta = willBeLocked ? Math.max(0, allPieces.length - lockedSizeBefore) : 0;
+  // Every piece in allPieces is newly locked: unlike the old ever-growing
+  // group, a touched locked neighbor is never part of allIds/allPieces in the
+  // first place (see detectSnap), so there is nothing already-locked to
+  // subtract here.
+  const lockedDelta = anchored ? allPieces.length : 0;
   if (lockedDelta > 0) lockedCount = await ctx.state.addLockedCount(lockedDelta);
 
   const mergeId = randomUUID();
   const at = new Date();
-  const hostPieces = piecesByGroup.get(newId) ?? [];
+  const hostPieces = anchored ? [] : (piecesByGroup.get(newId) ?? []);
   const targetAnchorPieceId =
     hostPieces.length > 0 ? Math.min(...hostPieces) : (addedPieceIds[0] ?? newId);
 
@@ -586,8 +613,15 @@ async function applyMerge(
     addedPieceIds,
     droppedPieceIds: droppedPieces,
     targetAnchorPieceId,
-    anchored: willBeLocked,
+    anchored,
     lockedDelta,
+    // addedPieceIds excludes newId's own pre-merge pieces (see its own field
+    // comment), which undercounts the locked set whenever newId is not the
+    // dropped group; droppedPieceIds ∪ addedPieceIds is not reliably allPieces
+    // either. Log the full set directly so the invariant replay can recover
+    // exactly which pieces this merge locked without depending on a group that
+    // is never persisted past this event.
+    lockedPieceIds: anchored ? allPieces : [],
     mergedSize: allPieces.length,
     at,
   });
@@ -608,7 +642,7 @@ async function applyMerge(
     addedPieceIds: wireAddedPieces,
     worldX: wireWorldX,
     worldY: wireWorldY,
-    anchored: willBeLocked,
+    anchored,
     droppedSize: droppedPieces.length,
     mergedSize: allPieces.length,
     userId: client.userId,
@@ -625,7 +659,7 @@ async function applyMerge(
     ctx.hub.broadcast({ t: "leaderboard", entries });
   }
 
-  if (willBeLocked && lockedCount >= ctx.meta.totalPieces) {
+  if (anchored && lockedCount >= ctx.meta.totalPieces) {
     await ctx.lifecycle?.markCompleted();
   }
 }

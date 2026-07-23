@@ -120,14 +120,20 @@ export class PuzzleLifecycle {
     const current = await this.ctx.state.getLockedCount();
     const remaining = total - current;
     if (remaining > 0) await this.ctx.state.addLockedCount(remaining);
+    // lockedPieceIds lists every piece, same approximation droppedPieceIds
+    // already makes below: a piece already locked before this call is listed
+    // again, harmlessly (the invariant replay unions locked ids, it does not
+    // sum them; lockedDelta above stays the precise incremental count).
+    const allPieceIds = Array.from({ length: total }, (_, i) => i);
     await this.ctx.mongo.logMerge({
       puzzleId: this.ctx.puzzleId,
       userId,
       addedPieceIds: [],
-      droppedPieceIds: Array.from({ length: total }, (_, i) => i),
+      droppedPieceIds: allPieceIds,
       targetAnchorPieceId: 0,
       anchored: true,
       lockedDelta: Math.max(0, remaining),
+      lockedPieceIds: allPieceIds,
       mergedSize: total,
       at: new Date(),
     });

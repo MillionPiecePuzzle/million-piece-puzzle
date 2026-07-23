@@ -3,10 +3,12 @@ import type { GroupRuntime } from "@mpp/shared";
 import * as keys from "./redis/keys.js";
 import type { Aabb } from "./worldGrid.js";
 
-// A piece as stored server-side: grid id, its group id, and rotation. The
-// (dx, dy) anchor offset a client sees is attached only at the wire boundary
-// (see wirePieces in wire.ts); the internal model never needs it.
-export type StoredPiece = { id: number; groupId: number; rotation: number };
+// A piece as stored server-side: grid id, its group id, rotation, and whether
+// it is permanently locked. The (dx, dy) anchor offset a client sees is
+// attached only at the wire boundary (see wirePieces in wire.ts); the internal
+// model never needs it. Once locked, groupId is stale (its group was deleted
+// on anchor) and must never be read; every consumer checks locked first.
+export type StoredPiece = { id: number; groupId: number; rotation: number; locked: boolean };
 
 // A group as stored server-side: the wire `GroupRuntime` plus its group-local
 // AABB (relative to the origin), persisted so the drag hot path scopes by the
@@ -33,7 +35,6 @@ function parseGroup(id: number, h: Record<string, string>): GroupRuntime | null 
     id,
     worldX: Number(h.worldX),
     worldY: Number(h.worldY),
-    locked: h.locked === "1",
     size: Number(h.size),
     heldBy: h.heldBy === "" || h.heldBy === undefined ? null : h.heldBy,
   };
@@ -54,6 +55,7 @@ function parsePiece(id: number, h: Record<string, string>): StoredPiece {
     id,
     groupId: Number(h.groupId),
     rotation: Number(h.rotation),
+    locked: h.locked === "1",
   };
 }
 
@@ -118,16 +120,32 @@ export class RedisState {
     await this.r.hset(keys.piece(this.puzzleId, id), "groupId", groupId);
   }
 
-  async readPieceGroup(id: number): Promise<number | null> {
-    const v = await this.r.hget(keys.piece(this.puzzleId, id), "groupId");
-    return v === null ? null : Number(v);
+  // groupId and locked together, one read: detectSnap needs both per grid
+  // neighbor (locked short-circuits the group hop entirely), so this stays a
+  // single HMGET rather than two round trips per neighbor.
+  async readPieceState(id: number): Promise<{ groupId: number | null; locked: boolean }> {
+    const [groupId, locked] = await this.r.hmget(
+      keys.piece(this.puzzleId, id),
+      "groupId",
+      "locked",
+    );
+    return { groupId: groupId === null ? null : Number(groupId), locked: locked === "1" };
+  }
+
+  // Permanently lock every given piece (pipelined: one round trip regardless of
+  // count). groupId is left as-is; it goes stale once locked but is never read
+  // again (see StoredPiece).
+  async lockPieces(pieceIds: readonly number[]): Promise<void> {
+    if (pieceIds.length === 0) return;
+    const pipe = this.r.pipeline();
+    for (const id of pieceIds) pipe.hset(keys.piece(this.puzzleId, id), "locked", 1);
+    await pipe.exec();
   }
 
   async writeGroup(g: StoredGroup): Promise<void> {
     const fields: Record<string, string | number> = {
       worldX: g.worldX,
       worldY: g.worldY,
-      locked: g.locked ? 1 : 0,
       size: g.size,
       heldBy: g.heldBy ?? "",
     };
@@ -166,14 +184,17 @@ export class RedisState {
   async tryAcquireGroup(id: number, userId: string): Promise<string | null> {
     const key = keys.group(this.puzzleId, id);
     // 'size' marks a fully written group (see parseGroup); reject acquiring a
-    // group id that has no group instead of creating a bare heldBy hash. The
-    // acquired-at timestamp goes into the held-groups tracking ZSet in the same
-    // script as the HSET, so a hold is never recorded without also being tracked
-    // (see the stale-hold sweep in index.ts).
+    // group id that has no group instead of creating a bare heldBy hash. A
+    // group id can never resolve to a locked piece's (now-deleted) group again:
+    // a group id always traces back to some piece's own id, and a locked piece
+    // never re-enters a group, so a stale hold on it always lands here as
+    // MISSING rather than needing its own locked check (see DECISIONS: locked
+    // pieces stop being a group). The acquired-at timestamp goes into the
+    // held-groups tracking ZSet in the same script as the HSET, so a hold is
+    // never recorded without also being tracked (see the stale-hold sweep in
+    // index.ts).
     const lua = `
       if redis.call('HEXISTS', KEYS[1], 'size') == 0 then return 'MISSING' end
-      local locked = redis.call('HGET', KEYS[1], 'locked')
-      if locked == '1' then return 'LOCKED' end
       local current = redis.call('HGET', KEYS[1], 'heldBy')
       if current and current ~= '' then return current end
       redis.call('HSET', KEYS[1], 'heldBy', ARGV[1])
@@ -224,11 +245,11 @@ export class RedisState {
         pipe.hset(keys.piece(this.puzzleId, pieceId), {
           groupId: group.id,
           rotation: 0,
+          locked: 0,
         });
         pipe.hset(keys.group(this.puzzleId, group.id), {
           worldX: group.worldX,
           worldY: group.worldY,
-          locked: group.locked ? 1 : 0,
           size: group.size,
           heldBy: group.heldBy ?? "",
           aabbMinX: localAabb.minX,
@@ -350,21 +371,26 @@ export class RedisState {
     return await this.r.incrby(keys.lockedCount(this.puzzleId), delta);
   }
 
-  // Drive every existing group to the frame origin and lock it. A piece renders
-  // at its group origin plus its solved-cell canonicalOffset, so origin (0,0)
-  // places all of a group's pieces in their solved cells: the whole board lands
-  // assembled. Used by the dev force-complete path.
+  // Lock every piece of every existing group and delete the groups, mirroring
+  // the real anchor path (see applyMerge): a piece renders at its group origin
+  // plus its solved-cell canonicalOffset, so a locked piece's implicit origin
+  // (0,0) is its true solved position, no group needed to express it. Used by
+  // the dev force-complete path.
   async anchorAllGroups(totalPieces: number): Promise<void> {
     const groups = await this.readAllGroups(totalPieces);
-    const pipe = this.r.pipeline();
-    for (const g of groups) {
-      pipe.hset(keys.group(this.puzzleId, g.id), {
-        worldX: 0,
-        worldY: 0,
-        locked: 1,
-        heldBy: "",
-      });
+    const memberPipe = this.r.pipeline();
+    for (const g of groups) memberPipe.smembers(keys.groupPieces(this.puzzleId, g.id));
+    const memberResults = (await memberPipe.exec()) ?? [];
+
+    const writePipe = this.r.pipeline();
+    for (const entry of memberResults) {
+      const members = (entry?.[1] as string[] | undefined) ?? [];
+      for (const m of members) writePipe.hset(keys.piece(this.puzzleId, Number(m)), "locked", 1);
     }
-    await pipe.exec();
+    for (const g of groups) {
+      writePipe.del(keys.group(this.puzzleId, g.id), keys.groupPieces(this.puzzleId, g.id));
+    }
+    writePipe.del(keys.heldGroups(this.puzzleId));
+    await writePipe.exec();
   }
 }

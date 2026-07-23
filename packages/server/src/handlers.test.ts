@@ -171,7 +171,6 @@ describe("dispatch validation", () => {
       id: 5,
       worldX: 0,
       worldY: 0,
-      locked: false,
       size: 1,
       heldBy: "u1",
     });
@@ -270,12 +269,11 @@ describe("handleGrab", () => {
     });
   });
 
-  it("denies the grab with an empty holder when the group is locked", async () => {
-    const { ctx, send, tryAcquireGroup } = makeCtx();
-    tryAcquireGroup.mockResolvedValue("LOCKED");
-    await handleGrab(ctx, client, 5);
-    expect(send).toHaveBeenCalledWith(client, { t: "grab_denied", groupId: 5, heldBy: "" });
-  });
+  // A group id can never resolve to a locked piece's group: locked pieces have
+  // no group (see DECISIONS: locked pieces stop being a group), so a stale
+  // hold on one is indistinguishable from "group does not exist" (see "sends
+  // unknown_group when the group does not exist" above) and tryAcquireGroup
+  // has no separate LOCKED sentinel to deny.
 
   // dispatch reserves the group id in client.held synchronously, before this
   // handler ever runs (see the "dispatch grab reservation" describe block
@@ -349,13 +347,21 @@ class FakeState {
   readonly groups = new Map<number, GroupRuntime>();
   readonly pieceToGroup = new Map<number, number>();
   readonly groupPieces = new Map<number, Set<number>>();
+  // A locked piece has no group (see DECISIONS: locked pieces stop being a group).
+  readonly lockedPieces = new Set<number>();
   lockedCount = 0;
 
   place(group: GroupRuntime, pieceIds: number[]): void {
     this.groups.set(group.id, { ...group });
     this.groupPieces.set(group.id, new Set(pieceIds));
     for (const p of pieceIds) this.pieceToGroup.set(p, group.id);
-    if (group.locked) this.lockedCount += group.size;
+  }
+
+  // Pre-seed pieces as already locked (test setup only; production code locks
+  // via lockPieces below, which does not touch lockedCount itself).
+  lock(pieceIds: number[]): void {
+    for (const p of pieceIds) this.lockedPieces.add(p);
+    this.lockedCount += pieceIds.length;
   }
 
   readGroup(id: number): Promise<GroupRuntime | null> {
@@ -410,8 +416,14 @@ class FakeState {
     return Promise.resolve();
   }
 
-  readPieceGroup(id: number): Promise<number | null> {
-    return Promise.resolve(this.pieceToGroup.get(id) ?? null);
+  readPieceState(id: number): Promise<{ groupId: number | null; locked: boolean }> {
+    if (this.lockedPieces.has(id)) return Promise.resolve({ groupId: null, locked: true });
+    return Promise.resolve({ groupId: this.pieceToGroup.get(id) ?? null, locked: false });
+  }
+
+  lockPieces(pieceIds: number[]): Promise<void> {
+    for (const p of pieceIds) this.lockedPieces.add(p);
+    return Promise.resolve();
   }
 
   getLockedCount(): Promise<number> {
@@ -454,6 +466,7 @@ function makeDropCtx() {
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
     minimapGrid: testMinimapGrid(dropMeta.gridCols, dropMeta.pieceSize),
     tilePieceCap: 2048,
+    clusterPieceCap: 20000,
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastOverlapping, logMerge, leaderboard, state };
 }
@@ -463,7 +476,6 @@ const dropped = (id: number, worldX: number, worldY: number): GroupRuntime => ({
   worldX,
   worldY,
   size: 1,
-  locked: false,
   heldBy: "u1",
 });
 
@@ -479,7 +491,7 @@ describe("handleDrop", () => {
 
   it("rejects a drop on a group held by someone else", async () => {
     const { ctx, send, state } = makeDropCtx();
-    state.place({ id: 4, worldX: 0, worldY: 0, size: 1, locked: false, heldBy: "other" }, [4]);
+    state.place({ id: 4, worldX: 0, worldY: 0, size: 1, heldBy: "other" }, [4]);
     await handleDrop(ctx, client, 4, 0, 0);
     expect(send).toHaveBeenCalledWith(
       client,
@@ -554,7 +566,7 @@ describe("handleDrop", () => {
     const { ctx, state } = makeDropCtx();
     // The snap reaches group 1, which the passed lock set does not cover, so
     // handleDrop returns { expand } and mutates nothing, including the held set.
-    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
     const c = { userId: "u1", held: new Set<number>([4]) } as unknown as Client;
     const outcome = await handleDrop(ctx, c, 4, 200, 200, new Set([4]));
@@ -566,7 +578,8 @@ describe("handleDrop", () => {
     const { ctx, broadcast, logMerge, state } = makeDropCtx();
     state.place(dropped(4, 3, -4), [4]);
     await handleDrop(ctx, client, 4, 3, -4);
-    expect(state.groups.get(4)?.locked).toBe(true);
+    expect(state.groups.has(4)).toBe(false);
+    expect(state.lockedPieces.has(4)).toBe(true);
     expect(state.lockedCount).toBe(1);
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "snap", anchored: true, lockedCount: 1 }),
@@ -580,12 +593,11 @@ describe("handleDrop", () => {
 
   it("merges the dropped group into an aligned unlocked neighbour", async () => {
     const { ctx, broadcast, logMerge, state } = makeDropCtx();
-    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
     await handleDrop(ctx, client, 4, 200, 200);
     expect(state.groups.has(4)).toBe(false);
     expect(state.groups.get(1)?.size).toBe(2);
-    expect(state.groups.get(1)?.locked).toBe(false);
     expect(state.pieceToGroup.get(4)).toBe(1);
     expect(state.pieceToGroup.get(1)).toBe(1);
     expect(broadcast).toHaveBeenCalledWith(
@@ -607,21 +619,62 @@ describe("handleDrop", () => {
     );
   });
 
-  it("anchors the merged cluster and counts pieces when snapping onto a locked neighbour", async () => {
+  it("anchors the dropped group and counts pieces when snapping onto a locked neighbour", async () => {
     const { ctx, broadcast, logMerge, state } = makeDropCtx();
-    state.place({ id: 1, worldX: 100, worldY: 100, size: 1, locked: true, heldBy: null }, [1]);
-    state.place(dropped(4, 100, 100), [4]);
+    // A locked piece has no group and no stored position: it is implicitly at
+    // its solved position (see DECISIONS: locked pieces stop being a group),
+    // so the drop below has to land near the frame origin for the adjacency
+    // to be a deliberate snap, not just a coincidence of grid ids.
+    state.lock([1]);
+    state.place(dropped(4, 3, -4), [4]);
     expect(state.lockedCount).toBe(1);
-    await handleDrop(ctx, client, 4, 100, 100);
-    expect(state.groups.get(1)?.locked).toBe(true);
-    expect(state.groups.get(1)?.size).toBe(2);
+    await handleDrop(ctx, client, 4, 3, -4);
+    expect(state.groups.has(4)).toBe(false);
+    expect(state.lockedPieces.has(4)).toBe(true);
     expect(state.lockedCount).toBe(2);
     expect(broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ t: "snap", newGroupId: 1, anchored: true, lockedCount: 2 }),
+      expect.objectContaining({ t: "snap", newGroupId: 4, anchored: true, lockedCount: 2 }),
     );
     expect(logMerge).toHaveBeenCalledWith(
       expect.objectContaining({ anchored: true, lockedDelta: 1 }),
     );
+  });
+
+  it("skips a loose-loose merge over the cluster piece cap, leaving both clusters separate", async () => {
+    const { ctx, broadcastOverlapping, state } = makeDropCtx();
+    ctx.clusterPieceCap = 2;
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 2, heldBy: null }, [1, 2]);
+    state.place(dropped(4, 200, 200), [4]);
+    await handleDrop(ctx, client, 4, 200, 200);
+    // 2 (group 1) + 1 (dropped) = 3 > cap of 2: no merge, so the drop just
+    // rests at the target position instead (a plain, non-merging drop).
+    expect(state.groups.has(4)).toBe(true);
+    expect(state.groups.get(1)?.size).toBe(2);
+    expect(broadcastOverlapping).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "drop", groupId: 4 }),
+      expect.anything(),
+    );
+  });
+
+  it("allows a loose-loose merge that stays within the cluster piece cap", async () => {
+    const { ctx, broadcast, state } = makeDropCtx();
+    ctx.clusterPieceCap = 3;
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 2, heldBy: null }, [1, 2]);
+    state.place(dropped(4, 200, 200), [4]);
+    await handleDrop(ctx, client, 4, 200, 200);
+    expect(state.groups.has(4)).toBe(false);
+    expect(state.groups.get(1)?.size).toBe(3);
+    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ t: "snap", newGroupId: 1 }));
+  });
+
+  it("exempts an anchoring merge from the cluster piece cap", async () => {
+    const { ctx, broadcast, state } = makeDropCtx();
+    ctx.clusterPieceCap = 1;
+    state.lock([1]);
+    state.place(dropped(4, 3, -4), [4]);
+    await handleDrop(ctx, client, 4, 3, -4);
+    expect(state.lockedPieces.has(4)).toBe(true);
+    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ t: "snap", anchored: true }));
   });
 
   it("broadcasts a leaderboard and marks the puzzle completed when the final piece is anchored", async () => {
@@ -672,11 +725,10 @@ describe("handleDevPlace", () => {
   it("anchors a random unlocked cluster to the frame origin", async () => {
     const { ctx, broadcast, logMerge, state } = makeDropCtx();
     (ctx as { devEnabled?: boolean }).devEnabled = true;
-    state.place({ id: 4, worldX: 500, worldY: 500, size: 1, locked: false, heldBy: null }, [4]);
+    state.place({ id: 4, worldX: 500, worldY: 500, size: 1, heldBy: null }, [4]);
     await handleDevPlace(ctx, client);
-    expect(state.groups.get(4)?.locked).toBe(true);
-    expect(state.groups.get(4)?.worldX).toBe(0);
-    expect(state.groups.get(4)?.worldY).toBe(0);
+    expect(state.groups.has(4)).toBe(false);
+    expect(state.lockedPieces.has(4)).toBe(true);
     expect(state.lockedCount).toBe(1);
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "snap", anchored: true, lockedCount: 1 }),
@@ -689,8 +741,8 @@ describe("handleDevPlace", () => {
   it("does nothing when no unlocked, unheld cluster is available", async () => {
     const { ctx, broadcast, state } = makeDropCtx();
     (ctx as { devEnabled?: boolean }).devEnabled = true;
-    state.place({ id: 0, worldX: 0, worldY: 0, size: 1, locked: true, heldBy: null }, [0]);
-    state.place({ id: 1, worldX: 300, worldY: 300, size: 1, locked: false, heldBy: "other" }, [1]);
+    state.lock([0]);
+    state.place({ id: 1, worldX: 300, worldY: 300, size: 1, heldBy: "other" }, [1]);
     await handleDevPlace(ctx, client);
     expect(broadcast).not.toHaveBeenCalled();
   });
@@ -702,7 +754,7 @@ describe("handleDevPlace", () => {
 describe("cross-group merge ordering", () => {
   it("merges the dropped group into its neighbour through the per-group queue", async () => {
     const { ctx, state, broadcast } = makeDropCtx();
-    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
 
     await dispatch(
@@ -721,7 +773,7 @@ describe("cross-group merge ordering", () => {
 
   it("holds both groups' locks for the whole merge, so a later op on the neighbour waits", async () => {
     const { ctx, state } = makeDropCtx();
-    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
 
     // Hold the merge mid read-modify-write, after group 4 is folded into group 1
@@ -781,7 +833,7 @@ describe("group index maintenance", () => {
 
   it("drops merged-away groups and keeps the surviving group on a merge", async () => {
     const { ctx, state } = makeDropCtx();
-    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, locked: false, heldBy: null }, [1]);
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
     ctx.groupIndex.set(1, 200, 200, { originX: 200, originY: 200, size: 1, locked: false });
     ctx.groupIndex.set(4, 200, 200, { originX: 200, originY: 200, size: 1, locked: false });
@@ -798,17 +850,20 @@ describe("group index maintenance", () => {
     expect(all.map((g) => g.groupId)).toEqual([1]);
   });
 
-  it("re-keys a group to the frame origin cell when it anchors", async () => {
+  it("removes the group from the index when it anchors", async () => {
     const { ctx, state } = makeDropCtx();
-    // Drop near the origin so it frame-anchors; the merged group lands at (0,0)
-    // and its body footprint sits in the origin cell.
+    // Drop near the origin so it frame-anchors.
     state.place(dropped(4, 3, -4), [4]);
     ctx.groupIndex.set(4, 3, -4, { originX: 3, originY: -4, size: 1, locked: false });
 
     await handleDrop(ctx, client, 4, 3, -4);
 
-    expect(state.groups.get(4)?.locked).toBe(true);
-    expect(ctx.groupIndex.collect([cellAt(0, 0)]).map((g) => g.groupId)).toEqual([4]);
+    expect(state.groups.has(4)).toBe(false);
+    expect(state.lockedPieces.has(4)).toBe(true);
+    // A locked piece has no group, so it is not indexed: closing the resync
+    // gap for already-locked regions on a fresh pan or reconnect is Stage 2's
+    // job (server-composited tiles / flat per-cell delivery), not Stage 1's.
+    expect(ctx.groupIndex.cellOf(4)).toBeUndefined();
   });
 });
 

@@ -148,6 +148,34 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 
 ---
 
+## Phase 5, Locked-Region Scale
+
+**Exit criterion**: a board with ~995 000 locked pieces (no single cluster larger than the hard cap) stays fluid: locked pieces render from server-composited per-cell tiles instead of per-piece fetches, with piece borders preserved; resident client memory stays within the existing budget; no unlocked cluster exceeds `MPP_CLUSTER_PIECE_CAP`.
+
+A locked piece has no gameplay reason to keep a `groupId` once anchored (it can never be dragged again and always renders at the frame origin plus its solved-cell offset), but today's merge logic keeps folding newly-anchored clusters into one ever-growing locked group. Near completion this produces a single cluster of hundreds of thousands of members, and the client's hydration path fetches a whole group's member textures in one unbounded batch: an unbounded-load, likely-crash risk this phase closes before it is ever hit live.
+
+Delivered in 3 stages, each independently shippable and separately testable, since this touches the merge/anchor path (permanent, no undo) and the wire protocol. Stage 1 is backend-only and already closes the crash risk; Stage 2 makes the ~995 000-locked scenario actually testable end to end; Stage 3 is the "see it all at once" rendering polish. Each stage is meant to be picked up in its own fresh session.
+
+### Stage 1 (backend only): locked pieces stop being a group
+
+- [x] `shared-protocol` / `backend-realtime`: `locked` moves from the group hash to the piece hash (`piece:<id>.locked`); on anchor, the anchored cluster's group is deleted rather than merged into a growing locked group. No live group is ever locked going forward; remove `locked` from `GroupRuntime` and group storage.
+- [x] `backend-realtime`: `detectSnap` checks each grid-neighbor's piece-level `locked` flag directly (a locked neighbor is an automatic aligned-at-origin candidate, no tolerance check needed) instead of resolving through `piece.groupId -> group.locked`, which no longer resolves for a locked neighbor.
+- [x] `backend-realtime`: hard cap `MPP_CLUSTER_PIECE_CAP` (default 20 000) on merges between two unlocked clusters (skip the merge, both stay separate); merging into a locked neighbor is exempt, since it dissolves a group rather than growing one.
+- [x] `backend-realtime` / `qa-and-load`: rewrite `stateInvariants.ts`'s locked check from a union-find component match to a direct comparison of Mongo-replayed locked piece ids against Redis piece-locked flags; update `snap.test.ts`, `handlers.test.ts`, `stateInvariants.test.ts`, `hub.test.ts`, `groupIndex.test.ts` for the new model.
+
+### Stage 2: locked pieces reach the client, decoupled from GroupNode
+
+- [ ] `shared-protocol`: `SSnap` carries locked piece ids (grid-unit offset from the frame origin) only when `anchored`; `region_state` streams locked-piece-ids per newly covered cell alongside unlocked groups; `RegionGroup.locked` removed (a `RegionGroup` is always unlocked now); `PROTOCOL_VERSION` bump.
+- [ ] `frontend-canvas`: locked pieces render from the new flat per-cell delivery, never via `GroupNode` / `hydrateGroup` / `lockedLayer`; still one AVIF fetch per piece at this stage, just outside the cluster machinery and so no longer bounded by cluster size.
+- [ ] `qa-and-load`: rewrite `seed-lock-scenario.ts` for the new model (mark ~995 000 pieces locked directly, no cluster merging) and verify the crash risk is closed at that scale.
+
+### Stage 3: server-composited locked tiles ("see it all at once")
+
+- [ ] `backend-realtime`: incremental per-cell tile compositing (sharp): rebakes a cell from its currently-locked, bordered piece tiles on every lock event that touches it, cached and versioned in R2; permanent once a cell reaches 100% locked.
+- [ ] `frontend-canvas`: consumes the server-composited per-cell tile when available, falls back to Stage 2's per-piece rendering otherwise.
+
+---
+
 ## Backlog
 
 Ideas worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.

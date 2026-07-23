@@ -3,17 +3,17 @@ import type { GroupRuntime } from "@mpp/shared";
 import { detectSnap } from "./snap.js";
 import type { RedisState } from "./state.js";
 
-const group = (id: number, worldX: number, worldY: number, locked = false): GroupRuntime => ({
+const group = (id: number, worldX: number, worldY: number): GroupRuntime => ({
   id,
   worldX,
   worldY,
-  locked,
   size: 1,
   heldBy: null,
 });
 
 class FakeState {
   readonly pieceGroups = new Map<number, number>();
+  readonly lockedPieces = new Set<number>();
   readonly groups = new Map<number, GroupRuntime>();
 
   place(pieceId: number, g: GroupRuntime): void {
@@ -21,8 +21,17 @@ class FakeState {
     this.groups.set(g.id, g);
   }
 
-  readPieceGroup(id: number): Promise<number | null> {
-    return Promise.resolve(this.pieceGroups.has(id) ? this.pieceGroups.get(id)! : null);
+  // A locked piece has no group (see DECISIONS: locked pieces stop being a group).
+  lock(pieceId: number): void {
+    this.lockedPieces.add(pieceId);
+  }
+
+  readPieceState(id: number): Promise<{ groupId: number | null; locked: boolean }> {
+    if (this.lockedPieces.has(id)) return Promise.resolve({ groupId: null, locked: true });
+    return Promise.resolve({
+      groupId: this.pieceGroups.has(id) ? this.pieceGroups.get(id)! : null,
+      locked: false,
+    });
   }
 
   readGroup(id: number): Promise<GroupRuntime | null> {
@@ -55,7 +64,13 @@ describe("detectSnap", () => {
     state.place(1, group(100, 5, -3));
     const dropped = group(50, 0, 0);
     const match = await detectSnap(asState(state), ROWS, COLS, 10, dropped, [4]);
-    expect(match).toEqual({ matchedGroupIds: [100], targetWorldX: 5, targetWorldY: -3 });
+    expect(match).toEqual({
+      matchedGroupIds: [100],
+      targetWorldX: 5,
+      targetWorldY: -3,
+      anchored: false,
+      matchedSize: 1,
+    });
   });
 
   it("ignores neighbour ids that belong to the dropped group's own pieces", async () => {
@@ -81,7 +96,13 @@ describe("detectSnap", () => {
     state.place(3, group(200, -8, 0)); // left, 16 from the target
     const dropped = group(50, 0, 0);
     const match = await detectSnap(asState(state), ROWS, COLS, 10, dropped, [4]);
-    expect(match).toEqual({ matchedGroupIds: [100], targetWorldX: 8, targetWorldY: 0 });
+    expect(match).toEqual({
+      matchedGroupIds: [100],
+      targetWorldX: 8,
+      targetWorldY: 0,
+      anchored: false,
+      matchedSize: 1,
+    });
   });
 
   it("skips a neighbour cluster held by another user", async () => {
@@ -97,17 +118,34 @@ describe("detectSnap", () => {
     state.place(3, group(200, 5, 0)); // left, free -> matched
     const dropped = group(50, 5, 0);
     const match = await detectSnap(asState(state), ROWS, COLS, 10, dropped, [4]);
-    expect(match).toEqual({ matchedGroupIds: [200], targetWorldX: 5, targetWorldY: 0 });
+    expect(match).toEqual({
+      matchedGroupIds: [200],
+      targetWorldX: 5,
+      targetWorldY: 0,
+      anchored: false,
+      matchedSize: 1,
+    });
   });
 
-  it("prefers a locked candidate as the merge target", async () => {
+  it("an already-locked neighbour sets the merge target and marks the drop anchored", async () => {
     const state = new FakeState();
     state.place(1, group(100, 5, 0)); // unlocked, inserted first
-    state.place(3, group(200, 0, 0, true)); // locked -> must be the target
+    state.lock(3); // locked piece, no group -> its implicit origin (0,0) still wins
     const dropped = group(50, 2, 0);
     const match = await detectSnap(asState(state), ROWS, COLS, 10, dropped, [4]);
     expect(match?.targetWorldX).toBe(0);
     expect(match?.targetWorldY).toBe(0);
-    expect(match?.matchedGroupIds.sort((a, b) => a - b)).toEqual([100, 200]);
+    expect(match?.anchored).toBe(true);
+    expect(match?.matchedGroupIds).toEqual([100]);
+  });
+
+  it("does not anchor via a locked neighbour when the drop itself is far from the solved origin", async () => {
+    const state = new FakeState();
+    // Grid-adjacent to a locked piece, but this drop landed nowhere near its
+    // own solved position: touching a locked neighbour cannot substitute for
+    // the drop's own tolerance check (see detectSnap's dropAtOrigin gate).
+    state.lock(3);
+    const dropped = group(50, 500, 500);
+    expect(await detectSnap(asState(state), ROWS, COLS, 10, dropped, [4])).toBeNull();
   });
 });

@@ -130,6 +130,7 @@ async function main(): Promise<void> {
     groupIndex,
     minimapGrid,
     tilePieceCap,
+    clusterPieceCap: config.clusterPieceCap,
     broadcastMaxCells: config.broadcastMaxCells,
     worldTileSize: cellSize,
     regionStreamBatchCells: config.regionStreamBatchCells,

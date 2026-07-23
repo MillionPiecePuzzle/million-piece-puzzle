@@ -87,13 +87,14 @@ async function readSnapshot(redis: IORedis, puzzleId: string): Promise<StateSnap
   const groups: GroupState[] = groupRuntimes.map((g) => ({
     id: g.id,
     size: g.size,
-    locked: g.locked,
     heldBy: g.heldBy,
   }));
   const pieces = await state.readAllPieces(total);
   const pieceGroup = new Map<number, number>();
+  const lockedPieceIds = new Set<number>();
   for (const p of pieces) {
     if (Number.isFinite(p.groupId)) pieceGroup.set(p.id, p.groupId);
+    if (p.locked) lockedPieceIds.add(p.id);
   }
   const groupPieces = await readGroupPieces(
     redis,
@@ -101,7 +102,7 @@ async function readSnapshot(redis: IORedis, puzzleId: string): Promise<StateSnap
     groups.map((g) => g.id),
   );
   const lockedCount = await state.getLockedCount();
-  return { totalPieces: total, groups, pieceGroup, groupPieces, lockedCount };
+  return { totalPieces: total, groups, pieceGroup, groupPieces, lockedCount, lockedPieceIds };
 }
 
 type MergeProjection = {
@@ -109,6 +110,7 @@ type MergeProjection = {
   targetAnchorPieceId: number;
   anchored: boolean;
   lockedDelta: number;
+  lockedPieceIds: number[];
   at: Date;
 };
 
@@ -128,6 +130,7 @@ async function readMerges(
           targetAnchorPieceId: 1,
           anchored: 1,
           lockedDelta: 1,
+          lockedPieceIds: 1,
           at: 1,
         },
       },
@@ -138,6 +141,7 @@ async function readMerges(
     targetAnchorPieceId: d.targetAnchorPieceId,
     anchored: !!d.anchored,
     lockedDelta: d.lockedDelta ?? 0,
+    lockedPieceIds: d.lockedPieceIds ?? [],
     at: d.at instanceof Date ? d.at.getTime() : Number(d.at),
   }));
 }

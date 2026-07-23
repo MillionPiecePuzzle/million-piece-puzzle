@@ -1,7 +1,6 @@
 import { computed, ref, shallowRef } from "vue";
 import type {
   ActivityItem,
-  GroupRuntime,
   ImageManifest,
   LeaderboardEntry,
   QueueStatusResponse,
@@ -12,6 +11,7 @@ import type {
   SWelcome,
   ServerMessage,
 } from "@mpp/shared";
+import type { InitialGroupSpec } from "../canvas/puzzleStage";
 import { PuzzleWsClient } from "../canvas/wsClient";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { queueStatusUrl, queueTicketUrl } from "../data/queueUrl";
@@ -40,7 +40,7 @@ export type PuzzleSessionState =
       kind: "ready";
       manifest: ImageManifest;
       welcome: SWelcome;
-      groups: GroupRuntime[];
+      groups: InitialGroupSpec[];
       epoch: number;
     }
   | { kind: "error"; message: string };

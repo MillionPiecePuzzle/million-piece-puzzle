@@ -93,6 +93,11 @@ export type ServerConfig = {
   // escape hatch, e.g. set it low to exercise the rejection); 0 keeps the
   // density-relative cap above.
   tilePieceCapAbsolute: number;
+  // Hard cap on a merge between two unlocked clusters: over this combined size,
+  // the merge is skipped and both stay separate (see ROADMAP Phase 5). Exempt
+  // when the merge anchors, since an anchored cluster dissolves into piece-level
+  // locked flags rather than growing a group.
+  clusterPieceCap: number;
   // Board snapshot cadence: the in-memory snapshot (locked count, leaderboard,
   // activity, and the current minimap grid) is regenerated at most this often
   // while the event is live, frozen otherwise. The minimap grid itself is
@@ -261,6 +266,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     regionStreamPollIntervalMs: int("MPP_REGION_STREAM_POLL_INTERVAL_MS", 50),
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
+    clusterPieceCap: int("MPP_CLUSTER_PIECE_CAP", 20000),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
     minimapGridResyncIntervalMs: int("MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS", 86400000),
     eventStartsAt: overrides.eventStartsAt ?? int("MPP_EVENT_STARTS_AT", 0),

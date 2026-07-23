@@ -10,7 +10,6 @@ import {
 } from "pixi.js";
 import {
   GRID_WORLD_CELL,
-  type GroupRuntime,
   type ImageManifest,
   type MinimapGrid,
   type PlayZone,
@@ -43,6 +42,11 @@ export type ViewportRect = Viewport;
 // One piece reduced to a point for the minimap: its world center and whether
 // its cluster is locked to the frame.
 export type MinimapPiece = { x: number; y: number; locked: boolean };
+
+// A group as build()'s initial pass needs it: always empty in practice, since
+// welcome carries no board (groups stream in later via applyRegionState), kept
+// only so the pass has something typed to iterate.
+export type InitialGroupSpec = { id: number; worldX: number; worldY: number; locked: boolean };
 
 // Everything the minimap needs to draw, pulled from the stage on demand. `grid`
 // is the server-computed global density overview (decoupled from the now-partial
@@ -604,7 +608,7 @@ export class PuzzleStage {
 
   async build(
     manifest: ImageManifest,
-    initialGroups: GroupRuntime[],
+    initialGroups: InitialGroupSpec[],
     playZone: PlayZone,
     onProgress?: (p: { phase: "build" | "textures"; loaded: number; total: number }) => void,
   ): Promise<void> {

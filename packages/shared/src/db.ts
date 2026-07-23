@@ -78,6 +78,11 @@ export type ClusterMerge = {
   // Stored because it cannot be recomputed from a saved doc: a frame-anchored
   // cluster locks its pieces without listing any in addedPieceIds.
   lockedDelta: number;
+  // Every piece newly locked by this merge (empty for a non-anchoring merge).
+  // Distinct from addedPieceIds for the same reason as lockedDelta: a locked
+  // cluster is never persisted as a group past this event, so a replay has no
+  // other way to recover which piece ids it covers.
+  lockedPieceIds: number[];
   // Piece count of the resulting cluster (host + added groups). The size the
   // activity feed reports for a snap; stored because the host group's pre-merge
   // size is not otherwise recoverable from a saved doc.

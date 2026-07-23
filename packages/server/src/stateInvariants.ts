@@ -1,21 +1,23 @@
 // Pure state-corruption invariants for a puzzle's authoritative state.
 //
-// Given a snapshot of Redis live state (groups, the piece->group reverse index,
-// group-piece membership sets, the locked counter) plus the Mongo cluster-merge
-// log, assert the invariants a correct run must hold at rest. No IO lives here so
-// the checks are unit-tested directly; validate-state.ts reads the live stores
-// and feeds this module.
+// Given a snapshot of Redis live state (loose groups, the piece->group reverse
+// index, group-piece membership sets, the locked counter, the set of
+// piece-level locked flags) plus the Mongo cluster-merge log, assert the
+// invariants a correct run must hold at rest. No IO lives here so the checks
+// are unit-tested directly; validate-state.ts reads the live stores and feeds
+// this module.
 //
-// The strongest check is Mongo<->Redis: replaying every merge by `at` rebuilds
-// the exact cluster partition (non-merging drops are not logged but never change
-// grouping), so the replayed partition must match the Redis partition piece for
-// piece. A mismatch means a merge hit one store but not the other, or a set lost
-// a member: corruption.
+// Two independent Mongo<->Redis cross-checks, split along the same line the
+// live model splits on: a loose cluster still lives as a Redis group, so
+// replaying every merge by `at` rebuilds the exact loose partition, which must
+// match the Redis partition piece for piece. A locked piece has no group (see
+// DECISIONS: locked pieces stop being a group), so it cannot be compared by
+// partition; instead the flat set of piece ids the replay ever locked must
+// equal the flat set of piece ids Redis has flagged locked.
 
 export type GroupState = {
   id: number;
   size: number;
-  locked: boolean;
   heldBy: string | null;
 };
 
@@ -24,17 +26,22 @@ export type MergeRecord = {
   targetAnchorPieceId: number;
   anchored: boolean;
   lockedDelta: number;
+  lockedPieceIds: number[];
   at: number;
 };
 
 export type StateSnapshot = {
   totalPieces: number;
   groups: GroupState[];
-  // pieceId -> groupId, from each piece hash's groupId field.
+  // pieceId -> groupId, from each piece hash's groupId field. Stale (and never
+  // read for anything else) once a piece is locked.
   pieceGroup: Map<number, number>;
-  // groupId -> its member piece ids, from the group-pieces sets.
+  // groupId -> its member piece ids, from the group-pieces sets. Only loose
+  // groups have an entry: a locked piece's group is deleted on anchor.
   groupPieces: Map<number, Set<number>>;
   lockedCount: number;
+  // Every piece id currently flagged locked on its piece hash.
+  lockedPieceIds: Set<number>;
 };
 
 export type Check = { name: string; ok: boolean; detail: string };
@@ -64,36 +71,43 @@ class UnionFind {
 }
 
 export type Replay = {
-  // Resolved partition root for every piece id in [0, totalPieces).
+  // Resolved partition root for every piece id in [0, totalPieces). Only
+  // meaningful for pieces that stayed loose; a locked piece's root reflects
+  // wherever the merge log last unioned it, which checkReplayMatchesRedis
+  // never consults (it only walks live, i.e. loose, Redis groups).
   root: number[];
-  // Roots of the components that any anchored merge locked.
-  lockedRoots: Set<number>;
+  // Every piece id any anchored merge ever locked.
+  lockedPieceIds: Set<number>;
   lockedDeltaSum: number;
 };
 
-// Rebuild the cluster partition by replaying the merge log in `at` order. Each
-// merge folds its added pieces into the host (identified by targetAnchorPieceId);
-// an anchored merge locks the host's resulting component. A pure function of the
-// log, so it can be compared against the independently-read Redis partition.
+// Rebuild the loose cluster partition and the flat locked-piece set by
+// replaying the merge log in `at` order. Each merge folds its added pieces
+// into the host (identified by targetAnchorPieceId); an anchored merge adds
+// its lockedPieceIds to the locked set (addedPieceIds alone would undercount:
+// see the field comment on ClusterMerge.lockedPieceIds). A pure function of
+// the log, so it can be compared against the independently-read Redis state.
 export function replayMerges(totalPieces: number, merges: MergeRecord[]): Replay {
   const uf = new UnionFind(totalPieces);
-  const anchoredReps: number[] = [];
+  const lockedPieceIds = new Set<number>();
   let lockedDeltaSum = 0;
   const ordered = [...merges].sort((a, b) => a.at - b.at);
   for (const m of ordered) {
     for (const p of m.addedPieceIds) uf.union(m.targetAnchorPieceId, p);
-    if (m.anchored) anchoredReps.push(m.targetAnchorPieceId);
+    if (m.anchored) {
+      for (const p of m.lockedPieceIds) lockedPieceIds.add(p);
+    }
     lockedDeltaSum += m.lockedDelta;
   }
   const root = new Array<number>(totalPieces);
   for (let i = 0; i < totalPieces; i++) root[i] = uf.find(i);
-  const lockedRoots = new Set<number>(anchoredReps.map((r) => uf.find(r)));
-  return { root, lockedRoots, lockedDeltaSum };
+  return { root, lockedPieceIds, lockedDeltaSum };
 }
 
-// Every piece in [0, totalPieces) belongs to exactly one group-pieces set, and
-// the piece hash's groupId agrees with the set it lives in. Catches lost,
-// duplicated, or mis-parented pieces.
+// Every piece in [0, totalPieces) belongs to exactly one group-pieces set or is
+// locked (never both, checked separately by checkLockedPieces), and the piece
+// hash's groupId agrees with the set it lives in. Catches lost, duplicated, or
+// mis-parented loose pieces.
 export function checkPartition(snap: StateSnapshot): Check[] {
   const owner = new Map<number, number>();
   let duplicate: { piece: number; a: number; b: number } | null = null;
@@ -106,7 +120,7 @@ export function checkPartition(snap: StateSnapshot): Check[] {
   }
   const missing: number[] = [];
   for (let pid = 0; pid < snap.totalPieces; pid++) {
-    if (!owner.has(pid)) missing.push(pid);
+    if (!owner.has(pid) && !snap.lockedPieceIds.has(pid)) missing.push(pid);
   }
   const coverageOk = missing.length === 0 && duplicate === null;
 
@@ -126,7 +140,7 @@ export function checkPartition(snap: StateSnapshot): Check[] {
 
   return [
     {
-      name: "partition: every piece in exactly one group set",
+      name: "partition: every piece in exactly one group set or locked",
       ok: coverageOk,
       detail: coverageOk
         ? `all ${snap.totalPieces} pieces covered once`
@@ -150,7 +164,9 @@ export function checkPartition(snap: StateSnapshot): Check[] {
 }
 
 // group.size equals its set cardinality, the group set and the group hash refer
-// to the same set of group ids, and the sizes sum to totalPieces.
+// to the same set of group ids, and the sizes plus the locked count sum to
+// totalPieces (every group is loose now, so its pieces are exactly the
+// still-unlocked ones).
 export function checkGroupSizes(snap: StateSnapshot): Check[] {
   const groupIds = new Set(snap.groups.map((g) => g.id));
   let sizeMismatch: { id: number; size: number; members: number } | null = null;
@@ -166,6 +182,7 @@ export function checkGroupSizes(snap: StateSnapshot): Check[] {
   for (const gid of snap.groupPieces.keys()) {
     if (!groupIds.has(gid)) orphanSets.push(gid);
   }
+  const withLocked = total + snap.lockedPieceIds.size;
   return [
     {
       name: "group size equals set cardinality",
@@ -183,25 +200,21 @@ export function checkGroupSizes(snap: StateSnapshot): Check[] {
           : `orphan sets=${orphanSets.length} (e.g. ${orphanSets[0]})`,
     },
     {
-      name: "group sizes sum to totalPieces",
-      ok: total === snap.totalPieces,
-      detail: `sum=${total} totalPieces=${snap.totalPieces}`,
+      name: "loose group sizes plus locked pieces sum to totalPieces",
+      ok: withLocked === snap.totalPieces,
+      detail: `loose=${total} locked=${snap.lockedPieceIds.size} totalPieces=${snap.totalPieces}`,
     },
   ];
 }
 
-// The locked counter equals the piece count of all locked groups, and never
+// The locked counter equals the number of pieces flagged locked, and never
 // exceeds the total.
 export function checkLockedCount(snap: StateSnapshot): Check[] {
-  let lockedPieces = 0;
-  for (const g of snap.groups) {
-    if (g.locked) lockedPieces += g.size;
-  }
   return [
     {
-      name: "locked-count equals pieces in locked groups",
-      ok: snap.lockedCount === lockedPieces && snap.lockedCount <= snap.totalPieces,
-      detail: `locked-count=${snap.lockedCount} lockedPieces=${lockedPieces} totalPieces=${snap.totalPieces}`,
+      name: "locked-count equals pieces flagged locked",
+      ok: snap.lockedCount === snap.lockedPieceIds.size && snap.lockedCount <= snap.totalPieces,
+      detail: `locked-count=${snap.lockedCount} lockedPieces=${snap.lockedPieceIds.size} totalPieces=${snap.totalPieces}`,
     },
   ];
 }
@@ -222,13 +235,69 @@ export function checkNoHeld(snap: StateSnapshot): Check[] {
   ];
 }
 
-// The Redis partition equals the partition rebuilt from the Mongo merge log:
-// members of one Redis group share one replay component (consistency), distinct
-// Redis groups map to distinct replay components (injectivity), locked state
-// agrees, and the summed lockedDelta matches the live counter.
+// No locked piece still lingers in a group-pieces set (a leftover from a group
+// that should have been deleted on anchor), and the set of piece ids Redis has
+// flagged locked exactly matches the set the Mongo replay says was ever locked.
+export function checkLockedPieces(
+  snap: StateSnapshot,
+  replayLockedIds: ReadonlySet<number>,
+): Check[] {
+  const grouped = new Set<number>();
+  for (const members of snap.groupPieces.values()) {
+    for (const pid of members) grouped.add(pid);
+  }
+  let stillGrouped: number | null = null;
+  for (const pid of snap.lockedPieceIds) {
+    if (grouped.has(pid)) {
+      stillGrouped = pid;
+      break;
+    }
+  }
+
+  let missingInRedis: number | null = null;
+  let missingCount = 0;
+  for (const pid of replayLockedIds) {
+    if (!snap.lockedPieceIds.has(pid)) {
+      if (missingInRedis === null) missingInRedis = pid;
+      missingCount++;
+    }
+  }
+  let extraInRedis: number | null = null;
+  let extraCount = 0;
+  for (const pid of snap.lockedPieceIds) {
+    if (!replayLockedIds.has(pid)) {
+      if (extraInRedis === null) extraInRedis = pid;
+      extraCount++;
+    }
+  }
+  const idsMatch = missingCount === 0 && extraCount === 0;
+
+  return [
+    {
+      name: "no locked piece still belongs to a group",
+      ok: stillGrouped === null,
+      detail:
+        stillGrouped === null
+          ? "all locked pieces are group-free"
+          : `piece ${stillGrouped} is locked but still in a group set`,
+    },
+    {
+      name: "Mongo replay locked ids match Redis locked flags",
+      ok: idsMatch,
+      detail: idsMatch
+        ? `${snap.lockedPieceIds.size} locked pieces agree`
+        : `missingInRedis=${missingCount}${missingInRedis !== null ? ` (e.g. ${missingInRedis})` : ""} extraInRedis=${extraCount}${extraInRedis !== null ? ` (e.g. ${extraInRedis})` : ""}`,
+    },
+  ];
+}
+
+// The Redis loose partition equals the partition rebuilt from the Mongo merge
+// log: members of one Redis group share one replay component (consistency),
+// distinct Redis groups map to distinct replay components (injectivity), and
+// the summed lockedDelta matches the live counter. Locked pieces have no group
+// to compare here; checkLockedPieces covers them directly.
 export function checkReplayMatchesRedis(snap: StateSnapshot, replay: Replay): Check[] {
   let consistencyBreak: { group: number; piece: number } | null = null;
-  let lockedDisagree: { group: number; redis: boolean; replay: boolean } | null = null;
   const replayRootToGroup = new Map<number, number>();
   let injectivityBreak: { replayRoot: number; a: number; b: number } | null = null;
 
@@ -251,16 +320,12 @@ export function checkReplayMatchesRedis(snap: StateSnapshot, replay: Replay): Ch
     } else {
       replayRootToGroup.set(groupRoot, g.id);
     }
-    const replayLocked = replay.lockedRoots.has(groupRoot);
-    if (replayLocked !== g.locked && !lockedDisagree) {
-      lockedDisagree = { group: g.id, redis: g.locked, replay: replayLocked };
-    }
   }
 
   const partitionOk = consistencyBreak === null && injectivityBreak === null;
   return [
     {
-      name: "Mongo replay partition matches Redis partition",
+      name: "Mongo replay loose partition matches Redis partition",
       ok: partitionOk,
       detail: partitionOk
         ? "partitions identical"
@@ -270,13 +335,6 @@ export function checkReplayMatchesRedis(snap: StateSnapshot, replay: Replay): Ch
           (injectivityBreak
             ? ` replay component ${injectivityBreak.replayRoot} maps to groups ${injectivityBreak.a} and ${injectivityBreak.b}`
             : ""),
-    },
-    {
-      name: "locked state agrees between Redis and replay",
-      ok: lockedDisagree === null,
-      detail: lockedDisagree
-        ? `group ${lockedDisagree.group}: redis=${lockedDisagree.redis} replay=${lockedDisagree.replay}`
-        : "locked groups match",
     },
     {
       name: "summed lockedDelta equals locked-count",
@@ -293,6 +351,7 @@ export function runInvariants(snap: StateSnapshot, merges: MergeRecord[]): Check
     ...checkGroupSizes(snap),
     ...checkLockedCount(snap),
     ...checkNoHeld(snap),
+    ...checkLockedPieces(snap, replay.lockedPieceIds),
     ...checkReplayMatchesRedis(snap, replay),
   ];
 }

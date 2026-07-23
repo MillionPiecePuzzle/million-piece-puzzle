@@ -9,23 +9,27 @@
 // the bot grabs/drops them as-is and ignores the per-piece (dx, dy) offsets since
 // it does not render.
 
-import type {
-  GroupRuntime,
-  PlayZone,
-  SDrag,
-  SDrop,
-  SGrabOk,
-  SRegionState,
-  SSnap,
-} from "@mpp/shared";
+import type { PlayZone, SDrag, SDrop, SGrabOk, SRegionState, SSnap } from "@mpp/shared";
 
 // The bot only needs each piece's current group; it never renders, so it drops the
 // wire offset and keeps just id -> group.
 type BotPiece = { id: number; groupId: number };
 
+// The bot's local mirror of a group's wire-visible state. Shaped after the wire
+// (region_state/snap), not the server's internal GroupRuntime, which no longer
+// carries locked (a locked piece has no live group server-side).
+type BotGroup = {
+  id: number;
+  worldX: number;
+  worldY: number;
+  size: number;
+  locked: boolean;
+  heldBy: string | null;
+};
+
 export class World {
   readonly pieces = new Map<number, BotPiece>();
-  readonly groups = new Map<number, GroupRuntime>();
+  readonly groups = new Map<number, BotGroup>();
   playZone: PlayZone = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   // Bounds memory: bot.ts jumps the viewport to a brand new random window every
@@ -119,8 +123,8 @@ export class World {
 
   // Returns a random group that is not currently held and not locked, or null
   // if none exists. Used by the bot to pick its next grab target.
-  pickFreeGroup(rng: () => number): GroupRuntime | null {
-    const candidates: GroupRuntime[] = [];
+  pickFreeGroup(rng: () => number): BotGroup | null {
+    const candidates: BotGroup[] = [];
     for (const g of this.groups.values()) {
       if (g.heldBy === null && !g.locked) candidates.push(g);
     }
