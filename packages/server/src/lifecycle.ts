@@ -7,6 +7,7 @@ import {
   forceInitPuzzle,
   playZoneForManifest,
   rebuildGroupIndex,
+  rebuildLockedPieceIndex,
   rebuildMinimapGrid,
 } from "./init.js";
 
@@ -87,8 +88,10 @@ export class PuzzleLifecycle {
       // Fresh scattered board: rebuild the group index off the new Redis state so
       // resyncs reflect the reset, not the old positions.
       await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, meta.totalPieces);
-      // Same for the minimap grid: the incremental tracker has no way to know
-      // about a wipe, so it must be reseeded from the fresh board too.
+      // Same for the locked-piece index and the minimap grid: neither tracker
+      // has any way to know about a wipe, so both must be reseeded from the
+      // fresh (fully unlocked) board too.
+      await rebuildLockedPieceIndex(this.ctx.lockedPieces, this.ctx.state, meta.totalPieces);
       await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, meta.totalPieces);
       // Regenerate before resending welcome so the welcome's minimap grid (read
       // from the latest keyframe) reflects the fresh scatter, not the old board.
@@ -142,8 +145,10 @@ export class PuzzleLifecycle {
     // positions match the assembled board (force-complete moves groups directly,
     // outside the per-group drop/merge paths that maintain the index).
     await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, total);
-    // Same reasoning for the minimap grid: anchorAllGroups moves every group
-    // directly, bypassing the incremental applyTranslation calls in handleDrop.
+    // Same reasoning for the locked-piece index and the minimap grid:
+    // anchorAllGroups locks and moves everything directly, bypassing the
+    // incremental ctx.lockedPieces.lock/applyTranslation calls applyMerge makes.
+    await rebuildLockedPieceIndex(this.ctx.lockedPieces, this.ctx.state, total);
     await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, total);
     // forceComplete sets state directly (no per-group snaps), so the assembled
     // board only reaches the frozen keyframe through a forced regeneration;

@@ -13,6 +13,7 @@ import {
 } from "@mpp/shared";
 import { GroupQueue } from "./queue.js";
 import { GroupIndex } from "./groupIndex.js";
+import { LockedPieceIndex } from "./lockedPieces.js";
 import { cellKey } from "./worldGrid.js";
 import type { WireContext } from "./wire.js";
 
@@ -88,6 +89,13 @@ function makeCtx() {
     queue: new GroupQueue(),
     wire: transparentWire(meta.totalPieces, meta.gridCols),
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
+    lockedPieces: new LockedPieceIndex(
+      meta.gridCols,
+      meta.gridRows,
+      meta.pieceSize,
+      WORLD_TILE_SIZE,
+      meta.totalPieces,
+    ),
     minimapGrid: testMinimapGrid(meta.gridCols, meta.pieceSize),
   } as unknown as Context;
   return {
@@ -464,6 +472,13 @@ function makeDropCtx() {
     queue: new GroupQueue(),
     wire: transparentWire(dropMeta.totalPieces, dropMeta.gridCols),
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
+    lockedPieces: new LockedPieceIndex(
+      dropMeta.gridCols,
+      dropMeta.gridRows,
+      dropMeta.pieceSize,
+      WORLD_TILE_SIZE,
+      dropMeta.totalPieces,
+    ),
     minimapGrid: testMinimapGrid(dropMeta.gridCols, dropMeta.pieceSize),
     tilePieceCap: 2048,
     clusterPieceCap: 20000,
@@ -525,7 +540,7 @@ describe("handleDrop", () => {
     ctx.tilePieceCap = 4;
     // The destination cell (drop at 500,500 maps to cell 0,0 at cellSize 2048)
     // already holds a cluster at the cap; the dropped group rests elsewhere.
-    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 4, locked: false });
+    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 4 });
     state.place(dropped(4, 5000, 5000), [4]);
     await handleDrop(ctx, client, 4, 500, 500);
 
@@ -551,7 +566,7 @@ describe("handleDrop", () => {
   it("allows a non-merging drop that stays within the tile cap", async () => {
     const { ctx, broadcastOverlapping, state } = makeDropCtx();
     ctx.tilePieceCap = 4;
-    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 3, locked: false });
+    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 3 });
     state.place(dropped(4, 5000, 5000), [4]);
     await handleDrop(ctx, client, 4, 500, 500);
     // 3 resident + 1 dropped == cap, so the drop commits normally.
@@ -581,14 +596,33 @@ describe("handleDrop", () => {
     expect(state.groups.has(4)).toBe(false);
     expect(state.lockedPieces.has(4)).toBe(true);
     expect(state.lockedCount).toBe(1);
+    // The in-process locked-piece index picks it up too (see LockedPieceIndex),
+    // and the broadcast carries it flat, frame-relative (piece 4 sits at grid
+    // row 1, col 1 on this 3x3 grid).
+    expect(ctx.lockedPieces.isLocked(4)).toBe(true);
     expect(broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ t: "snap", anchored: true, lockedCount: 1 }),
+      expect.objectContaining({
+        t: "snap",
+        anchored: true,
+        lockedCount: 1,
+        lockedPieceIds: [{ id: 4, dx: 1, dy: 1 }],
+      }),
     );
     expect(logMerge).toHaveBeenCalledWith(
       expect.objectContaining({ anchored: true, lockedDelta: 1 }),
     );
     // An anchoring snap rebroadcasts the live leaderboard, before completion.
     expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ t: "leaderboard" }));
+  });
+
+  it("sends an empty lockedPieceIds array on a non-anchoring snap", async () => {
+    const { ctx, broadcast, state } = makeDropCtx();
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
+    state.place(dropped(4, 200, 200), [4]);
+    await handleDrop(ctx, client, 4, 200, 200);
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "snap", anchored: false, lockedPieceIds: [] }),
+    );
   });
 
   it("merges the dropped group into an aligned unlocked neighbour", async () => {
@@ -632,8 +666,16 @@ describe("handleDrop", () => {
     expect(state.groups.has(4)).toBe(false);
     expect(state.lockedPieces.has(4)).toBe(true);
     expect(state.lockedCount).toBe(2);
+    // Only piece 4 is newly locked by this event (the neighbour was already
+    // locked before it, see lockedDelta below), so it alone is in the flat list.
     expect(broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ t: "snap", newGroupId: 4, anchored: true, lockedCount: 2 }),
+      expect.objectContaining({
+        t: "snap",
+        newGroupId: 4,
+        anchored: true,
+        lockedCount: 2,
+        lockedPieceIds: [{ id: 4, dx: 1, dy: 1 }],
+      }),
     );
     expect(logMerge).toHaveBeenCalledWith(
       expect.objectContaining({ anchored: true, lockedDelta: 1 }),
@@ -695,6 +737,13 @@ describe("handleDrop", () => {
       queue: new GroupQueue(),
       wire: transparentWire(onePieceMeta.totalPieces, onePieceMeta.gridCols),
       groupIndex: new GroupIndex(WORLD_TILE_SIZE),
+      lockedPieces: new LockedPieceIndex(
+        onePieceMeta.gridCols,
+        onePieceMeta.gridRows,
+        onePieceMeta.pieceSize,
+        WORLD_TILE_SIZE,
+        onePieceMeta.totalPieces,
+      ),
       minimapGrid: testMinimapGrid(onePieceMeta.gridCols, onePieceMeta.pieceSize),
       lifecycle: { markCompleted },
     } as unknown as Context;
@@ -820,14 +869,14 @@ describe("group index maintenance", () => {
   it("re-keys a group to its new cell on a non-merging drop", async () => {
     const { ctx, state } = makeDropCtx();
     state.place(dropped(4, 500, 500), [4]);
-    ctx.groupIndex.set(4, 500, 500, { originX: 500, originY: 500, size: 1, locked: false });
+    ctx.groupIndex.set(4, 500, 500, { originX: 500, originY: 500, size: 1 });
     const oldCell = cellAt(500, 500);
 
     await handleDrop(ctx, client, 4, 50000, 50000);
 
     expect(ctx.groupIndex.collect([oldCell])).toEqual([]);
     expect(ctx.groupIndex.collect([cellAt(50000, 50000)])).toEqual([
-      { groupId: 4, worldX: 50000, worldY: 50000, size: 1, locked: false },
+      { groupId: 4, worldX: 50000, worldY: 50000, size: 1 },
     ]);
   });
 
@@ -835,8 +884,8 @@ describe("group index maintenance", () => {
     const { ctx, state } = makeDropCtx();
     state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
-    ctx.groupIndex.set(1, 200, 200, { originX: 200, originY: 200, size: 1, locked: false });
-    ctx.groupIndex.set(4, 200, 200, { originX: 200, originY: 200, size: 1, locked: false });
+    ctx.groupIndex.set(1, 200, 200, { originX: 200, originY: 200, size: 1 });
+    ctx.groupIndex.set(4, 200, 200, { originX: 200, originY: 200, size: 1 });
 
     await dispatch(
       ctx,
@@ -850,20 +899,24 @@ describe("group index maintenance", () => {
     expect(all.map((g) => g.groupId)).toEqual([1]);
   });
 
-  it("removes the group from the index when it anchors", async () => {
+  it("removes the group from the index when it anchors, and indexes it as locked instead", async () => {
     const { ctx, state } = makeDropCtx();
     // Drop near the origin so it frame-anchors.
     state.place(dropped(4, 3, -4), [4]);
-    ctx.groupIndex.set(4, 3, -4, { originX: 3, originY: -4, size: 1, locked: false });
+    ctx.groupIndex.set(4, 3, -4, { originX: 3, originY: -4, size: 1 });
 
     await handleDrop(ctx, client, 4, 3, -4);
 
     expect(state.groups.has(4)).toBe(false);
     expect(state.lockedPieces.has(4)).toBe(true);
-    // A locked piece has no group, so it is not indexed: closing the resync
-    // gap for already-locked regions on a fresh pan or reconnect is Stage 2's
-    // job (server-composited tiles / flat per-cell delivery), not Stage 1's.
+    // A locked piece has no group, so it is not in the group index...
     expect(ctx.groupIndex.cellOf(4)).toBeUndefined();
+    // ...but it is now findable through the locked-piece index instead, closing
+    // the resync gap Stage 1 alone left open (see DECISIONS). Indexed by its
+    // canonical solved cell (row 1, col 1 on this 3x3 grid, i.e. world (100,
+    // 100)), not the near-origin point it was dropped at.
+    expect(ctx.lockedPieces.isLocked(4)).toBe(true);
+    expect(ctx.lockedPieces.collect([cellAt(100, 100)])).toContain(4);
   });
 });
 
@@ -890,12 +943,15 @@ const DEFAULT_POLL_INTERVAL_MS = 5;
 function makeViewportCtx(overrides: Partial<Context> = {}) {
   const hub = new Hub(1 << 20, VIEWPORT_CELL, 256);
   const groupIndex = new GroupIndex(VIEWPORT_CELL);
+  // gridCols 100, gridRows 10 (1000 total pieces) so a piece id + 100 sits one
+  // row below the anchor (dx 0, dy 1); pieceSize 100 gives the locked-piece
+  // index real (if unused by most tests) cell geometry to work with.
+  const lockedPieces = new LockedPieceIndex(100, 10, 100, VIEWPORT_CELL, 1000);
   const getGroupPieces = vi.fn(async (id: number) => [id, id + 100]);
-  // gridCols 100 so a piece id + 100 sits one row below the anchor (dx 0, dy 1),
-  // with the no-op pieceSize 0 keeping anchor positions equal to the origins.
   const ctx = {
     hub,
     groupIndex,
+    lockedPieces,
     state: { getGroupPieces },
     wire: transparentWire(1000, 100),
     worldTileSize: VIEWPORT_CELL,
@@ -904,11 +960,11 @@ function makeViewportCtx(overrides: Partial<Context> = {}) {
     regionStreamPollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     ...overrides,
   } as unknown as Context;
-  return { ctx, hub, groupIndex, getGroupPieces };
+  return { ctx, hub, groupIndex, lockedPieces, getGroupPieces };
 }
 
-// A singleton index payload: origin equals body min, size 1, unlocked.
-const single = (x: number, y: number) => ({ originX: x, originY: y, size: 1, locked: false });
+// A singleton index payload: origin equals body min, size 1.
+const single = (x: number, y: number) => ({ originX: x, originY: y, size: 1 });
 
 function viewportClient(): { client: Client; ws: FakeWs } {
   const ws = new FakeWs();
@@ -927,7 +983,6 @@ type RegionGroupMsg = {
   worldX: number;
   worldY: number;
   size: number;
-  locked: boolean;
   pieces: WirePiece[];
 };
 
@@ -973,7 +1028,6 @@ describe("handleViewport region_state construction", () => {
         worldX: 1500,
         worldY: 1500,
         size: 1,
-        locked: false,
         pieces: [{ id: 5, dx: 0, dy: 0 }],
       },
     ]);
@@ -982,7 +1036,7 @@ describe("handleViewport region_state construction", () => {
 
   it("reads the member piece ids from Redis for a size > 1 group", async () => {
     const { ctx, groupIndex, getGroupPieces } = makeViewportCtx();
-    groupIndex.set(8, 1500, 1500, { originX: 1500, originY: 1500, size: 2, locked: true });
+    groupIndex.set(8, 1500, 1500, { originX: 1500, originY: 1500, size: 2 });
     const { client, ws } = viewportClient();
 
     await handleViewport(ctx, client, {
@@ -1000,13 +1054,48 @@ describe("handleViewport region_state construction", () => {
         worldX: 1500,
         worldY: 1500,
         size: 2,
-        locked: true,
         pieces: [
           { id: 8, dx: 0, dy: 0 },
           { id: 108, dx: 0, dy: 1 },
         ],
       },
     ]);
+  });
+
+  it("includes locked pieces from the entered cells alongside unlocked groups", async () => {
+    const { ctx, groupIndex, lockedPieces } = makeViewportCtx();
+    groupIndex.set(5, 1500, 1500, single(1500, 1500)); // cell (1,1)
+    // Piece 6 sits at grid (row 0, col 6) -> world (600, 0), cell (0,0) at
+    // VIEWPORT_CELL 1000, a different cell from the loose group above.
+    lockedPieces.lock([6]);
+    const { client, ws } = viewportClient();
+
+    await handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 0,
+      worldY: 0,
+      worldW: 2000,
+      worldH: 2000,
+    });
+
+    const msg = lastRegionStateMsg(ws);
+    expect(msg?.groups.map((g) => g.groupId)).toEqual([5]);
+    // Encoded frame-relative, same WirePiece shape a region_state group uses:
+    // piece 6 sits at grid col 6, row 0.
+    expect(msg?.lockedPieceIds).toEqual([{ id: 6, dx: 6, dy: 0 }]);
+  });
+
+  it("sends an empty lockedPieceIds array when no locked piece is in range", async () => {
+    const { ctx } = makeViewportCtx();
+    const { client, ws } = viewportClient();
+    await handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 0,
+      worldY: 0,
+      worldW: 500,
+      worldH: 500,
+    });
+    expect(lastRegionStateMsg(ws)?.lockedPieceIds).toEqual([]);
   });
 
   it("streams only newly entered cells, not cells the client already had", async () => {

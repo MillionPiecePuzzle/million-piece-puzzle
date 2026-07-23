@@ -24,7 +24,7 @@ import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, unpackCell, type CellKey } 
 import { LodTileLayer } from "./lodTiles";
 import { LoadingOverlay } from "./loadingOverlay";
 import { resyncShouldApply } from "./resync";
-import { resolveSnap } from "./membership";
+import { resolveSnap, resolveAnchor } from "./membership";
 import {
   cellContentPending,
   classifyTile,
@@ -46,7 +46,7 @@ export type MinimapPiece = { x: number; y: number; locked: boolean };
 // A group as build()'s initial pass needs it: always empty in practice, since
 // welcome carries no board (groups stream in later via applyRegionState), kept
 // only so the pass has something typed to iterate.
-export type InitialGroupSpec = { id: number; worldX: number; worldY: number; locked: boolean };
+export type InitialGroupSpec = { id: number; worldX: number; worldY: number };
 
 // Everything the minimap needs to draw, pulled from the stage on demand. `grid`
 // is the server-computed global density overview (decoupled from the now-partial
@@ -101,6 +101,9 @@ type PieceNode = {
   texture: Texture;
 };
 
+// A group is always loose: a locked piece has no group at all (see DECISIONS:
+// locked pieces stop being a group) and is never represented as a GroupNode,
+// so this type carries no locked field.
 type GroupNode = {
   id: number;
   container: Container;
@@ -119,10 +122,25 @@ type GroupNode = {
   // pass while a permanently missing asset is accepted as partial after a few
   // tries instead of re-fetching forever. Reset to 0 on a complete hydrate.
   hydrateAttempts: number;
-  locked: boolean;
   worldX: number;
   worldY: number;
   localBounds: Aabb;
+};
+
+// A locked piece, flat and independent of any group: dx/dy are its grid-unit
+// offset from the frame origin (its own solved (col, row)), which doubles as
+// its absolute world position since the layer holding it sits at world (0, 0).
+// node is null until its texture is fetched; a locked piece is otherwise fully
+// described (position, cell membership) with no geometry or texture, the same
+// "described while dehydrated" property GroupNode has.
+type LockedPieceSlot = {
+  dx: number;
+  dy: number;
+  localBounds: Aabb;
+  node: PieceNode | null;
+  // Fetch in flight, same purpose as GroupNode.hydrating: guards enqueueLockedHydrate
+  // against re-queueing a piece whose texture is already being fetched.
+  hydrating: boolean;
 };
 
 type HeldState = {
@@ -318,6 +336,14 @@ export class PuzzleStage {
   private world: Container | null = null;
   private groups = new Map<number, GroupNode>();
   private pieceToGroup = new Map<number, number>();
+  // Locked pieces, flat and independent of groups (see LockedPieceSlot). Piece
+  // ids and group ids share one numeric space (a singleton group's id equals
+  // its one piece's id), so this is a separate map, never merged with `groups`.
+  private lockedPieces = new Map<number, LockedPieceSlot>();
+  // Spatial index over the same LOD tile grid as groupGrid, for bakeTile and the
+  // loading-cell scan to find locked pieces per cell the same way groupGrid
+  // finds groups.
+  private lockedPieceGrid = new GroupGrid(LOD_TILE_WORLD);
   private camera = { x: 0, y: 0, zoom: 1 };
   private worldSize: { w: number; h: number } | null = null;
   // Hard-limit rectangle, received from the server in build() so every client
@@ -330,10 +356,13 @@ export class PuzzleStage {
   // World-space dark fill covering everything outside the play zone.
   private backdrop: Graphics | null = null;
   // Fixed z-order layers under world. Stacking is the child order of world
-  // (locked < unlocked < lod < remote-held < local-held), so a group's depth is
-  // which layer holds it, not a per-container zIndex. This keeps world free of
-  // sortableChildren, whose sort would be O(N log N) over the whole board.
-  private lockedLayer: Container | null = null;
+  // (locked-pieces < unlocked < lod < remote-held < local-held), so a node's
+  // depth is which layer holds it, not a per-container zIndex. This keeps
+  // world free of sortableChildren, whose sort would be O(N log N) over the
+  // whole board. lockedPiecesLayer holds flat locked PieceNode containers
+  // directly (no wrapping GroupNode: a group is always loose), positioned at
+  // their absolute world coordinates since the layer itself sits at (0, 0).
+  private lockedPiecesLayer: Container | null = null;
   private unlockedLayer: Container | null = null;
   private remoteHeldLayer: Container | null = null;
   private localHeldLayer: Container | null = null;
@@ -437,6 +466,10 @@ export class PuzzleStage {
   private groupGrid = new GroupGrid(LOD_TILE_WORLD);
   private lastVisible = new Set<number>();
   private lodHidden = new Set<number>();
+  // Same candidate-diff bookkeeping as above, for locked pieces (see
+  // lockedPieceGrid).
+  private lastVisibleLocked = new Set<number>();
+  private lockedPieceLodHidden = new Set<number>();
 
   // Zoom-out LOD tile cache. lodActive means baked tiles are shown; lodWarm means
   // the bake queue is filling tiles in the background (warm band or active).
@@ -508,6 +541,14 @@ export class PuzzleStage {
   private hydrateQueue: number[] = [];
   private hydrateQueued = new Set<number>();
   private inFlight = 0;
+  // Same residency/hydration bookkeeping as above, one level down (piece
+  // instead of group): a locked piece is binary (fetched or not), never
+  // partial, so there is no per-entry hydrateAttempts or inner batch fetch.
+  // Shares this.residentLru so eviction orders both populations by one clock.
+  private lockedResident = new Map<number, number>();
+  private lockedHydrateQueue: number[] = [];
+  private lockedHydrateQueued = new Set<number>();
+  private lockedInFlight = 0;
   private initialFill: {
     resolve: () => void;
     progress: ((loaded: number, total: number) => void) | undefined;
@@ -644,15 +685,23 @@ export class PuzzleStage {
     world.addChild(frame);
     this.frame = frame;
 
-    this.lockedLayer = new Container();
+    this.lockedPiecesLayer = new Container();
     this.unlockedLayer = new Container();
     this.remoteHeldLayer = new Container();
     this.localHeldLayer = new Container();
-    world.addChild(this.lockedLayer, this.unlockedLayer, this.remoteHeldLayer, this.localHeldLayer);
+    world.addChild(
+      this.lockedPiecesLayer,
+      this.unlockedLayer,
+      this.remoteHeldLayer,
+      this.localHeldLayer,
+    );
 
     this.groupGrid.clear();
+    this.lockedPieceGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
+    this.lastVisibleLocked.clear();
+    this.lockedPieceLodHidden.clear();
     this.cellDirtyMs.clear();
     this.knownCells.clear();
     this.coverageSeen = false;
@@ -697,7 +746,6 @@ export class PuzzleStage {
             groupId: group.id,
             worldX: group.worldX,
             worldY: group.worldY,
-            locked: group.locked,
             pieces: [],
           });
         },
@@ -763,16 +811,16 @@ export class PuzzleStage {
 
   // Build one dehydrated group node from construction data: an empty container at
   // the group ORIGIN (pieces render at their canonical offset inside it), its
-  // membership and geometry-derived bounds, the locked/unlocked layer, the
-  // spatial-index entry, interactivity, and the piece -> group map. No textures
-  // are fetched; the streaming engine hydrates the pieces when in view. Shared by
-  // build() (an empty no-op now the welcome carries no board) and applyRegionState
-  // (each unknown group in a viewport-scoped construction stream).
+  // membership and geometry-derived bounds, the unlocked layer (a group is
+  // always loose), the spatial-index entry, interactivity, and the piece ->
+  // group map. No textures are fetched; the streaming engine hydrates the
+  // pieces when in view. Shared by build() (an empty no-op now the welcome
+  // carries no board) and applyRegionState (each unknown group in a
+  // viewport-scoped construction stream).
   private constructGroup(spec: {
     groupId: number;
     worldX: number;
     worldY: number;
-    locked: boolean;
     pieces: readonly WirePiece[];
   }): GroupNode {
     const gc = new Container();
@@ -788,17 +836,41 @@ export class PuzzleStage {
       hydrated: false,
       hydrating: false,
       hydrateAttempts: 0,
-      locked: spec.locked,
       worldX: spec.worldX,
       worldY: spec.worldY,
       localBounds: this.boundsForMembers(members),
     };
-    (spec.locked ? this.lockedLayer! : this.unlockedLayer!).addChild(gc);
+    this.unlockedLayer!.addChild(gc);
     this.groups.set(spec.groupId, node);
     for (const pieceId of members.keys()) this.pieceToGroup.set(pieceId, spec.groupId);
     this.groupGrid.upsert(node.id, this.worldAabb(node));
     this.applyGroupInteractivity(node);
     return node;
+  }
+
+  // Build one not-yet-hydrated locked-piece slot from its frame-relative
+  // offset: its absolute world bounds (no origin translation, unlike a group,
+  // since the layer holding it sits at world (0, 0)) and its spatial-index
+  // entry. No texture is fetched here; residency (reconcileLockedPieces) does
+  // that once the piece enters the hydrate ring, the same lazy-fetch contract
+  // constructGroup's dehydrated node has. Shared by applyRegionState (streamed
+  // construction) and applyAnchor (a live anchoring snap with no salvageable
+  // hydrated node to reuse).
+  private constructLockedPiece(wp: WirePiece): LockedPieceSlot {
+    const pieceSize = this.manifest?.pieceSize ?? 0;
+    const margin = this.manifest?.margin ?? 0;
+    const localBounds = pieceLocalBounds(wp.dx * pieceSize, wp.dy * pieceSize, pieceSize, margin);
+    const slot: LockedPieceSlot = {
+      dx: wp.dx,
+      dy: wp.dy,
+      localBounds,
+      node: null,
+      hydrating: false,
+    };
+    this.lockedPieces.set(wp.id, slot);
+    this.lockedPieceGrid.upsert(wp.id, localBounds);
+    this.markDirty(localBounds);
+    return slot;
   }
 
   // Move one piece's membership to a host group, placing it at its new anchor
@@ -910,15 +982,19 @@ export class PuzzleStage {
     this.app?.destroy(true, { children: true, texture: true });
     this.app = null;
     this.world = null;
-    this.lockedLayer = null;
+    this.lockedPiecesLayer = null;
     this.unlockedLayer = null;
     this.remoteHeldLayer = null;
     this.localHeldLayer = null;
     this.groups.clear();
     this.pieceToGroup.clear();
     this.groupGrid.clear();
+    this.lockedPieces.clear();
+    this.lockedPieceGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
+    this.lastVisibleLocked.clear();
+    this.lockedPieceLodHidden.clear();
     this.effectNodes.clear();
     this.heldGroupIds.clear();
     this.cellDirtyMs.clear();
@@ -948,6 +1024,11 @@ export class PuzzleStage {
         if (url) void Assets.unload(url);
       }
     }
+    for (const slot of this.lockedPieces.values()) {
+      if (!slot.node) continue;
+      const url = this.pieceUrl(slot.node.id);
+      if (url) void Assets.unload(url);
+    }
   }
 
   // Clears the streaming queues and resolves any pending build() promise so a
@@ -957,6 +1038,10 @@ export class PuzzleStage {
     this.hydrateQueue = [];
     this.hydrateQueued.clear();
     this.inFlight = 0;
+    this.lockedResident.clear();
+    this.lockedHydrateQueue = [];
+    this.lockedHydrateQueued.clear();
+    this.lockedInFlight = 0;
     if (this.initialFill) {
       const fill = this.initialFill;
       this.initialFill = null;
@@ -997,9 +1082,13 @@ export class PuzzleStage {
     this.groupGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
+    this.lastVisibleLocked.clear();
+    this.lockedPieceLodHidden.clear();
     this.effectNodes.clear();
     this.groups.clear();
     this.pieceToGroup.clear();
+    this.lockedPieces.clear();
+    this.lockedPieceGrid.clear();
     // A carry in progress is dropped by the rebuild: the highlight was already
     // freed with the world above, so just clear the carry state and hide the hint.
     this.clearCarryIdle();
@@ -1018,7 +1107,7 @@ export class PuzzleStage {
     this.playZone = null;
     this.frame = null;
     this.backdrop = null;
-    this.lockedLayer = null;
+    this.lockedPiecesLayer = null;
     this.unlockedLayer = null;
     this.remoteHeldLayer = null;
     this.localHeldLayer = null;
@@ -1085,7 +1174,7 @@ export class PuzzleStage {
     // was never baked there, so only its new resting tile (releaseGroupHeld) dirties.
     this.moveGroup(node, worldX, worldY);
     if (userId !== this.localUserId) {
-      this.placeGroupInLayer(node, this.restingLayer(node));
+      this.placeGroupInLayer(node, this.unlockedLayer);
     }
     this.releaseGroupHeld(groupId);
   }
@@ -1150,7 +1239,11 @@ export class PuzzleStage {
   // update), and always additively reconcile membership and locked state, the
   // heal channel a partial board needs (a snap that arrived while the host was
   // unknown, or membership the client under-counts).
-  applyRegionState(entries: readonly RegionGroup[], coverage?: Aabb): void {
+  applyRegionState(
+    entries: readonly RegionGroup[],
+    lockedPieceIds: readonly WirePiece[],
+    coverage?: Aabb,
+  ): void {
     if (!this.world) return;
     // The acked rect covers a region whose groups have all streamed in, so every
     // cell it spans is now "known": a cell in the play zone but not yet known has
@@ -1167,7 +1260,6 @@ export class PuzzleStage {
           groupId: e.groupId,
           worldX: e.worldX,
           worldY: e.worldY,
-          locked: e.locked,
           pieces: e.pieces,
         });
         // Record the new group's tiles dirty: a cell entered at a deep zoom-out is
@@ -1189,18 +1281,16 @@ export class PuzzleStage {
         this.movePieceMembership(wp.id, { dx: wp.dx, dy: wp.dy }, node);
         membershipChanged = true;
       }
-      if (e.locked !== node.locked) {
-        node.locked = e.locked;
-        this.placeGroupInLayer(node, this.restingLayer(node));
-        this.applyGroupInteractivity(node);
-        membershipChanged = true;
-      }
       if (membershipChanged) {
         node.localBounds = this.boundsForMembers(node.members);
         node.hydrated = node.pieces.length >= node.members.size;
         this.markDirty(this.worldAabb(node));
         this.groupGrid.upsert(node.id, this.worldAabb(node));
       }
+    }
+    for (const wp of lockedPieceIds) {
+      if (this.lockedPieces.has(wp.id)) continue;
+      this.constructLockedPiece(wp);
     }
   }
 
@@ -1228,10 +1318,20 @@ export class PuzzleStage {
     worldX: number,
     worldY: number,
     anchored: boolean,
+    lockedPieceIds: readonly WirePiece[],
     // When false, applies the snap without the bump/flash/burst animations (the
     // board lands in its resulting state instantly); live snaps animate.
     animate = true,
   ): void {
+    // An anchoring merge dissolves every group it touches, whole, into flat
+    // locked pieces: newGroupId/addedPieceIds describe a group the server has
+    // already deleted in the same transaction, so they carry no useful
+    // information here (see the field comment on SSnap). applyAnchor derives
+    // everything it needs from lockedPieceIds instead.
+    if (anchored) {
+      this.applyAnchor(lockedPieceIds, animate);
+      return;
+    }
     // Partial-board-safe: under protocol v4 a contributor only builds visited
     // regions, so a remote merge can straddle the boundary. resolveSnap classifies
     // the host (known/unknown) and the KNOWN source groups to remove, from the
@@ -1261,12 +1361,6 @@ export class PuzzleStage {
 
     const sourceGroupIds = plan.removeGroups;
     const hostOldRect = this.worldAabb(host);
-    const preLockedPieceIds = new Set<number>();
-    if (host.locked) for (const p of host.pieces) preLockedPieceIds.add(p.id);
-    for (const gid of sourceGroupIds) {
-      const src = this.groups.get(gid);
-      if (src?.locked) for (const p of src.pieces) preLockedPieceIds.add(p.id);
-    }
     const addedSet = new Set(addedPieceIds.map((p) => p.id));
 
     // Reparent each added piece into the host at its anchor offset. Membership
@@ -1280,7 +1374,6 @@ export class PuzzleStage {
     host.hydrated = host.pieces.length >= host.members.size;
     this.markDirty(hostOldRect);
     this.moveGroup(host, worldX, worldY);
-    host.locked = host.locked || anchored;
     this.setGroupHeldVisual(host, false);
     this.markDirty(this.worldAabb(host));
 
@@ -1304,8 +1397,7 @@ export class PuzzleStage {
     if (animate) {
       let bursts = 0;
       for (const piece of host.pieces) {
-        if (preLockedPieceIds.has(piece.id)) continue;
-        if (addedSet.has(piece.id) || host.locked) {
+        if (addedSet.has(piece.id)) {
           this.playSnapAnimation(piece);
           if (bursts < SNAP_BURST_MAX_PIECES) {
             this.playSnapBurst(piece);
@@ -1314,6 +1406,84 @@ export class PuzzleStage {
         }
       }
     }
+  }
+
+  // An anchoring merge: every piece in lockedPieceIds just locked, and every
+  // group any of them belonged to has already been deleted server-side (see
+  // applySnap). resolveAnchor groups the flat list by each piece's current
+  // known owner. A member with an already-hydrated PieceNode is salvaged
+  // straight out of its dying group (reusing its texture, no re-fetch, no
+  // flicker for a piece the player likely just dragged); anything else
+  // (unhydrated member, or no known owner at all) becomes a fresh locked-piece
+  // slot that fetches lazily like any other, once it enters the hydrate ring.
+  private applyAnchor(lockedPieceIds: readonly WirePiece[], animate: boolean): void {
+    const plan = resolveAnchor(lockedPieceIds, this.pieceToGroup);
+    const salvaged: PieceNode[] = [];
+
+    for (const [gid, members] of plan.byGroup) {
+      const group = this.groups.get(gid);
+      if (!group) continue;
+      this.markDirty(this.worldAabb(group));
+      for (const wp of members) {
+        this.pieceToGroup.delete(wp.id);
+        group.members.delete(wp.id);
+        const piece = group.pieces.find((p) => p.id === wp.id);
+        if (!piece) {
+          this.constructLockedPiece(wp);
+          this.enqueueLockedHydrate(wp.id);
+          continue;
+        }
+        group.container.removeChild(piece.container);
+        group.pieces = group.pieces.filter((p) => p.id !== wp.id);
+        this.salvageLockedPiece(piece, wp);
+        salvaged.push(piece);
+      }
+      // The merge always dissolves a touched group in full (every member it had
+      // is in lockedPieceIds), so nothing is left in it by this point.
+      if (this.held?.groupId === gid) this.held = null;
+      // The merge confirms whichever side this client dropped, so lift the
+      // in-flight guard (destroyGroup/forgetGroup clears heldGroupIds, not this).
+      this.pendingDrops.delete(gid);
+      this.destroyGroup(gid);
+    }
+
+    for (const wp of plan.ungrouped) {
+      if (this.lockedPieces.has(wp.id)) continue;
+      this.constructLockedPiece(wp);
+      this.enqueueLockedHydrate(wp.id);
+    }
+
+    if (animate) {
+      let bursts = 0;
+      for (const piece of salvaged) {
+        this.playSnapAnimation(piece);
+        if (bursts < SNAP_BURST_MAX_PIECES) {
+          this.playSnapBurst(piece);
+          bursts++;
+        }
+      }
+    }
+  }
+
+  // Reparents an already-hydrated piece node straight from its dying group into
+  // the flat locked layer at its frame-relative position, registering it in
+  // every locked-piece index the fresh-fetch path would have. No texture
+  // re-fetch, no destroy/rebuild flicker.
+  private salvageLockedPiece(piece: PieceNode, wp: WirePiece): void {
+    const pieceSize = this.manifest?.pieceSize ?? 0;
+    const margin = this.manifest?.margin ?? 0;
+    this.placePieceInContainer(piece, { dx: wp.dx, dy: wp.dy });
+    this.lockedPiecesLayer?.addChild(piece.container);
+    const localBounds = pieceLocalBounds(wp.dx * pieceSize, wp.dy * pieceSize, pieceSize, margin);
+    this.lockedPieces.set(wp.id, {
+      dx: wp.dx,
+      dy: wp.dy,
+      localBounds,
+      node: piece,
+      hydrating: false,
+    });
+    this.lockedPieceGrid.upsert(wp.id, localBounds);
+    this.lockedResident.set(wp.id, ++this.residentLru);
   }
 
   // Frees and forgets a group entirely: dirties its tiles, dehydrates its
@@ -1535,7 +1705,7 @@ export class PuzzleStage {
   // ----- internals -----
 
   private applyGroupInteractivity(node: GroupNode): void {
-    const interactive = this.mode === "contributor" && !node.locked;
+    const interactive = this.mode === "contributor";
     node.container.eventMode = interactive ? "static" : "none";
     node.container.cursor = interactive ? "grab" : "default";
     node.container.off("pointerdown");
@@ -1583,9 +1753,11 @@ export class PuzzleStage {
   // its own silhouette covers the point it is by definition the topmost grabbable
   // and wins immediately. Otherwise fall through to the clusters beneath it,
   // picking the one highest in the unlocked layer's z-order, so a press on a top
-  // piece's transparent margin still grabs the opaque piece it overlaps.
+  // piece's transparent margin still grabs the opaque piece it overlaps. A
+  // locked piece is never a candidate here at all: it lives outside groupGrid
+  // entirely (see lockedPieceGrid), not merely filtered out.
   private grabTargetAt(worldX: number, worldY: number, hit: GroupNode): GroupNode | null {
-    if (!hit.locked && this.pointerOnPiece(hit, worldX, worldY)) return hit;
+    if (this.pointerOnPiece(hit, worldX, worldY)) return hit;
     const layer = this.unlockedLayer;
     if (!layer) return null;
     const point: Aabb = { minX: worldX, minY: worldY, maxX: worldX, maxY: worldY };
@@ -1593,7 +1765,7 @@ export class PuzzleStage {
     let bestZ = -1;
     for (const id of this.groupGrid.queryRect(point)) {
       const candidate = this.groups.get(id);
-      if (!candidate || candidate === hit || candidate.locked) continue;
+      if (!candidate || candidate === hit) continue;
       if (candidate.container.parent !== layer) continue;
       if (!this.pointerOnPiece(candidate, worldX, worldY)) continue;
       const z = layer.getChildIndex(candidate.container);
@@ -1844,7 +2016,7 @@ export class PuzzleStage {
     if (this.held) return;
     if (this.lastPointerDownGroupId === null) return;
     const node = this.groups.get(this.lastPointerDownGroupId);
-    if (!node || node.locked) return;
+    if (!node) return;
     this.beginCarry(node);
   }
 
@@ -2008,13 +2180,7 @@ export class PuzzleStage {
         half + (scale - 1) * (pieceCy - cy),
       );
     }
-    this.placeGroupInLayer(node, held ? this.localHeldLayer : this.restingLayer(node));
-  }
-
-  // Layer a group returns to when it is not held: locked clusters drop to the
-  // base layer, loose clusters stay above them.
-  private restingLayer(node: GroupNode): Container | null {
-    return node.locked ? this.lockedLayer : this.unlockedLayer;
+    this.placeGroupInLayer(node, held ? this.localHeldLayer : this.unlockedLayer);
   }
 
   // Reparents a group's container into a z-order layer. A no-op when the group
@@ -2129,13 +2295,27 @@ export class PuzzleStage {
       for (const off of group.members.values()) {
         const x = group.worldX + off.dx * pieceSize + half;
         const y = group.worldY + off.dy * pieceSize + half;
-        pieces.push({ x, y, locked: group.locked });
+        pieces.push({ x, y, locked: false });
         if (grid) {
           const c = Math.floor((x - grid.originX) / grid.cellW);
           const r = Math.floor((y - grid.originY) / grid.cellH);
           if (c >= 0 && c < grid.cols && r >= 0 && r < grid.rows) {
             knownCells.add(r * grid.cols + c);
           }
+        }
+      }
+    }
+    // Locked pieces have no group: dx/dy are already frame-relative, so no
+    // group-origin offset applies (see LockedPieceSlot).
+    for (const slot of this.lockedPieces.values()) {
+      const x = slot.dx * pieceSize + half;
+      const y = slot.dy * pieceSize + half;
+      pieces.push({ x, y, locked: true });
+      if (grid) {
+        const c = Math.floor((x - grid.originX) / grid.cellW);
+        const r = Math.floor((y - grid.originY) / grid.cellH);
+        if (c >= 0 && c < grid.cols && r >= 0 && r < grid.rows) {
+          knownCells.add(r * grid.cols + c);
         }
       }
     }
@@ -2166,24 +2346,38 @@ export class PuzzleStage {
     for (const key of cellKeysForRect(this.playZone, LOD_TILE_WORLD)) {
       const { cx, cy } = unpackCell(key);
       const groups = this.groupGrid.cellGroups(key);
-      const hasGroups = groups !== undefined && groups.size > 0;
+      const lockedIds = this.lockedPieceGrid.cellGroups(key);
+      const hasContent =
+        (groups !== undefined && groups.size > 0) ||
+        (lockedIds !== undefined && lockedIds.size > 0);
       const known = this.knownCells.has(key);
       // Only matters zoomed in; classifyTile ignores it while the LOD tile's own
       // ready flag governs instead.
       let allHydrated = true;
       let anyHydrating = false;
-      if (!this.lodActive && groups && groups.size > 0 && known) {
-        for (const gid of groups) {
-          const node = this.groups.get(gid);
-          if (node && !node.hydrated) {
-            allHydrated = false;
-            if (node.hydrating || this.hydrateQueued.has(gid)) anyHydrating = true;
+      if (!this.lodActive && hasContent && known) {
+        if (groups) {
+          for (const gid of groups) {
+            const node = this.groups.get(gid);
+            if (node && !node.hydrated) {
+              allHydrated = false;
+              if (node.hydrating || this.hydrateQueued.has(gid)) anyHydrating = true;
+            }
+          }
+        }
+        if (lockedIds) {
+          for (const id of lockedIds) {
+            const slot = this.lockedPieces.get(id);
+            if (slot && !slot.node) {
+              allHydrated = false;
+              if (this.lockedHydrateQueued.has(id)) anyHydrating = true;
+            }
           }
         }
       }
       const state = classifyTile({
         known,
-        hasGroups,
+        hasGroups: hasContent,
         lodActive: this.lodActive,
         tileReady: this.lodLayer?.isReady(key) ?? false,
         allHydrated,
@@ -2224,6 +2418,9 @@ export class PuzzleStage {
     for (const gid of this.resident.keys()) {
       const node = this.groups.get(gid);
       if (node) total += node.pieces.length;
+    }
+    for (const id of this.lockedResident.keys()) {
+      if (this.lockedPieces.get(id)?.node) total += 1;
     }
     return total;
   }
@@ -2330,10 +2527,14 @@ export class PuzzleStage {
 
     // Candidate pass (cull + residency + LOD visibility) when the view moved, a cell
     // was dirtied, or the LOD band just flipped; an idle, settled frame skips it.
-    if (moved || hadDirty || lodChanged) this.reconcileGroups();
+    if (moved || hadDirty || lodChanged) {
+      this.reconcileGroups();
+      this.reconcileLockedPieces();
+    }
 
     // Drain hydration and the bake budget, then trim the resident tile set.
     this.pumpHydration();
+    this.pumpLockedHydration();
     if (this.lodLayer && (this.lodWarm || this.lodActive)) {
       if (this.initialFill && this.lodActive) {
         // Under the loading cover, bake the whole viewport cover each frame (bounded
@@ -2717,6 +2918,210 @@ export class PuzzleStage {
     if (this.resident.has(gid)) this.resident.set(gid, ++this.residentLru);
   }
 
+  // ----- locked pieces (flat, independent of any group) -----
+  //
+  // Mirrors the group residency/hydration/cull machinery above one level down
+  // (piece instead of group), deliberately kept as a parallel, separate set of
+  // methods rather than generalized onto one shared mechanism: a locked piece
+  // has no membership, no merge, no hold/drag, and is binary (fetched or not)
+  // rather than partially hydrated, so forcing it through the group path would
+  // add branches to every one of those for a case that never applies to it.
+
+  // Same per-frame candidate pass as reconcileGroups: cull and decide
+  // residency for every locked piece in the keep ring, then re-cull and evict
+  // whichever left it since last frame.
+  private reconcileLockedPieces(): void {
+    const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
+    if (!keepRing) return;
+    const now = performance.now();
+    const candidates = this.lockedPieceGrid.queryRect(keepRing);
+    for (const id of candidates) {
+      const slot = this.lockedPieces.get(id);
+      if (!slot) continue;
+      this.cullLockedPiece(slot);
+      this.reconcileLockedPieceResidency(id, slot, now);
+      if (this.lodActive) this.applyLockedPieceLodVisibility(id, slot);
+    }
+    for (const id of this.lastVisibleLocked) {
+      if (candidates.has(id)) continue;
+      const slot = this.lockedPieces.get(id);
+      if (!slot?.node) continue;
+      slot.node.container.culled = true;
+      if (this.lockedPieceLodHidden.delete(id)) slot.node.container.visible = true;
+    }
+    this.lastVisibleLocked = candidates;
+    for (const id of [...this.lockedResident.keys(), ...this.lockedHydrateQueued]) {
+      if (candidates.has(id)) continue;
+      const slot = this.lockedPieces.get(id);
+      if (!slot) {
+        this.lockedResident.delete(id);
+        this.lockedHydrateQueued.delete(id);
+        continue;
+      }
+      this.dehydrateLockedPiece(id, slot);
+    }
+  }
+
+  // Culls one locked piece against the cached viewport. Its local bounds are
+  // already absolute world coordinates (the layer holding it sits at world
+  // (0, 0)), unlike a group's, which are relative to a live origin.
+  private cullLockedPiece(slot: LockedPieceSlot): void {
+    const view = this.viewport;
+    if (!view || !slot.node) return;
+    slot.node.container.culled = !boundsVisible(slot.localBounds, 0, 0, view);
+  }
+
+  private lockedPieceInRing(slot: LockedPieceSlot, frac: number): boolean {
+    const ring = this.viewportRing(frac);
+    if (!ring) return false;
+    const b = slot.localBounds;
+    return b.maxX >= ring.minX && b.minX <= ring.maxX && b.maxY >= ring.minY && b.minY <= ring.maxY;
+  }
+
+  private reconcileLockedPieceResidency(id: number, slot: LockedPieceSlot, now: number): void {
+    const inRing = this.lockedPieceInRing(slot, HYDRATE_MARGIN_FRAC);
+    if (residencyDecision(inRing, inRing && this.isLockedPieceCoveredCold(id, now)) !== "hydrate")
+      return;
+    this.enqueueLockedHydrate(id);
+    this.touchLockedResident(id);
+  }
+
+  // Bump a resident locked piece's LRU stamp, sharing the group pool's own
+  // counter so the budget evictor can order both populations by one clock.
+  private touchLockedResident(id: number): void {
+    if (this.lockedResident.has(id)) this.lockedResident.set(id, ++this.residentLru);
+  }
+
+  // Same "covered by a baked tile, nothing recently changed" test as
+  // isCoveredCold, minus the liveness check: a locked piece is never held or
+  // dragged, so it is never "live" in that sense.
+  private isLockedPieceCoveredCold(id: number, now: number): boolean {
+    return (
+      this.initialFill === null &&
+      this.lodActive &&
+      this.allLockedCellsReady(id) &&
+      !this.isLockedPieceHot(id, now)
+    );
+  }
+
+  private allLockedCellsReady(id: number): boolean {
+    if (!this.lodLayer) return false;
+    for (const key of this.lockedPieceGrid.cellsOf(id)) {
+      if (!this.lodLayer.isReady(key)) return false;
+    }
+    return true;
+  }
+
+  private isLockedPieceHot(id: number, now: number): boolean {
+    for (const key of this.lockedPieceGrid.cellsOf(id)) {
+      if (this.isCellHot(key, now)) return true;
+    }
+    return false;
+  }
+
+  // Gapless fill for a locked piece, mirroring applyGroupLodVisibility: renders
+  // live until every tile it occupies is baked, then hides.
+  private applyLockedPieceLodVisibility(id: number, slot: LockedPieceSlot): void {
+    if (!slot.node) return;
+    const live = !this.allLockedCellsReady(id);
+    slot.node.container.visible = live;
+    if (live) this.lockedPieceLodHidden.delete(id);
+    else this.lockedPieceLodHidden.add(id);
+  }
+
+  // Dedup rationale mirrors enqueueHydrate: guarded on lockedHydrateQueued and
+  // the slot's own hydrating/node state, not on lockedResident (a resident slot
+  // can be left unhydrated by a budget eviction and needs to be re-enqueued).
+  private enqueueLockedHydrate(id: number): void {
+    if (this.lockedHydrateQueued.has(id)) return;
+    const slot = this.lockedPieces.get(id);
+    if (!slot || slot.node || slot.hydrating) return;
+    this.lockedHydrateQueued.add(id);
+    this.lockedHydrateQueue.push(id);
+  }
+
+  // Starts queued locked-piece loads up to the in-flight cap, same pacing and
+  // viewport-proximity reorder as pumpHydration.
+  private pumpLockedHydration(): void {
+    const capacity = HYDRATE_MAX_INFLIGHT - this.lockedInFlight;
+    if (capacity > 0 && this.lockedHydrateQueue.length > capacity) {
+      this.reorderLockedHydrateQueue();
+    }
+    while (this.lockedInFlight < HYDRATE_MAX_INFLIGHT && this.lockedHydrateQueue.length > 0) {
+      const id = this.lockedHydrateQueue.pop();
+      if (id === undefined) break;
+      if (!this.lockedHydrateQueued.has(id)) continue;
+      this.lockedHydrateQueued.delete(id);
+      const slot = this.lockedPieces.get(id);
+      if (!slot || slot.node || slot.hydrating) continue;
+      this.lockedInFlight++;
+      void this.hydrateLockedPiece(id, slot).finally(() => {
+        this.lockedInFlight--;
+      });
+    }
+  }
+
+  private reorderLockedHydrateQueue(): void {
+    const view = this.viewport;
+    if (!view) return;
+    const cx = view.worldX + view.worldW / 2;
+    const cy = view.worldY + view.worldH / 2;
+    const live = this.lockedHydrateQueue.filter((id) => this.lockedHydrateQueued.has(id));
+    live.sort(
+      (a, b) => this.lockedPieceDistanceSq(b, cx, cy) - this.lockedPieceDistanceSq(a, cx, cy),
+    );
+    this.lockedHydrateQueue = live;
+  }
+
+  private lockedPieceDistanceSq(id: number, cx: number, cy: number): number {
+    const slot = this.lockedPieces.get(id);
+    if (!slot || !this.manifest) return 0;
+    const dx = slot.dx * this.manifest.pieceSize - cx;
+    const dy = slot.dy * this.manifest.pieceSize - cy;
+    return dx * dx + dy * dy;
+  }
+
+  // Fetches one locked piece's texture and builds its node. Tolerant of the
+  // slot vanishing mid-fetch (world cleared, or evicted before the fetch
+  // resolved), the same stillMine guard hydrateGroup uses for a group member.
+  private async hydrateLockedPiece(id: number, slot: LockedPieceSlot): Promise<void> {
+    if (slot.node || slot.hydrating) return;
+    slot.hydrating = true;
+    this.lockedResident.set(id, ++this.residentLru);
+    const url = this.pieceUrl(id);
+    const texture = url ? await this.loadPieceTexture(url) : null;
+    slot.hydrating = false;
+    const stillMine = this.lockedPieces.get(id) === slot && this.lockedResident.has(id);
+    if (!texture || !stillMine || !this.manifest) {
+      if (url && texture) void Assets.unload(url);
+      return;
+    }
+    const built = buildPieceNode(id, { dx: slot.dx, dy: slot.dy }, texture, this.manifest);
+    this.lockedPiecesLayer?.addChild(built.container);
+    slot.node = built;
+    this.cullLockedPiece(slot);
+    if (this.lodActive) this.applyLockedPieceLodVisibility(id, slot);
+  }
+
+  // Frees a locked piece's texture and node while keeping its slot (position,
+  // cell membership) intact, the same "described while dehydrated" contract
+  // dehydrateGroup keeps for a group.
+  private dehydrateLockedPiece(id: number, slot: LockedPieceSlot): void {
+    this.lockedResident.delete(id);
+    this.lockedHydrateQueued.delete(id);
+    if (slot.hydrating || !slot.node) return;
+    this.destroyLockedPieceNode(id, slot);
+  }
+
+  private destroyLockedPieceNode(id: number, slot: LockedPieceSlot): void {
+    if (!slot.node) return;
+    const url = this.pieceUrl(id);
+    this.lockedPiecesLayer?.removeChild(slot.node.container);
+    slot.node.container.destroy({ children: true });
+    slot.node = null;
+    if (url) void Assets.unload(url);
+  }
+
   // Resolves build()'s promise once the first viewport is painted: every group in
   // the hydrate ring hydrated and, while the board shows as baked tiles (zoomed
   // out), every viewport LOD tile baked too (tickInitialFill's gate). Holding the
@@ -2822,18 +3227,25 @@ export class PuzzleStage {
     for (const key of cellKeysForRect(box, LOD_TILE_WORLD)) {
       if (!this.cellOverlapsPlayZone(key)) continue;
       const groups = this.groupGrid.cellGroups(key);
+      const lockedIds = this.lockedPieceGrid.cellGroups(key);
+      const hasContent =
+        (groups !== undefined && groups.size > 0) ||
+        (lockedIds !== undefined && lockedIds.size > 0);
       const known = this.knownCells.has(key);
-      // The group scan is the only costly fact, so compute it only in the case that
-      // reads it (zoomed in, region already streamed): the zoom-out and not-streamed
-      // cases never touch the cell's groups.
-      const needsGroupScan = !this.lodActive && !(this.coverageSeen && !known);
+      // The group/locked-piece scan is the only costly fact, so compute it only
+      // in the case that reads it (zoomed in, region already streamed): the
+      // zoom-out and not-streamed cases never touch the cell's contents.
+      const needsScan = !this.lodActive && !(this.coverageSeen && !known);
       const pending = cellContentPending({
         lodActive: this.lodActive,
-        hasGroups: groups !== undefined && groups.size > 0,
+        hasGroups: hasContent,
         tileReady: this.lodLayer?.isReady(key) ?? false,
         coverageSeen: this.coverageSeen,
         known,
-        hasUnhydratedInRingGroup: needsGroupScan && this.cellHasUnhydratedInRingGroup(groups),
+        hasUnhydratedInRingGroup:
+          needsScan &&
+          (this.cellHasUnhydratedInRingGroup(groups) ||
+            this.cellHasUnhydratedInRingLockedPiece(lockedIds)),
       });
       if (pending) out.add(key);
     }
@@ -2848,6 +3260,17 @@ export class PuzzleStage {
       const node = this.groups.get(gid);
       if (!node) continue;
       if (!node.hydrated && this.groupInRing(node, HYDRATE_MARGIN_FRAC)) return true;
+    }
+    return false;
+  }
+
+  // Same check as cellHasUnhydratedInRingGroup, for locked pieces.
+  private cellHasUnhydratedInRingLockedPiece(lockedIds: ReadonlySet<number> | undefined): boolean {
+    if (!lockedIds) return false;
+    for (const id of lockedIds) {
+      const slot = this.lockedPieces.get(id);
+      if (!slot) continue;
+      if (!slot.node && this.lockedPieceInRing(slot, HYDRATE_MARGIN_FRAC)) return true;
     }
     return false;
   }
@@ -2936,6 +3359,11 @@ export class PuzzleStage {
         if (node) node.container.visible = true;
       }
       this.lodHidden.clear();
+      for (const id of this.lockedPieceLodHidden) {
+        const node = this.lockedPieces.get(id)?.node;
+        if (node) node.container.visible = true;
+      }
+      this.lockedPieceLodHidden.clear();
     }
   }
 
@@ -2945,6 +3373,10 @@ export class PuzzleStage {
     for (const gid of this.lastVisible) {
       const node = this.groups.get(gid);
       if (node) this.applyGroupLodVisibility(node);
+    }
+    for (const id of this.lastVisibleLocked) {
+      const slot = this.lockedPieces.get(id);
+      if (slot) this.applyLockedPieceLodVisibility(id, slot);
     }
   }
 
@@ -3022,38 +3454,56 @@ export class PuzzleStage {
     this.reconcile();
   }
 
-  // Frees the per-piece nodes of the coldest covered-cold clusters when resident
-  // nodes exceed RESIDENT_PIECE_BUDGET, bounding resident VRAM at a deep zoom-out
-  // without freeing eagerly on every zoom: under the budget a covered cluster stays
-  // resident, so a zoom in/out re-uses its nodes with no re-fetch (the alpha board,
-  // under the budget, never evicts). Only covered-cold clusters are evictable (their
-  // baked tiles keep drawing them) and only while the LOD is active; zoomed in
-  // nothing is covered, so the whole window stays resident. Throttled to one pass
-  // every LOD_COLD_SWEEP_FRAMES; the scan is bounded by the resident set. Also prunes
-  // hotness entries past the hot window so the cell map stays the size of the hot set.
+  // Frees the per-piece nodes of the coldest covered-cold clusters and locked
+  // pieces when resident nodes exceed RESIDENT_PIECE_BUDGET (one shared budget
+  // across both populations, ordered by one shared LRU clock), bounding
+  // resident VRAM at a deep zoom-out without freeing eagerly on every zoom:
+  // under the budget a covered cluster or piece stays resident, so a zoom
+  // in/out re-uses its nodes with no re-fetch. Only covered-cold entries are
+  // evictable (their baked tiles keep drawing them) and only while the LOD is
+  // active; zoomed in nothing is covered, so the whole window stays resident.
+  // Throttled to one pass every LOD_COLD_SWEEP_FRAMES; the scan is bounded by
+  // the resident sets. Also prunes hotness entries past the hot window so the
+  // cell map stays the size of the hot set.
   private evictResidentsOverBudget(): void {
     if (!this.lodActive || this.initialFill) return;
     if (++this.coldSweepFrame < LOD_COLD_SWEEP_FRAMES) return;
     this.coldSweepFrame = 0;
     const now = performance.now();
     let totalNodes = 0;
-    const evictable: number[] = [];
+    type Evictable = { kind: "group"; id: number } | { kind: "locked"; id: number };
+    const evictable: Evictable[] = [];
     for (const gid of this.resident.keys()) {
       const node = this.groups.get(gid);
       if (!node) continue;
       totalNodes += node.pieces.length;
-      if (this.isCoveredCold(node, now)) evictable.push(gid);
+      if (this.isCoveredCold(node, now)) evictable.push({ kind: "group", id: gid });
+    }
+    for (const id of this.lockedResident.keys()) {
+      const slot = this.lockedPieces.get(id);
+      if (!slot?.node) continue;
+      totalNodes += 1;
+      if (this.isLockedPieceCoveredCold(id, now)) evictable.push({ kind: "locked", id });
     }
     if (totalNodes > RESIDENT_PIECE_BUDGET && evictable.length > 0) {
-      // Coldest first: a covered-cold cluster stops bumping its LRU stamp, so the
+      const stampOf = (e: Evictable): number =>
+        (e.kind === "group" ? this.resident.get(e.id) : this.lockedResident.get(e.id)) ?? 0;
+      // Coldest first: a covered-cold entry stops bumping its LRU stamp, so the
       // lowest stamp is the one longest off-screen-useful.
-      evictable.sort((a, b) => (this.resident.get(a) ?? 0) - (this.resident.get(b) ?? 0));
-      for (const gid of evictable) {
+      evictable.sort((a, b) => stampOf(a) - stampOf(b));
+      for (const e of evictable) {
         if (totalNodes <= RESIDENT_PIECE_BUDGET) break;
-        const node = this.groups.get(gid);
-        if (!node) continue;
-        totalNodes -= node.pieces.length;
-        this.dehydrateGroup(node);
+        if (e.kind === "group") {
+          const node = this.groups.get(e.id);
+          if (!node) continue;
+          totalNodes -= node.pieces.length;
+          this.dehydrateGroup(node);
+        } else {
+          const slot = this.lockedPieces.get(e.id);
+          if (!slot) continue;
+          totalNodes -= 1;
+          this.dehydrateLockedPiece(e.id, slot);
+        }
       }
     }
     for (const [key, t] of this.cellDirtyMs) {
@@ -3072,11 +3522,13 @@ export class PuzzleStage {
   private bakeTile(key: CellKey): boolean {
     if (!this.app || !this.world || !this.lodLayer) return false;
     const groupIds = this.groupGrid.cellGroups(key);
-    // Defer until every non-live cluster in the cell is hydrated: baking from
-    // missing textures would mark the tile ready with blank pieces. Enqueue the
-    // missing ones so a later frame can complete the bake.
+    const lockedIds = this.lockedPieceGrid.cellGroups(key);
+    // Defer until every non-live cluster and every locked piece in the cell is
+    // hydrated: baking from missing textures would mark the tile ready with
+    // blank pieces. Enqueue the missing ones so a later frame can complete the
+    // bake.
+    let pending = false;
     if (groupIds) {
-      let pending = false;
       for (const gid of groupIds) {
         if (this.isLive(gid)) continue;
         const node = this.groups.get(gid);
@@ -3086,8 +3538,17 @@ export class PuzzleStage {
           pending = true;
         }
       }
-      if (pending) return false;
     }
+    if (lockedIds) {
+      for (const id of lockedIds) {
+        const slot = this.lockedPieces.get(id);
+        if (slot && !slot.node) {
+          this.enqueueLockedHydrate(id);
+          pending = true;
+        }
+      }
+    }
+    if (pending) return false;
     const target = this.lodLayer.prepareBake(key);
     if (!target) return false;
     const r = this.lodLayer.cellRect(key);
@@ -3129,6 +3590,19 @@ export class PuzzleStage {
         forced.push(node);
       }
     }
+    // A locked piece is never live (never held/dragged) and is a single atomic
+    // piece, not a multi-piece cluster, so it always renders in full here (no
+    // per-piece sub-culling needed).
+    const forcedLocked: number[] = [];
+    if (lockedIds) {
+      for (const id of lockedIds) {
+        const slot = this.lockedPieces.get(id);
+        if (!slot?.node) continue;
+        slot.node.container.visible = true;
+        slot.node.container.culled = false;
+        forcedLocked.push(id);
+      }
+    }
 
     // Keep transient effects out of the texture: a mid-animation flash or burst
     // baked in would stay frozen in the tile until its next re-bake. Hidden only
@@ -3160,6 +3634,13 @@ export class PuzzleStage {
       this.cullGroup(node);
       if (this.lodActive) this.applyGroupLodVisibility(node);
       else node.container.visible = true;
+    }
+    for (const id of forcedLocked) {
+      const slot = this.lockedPieces.get(id);
+      if (!slot) continue;
+      this.cullLockedPiece(slot);
+      if (this.lodActive) this.applyLockedPieceLodVisibility(id, slot);
+      else if (slot.node) slot.node.container.visible = true;
     }
     return true;
   }

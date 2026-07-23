@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveSnap } from "./membership";
+import { resolveSnap, resolveAnchor } from "./membership";
 
 // The partial-board snap decision: which added pieces reassign to the host and
 // which KNOWN source groups to remove. knownGroups is any `has` predicate (the
@@ -85,5 +85,49 @@ describe("resolveSnap", () => {
       ]),
     );
     expect(plan.removeGroups).toEqual([4]);
+  });
+});
+
+// resolveAnchor reads id, dx, dy (a flat WirePiece), unlike resolveSnap's addedPieces.
+const lp = (
+  ...entries: [id: number, dx: number, dy: number][]
+): { id: number; dx: number; dy: number }[] => entries.map(([id, dx, dy]) => ({ id, dx, dy }));
+
+describe("resolveAnchor", () => {
+  it("groups locked pieces by their current known owner", () => {
+    const plan = resolveAnchor(
+      lp([4, 1, 1], [5, 2, 1]),
+      p2g([
+        [4, 1],
+        [5, 1],
+      ]),
+    );
+    expect(plan.ungrouped).toEqual([]);
+    expect([...plan.byGroup.keys()]).toEqual([1]);
+    expect(plan.byGroup.get(1)).toEqual(lp([4, 1, 1], [5, 2, 1]));
+  });
+
+  it("splits pieces with different owners into separate group entries", () => {
+    const plan = resolveAnchor(
+      lp([4, 1, 1], [7, 3, 0]),
+      p2g([
+        [4, 1],
+        [7, 2],
+      ]),
+    );
+    expect(plan.byGroup.get(1)).toEqual(lp([4, 1, 1]));
+    expect(plan.byGroup.get(2)).toEqual(lp([7, 3, 0]));
+  });
+
+  it("puts a piece with no known owner in ungrouped, not a phantom group entry", () => {
+    const plan = resolveAnchor(lp([9, 0, 0]), p2g([]));
+    expect(plan.byGroup.size).toBe(0);
+    expect(plan.ungrouped).toEqual(lp([9, 0, 0]));
+  });
+
+  it("splits a mix of owned and unowned pieces correctly", () => {
+    const plan = resolveAnchor(lp([4, 1, 1], [9, 0, 0]), p2g([[4, 1]]));
+    expect(plan.byGroup.get(1)).toEqual(lp([4, 1, 1]));
+    expect(plan.ungrouped).toEqual(lp([9, 0, 0]));
   });
 });

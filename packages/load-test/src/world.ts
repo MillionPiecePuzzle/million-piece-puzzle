@@ -3,11 +3,13 @@
 // Protocol v4: `welcome` carries no board, so the world starts empty and is
 // filled incrementally from the region_state construction stream the server
 // sends for the cells a bot's viewport enters. It is then updated from
-// broadcasts (SGrabOk, SDrag, SDrop, SSnap). Lets a bot pick a non-held,
-// non-locked group to grab and know where it currently is in world space. Ids and
-// positions are opaque wire values (seed-permuted ids, anchor world positions);
-// the bot grabs/drops them as-is and ignores the per-piece (dx, dy) offsets since
-// it does not render.
+// broadcasts (SGrabOk, SDrag, SDrop, SSnap). Lets a bot pick a non-held group
+// to grab and know where it currently is in world space. Ids and positions
+// are opaque wire values (seed-permuted ids, anchor world positions); the bot
+// grabs/drops them as-is and ignores the per-piece (dx, dy) offsets since it
+// does not render. A group is never locked (see DECISIONS: locked pieces stop
+// being a group); the bot has no use for an anchored piece once it can no
+// longer be grabbed, so it drops it from both maps rather than tracking it.
 
 import type { PlayZone, SDrag, SDrop, SGrabOk, SRegionState, SSnap } from "@mpp/shared";
 
@@ -15,15 +17,12 @@ import type { PlayZone, SDrag, SDrop, SGrabOk, SRegionState, SSnap } from "@mpp/
 // wire offset and keeps just id -> group.
 type BotPiece = { id: number; groupId: number };
 
-// The bot's local mirror of a group's wire-visible state. Shaped after the wire
-// (region_state/snap), not the server's internal GroupRuntime, which no longer
-// carries locked (a locked piece has no live group server-side).
+// The bot's local mirror of a group's wire-visible state.
 type BotGroup = {
   id: number;
   worldX: number;
   worldY: number;
   size: number;
-  locked: boolean;
   heldBy: string | null;
 };
 
@@ -49,9 +48,11 @@ export class World {
   }
 
   // Upsert the groups in a region_state window. An unknown group is built; a
-  // known one has its membership, size and locked state reconciled, and its
-  // position adopted only when nobody holds it (a held group's live drag/drop is
-  // the authority, so a later resync must not rewind it).
+  // known one has its membership and size reconciled, and its position adopted
+  // only when nobody holds it (a held group's live drag/drop is the authority,
+  // so a later resync must not rewind it). Locked pieces stream separately
+  // (msg.lockedPieceIds); the bot ignores them, the same way it ignores any
+  // other piece it can no longer grab.
   applyRegionState(msg: SRegionState): void {
     for (const rg of msg.groups) {
       const existing = this.groups.get(rg.groupId);
@@ -61,7 +62,6 @@ export class World {
           worldX: rg.worldX,
           worldY: rg.worldY,
           size: rg.size,
-          locked: rg.locked,
           heldBy: null,
         });
       } else {
@@ -70,7 +70,6 @@ export class World {
           existing.worldY = rg.worldY;
         }
         existing.size = rg.size;
-        existing.locked = rg.locked;
       }
       for (const wp of rg.pieces) {
         const p = this.pieces.get(wp.id);
@@ -101,6 +100,21 @@ export class World {
   }
 
   applySnap(msg: SSnap): void {
+    if (msg.anchored) {
+      // Every group any of these pieces belonged to is dissolved whole (see
+      // DECISIONS: locked pieces stop being a group); newGroupId/addedPieceIds
+      // describe a group the server has already deleted, so they carry nothing
+      // useful here. Drop the affected groups and the now-locked pieces: the
+      // bot can never grab any of them again.
+      const affectedGroupIds = new Set<number>();
+      for (const wp of msg.lockedPieceIds) {
+        const piece = this.pieces.get(wp.id);
+        if (piece) affectedGroupIds.add(piece.groupId);
+        this.pieces.delete(wp.id);
+      }
+      for (const gid of affectedGroupIds) this.groups.delete(gid);
+      return;
+    }
     const oldGroupIds = new Set<number>();
     for (const wp of msg.addedPieceIds) {
       const piece = this.pieces.get(wp.id);
@@ -116,17 +130,16 @@ export class World {
       g.worldX = msg.worldX;
       g.worldY = msg.worldY;
       g.heldBy = null;
-      g.locked = msg.anchored;
       g.size += msg.addedPieceIds.length;
     }
   }
 
-  // Returns a random group that is not currently held and not locked, or null
-  // if none exists. Used by the bot to pick its next grab target.
+  // Returns a random group that is not currently held, or null if none exists.
+  // Used by the bot to pick its next grab target.
   pickFreeGroup(rng: () => number): BotGroup | null {
     const candidates: BotGroup[] = [];
     for (const g of this.groups.values()) {
-      if (g.heldBy === null && !g.locked) candidates.push(g);
+      if (g.heldBy === null) candidates.push(g);
     }
     if (candidates.length === 0) return null;
     const idx = Math.floor(rng() * candidates.length);

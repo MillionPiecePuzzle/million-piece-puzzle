@@ -6,6 +6,7 @@ import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
 import type { GroupQueue } from "./queue.js";
 import type { GroupIndex } from "./groupIndex.js";
+import type { LockedPieceIndex } from "./lockedPieces.js";
 import { detectSnap } from "./snap.js";
 import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
 import { batchEnteredCells, sleep } from "./regionStream.js";
@@ -18,6 +19,7 @@ import {
   originXFromAnchor,
   originYFromAnchor,
   wirePieces,
+  wireLockedPieces,
 } from "./wire.js";
 
 // Cap on leaderboard entries derived on completion. Generous for the closed
@@ -45,6 +47,12 @@ export type Context = {
   // cell. Maintained on every committed position change (drop, merge) and read by
   // handleViewport to resync a client panning into new cells.
   groupIndex: GroupIndex;
+  // In-process locked-piece bitset, answering "which locked pieces sit in these
+  // cells" for the same resync (a locked piece has no group, so groupIndex
+  // cannot answer this). Updated on every anchor, rebuilt from Redis at boot,
+  // reset, force-complete, and a slow defense-in-depth resync (see
+  // rebuildLockedPieceIndex, mirroring minimapGrid's own resync pattern).
+  lockedPieces: LockedPieceIndex;
   // Incrementally-maintained minimap density grid (see DECISIONS: server-computed
   // minimap grid). Updated on every committed position/lock change (drop, merge)
   // instead of the periodic snapshot re-scanning the whole board; rebuilt from
@@ -319,12 +327,14 @@ async function streamRegionState(
           groupId: toWireId(ctx.wire, g.groupId),
           worldX: anchorWorldX(ctx.wire, g.groupId, g.worldX),
           worldY: anchorWorldY(ctx.wire, g.groupId, g.worldY),
-          locked: g.locked,
           size: g.size,
           pieces: wirePieces(ctx.wire, g.groupId, pieceGridIds),
         };
       }),
     );
+    // Locked pieces in this batch's cells, flat (never grouped): a pure
+    // in-memory bitset lookup, no Redis read needed (see LockedPieceIndex).
+    const lockedGridIds = ctx.lockedPieces.collect(batch.cells);
     // Re-check after the Redis round trip: a supersession or disconnect could
     // have landed while awaiting it.
     if (client.regionStreamSeq !== mySeq || client.ws.readyState !== client.ws.OPEN) return;
@@ -333,7 +343,12 @@ async function streamRegionState(
     // coverage rect, scoped to exactly the cells just sent (not the client's
     // whole requested viewport, which can be wider than this batch, or than the
     // stream as a whole when panning only entered a thin band of it).
-    send(ctx, client, { t: "region_state", groups: construction, coverage: batch.coverage });
+    send(ctx, client, {
+      t: "region_state",
+      groups: construction,
+      lockedPieceIds: wireLockedPieces(ctx.wire, lockedGridIds),
+      coverage: batch.coverage,
+    });
   }
 }
 
@@ -462,7 +477,6 @@ export async function handleDrop(
       originX,
       originY,
       size: g.size,
-      locked: false,
     });
     ctx.minimapGrid.applyTranslation(
       droppedPieces,
@@ -552,6 +566,7 @@ async function applyMerge(
     // the surviving newId) is deleted rather than grown, closing the unbounded
     // hydration risk a single ever-growing locked group would otherwise be.
     await ctx.state.lockPieces(allPieces);
+    ctx.lockedPieces.lock(allPieces);
     for (const id of allIds) {
       await ctx.state.deleteGroup(id);
       ctx.groupIndex.remove(id);
@@ -589,7 +604,6 @@ async function applyMerge(
       originX: targetWorldX,
       originY: targetWorldY,
       size: allPieces.length,
-      locked: false,
     });
   }
 
@@ -643,6 +657,7 @@ async function applyMerge(
     worldX: wireWorldX,
     worldY: wireWorldY,
     anchored,
+    lockedPieceIds: anchored ? wireLockedPieces(ctx.wire, allPieces) : [],
     droppedSize: droppedPieces.length,
     mergedSize: allPieces.length,
     userId: client.userId,

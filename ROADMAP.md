@@ -165,9 +165,9 @@ Delivered in 3 stages, each independently shippable and separately testable, sin
 
 ### Stage 2: locked pieces reach the client, decoupled from GroupNode
 
-- [ ] `shared-protocol`: `SSnap` carries locked piece ids (grid-unit offset from the frame origin) only when `anchored`; `region_state` streams locked-piece-ids per newly covered cell alongside unlocked groups; `RegionGroup.locked` removed (a `RegionGroup` is always unlocked now); `PROTOCOL_VERSION` bump.
-- [ ] `frontend-canvas`: locked pieces render from the new flat per-cell delivery, never via `GroupNode` / `hydrateGroup` / `lockedLayer`; still one AVIF fetch per piece at this stage, just outside the cluster machinery and so no longer bounded by cluster size.
-- [ ] `qa-and-load`: rewrite `seed-lock-scenario.ts` for the new model (mark ~995 000 pieces locked directly, no cluster merging) and verify the crash risk is closed at that scale.
+- [x] `shared-protocol`: `SSnap` carries locked piece ids (grid-unit offset from the frame origin) only when `anchored`; `region_state` streams locked-piece-ids per newly covered cell alongside unlocked groups; `RegionGroup.locked` removed (a `RegionGroup` is always unlocked now); `PROTOCOL_VERSION` bump.
+- [x] `frontend-canvas`: locked pieces render from the new flat per-cell delivery, never via `GroupNode` / `hydrateGroup` / `lockedLayer`; still one AVIF fetch per piece at this stage, just outside the cluster machinery and so no longer bounded by cluster size.
+- [x] `qa-and-load`: rewrite `seed-lock-scenario.ts` for the new model (mark ~995 000 pieces locked directly, no cluster merging) and verify the crash risk is closed at that scale.
 
 ### Stage 3: server-composited locked tiles ("see it all at once")
 

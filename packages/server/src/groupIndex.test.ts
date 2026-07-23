@@ -7,15 +7,10 @@ const CELL = 100;
 const keyAt = (x: number, y: number): number => cellKey(Math.floor(x / CELL), Math.floor(y / CELL));
 
 // Default payload helper: a singleton whose origin equals its body min.
-const at = (
-  x: number,
-  y: number,
-  locked = false,
-): { originX: number; originY: number; size: number; locked: boolean } => ({
+const at = (x: number, y: number): { originX: number; originY: number; size: number } => ({
   originX: x,
   originY: y,
   size: 1,
-  locked,
 });
 
 describe("GroupIndex", () => {
@@ -24,19 +19,19 @@ describe("GroupIndex", () => {
     idx.set(7, 250, 350, at(250, 350));
     expect(idx.cellOf(7)).toBe(keyAt(250, 350));
     expect(idx.collect([keyAt(250, 350)])).toEqual([
-      { groupId: 7, worldX: 250, worldY: 350, size: 1, locked: false },
+      { groupId: 7, worldX: 250, worldY: 350, size: 1 },
     ]);
   });
 
   it("keys by the body min but reports the (different) origin", () => {
     const idx = new GroupIndex(CELL);
     // Body min sits in cell (2,3); the origin a canonical offset away in cell (0,0).
-    idx.set(7, 250, 350, { originX: 50, originY: 50, size: 4, locked: true });
+    idx.set(7, 250, 350, { originX: 50, originY: 50, size: 4 });
     expect(idx.cellOf(7)).toBe(keyAt(250, 350));
     // The origin's cell holds nothing; collect reports the origin from the body cell.
     expect(idx.collect([keyAt(50, 50)])).toEqual([]);
     expect(idx.collect([keyAt(250, 350)])).toEqual([
-      { groupId: 7, worldX: 50, worldY: 50, size: 4, locked: true },
+      { groupId: 7, worldX: 50, worldY: 50, size: 4 },
     ]);
   });
 
@@ -54,7 +49,7 @@ describe("GroupIndex", () => {
     expect(idx.cellOf(7)).toBe(keyAt(1050, 1050));
     expect(idx.collect([oldKey])).toEqual([]);
     expect(idx.collect([keyAt(1050, 1050)])).toEqual([
-      { groupId: 7, worldX: 1050, worldY: 1050, size: 1, locked: false },
+      { groupId: 7, worldX: 1050, worldY: 1050, size: 1 },
     ]);
   });
 
@@ -62,11 +57,9 @@ describe("GroupIndex", () => {
     const idx = new GroupIndex(CELL);
     idx.set(7, 250, 350, at(250, 350));
     const cell = idx.cellOf(7);
-    idx.set(7, 299, 399, { originX: 299, originY: 399, size: 2, locked: true }); // same cell, new payload
+    idx.set(7, 299, 399, { originX: 299, originY: 399, size: 2 }); // same cell, new payload
     expect(idx.cellOf(7)).toBe(cell);
-    expect(idx.collect([cell!])).toEqual([
-      { groupId: 7, worldX: 299, worldY: 399, size: 2, locked: true },
-    ]);
+    expect(idx.collect([cell!])).toEqual([{ groupId: 7, worldX: 299, worldY: 399, size: 2 }]);
   });
 
   it("removes a group from its cell and the index", () => {

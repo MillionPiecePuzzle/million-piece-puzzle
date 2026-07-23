@@ -167,7 +167,14 @@ function routeMessage(msg: ServerMessage): void {
       stage.setPeerHeld(msg.userId, false);
       break;
     case "snap":
-      stage.applySnap(msg.newGroupId, msg.addedPieceIds, msg.worldX, msg.worldY, msg.anchored);
+      stage.applySnap(
+        msg.newGroupId,
+        msg.addedPieceIds,
+        msg.worldX,
+        msg.worldY,
+        msg.anchored,
+        msg.lockedPieceIds,
+      );
       stage.setPeerHeld(msg.userId, false);
       if (totalPieces.value > 0 && msg.lockedCount >= totalPieces.value) {
         triggerCompletion(true);
@@ -186,7 +193,7 @@ function routeMessage(msg: ServerMessage): void {
       stage.setPeerCursor(msg.userId, msg.worldX, msg.worldY);
       break;
     case "region_state":
-      stage.applyRegionState(msg.groups, msg.coverage);
+      stage.applyRegionState(msg.groups, msg.lockedPieceIds, msg.coverage);
       break;
     case "minimap":
       stage.setMinimapGrid(msg.grid);

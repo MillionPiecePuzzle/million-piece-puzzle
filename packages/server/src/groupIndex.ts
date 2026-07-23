@@ -20,30 +20,31 @@
 // continued pan or its next drop heals the residual.
 //
 // The cell key is derived from the body top-left, but the stored payload is the
-// group ORIGIN (plus its size and locked state): a client positions a group's
-// container at the origin and places each piece at its canonical offset inside,
-// so `collect` reports the origin while keying still uses the body-min the client
-// sees. The viewport handler turns this into the region_state construction stream.
+// group ORIGIN (plus its size): a client positions a group's container at the
+// origin and places each piece at its canonical offset inside, so `collect`
+// reports the origin while keying still uses the body-min the client sees. The
+// viewport handler turns this into the region_state construction stream.
 
 import { cellKey } from "./worldGrid.js";
 
 // Reportable payload for a group: its origin (what the client positions the
-// container at), its member count, and whether it is locked.
-export type GroupPayload = { originX: number; originY: number; size: number; locked: boolean };
+// container at) and its member count. A live group is never locked (see
+// DECISIONS: locked pieces stop being a group; LockedPieceIndex answers
+// locked-piece queries separately), so this index carries no locked field.
+export type GroupPayload = { originX: number; originY: number; size: number };
 
 export type RegionGroup = {
   groupId: number;
   worldX: number;
   worldY: number;
   size: number;
-  locked: boolean;
 };
 
 export class GroupIndex {
   private readonly cells = new Map<number, Set<number>>();
   private readonly groups = new Map<
     number,
-    { cell: number; originX: number; originY: number; size: number; locked: boolean }
+    { cell: number; originX: number; originY: number; size: number }
   >();
 
   constructor(private readonly cellSize: number) {}
@@ -53,7 +54,7 @@ export class GroupIndex {
   }
 
   // Insert or move a group keyed by the cell containing (bodyMinX, bodyMinY), its
-  // body top-left, while storing the reportable payload (origin, size, locked).
+  // body top-left, while storing the reportable payload (origin, size).
   // Idempotent: re-setting the same cell only refreshes the payload, so the
   // per-frame drop path stays cheap.
   set(groupId: number, bodyMinX: number, bodyMinY: number, payload: GroupPayload): void {
@@ -68,7 +69,6 @@ export class GroupIndex {
       existing.originX = payload.originX;
       existing.originY = payload.originY;
       existing.size = payload.size;
-      existing.locked = payload.locked;
       return;
     }
     this.addToCell(cell, groupId);
@@ -82,8 +82,8 @@ export class GroupIndex {
     this.groups.delete(groupId);
   }
 
-  // Reportable state (origin, size, locked) of every group sitting in any of the
-  // given cells. Each group lives in exactly one cell, so distinct cells yield
+  // Reportable state (origin, size) of every group sitting in any of the given
+  // cells. Each group lives in exactly one cell, so distinct cells yield
   // disjoint groups (no dedup needed). The viewport handler attaches piece ids to
   // build the region_state construction stream for a client's newly entered cells.
   collect(cellKeys: Iterable<number>): RegionGroup[] {
@@ -99,7 +99,6 @@ export class GroupIndex {
             worldX: g.originX,
             worldY: g.originY,
             size: g.size,
-            locked: g.locked,
           });
         }
       }

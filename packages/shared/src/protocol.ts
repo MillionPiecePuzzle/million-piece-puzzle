@@ -196,6 +196,11 @@ export type SDrop = {
 export type SSnap = {
   t: "snap";
   mergeId: string;
+  // newGroupId/addedPieceIds/worldX/worldY describe the surviving loose group
+  // and are meaningful only when `anchored` is false: an anchoring merge
+  // deletes every group it touches (including this one) in the same
+  // transaction, so they would otherwise describe a group that no longer
+  // exists server-side. Use lockedPieceIds instead when anchored.
   newGroupId: number;
   // The pieces folded into the surviving group, each with its grid-unit offset
   // from the new group's anchor so the client reparents and places them.
@@ -204,6 +209,11 @@ export type SSnap = {
   worldX: number;
   worldY: number;
   anchored: boolean;
+  // Every piece this merge just locked (the full merge: dropped pieces plus
+  // whatever loose groups matched), each as its grid-unit offset from the
+  // frame origin, the same flat encoding region_state uses for locked pieces.
+  // Empty when not anchored.
+  lockedPieceIds: WirePiece[];
   // Activity-feed sizing, both sent raw so the client picks by `anchored`.
   // droppedSize is the group the user dragged (>= 1), shown for a place ("placed a
   // 5-piece cluster"). mergedSize is the resulting cluster (>= 2 for a snap), shown
@@ -264,15 +274,16 @@ export type SError = {
 };
 
 // Construction data for one group in a region_state stream: its anchor world
-// position (worldX, worldY), locked state, member count, and member pieces (each
-// with its grid-unit offset from the anchor). The client upserts it: build the
-// group when unknown, or reposition and additively reconcile membership/locked
-// when known.
+// position (worldX, worldY), member count, and member pieces (each with its
+// grid-unit offset from the anchor). A RegionGroup is always unlocked: a
+// locked piece has no live group (see DECISIONS: locked pieces stop being a
+// group) and streams separately as SRegionState.lockedPieceIds. The client
+// upserts it: build the group when unknown, or reposition and additively
+// reconcile membership when known.
 export type RegionGroup = {
   groupId: number;
   worldX: number;
   worldY: number;
-  locked: boolean;
   size: number;
   pieces: WirePiece[];
 };
@@ -286,10 +297,17 @@ export type RegionGroup = {
 // unknown group and, for a known one, applies the origin only when it is not the
 // live authority for it (the ordering guard: holding it, a peer holding it, or an
 // in-flight local drop keep their newer local position) while always reconciling
-// membership and locked state.
+// membership.
 export type SRegionState = {
   t: "region_state";
   groups: RegionGroup[];
+  // Locked pieces in this batch's newly covered cells, each as its own
+  // grid-unit offset from the frame origin: flat, never grouped, since a
+  // locked piece has no group to construct (see RegionGroup). The offset
+  // alone tells the client which cell it belongs to, the same way a
+  // RegionGroup's worldX/worldY already does for a loose group. Always an
+  // array, never absent, so the client never needs to null-check it.
+  lockedPieceIds: WirePiece[];
   // World rectangle the client's entered broadcast cells cover. An entered cell
   // with no groups still acknowledges its area here (the message is sent even when
   // `groups` is empty), so the client can mark its own cells "known" and tell a

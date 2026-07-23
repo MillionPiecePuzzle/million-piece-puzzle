@@ -10,8 +10,10 @@
  * A piece's absolute world position is:
  *   worldX = group.worldX + dx * pieceSize
  *   worldY = group.worldY + dy * pieceSize
- * The anchor itself has (dx, dy) = (0, 0); a locked cluster's anchor world
- * position is its true solved position (placed and visible to all, not a leak).
+ * The anchor itself has (dx, dy) = (0, 0). A locked piece has no group (see
+ * DECISIONS: locked pieces stop being a group): its implicit anchor is the
+ * frame origin (0, 0), so its own (dx, dy) already is its true solved position
+ * (placed and visible to all, not a leak).
  */
 
 // One member piece on a construction or snap message: its opaque id plus its

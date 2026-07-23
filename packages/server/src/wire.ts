@@ -90,3 +90,9 @@ export function wirePieces(
   }
   return out;
 }
+
+// Locked pieces have no group; their implicit anchor is the frame origin,
+// which is exactly grid id 0's own (col, row) = (0, 0).
+export function wireLockedPieces(ctx: WireContext, gridIds: readonly number[]): WirePiece[] {
+  return wirePieces(ctx, 0, gridIds);
+}

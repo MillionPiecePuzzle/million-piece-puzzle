@@ -8,6 +8,7 @@ import {
   originXFromAnchor,
   originYFromAnchor,
   wirePieces,
+  wireLockedPieces,
 } from "./wire.js";
 
 const GRID_COLS = 10;
@@ -61,6 +62,17 @@ describe("member offsets", () => {
     // Cluster {5, 10}: anchor 5 (col 5, row 0); piece 10 is col 0, row 1.
     const pieces = wirePieces(ctx, 5, [10]);
     expect(pieces[0]).toMatchObject({ dx: -5, dy: 1 });
+  });
+});
+
+describe("locked piece offsets", () => {
+  it("computes (dx, dy) relative to the frame origin, not a group anchor", () => {
+    // Grid id 23: col 3, row 2. A locked piece has no group, so its own (col,
+    // row) is already its offset from the frame origin (grid id 0).
+    const pieces = wireLockedPieces(ctx, [23, 0]);
+    const byId = new Map(pieces.map((p) => [toGridId(ctx, p.id), p]));
+    expect(byId.get(23)).toMatchObject({ dx: 3, dy: 2 });
+    expect(byId.get(0)).toMatchObject({ dx: 0, dy: 0 });
   });
 });
 

@@ -10,6 +10,7 @@ import {
 } from "@mpp/shared";
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { GroupIndex } from "./groupIndex.js";
+import type { LockedPieceIndex } from "./lockedPieces.js";
 import { localAabbForPieces } from "./worldGrid.js";
 
 const SCATTER_DOMAIN = 2;
@@ -172,9 +173,22 @@ export async function rebuildGroupIndex(
       originX: p.originX,
       originY: p.originY,
       size: p.size,
-      locked: p.locked,
     });
   }
+}
+
+// Rebuild the in-process locked-piece index from current Redis state, the same
+// occasions rebuildGroupIndex runs (Redis survives a restart, the index does
+// not). One full piece read, independent of rebuildMinimapGrid's own (a piece
+// hash read is cheap and this only runs at boot, reset, force-complete, and a
+// slow periodic resync, never per-request).
+export async function rebuildLockedPieceIndex(
+  index: LockedPieceIndex,
+  state: RedisState,
+  totalPieces: number,
+): Promise<void> {
+  const pieces = await state.readAllPieces(totalPieces);
+  index.rebuild(pieces);
 }
 
 // Rebuild the minimap density grid from current Redis state: the one O(board)

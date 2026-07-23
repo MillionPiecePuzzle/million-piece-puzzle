@@ -306,7 +306,6 @@ export class RedisState {
       originX: number;
       originY: number;
       size: number;
-      locked: boolean;
     }[]
   > {
     const pipe = this.r.pipeline();
@@ -321,7 +320,6 @@ export class RedisState {
       originX: number;
       originY: number;
       size: number;
-      locked: boolean;
     }[] = [];
     if (!results) return points;
     for (let i = 0; i < results.length; i++) {
@@ -339,7 +337,6 @@ export class RedisState {
         originX: worldX,
         originY: worldY,
         size: Number(h.size),
-        locked: h.locked === "1",
       });
     }
     return points;

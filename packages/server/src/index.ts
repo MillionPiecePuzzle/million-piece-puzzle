@@ -20,9 +20,11 @@ import {
   initPuzzleIfEmpty,
   playZoneForManifest,
   rebuildGroupIndex,
+  rebuildLockedPieceIndex,
   rebuildMinimapGrid,
 } from "./init.js";
 import { GroupIndex } from "./groupIndex.js";
+import { LockedPieceIndex } from "./lockedPieces.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
 import { KeyframePublisher } from "./keyframe.js";
@@ -96,6 +98,17 @@ async function main(): Promise<void> {
   // (and on reset). Drives the pan resync (see DECISIONS: group index + resync).
   const groupIndex = new GroupIndex(cellSize);
   await rebuildGroupIndex(groupIndex, state, meta.totalPieces);
+  // Locked-piece bitset, the same read-model shape as the group index above but
+  // for pieces with no group (see DECISIONS: locked pieces stop being a group).
+  // Rebuilt from Redis at the same occasions the group index is.
+  const lockedPieces = new LockedPieceIndex(
+    meta.gridCols,
+    meta.gridRows,
+    meta.pieceSize,
+    cellSize,
+    meta.totalPieces,
+  );
+  await rebuildLockedPieceIndex(lockedPieces, state, meta.totalPieces);
   // Minimap density grid, maintained incrementally on every drop/merge instead of
   // rescanning the board on the keyframe cadence (see DECISIONS: server-computed
   // minimap grid). Seeded once here from Redis, the same one-off cost boot
@@ -128,6 +141,7 @@ async function main(): Promise<void> {
     queue,
     wire,
     groupIndex,
+    lockedPieces,
     minimapGrid,
     tilePieceCap,
     clusterPieceCap: config.clusterPieceCap,
@@ -490,23 +504,27 @@ async function main(): Promise<void> {
     });
   }, STALE_HOLD_SWEEP_INTERVAL_MS);
 
-  // Defense-in-depth minimap grid resync: a slow, independent full-board
-  // recompute that overwrites the incrementally-maintained grid (see DECISIONS:
-  // server-computed minimap grid). The synchronous applyTranslation calls in
-  // handleDrop are the fix at the root; this is the periodic safety net for
-  // whatever they do not cover, the same dual-layer shape as the stale-hold
-  // sweep above. Guarded against overlap the same way KeyframePublisher guards
-  // its own regenerate.
-  let minimapGridResyncing = false;
-  const minimapGridResyncTimer = setInterval(() => {
-    if (minimapGridResyncing) return;
-    minimapGridResyncing = true;
-    void rebuildMinimapGrid(minimapGrid, state, ctx.meta.totalPieces)
+  // Defense-in-depth resync: a slow, independent full-board recompute that
+  // overwrites both the incrementally-maintained minimap grid (see DECISIONS:
+  // server-computed minimap grid) and the locked-piece index (updated
+  // incrementally on every anchor, the same drift risk). The synchronous
+  // updates on the hot path are the fix at the root; this is the periodic
+  // safety net for whatever they do not cover, the same dual-layer shape as
+  // the stale-hold sweep above. Guarded against overlap the same way
+  // KeyframePublisher guards its own regenerate.
+  let boardIndexResyncing = false;
+  const boardIndexResyncTimer = setInterval(() => {
+    if (boardIndexResyncing) return;
+    boardIndexResyncing = true;
+    void Promise.all([
+      rebuildMinimapGrid(minimapGrid, state, ctx.meta.totalPieces),
+      rebuildLockedPieceIndex(lockedPieces, state, ctx.meta.totalPieces),
+    ])
       .catch((e: unknown) => {
-        console.error("[minimap-resync]", (e as Error).message);
+        console.error("[board-index-resync]", (e as Error).message);
       })
       .finally(() => {
-        minimapGridResyncing = false;
+        boardIndexResyncing = false;
       });
   }, config.minimapGridResyncIntervalMs);
 
@@ -516,7 +534,7 @@ async function main(): Promise<void> {
     clearInterval(heartbeatTimer);
     if (admissionSweepTimer) clearInterval(admissionSweepTimer);
     clearInterval(staleHoldSweepTimer);
-    clearInterval(minimapGridResyncTimer);
+    clearInterval(boardIndexResyncTimer);
     wss.close();
     httpServer.close();
     await redis.quit();
