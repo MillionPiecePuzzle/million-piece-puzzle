@@ -14,6 +14,7 @@ import {
 import { GroupQueue } from "./queue.js";
 import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
+import { CellCompositeIndex } from "./cellComposite.js";
 import { cellKey } from "./worldGrid.js";
 import type { WireContext } from "./wire.js";
 
@@ -682,6 +683,27 @@ describe("handleDrop", () => {
     );
   });
 
+  it("marks the touched cell dirty for the compositor when a drop anchors", async () => {
+    const { ctx, state } = makeDropCtx();
+    const markDirty = vi.fn();
+    ctx.cellCompositor = { markDirty };
+    ctx.worldTileSize = WORLD_TILE_SIZE;
+    state.lock([1]);
+    state.place(dropped(4, 3, -4), [4]);
+    await handleDrop(ctx, client, 4, 3, -4);
+    // dropMeta's whole 3x3 grid sits inside one WORLD_TILE_SIZE cell, so the
+    // single newly-locked piece (4) maps to exactly that one cell.
+    expect(markDirty).toHaveBeenCalledTimes(1);
+    expect([...markDirty.mock.calls[0]![0]]).toEqual([cellKey(0, 0)]);
+  });
+
+  it("does not touch the compositor when no cell compositor is wired", async () => {
+    const { ctx, state } = makeDropCtx();
+    state.lock([1]);
+    state.place(dropped(4, 3, -4), [4]);
+    await expect(handleDrop(ctx, client, 4, 3, -4)).resolves.not.toThrow();
+  });
+
   it("skips a loose-loose merge over the cluster piece cap, leaving both clusters separate", async () => {
     const { ctx, broadcastOverlapping, state } = makeDropCtx();
     ctx.clusterPieceCap = 2;
@@ -1096,6 +1118,36 @@ describe("handleViewport region_state construction", () => {
       worldH: 500,
     });
     expect(lastRegionStateMsg(ws)?.lockedPieceIds).toEqual([]);
+  });
+
+  it("includes a ready cell composite from an entered cell", async () => {
+    const { ctx } = makeViewportCtx();
+    ctx.cellComposites = new CellCompositeIndex();
+    ctx.cellComposites.set(cellKey(0, 0), 3);
+    const { client, ws } = viewportClient();
+    await handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 0,
+      worldY: 0,
+      worldW: 500,
+      worldH: 500,
+    });
+    expect(lastRegionStateMsg(ws)?.cellComposites).toEqual([
+      { cellKey: cellKey(0, 0), version: 3 },
+    ]);
+  });
+
+  it("sends an empty cellComposites array for a cell with no bake, and when no compositor is wired at all", async () => {
+    const { ctx } = makeViewportCtx();
+    const { client, ws } = viewportClient();
+    await handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 0,
+      worldY: 0,
+      worldW: 500,
+      worldH: 500,
+    });
+    expect(lastRegionStateMsg(ws)?.cellComposites).toEqual([]);
   });
 
   it("streams only newly entered cells, not cells the client already had", async () => {

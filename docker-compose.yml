@@ -63,6 +63,15 @@ services:
       # Coolify env like the auth secrets, never baked into the committed image.
       MPP_ADMIN_PASSWORD: "${MPP_ADMIN_PASSWORD:-}"
       MPP_ADMIN_PUZZLES: "${MPP_ADMIN_PUZZLES:-}"
+      # Cell compositor write credentials (see ROADMAP Phase 5 Stage 3): the
+      # server's one live write path to R2, passed through like the secrets
+      # above. All three unset (local dev's default) leaves compositing inert
+      # rather than failing the boot; the bucket is the existing public asset
+      # bucket (non-secret, so fixed here, same as MPP_BACKUP_BUCKET below).
+      MPP_R2_ENDPOINT: "${MPP_R2_ENDPOINT:-}"
+      MPP_R2_ACCESS_KEY_ID: "${MPP_R2_ACCESS_KEY_ID:-}"
+      MPP_R2_SECRET_ACCESS_KEY: "${MPP_R2_SECRET_ACCESS_KEY:-}"
+      MPP_R2_BUCKET: "mpp-assets"
     expose:
       - "8080"
 

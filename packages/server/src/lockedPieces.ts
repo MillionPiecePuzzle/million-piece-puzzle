@@ -18,7 +18,7 @@ import { unpackCellKey } from "./worldGrid.js";
 // on a piece boundary (cellSize is a fixed constant, pieceSize varies per
 // puzzle manifest), so this is derived rather than a plain division, and every
 // column belongs to exactly one cell index, never two.
-function ownedRange(
+export function ownedRange(
   cellIndex: number,
   cellSize: number,
   pieceSize: number,

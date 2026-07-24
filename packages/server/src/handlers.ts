@@ -7,6 +7,7 @@ import type { MongoLogger } from "./mongo.js";
 import type { GroupQueue } from "./queue.js";
 import type { GroupIndex } from "./groupIndex.js";
 import type { LockedPieceIndex } from "./lockedPieces.js";
+import { cellKeyForGridId, type CellCompositeIndex } from "./cellComposite.js";
 import { detectSnap } from "./snap.js";
 import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
 import { batchEnteredCells, sleep } from "./regionStream.js";
@@ -82,6 +83,17 @@ export type Context = {
   // Poll interval (ms) while a paced region_state stream waits for
   // bufferedAmount to clear.
   regionStreamPollIntervalMs: number;
+  // Read model for server-composited per-cell locked tiles (see ROADMAP Phase
+  // 5 Stage 3): which cells have a bake and at which version, so region_state
+  // can point a client at one instead of the flat per-piece fallback. Optional
+  // because a deployment with no R2 write credentials never constructs a
+  // compositor (see index.ts), leaving the whole feature inert; every reader
+  // uses optional chaining, so region_state stays valid either way.
+  cellComposites?: CellCompositeIndex;
+  // Write side of the same feature: marks cells dirty for the background bake
+  // queue (see cellCompositor.ts). Typed as the minimal shape handlers need
+  // rather than the concrete class, mirroring `lifecycle` below.
+  cellCompositor?: { markDirty: (cellKeys: Iterable<number>) => void };
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.
@@ -335,6 +347,16 @@ async function streamRegionState(
     // Locked pieces in this batch's cells, flat (never grouped): a pure
     // in-memory bitset lookup, no Redis read needed (see LockedPieceIndex).
     const lockedGridIds = ctx.lockedPieces.collect(batch.cells);
+    // Ready server-composited tiles for this batch's cells (see ROADMAP Phase
+    // 5 Stage 3), absent entirely when no compositor is wired. A cell with no
+    // entry here has no bake yet, so the client keeps rendering it from
+    // lockedPieceIds above.
+    const cellComposites = ctx.cellComposites
+      ? batch.cells.flatMap((key) => {
+          const version = ctx.cellComposites!.get(key);
+          return version === undefined ? [] : [{ cellKey: key, version }];
+        })
+      : [];
     // Re-check after the Redis round trip: a supersession or disconnect could
     // have landed while awaiting it.
     if (client.regionStreamSeq !== mySeq || client.ws.readyState !== client.ws.OPEN) return;
@@ -347,6 +369,7 @@ async function streamRegionState(
       t: "region_state",
       groups: construction,
       lockedPieceIds: wireLockedPieces(ctx.wire, lockedGridIds),
+      cellComposites,
       coverage: batch.coverage,
     });
   }
@@ -567,6 +590,19 @@ async function applyMerge(
     // hydration risk a single ever-growing locked group would otherwise be.
     await ctx.state.lockPieces(allPieces);
     ctx.lockedPieces.lock(allPieces);
+    // Every cell one of these newly-locked pieces belongs to needs a fresh
+    // composite bake (see ROADMAP Phase 5 Stage 3); a Set dedupes the common
+    // case of several pieces in this merge sharing a cell. Skipped entirely
+    // (not just a no-op call) when no compositor is wired, the common case for
+    // any deployment with no R2 write credentials configured.
+    if (ctx.cellCompositor) {
+      const touchedCells = new Set(
+        allPieces.map((id) =>
+          cellKeyForGridId(id, ctx.meta.gridCols, ctx.meta.pieceSize, ctx.worldTileSize),
+        ),
+      );
+      ctx.cellCompositor.markDirty(touchedCells);
+    }
     for (const id of allIds) {
       await ctx.state.deleteGroup(id);
       ctx.groupIndex.remove(id);

@@ -22,9 +22,14 @@ import {
   rebuildGroupIndex,
   rebuildLockedPieceIndex,
   rebuildMinimapGrid,
+  rebuildCellCompositeIndex,
 } from "./init.js";
 import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
+import { CellCompositeIndex } from "./cellComposite.js";
+import { CellCompositor } from "./cellCompositor.js";
+import { createR2Uploader } from "./r2.js";
+import { unpackCellKey } from "./worldGrid.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
 import { KeyframePublisher } from "./keyframe.js";
@@ -109,6 +114,50 @@ async function main(): Promise<void> {
     meta.totalPieces,
   );
   await rebuildLockedPieceIndex(lockedPieces, state, meta.totalPieces);
+  // Server-composited locked-tile version read model (see ROADMAP Phase 5
+  // Stage 3), rebuilt from Redis at the same occasions the indexes above are.
+  const cellComposites = new CellCompositeIndex();
+  await rebuildCellCompositeIndex(cellComposites, state);
+  // The compositor itself (the background bake queue) only exists when R2
+  // write credentials are configured; local dev has none by default, and a
+  // deployment with none simply never dirties a cell, leaving every locked
+  // piece rendered from Stage 2's per-piece path (see config.r2Write).
+  let cellCompositor: CellCompositor | undefined;
+  if (config.r2Write) {
+    const upload = createR2Uploader(config.r2Write);
+    cellCompositor = new CellCompositor({
+      gridCols: meta.gridCols,
+      gridRows: meta.gridRows,
+      pieceSize: meta.pieceSize,
+      margin: manifest.margin,
+      cellSize,
+      wire,
+      pieceFileByWireId: (wireId) => manifest.pieces[wireId]!.file,
+      isLocked: (id) => lockedPieces.isLocked(id),
+      fetchTile: (relativePath) =>
+        fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
+      upload,
+      index: cellComposites,
+      persistVersion: (key, version) => state.writeCellCompositeVersion(key, version),
+      onComposited: (key, version) => {
+        const { cx, cy } = unpackCellKey(key);
+        hub.broadcastOverlapping(
+          { t: "cell_composite", cellKey: key, version },
+          {
+            minX: cx * cellSize,
+            minY: cy * cellSize,
+            maxX: (cx + 1) * cellSize,
+            maxY: (cy + 1) * cellSize,
+          },
+        );
+      },
+      puzzleId: manifest.puzzleId,
+    });
+  } else {
+    console.warn(
+      "[cell-composite] MPP_R2_ENDPOINT/MPP_R2_ACCESS_KEY_ID/MPP_R2_SECRET_ACCESS_KEY unset: locked pieces stay on Stage 2's per-piece rendering, no server-composited tiles.",
+    );
+  }
   // Minimap density grid, maintained incrementally on every drop/merge instead of
   // rescanning the board on the keyframe cadence (see DECISIONS: server-computed
   // minimap grid). Seeded once here from Redis, the same one-off cost boot
@@ -151,6 +200,8 @@ async function main(): Promise<void> {
     regionStreamPaceThresholdBytes: config.regionStreamPaceThresholdBytes,
     regionStreamPollIntervalMs: config.regionStreamPollIntervalMs,
   };
+  ctx.cellComposites = cellComposites;
+  if (cellCompositor) ctx.cellCompositor = cellCompositor;
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
   ctx.lifecycle = lifecycle;
 
@@ -554,6 +605,20 @@ function grantFromUpgrade(req: IncomingMessage): string | null {
   } catch {
     return null;
   }
+}
+
+// Reads one piece tile for the cell compositor (see ROADMAP Phase 5 Stage 3):
+// a plain public HTTPS GET against the same CDN-fronted asset domain the
+// frontend already fetches every piece texture from, needing no credentials.
+async function fetchPieceTile(
+  assetsBaseUrl: string,
+  puzzleId: string,
+  relativePath: string,
+): Promise<Buffer> {
+  const url = `${assetsBaseUrl}/${puzzleId}/${relativePath}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`piece tile fetch ${url} returned HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 main().catch((e: unknown) => {

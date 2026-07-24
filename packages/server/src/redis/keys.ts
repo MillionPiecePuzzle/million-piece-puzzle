@@ -50,6 +50,14 @@ export const rateLimit = (bucket: string, ip: string) => `ratelimit:${bucket}:${
 export const interested = (puzzleId: string) => `puzzle:${puzzleId}:interested`;
 
 /**
+ * Hash: cellKey (string) -> composite bake version. See ROADMAP Phase 5 Stage
+ * 3 and cellComposite.ts's CellCompositeIndex, the in-process read model this
+ * persists across restarts.
+ */
+export const cellCompositeVersions = (puzzleId: string) =>
+  `puzzle:${puzzleId}:cell-composite-versions`;
+
+/**
  * String (JSON {puzzleId, seed}): admin-set puzzle override, read at boot to
  * supersede the env puzzle so a switch survives the restart it triggers. Not
  * puzzle-scoped (it selects the puzzle). Cleared by a full admin wipe (FLUSHDB),

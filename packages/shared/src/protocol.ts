@@ -308,12 +308,41 @@ export type SRegionState = {
   // RegionGroup's worldX/worldY already does for a loose group. Always an
   // array, never absent, so the client never needs to null-check it.
   lockedPieceIds: WirePiece[];
+  // Ready server-composited tiles for this batch's cells (see ROADMAP Phase 5
+  // Stage 3), one entry per cell that already has a bake. Always an array,
+  // never absent, same convention as lockedPieceIds; a cell absent here has no
+  // composite yet, so the client keeps rendering it from lockedPieceIds.
+  cellComposites: CellComposite[];
   // World rectangle the client's entered broadcast cells cover. An entered cell
   // with no groups still acknowledges its area here (the message is sent even when
   // `groups` is empty), so the client can mark its own cells "known" and tell a
   // region that has not streamed in yet from a genuinely empty one. Absent on a
   // global subscription, which streams nothing by design.
   coverage?: { minX: number; minY: number; maxX: number; maxY: number };
+};
+
+// One cell's server-composited locked-tile version (see ROADMAP Phase 5 Stage
+// 3): rebaked from that cell's currently-locked, bordered piece tiles on every
+// lock event that touches it, cached and versioned in R2. `cellKey` is the
+// same world-grid cell key the server's spatial indexes use internally; the
+// frontend needs no further indirection since a cell position is not a
+// solved-adjacency secret (unlike a piece id). `version` increments on every
+// rebake, so the URL it derives (a fixed, puzzle-scoped path convention) is a
+// new, immutable object each time: no cache invalidation needed, matching the
+// existing per-piece-tile caching model.
+export type CellComposite = {
+  cellKey: number;
+  version: number;
+};
+
+// Live push when a cell's composite finishes a new bake while a client is
+// already watching it (already covered, not newly entered, so region_state's
+// own cellComposites would not reach it). Scoped the same way drop/drag/cursor
+// are: broadcastOverlapping over the cell's world rect.
+export type SCellComposite = {
+  t: "cell_composite";
+  cellKey: number;
+  version: number;
 };
 
 // Downsampled board density grid for the minimap overview. Broadcast to
@@ -374,4 +403,5 @@ export type ServerMessage =
   | SCursor
   | SError
   | SRegionState
-  | SMinimap;
+  | SMinimap
+  | SCellComposite;

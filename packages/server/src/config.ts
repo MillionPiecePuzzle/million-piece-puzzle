@@ -1,5 +1,6 @@
 import type { ImageManifest } from "@mpp/shared";
 import { parseAllowedOrigins } from "./limits.js";
+import type { R2WriteConfig } from "./r2.js";
 
 export const DEFAULT_REDIS_URL = "redis://127.0.0.1:6379";
 
@@ -150,6 +151,15 @@ export type ServerConfig = {
   // is configured server-side (never baked into the committed image) and only the
   // id/label reach the browser.
   adminPuzzles: AdminPuzzle[];
+  // Write-scoped R2 credentials for the cell compositor (see ROADMAP Phase 5
+  // Stage 3), the server's one live write path to R2; everything else it does
+  // with R2 is a public read needing no credentials. null (the default, and
+  // always true for local dev, which has no R2 write creds) leaves compositing
+  // inert: cells are never dirtied into useful work, the client keeps rendering
+  // every locked piece from Stage 2's per-piece path. A secret, so (like the
+  // backup sidecar's own R2 credentials) it is passed through from the Coolify
+  // env, never baked into the image.
+  r2Write: R2WriteConfig | null;
 };
 
 function int(name: string, fallback: number): number {
@@ -282,6 +292,31 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     publicRateWindowSec: int("MPP_PUBLIC_RATE_WINDOW_SEC", 60),
     adminPassword: str("MPP_ADMIN_PASSWORD", ""),
     adminPuzzles: parseAdminPuzzles(process.env.MPP_ADMIN_PUZZLES),
+    r2Write: parseR2WriteConfig(),
+  };
+}
+
+// R2 write credentials for the cell compositor (see ROADMAP Phase 5 Stage 3),
+// all-or-nothing: any of the three secret parts set without the others is
+// almost certainly a misconfiguration, so it fails the boot loudly rather than
+// silently leaving compositing inert. All three unset (local dev's default,
+// which has no R2 write creds) is the normal, supported "feature off" state.
+function parseR2WriteConfig(): R2WriteConfig | null {
+  const endpoint = process.env.MPP_R2_ENDPOINT;
+  const accessKeyId = process.env.MPP_R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.MPP_R2_SECRET_ACCESS_KEY;
+  const present = [endpoint, accessKeyId, secretAccessKey].filter((v) => !!v).length;
+  if (present === 0) return null;
+  if (present < 3) {
+    throw new Error(
+      "MPP_R2_ENDPOINT/MPP_R2_ACCESS_KEY_ID/MPP_R2_SECRET_ACCESS_KEY must be set together or not at all",
+    );
+  }
+  return {
+    endpoint: endpoint!,
+    accessKeyId: accessKeyId!,
+    secretAccessKey: secretAccessKey!,
+    bucket: str("MPP_R2_BUCKET", "mpp-assets"),
   };
 }
 

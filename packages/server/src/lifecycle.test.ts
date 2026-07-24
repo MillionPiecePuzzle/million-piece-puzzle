@@ -5,8 +5,14 @@ import type { PuzzleMeta } from "./state.js";
 import type { ClusterMergeDoc } from "./mongo.js";
 import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
+import { cellKey } from "./worldGrid.js";
 import { replayMerges, type MergeRecord } from "./stateInvariants.js";
-import { MinimapGridTracker, WORLD_TILE_SIZE, type ImageManifest, type PlayZone } from "@mpp/shared";
+import {
+  MinimapGridTracker,
+  WORLD_TILE_SIZE,
+  type ImageManifest,
+  type PlayZone,
+} from "@mpp/shared";
 
 // PuzzleLifecycle's constructor runs real piece geometry generation off the
 // manifest's own rows/cols (via playZoneForManifest), unrelated to
@@ -158,5 +164,24 @@ describe("PuzzleLifecycle.forceComplete", () => {
     const docs = logMerge.mock.calls.map(([doc]) => doc as ClusterMergeDoc);
     expect(docs.every((d) => d.lockedDelta === 0)).toBe(true);
     expect(docs.flatMap((d) => d.droppedPieceIds)).toEqual(range(0, total));
+  });
+
+  it("dirties every cell in the grid for the compositor, since anchorAllGroups bypasses applyMerge's own per-piece dirty-marking", async () => {
+    const { lifecycle, ctx } = makeLifecycle(7, 2);
+    const markDirty = vi.fn();
+    ctx.cellCompositor = { markDirty };
+    ctx.worldTileSize = WORLD_TILE_SIZE;
+
+    await lifecycle.forceComplete("user-1");
+
+    // gridRows 1, gridCols 7, pieceSize 100 all sit well inside one
+    // WORLD_TILE_SIZE cell, so the whole tiny grid is exactly one cell.
+    expect(markDirty).toHaveBeenCalledTimes(1);
+    expect([...markDirty.mock.calls[0]![0]]).toEqual([cellKey(0, 0)]);
+  });
+
+  it("does not touch the compositor when none is wired", async () => {
+    const { lifecycle } = makeLifecycle(7, 2);
+    await expect(lifecycle.forceComplete("user-1")).resolves.not.toThrow();
   });
 });

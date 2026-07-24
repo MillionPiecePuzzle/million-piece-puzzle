@@ -11,6 +11,7 @@ import {
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { GroupIndex } from "./groupIndex.js";
 import type { LockedPieceIndex } from "./lockedPieces.js";
+import type { CellCompositeIndex } from "./cellComposite.js";
 import { localAabbForPieces } from "./worldGrid.js";
 
 const SCATTER_DOMAIN = 2;
@@ -206,4 +207,18 @@ export async function rebuildMinimapGrid(
     state.readAllGroups(totalPieces),
   ]);
   grid.rebuildFromBoard(pieces, groups);
+}
+
+// Rebuild the in-process cell-composite version index from Redis (see ROADMAP
+// Phase 5 Stage 3), used at boot and after a reset, the same occasions the
+// other per-cell indexes above rebuild. Unlike those, there is no periodic
+// defense-in-depth resync for this one: a missed increment just leaves a cell
+// one version behind its last successful bake (see CellCompositor), never
+// wrong, so nothing needs a slow full-board recheck.
+export async function rebuildCellCompositeIndex(
+  index: CellCompositeIndex,
+  state: RedisState,
+): Promise<void> {
+  const versions = await state.readCellCompositeVersions();
+  index.rebuild(versions);
 }

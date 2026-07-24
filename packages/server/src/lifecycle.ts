@@ -10,6 +10,7 @@ import {
   rebuildLockedPieceIndex,
   rebuildMinimapGrid,
 } from "./init.js";
+import { allCellKeysForGrid } from "./cellComposite.js";
 
 // Anchoring entries sent to seed a connecting client's activity ticker. Matches
 // the ticker's display capacity on the frontend.
@@ -102,6 +103,14 @@ export class PuzzleLifecycle {
       // fresh (fully unlocked) board too.
       await rebuildLockedPieceIndex(this.ctx.lockedPieces, this.ctx.state, meta.totalPieces);
       await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, meta.totalPieces);
+      // Every previously-baked cell composite is now actively wrong, not just
+      // stale (it would show a cell as locked that just went back to loose),
+      // so this has to clear rather than let the next touch overwrite it (see
+      // state.clearCellCompositeVersions).
+      if (this.ctx.cellComposites) {
+        await this.ctx.state.clearCellCompositeVersions();
+        this.ctx.cellComposites.clear();
+      }
       // Regenerate before resending welcome so the welcome's minimap grid (read
       // from the latest keyframe) reflects the fresh scatter, not the old board.
       await this.keyframePublisher?.regenerate(true);
@@ -171,6 +180,22 @@ export class PuzzleLifecycle {
     // incremental ctx.lockedPieces.lock/applyTranslation calls applyMerge makes.
     await rebuildLockedPieceIndex(this.ctx.lockedPieces, this.ctx.state, total);
     await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, total);
+    // force-complete has no per-piece incremental hook telling us which cells
+    // just gained a lock (anchorAllGroups moves everything directly, bypassing
+    // applyMerge's own dirty-marking), so every cell in the grid is dirtied
+    // instead; a rare dev-only bulk operation, so redundantly recompositing an
+    // already-complete cell is an acceptable one-off cost (see
+    // allCellKeysForGrid). Runs after the locked-piece index rebuild above so
+    // the compositor's isLocked reads see the fresh, fully-anchored state.
+    if (this.ctx.cellCompositor) {
+      const allCells = allCellKeysForGrid(
+        this.ctx.meta.gridCols,
+        this.ctx.meta.gridRows,
+        this.ctx.meta.pieceSize,
+        this.ctx.worldTileSize,
+      );
+      this.ctx.cellCompositor.markDirty(allCells);
+    }
     // forceComplete sets state directly (no per-group snaps), so the assembled
     // board only reaches the frozen keyframe through a forced regeneration;
     // regenerate before resending welcome so its minimap grid is the assembled one.

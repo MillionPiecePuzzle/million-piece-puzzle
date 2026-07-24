@@ -29,7 +29,7 @@ See [LICENSE](LICENSE).
 
 ## Contributing
 
-The wire protocol (v6), schema, and gameplay are frozen for the public event. Code contributions are welcome but please open an issue first to discuss the change before sending a pull request.
+The wire protocol (v8), schema, and gameplay are frozen for the public event. Code contributions are welcome but please open an issue first to discuss the change before sending a pull request.
 
 To run the stack locally:
 
