@@ -28,7 +28,7 @@ import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
 import { CellCompositeIndex } from "./cellComposite.js";
 import { CellCompositor } from "./cellCompositor.js";
-import { createR2Uploader } from "./r2.js";
+import { createR2Client } from "./r2.js";
 import { unpackCellKey } from "./worldGrid.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
@@ -124,7 +124,7 @@ async function main(): Promise<void> {
   // piece rendered from Stage 2's per-piece path (see config.r2Write).
   let cellCompositor: CellCompositor | undefined;
   if (config.r2Write) {
-    const upload = createR2Uploader(config.r2Write);
+    const r2 = createR2Client(config.r2Write);
     cellCompositor = new CellCompositor({
       gridCols: meta.gridCols,
       gridRows: meta.gridRows,
@@ -136,7 +136,8 @@ async function main(): Promise<void> {
       isLocked: (id) => lockedPieces.isLocked(id),
       fetchTile: (relativePath) =>
         fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
-      upload,
+      upload: r2.upload,
+      remove: r2.remove,
       index: cellComposites,
       persistVersion: (key, version) => state.writeCellCompositeVersion(key, version),
       onComposited: (key, version) => {

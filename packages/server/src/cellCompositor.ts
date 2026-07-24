@@ -28,6 +28,14 @@ export type CellCompositorDeps = {
   // The one live write path to R2 this server has (see r2.ts); everything
   // else the server does with R2 is a plain public read.
   upload: (key: string, body: Buffer, contentType: string) => Promise<void>;
+  // Deletes the version a rebake just superseded, once the new one is fully
+  // live (index, Redis, broadcast), so R2 storage stays bounded by cell count
+  // instead of growing with every lock event over the puzzle's whole
+  // lifetime (see DECISIONS). A board reset is a separate, smaller gap this
+  // does not cover: it clears the version index back to empty rather than
+  // deleting the R2 objects, so a life that reaches fewer versions than the
+  // one before a reset leaves that tail permanently orphaned.
+  remove: (key: string) => Promise<void>;
   index: CellCompositeIndex;
   persistVersion: (cellKey: number, version: number) => Promise<void>;
   onComposited: (cellKey: number, version: number) => void;
@@ -126,12 +134,33 @@ export class CellCompositor {
       .avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT })
       .toBuffer();
 
-    const version = (this.deps.index.get(cellKey) ?? 0) + 1;
-    const key = `${this.deps.puzzleId}/cells/${cellKey}/${version}.avif`;
-    await this.deps.upload(key, buffer, "image/avif");
+    const previousVersion = this.deps.index.get(cellKey) ?? 0;
+    const version = previousVersion + 1;
+    await this.deps.upload(this.compositeKey(cellKey, version), buffer, "image/avif");
     this.deps.index.set(cellKey, version);
     await this.deps.persistVersion(cellKey, version);
     this.deps.onComposited(cellKey, version);
+
+    // The old version is now dead weight, not a fallback anyone still reads:
+    // every reader that could learn of this cell (index, Redis, the broadcast
+    // above) already points at the new version. Best-effort: a failure here
+    // is logged and leaves that one object orphaned permanently, since
+    // nothing revisits a specific past version's cleanup again, unlike a
+    // failed bake itself, which the next lock event on this cell re-attempts.
+    if (previousVersion > 0) {
+      try {
+        await this.deps.remove(this.compositeKey(cellKey, previousVersion));
+      } catch (e) {
+        console.error(
+          `[cell-composite] cell ${cellKey} failed to delete stale v${previousVersion}`,
+          (e as Error).message,
+        );
+      }
+    }
+  }
+
+  private compositeKey(cellKey: number, version: number): string {
+    return `${this.deps.puzzleId}/cells/${cellKey}/${version}.avif`;
   }
 }
 

@@ -28,12 +28,14 @@ function makeDeps(overrides: Partial<CellCompositorDeps> = {}): {
   deps: CellCompositorDeps;
   index: CellCompositeIndex;
   uploads: { key: string; body: Buffer; contentType: string }[];
+  removed: string[];
   persisted: { cellKey: number; version: number }[];
   composited: { cellKey: number; version: number }[];
   locked: Set<number>;
 } {
   const index = new CellCompositeIndex();
   const uploads: { key: string; body: Buffer; contentType: string }[] = [];
+  const removed: string[] = [];
   const persisted: { cellKey: number; version: number }[] = [];
   const composited: { cellKey: number; version: number }[] = [];
   const locked = new Set<number>();
@@ -51,6 +53,9 @@ function makeDeps(overrides: Partial<CellCompositorDeps> = {}): {
     upload: vi.fn(async (key: string, body: Buffer, contentType: string) => {
       uploads.push({ key, body, contentType });
     }),
+    remove: vi.fn(async (key: string) => {
+      removed.push(key);
+    }),
     persistVersion: vi.fn(async (key: number, version: number) => {
       persisted.push({ cellKey: key, version });
     }),
@@ -61,7 +66,7 @@ function makeDeps(overrides: Partial<CellCompositorDeps> = {}): {
     index,
     ...overrides,
   };
-  return { deps, index: overrides.index ?? index, uploads, persisted, composited, locked };
+  return { deps, index: overrides.index ?? index, uploads, removed, persisted, composited, locked };
 }
 
 describe("CellCompositor.markDirty", () => {
@@ -75,7 +80,7 @@ describe("CellCompositor.markDirty", () => {
   });
 
   it("composites, uploads, versions, persists and broadcasts once a cell has a locked piece", async () => {
-    const { deps, index, uploads, persisted, composited, locked } = makeDeps();
+    const { deps, index, uploads, removed, persisted, composited, locked } = makeDeps();
     locked.add(0);
     const compositor = new CellCompositor(deps);
     compositor.markDirty([cellKey(0, 0)]);
@@ -87,6 +92,8 @@ describe("CellCompositor.markDirty", () => {
     expect(index.get(cellKey(0, 0))).toBe(1);
     expect(persisted).toEqual([{ cellKey: cellKey(0, 0), version: 1 }]);
     expect(composited).toEqual([{ cellKey: cellKey(0, 0), version: 1 }]);
+    // No previous version to clean up on a cell's very first bake.
+    expect(removed).toEqual([]);
   });
 
   it("only fetches locked pieces, not every piece in the cell's halo", async () => {
@@ -116,7 +123,7 @@ describe("CellCompositor.markDirty", () => {
   });
 
   it("bumps the version on a later rebake of the same cell", async () => {
-    const { deps, uploads, locked } = makeDeps();
+    const { deps, uploads, removed, locked } = makeDeps();
     locked.add(0);
     const compositor = new CellCompositor(deps);
     compositor.markDirty([cellKey(0, 0)]);
@@ -126,6 +133,33 @@ describe("CellCompositor.markDirty", () => {
     await compositor.whenIdle();
     expect(uploads).toHaveLength(2);
     expect(uploads[1]!.key).toBe(`test-puzzle/cells/${cellKey(0, 0)}/2.avif`);
+    // The now-superseded v1 object is cleaned up once v2 is fully live.
+    expect(removed).toEqual([`test-puzzle/cells/${cellKey(0, 0)}/1.avif`]);
+  });
+
+  it("logs and continues past a cell whose stale-version delete fails, instead of treating the bake as failed", async () => {
+    const { deps, uploads, persisted, composited, locked } = makeDeps({
+      remove: vi.fn().mockRejectedValueOnce(new Error("network blip")),
+    });
+    locked.add(0);
+    const compositor = new CellCompositor(deps);
+    compositor.markDirty([cellKey(0, 0)]);
+    await compositor.whenIdle();
+    locked.add(1);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    compositor.markDirty([cellKey(0, 0)]);
+    await compositor.whenIdle();
+
+    // The bake itself (upload, version, persist, broadcast) still succeeds
+    // even though cleaning up the old version failed.
+    expect(uploads).toHaveLength(2);
+    expect(persisted).toEqual([
+      { cellKey: cellKey(0, 0), version: 1 },
+      { cellKey: cellKey(0, 0), version: 2 },
+    ]);
+    expect(composited).toHaveLength(2);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it("logs and continues past a cell whose upload fails, instead of losing the rest of the queue", async () => {

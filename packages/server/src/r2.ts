@@ -6,7 +6,7 @@
 // (region "auto" plus a Cloudflare account endpoint), rather than hand-rolling
 // SigV4 request signing.
 
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 export type R2WriteConfig = {
   endpoint: string;
@@ -15,17 +15,25 @@ export type R2WriteConfig = {
   bucket: string;
 };
 
-export type R2Uploader = (key: string, body: Buffer, contentType: string) => Promise<void>;
+export type R2Client = {
+  upload: (key: string, body: Buffer, contentType: string) => Promise<void>;
+  remove: (key: string) => Promise<void>;
+};
 
-export function createR2Uploader(cfg: R2WriteConfig): R2Uploader {
+export function createR2Client(cfg: R2WriteConfig): R2Client {
   const client = new S3Client({
     region: "auto",
     endpoint: cfg.endpoint,
     credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
   });
-  return async (key, body, contentType) => {
-    await client.send(
-      new PutObjectCommand({ Bucket: cfg.bucket, Key: key, Body: body, ContentType: contentType }),
-    );
+  return {
+    upload: async (key, body, contentType) => {
+      await client.send(
+        new PutObjectCommand({ Bucket: cfg.bucket, Key: key, Body: body, ContentType: contentType }),
+      );
+    },
+    remove: async (key) => {
+      await client.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key }));
+    },
   };
 }
