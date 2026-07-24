@@ -49,6 +49,31 @@ export function cellContentPending(f: {
   return f.hasUnhydratedInRingGroup;
 }
 
+// A cell's composite sprite, as far as this decision cares: an opaque handle
+// that is non-null exactly when a texture is currently resident (this module
+// stays free of Pixi, so it neither knows nor cares that the real handle is a
+// Sprite), and the locked piece ids that hydrate is known to already draw.
+export type ComposedCellFact = { node: unknown; coveredPieceIds: ReadonlySet<number> };
+
+// Whether a locked piece should skip its own rendering because a cell it
+// touches already has a hydrated composite sprite known to include it (see
+// ROADMAP Phase 5 Stage 3). Gating on "known to include", not merely "this
+// cell has some composite version", matters: a piece locked after its cell's
+// composite was last hydrated is not yet drawn by that (now stale) sprite, so
+// it keeps rendering individually until a fresh composite hydrate supersedes
+// it, rather than flashing invisible in between.
+export function pieceCoveredByComposite(
+  pieceId: number,
+  cellKeys: readonly CellKey[],
+  composites: ReadonlyMap<CellKey, ComposedCellFact>,
+): boolean {
+  for (const key of cellKeys) {
+    const c = composites.get(key);
+    if (c?.node != null && c.coveredPieceIds.has(pieceId)) return true;
+  }
+  return false;
+}
+
 export type TileState = "not-loaded" | "loading" | "loaded";
 
 // Three-state classification for a whole-play-zone diagnostic view (the minimap

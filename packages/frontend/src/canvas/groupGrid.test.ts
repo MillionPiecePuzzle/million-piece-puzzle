@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { GroupGrid, cellKeysForRect, packCell, unpackCell } from "./groupGrid";
+import { GroupGrid, cellKeysForRect, packCell, unpackCell, unpackWireCellKey } from "./groupGrid";
 import type { Aabb } from "./cull";
+
+// Mirrors packages/server/src/worldGrid.ts's cellKey, duplicated here only so
+// the test can produce wire-shaped keys without a cross-package import.
+function wireCellKey(cx: number, cy: number): number {
+  const half = 1 << 23;
+  const stride = 1 << 24;
+  return (cx + half) * stride + (cy + half);
+}
 
 const box = (minX: number, minY: number, maxX: number, maxY: number): Aabb => ({
   minX,
@@ -26,6 +34,20 @@ describe("packCell / unpackCell", () => {
     const keys = new Set<number>();
     for (let cx = -3; cx <= 3; cx++) for (let cy = -3; cy <= 3; cy++) keys.add(packCell(cx, cy));
     expect(keys.size).toBe(49);
+  });
+});
+
+describe("unpackWireCellKey", () => {
+  it("recovers the server's (cx, cy) from a wire-packed cell key", () => {
+    const cases: [number, number][] = [
+      [0, 0],
+      [3, -7],
+      [-1, -1],
+      [1234, -5678],
+    ];
+    for (const [cx, cy] of cases) {
+      expect(unpackWireCellKey(wireCellKey(cx, cy))).toEqual({ cx, cy });
+    }
   });
 });
 

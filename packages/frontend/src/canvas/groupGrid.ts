@@ -31,6 +31,21 @@ export function unpackCell(key: CellKey): { cx: number; cy: number } {
   return { cx, cy };
 }
 
+// The server packs the same world-grid cell coordinate independently, with a
+// different bit layout (see packages/server/src/worldGrid.ts's cellKey): only
+// the underlying (cx, cy) pair is meant to cross the wire, not either side's
+// packed key. This mirrors the server's encoding so a wire
+// CellComposite.cellKey can be translated into this module's own CellKey
+// (via packCell) for lookups against groupGrid-keyed state.
+const WIRE_CELL_KEY_BITS = 24;
+const WIRE_CELL_KEY_HALF = 1 << (WIRE_CELL_KEY_BITS - 1);
+const WIRE_CELL_KEY_STRIDE = 1 << WIRE_CELL_KEY_BITS;
+export function unpackWireCellKey(key: number): { cx: number; cy: number } {
+  const cx = Math.floor(key / WIRE_CELL_KEY_STRIDE) - WIRE_CELL_KEY_HALF;
+  const cy = (key % WIRE_CELL_KEY_STRIDE) - WIRE_CELL_KEY_HALF;
+  return { cx, cy };
+}
+
 // Cell keys of every cell a world AABB touches, max edge inclusive (a box
 // resting exactly on a cell line counts as touching both neighbours, which keeps
 // registration and query symmetric so an overlap is never missed).

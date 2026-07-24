@@ -3,7 +3,9 @@ import {
   cellContentPending,
   classifyTile,
   coalesceDirtyCells,
+  pieceCoveredByComposite,
   residencyDecision,
+  type ComposedCellFact,
 } from "./reconcile";
 import { packCell } from "./groupGrid";
 import type { Aabb } from "./cull";
@@ -55,6 +57,44 @@ describe("residencyDecision", () => {
 
   it("retains an in-ring covered-cold group for budget eviction", () => {
     expect(residencyDecision(true, true)).toBe("retain");
+  });
+});
+
+describe("pieceCoveredByComposite", () => {
+  const cellA = packCell(0, 0);
+  const cellB = packCell(1, 0);
+
+  it("is false when the piece's cell has no composite entry", () => {
+    expect(pieceCoveredByComposite(1, [cellA], new Map())).toBe(false);
+  });
+
+  it("is false when the composite exists but is not yet hydrated (Stage 2 fallback)", () => {
+    const composites = new Map<number, ComposedCellFact>([
+      [cellA, { node: null, coveredPieceIds: new Set([1]) }],
+    ]);
+    expect(pieceCoveredByComposite(1, [cellA], composites)).toBe(false);
+  });
+
+  it("is false when hydrated but the piece locked after the applied snapshot", () => {
+    const composites = new Map<number, ComposedCellFact>([
+      [cellA, { node: {}, coveredPieceIds: new Set([2, 3]) }],
+    ]);
+    expect(pieceCoveredByComposite(1, [cellA], composites)).toBe(false);
+  });
+
+  it("is true once hydrated and the piece is in the covered snapshot", () => {
+    const composites = new Map<number, ComposedCellFact>([
+      [cellA, { node: {}, coveredPieceIds: new Set([1, 2]) }],
+    ]);
+    expect(pieceCoveredByComposite(1, [cellA], composites)).toBe(true);
+  });
+
+  it("checks every cell the piece touches, not just the first", () => {
+    const composites = new Map<number, ComposedCellFact>([
+      [cellA, { node: {}, coveredPieceIds: new Set([2]) }],
+      [cellB, { node: {}, coveredPieceIds: new Set([1]) }],
+    ]);
+    expect(pieceCoveredByComposite(1, [cellA, cellB], composites)).toBe(true);
   });
 });
 

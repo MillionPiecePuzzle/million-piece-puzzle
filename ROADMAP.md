@@ -172,7 +172,7 @@ Delivered in 3 stages, each independently shippable and separately testable, sin
 ### Stage 3: server-composited locked tiles ("see it all at once")
 
 - [x] `backend-realtime`: incremental per-cell tile compositing (sharp): a debounced dirty-cell queue rebakes a cell from its currently-locked, bordered piece tiles whenever a lock event touches it, cached and versioned in R2 (`PROTOCOL_VERSION` bump for `SRegionState.cellComposites` and the `cell_composite` broadcast). See DECISIONS. Manual follow-up: set `MPP_R2_ENDPOINT`/`MPP_R2_ACCESS_KEY_ID`/`MPP_R2_SECRET_ACCESS_KEY` in the Coolify env (unset leaves compositing inert, not failing).
-- [ ] `frontend-canvas`: consumes the server-composited per-cell tile when available, falls back to Stage 2's per-piece rendering otherwise.
+- [x] `frontend-canvas`: consumes the server-composited per-cell tile when available, falls back to Stage 2's per-piece rendering otherwise. See DECISIONS.
 
 ---
 
