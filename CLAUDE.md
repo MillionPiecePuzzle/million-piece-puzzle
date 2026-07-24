@@ -121,7 +121,7 @@ GitHub Organization: `MillionPiecePuzzle`
 - Source image is preprocessed once with **libvips**:
   - Deep Zoom tile pyramid for OpenSeadragon (~3-5 GB on R2)
   - Per-piece AVIF textures, ~4 KB each, ~4 GB total on R2
-- Stored hierarchically: `pieces/{folder:0000-0099}/{file:0000-9999}.avif`
+- Stored hierarchically: `pieces/{bucket:0000-9999}/{id:000000-999999}.avif`, bucket = `floor(id / 100)`
 - Source image target: 6-10 gigapixels (~80 px per piece minimum)
 - No AI-generated content (community commitment)
 
