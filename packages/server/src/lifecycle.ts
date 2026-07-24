@@ -15,6 +15,15 @@ import {
 // the ticker's display capacity on the frontend.
 export const ACTIVITY_BACKFILL_LIMIT = 6;
 
+// Mongo's per-document BSON limit is 16 MB, but a cluster_merges doc carrying
+// two id arrays across every piece hits a Node buffer error inside the BSON
+// serializer well before that limit (observed failing at ~995 000 ids in one
+// doc; see seed-lock-scenario.ts, which hit and fixed the same failure).
+// Chunking is safe: replayMerges (stateInvariants.ts) only sums lockedDelta
+// and unions lockedPieceIds across the whole log, so N smaller docs replay
+// identically to one giant one.
+export const MERGE_LOG_CHUNK = 50000;
+
 // Holds the single puzzle for its lifetime: serves welcomes, marks completion
 // when the locked count reaches the total, and supports a manual reset back to
 // a fresh scattered board.
@@ -114,32 +123,44 @@ export class PuzzleLifecycle {
   // clients rebuild onto the finished picture. resetCurrent is the way back to
   // a playable board. The executing client is credited for every piece not
   // already attributed: the leaderboard credits each piece to the first merge
-  // (by `at`) that dragged it, so logging one merge now whose droppedPieceIds
-  // lists all pieces leaves earlier contributions intact and assigns the rest
-  // to the executor.
+  // (by `at`) that dragged it, so logging chunked merges now whose
+  // droppedPieceIds together list every piece exactly once leaves earlier
+  // contributions intact and assigns the rest to the executor.
   async forceComplete(userId: string): Promise<void> {
     const total = this.ctx.meta.totalPieces;
     await this.ctx.state.anchorAllGroups(total);
     const current = await this.ctx.state.getLockedCount();
-    const remaining = total - current;
+    const remaining = Math.max(0, total - current);
     if (remaining > 0) await this.ctx.state.addLockedCount(remaining);
-    // lockedPieceIds lists every piece, same approximation droppedPieceIds
-    // already makes below: a piece already locked before this call is listed
-    // again, harmlessly (the invariant replay unions locked ids, it does not
-    // sum them; lockedDelta above stays the precise incremental count).
-    const allPieceIds = Array.from({ length: total }, (_, i) => i);
-    await this.ctx.mongo.logMerge({
-      puzzleId: this.ctx.puzzleId,
-      userId,
-      addedPieceIds: [],
-      droppedPieceIds: allPieceIds,
-      targetAnchorPieceId: 0,
-      anchored: true,
-      lockedDelta: Math.max(0, remaining),
-      lockedPieceIds: allPieceIds,
-      mergedSize: total,
-      at: new Date(),
-    });
+    // Logged in MERGE_LOG_CHUNK-sized docs (see its comment): each one's
+    // droppedPieceIds/lockedPieceIds lists only its own slice, same
+    // already-locked-pieces-listed-again approximation the single-doc version
+    // made (harmless: the invariant replay unions locked ids, it does not sum
+    // them). lockedDelta has no such per-piece source (which specific ids were
+    // already locked isn't tracked here), so it is spread across chunks by
+    // cumulative share of `remaining`, with running-cumulative rounding
+    // keeping the total exact.
+    const at = new Date();
+    let deltaAssigned = 0;
+    for (let start = 0; start < total; start += MERGE_LOG_CHUNK) {
+      const end = Math.min(start + MERGE_LOG_CHUNK, total);
+      const slice = Array.from({ length: end - start }, (_, i) => start + i);
+      const targetCumulative = end >= total ? remaining : Math.round((remaining * end) / total);
+      const chunkDelta = targetCumulative - deltaAssigned;
+      deltaAssigned = targetCumulative;
+      await this.ctx.mongo.logMerge({
+        puzzleId: this.ctx.puzzleId,
+        userId,
+        addedPieceIds: [],
+        droppedPieceIds: slice,
+        targetAnchorPieceId: slice[0] ?? 0,
+        anchored: true,
+        lockedDelta: chunkDelta,
+        lockedPieceIds: slice,
+        mergedSize: slice.length,
+        at,
+      });
+    }
     await this.markCompleted();
     // Every group is now anchored at the frame origin; rebuild the index so its
     // positions match the assembled board (force-complete moves groups directly,
