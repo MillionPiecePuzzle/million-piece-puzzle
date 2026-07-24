@@ -6,7 +6,13 @@
 // (region "auto" plus a Cloudflare account endpoint), rather than hand-rolling
 // SigV4 request signing.
 
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+} from "@aws-sdk/client-s3";
 
 export type R2WriteConfig = {
   endpoint: string;
@@ -18,6 +24,12 @@ export type R2WriteConfig = {
 export type R2Client = {
   upload: (key: string, body: Buffer, contentType: string) => Promise<void>;
   remove: (key: string) => Promise<void>;
+  // Bulk delete for a board reset's cell-composite cleanup (see
+  // CellCompositor.clearAll): pages through every object under the prefix
+  // instead of one key at a time. ListObjectsV2's own page size already caps
+  // at 1000, matching DeleteObjects' own per-call limit, so each page maps to
+  // exactly one delete call.
+  removeByPrefix: (prefix: string) => Promise<void>;
 };
 
 export function createR2Client(cfg: R2WriteConfig): R2Client {
@@ -34,6 +46,31 @@ export function createR2Client(cfg: R2WriteConfig): R2Client {
     },
     remove: async (key) => {
       await client.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key }));
+    },
+    removeByPrefix: async (prefix) => {
+      let continuationToken: string | undefined;
+      do {
+        const page = await client.send(
+          new ListObjectsV2Command({
+            Bucket: cfg.bucket,
+            Prefix: prefix,
+            ContinuationToken: continuationToken,
+          }),
+        );
+        const objects = (page.Contents ?? []).flatMap((o) => (o.Key ? [{ Key: o.Key }] : []));
+        if (objects.length > 0) {
+          const result = await client.send(
+            new DeleteObjectsCommand({ Bucket: cfg.bucket, Delete: { Objects: objects } }),
+          );
+          if (result.Errors && result.Errors.length > 0) {
+            console.error(
+              `[r2] removeByPrefix ${prefix}: ${result.Errors.length} object(s) failed to delete`,
+              result.Errors,
+            );
+          }
+        }
+        continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (continuationToken);
     },
   };
 }

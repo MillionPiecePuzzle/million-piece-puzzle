@@ -138,6 +138,7 @@ async function main(): Promise<void> {
         fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
       upload: r2.upload,
       remove: r2.remove,
+      removeByPrefix: r2.removeByPrefix,
       index: cellComposites,
       persistVersion: (key, version) => state.writeCellCompositeVersion(key, version),
       onComposited: (key, version) => {

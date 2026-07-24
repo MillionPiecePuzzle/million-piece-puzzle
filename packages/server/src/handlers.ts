@@ -91,9 +91,10 @@ export type Context = {
   // uses optional chaining, so region_state stays valid either way.
   cellComposites?: CellCompositeIndex;
   // Write side of the same feature: marks cells dirty for the background bake
-  // queue (see cellCompositor.ts). Typed as the minimal shape handlers need
-  // rather than the concrete class, mirroring `lifecycle` below.
-  cellCompositor?: { markDirty: (cellKeys: Iterable<number>) => void };
+  // queue and bulk-clears every composite on a board reset (see
+  // cellCompositor.ts). Typed as the minimal shape handlers and lifecycle
+  // need rather than the concrete class, mirroring `lifecycle` below.
+  cellCompositor?: { markDirty: (cellKeys: Iterable<number>) => void; clearAll: () => Promise<void> };
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.

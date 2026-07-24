@@ -29,6 +29,7 @@ function makeDeps(overrides: Partial<CellCompositorDeps> = {}): {
   index: CellCompositeIndex;
   uploads: { key: string; body: Buffer; contentType: string }[];
   removed: string[];
+  removedPrefixes: string[];
   persisted: { cellKey: number; version: number }[];
   composited: { cellKey: number; version: number }[];
   locked: Set<number>;
@@ -36,6 +37,7 @@ function makeDeps(overrides: Partial<CellCompositorDeps> = {}): {
   const index = new CellCompositeIndex();
   const uploads: { key: string; body: Buffer; contentType: string }[] = [];
   const removed: string[] = [];
+  const removedPrefixes: string[] = [];
   const persisted: { cellKey: number; version: number }[] = [];
   const composited: { cellKey: number; version: number }[] = [];
   const locked = new Set<number>();
@@ -56,6 +58,9 @@ function makeDeps(overrides: Partial<CellCompositorDeps> = {}): {
     remove: vi.fn(async (key: string) => {
       removed.push(key);
     }),
+    removeByPrefix: vi.fn(async (prefix: string) => {
+      removedPrefixes.push(prefix);
+    }),
     persistVersion: vi.fn(async (key: number, version: number) => {
       persisted.push({ cellKey: key, version });
     }),
@@ -66,7 +71,16 @@ function makeDeps(overrides: Partial<CellCompositorDeps> = {}): {
     index,
     ...overrides,
   };
-  return { deps, index: overrides.index ?? index, uploads, removed, persisted, composited, locked };
+  return {
+    deps,
+    index: overrides.index ?? index,
+    uploads,
+    removed,
+    removedPrefixes,
+    persisted,
+    composited,
+    locked,
+  };
 }
 
 describe("CellCompositor.markDirty", () => {
@@ -203,5 +217,21 @@ describe("CellCompositor.markDirty", () => {
     expect(data[idx + 1]).toBeLessThan(5);
     expect(data[idx + 2]).toBeLessThan(5);
     expect(data[idx + 3]).toBeGreaterThan(250);
+  });
+});
+
+describe("CellCompositor.clearAll", () => {
+  it("bulk-deletes this puzzle's whole cell prefix, not a per-version key", async () => {
+    const { deps, removedPrefixes } = makeDeps();
+    const compositor = new CellCompositor(deps);
+    await compositor.clearAll();
+    expect(removedPrefixes).toEqual(["test-puzzle/cells/"]);
+  });
+
+  it("does not touch per-key remove", async () => {
+    const { deps, removed } = makeDeps();
+    const compositor = new CellCompositor(deps);
+    await compositor.clearAll();
+    expect(removed).toEqual([]);
   });
 });

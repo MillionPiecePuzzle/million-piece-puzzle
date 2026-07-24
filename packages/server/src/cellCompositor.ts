@@ -31,11 +31,15 @@ export type CellCompositorDeps = {
   // Deletes the version a rebake just superseded, once the new one is fully
   // live (index, Redis, broadcast), so R2 storage stays bounded by cell count
   // instead of growing with every lock event over the puzzle's whole
-  // lifetime (see DECISIONS). A board reset is a separate, smaller gap this
-  // does not cover: it clears the version index back to empty rather than
-  // deleting the R2 objects, so a life that reaches fewer versions than the
-  // one before a reset leaves that tail permanently orphaned.
+  // lifetime (see DECISIONS). A board reset's own cleanup goes through
+  // removeByPrefix below instead of this: the index it would otherwise read
+  // the cell's last version from is exactly what a reset empties.
   remove: (key: string) => Promise<void>;
+  // Bulk delete used only by a board reset (see clearAll): removes every
+  // object under a prefix, catching every version any past life of this
+  // puzzle ever wrote for a cell, not just the one the (already-cleared)
+  // version index last pointed to.
+  removeByPrefix: (prefix: string) => Promise<void>;
   index: CellCompositeIndex;
   persistVersion: (cellKey: number, version: number) => Promise<void>;
   onComposited: (cellKey: number, version: number) => void;
@@ -66,6 +70,17 @@ export class CellCompositor {
   // point instead of guessing a timeout.
   whenIdle(): Promise<void> {
     return this.drainPromise;
+  }
+
+  // Bulk-deletes every composite object this puzzle's cells have ever had, used
+  // by a board reset (see PuzzleLifecycle.resetCurrent). A per-key delete of
+  // each cell's last-known version cannot do this job: the reset empties the
+  // version index before (or instead of) reading it, and even a version read
+  // beforehand would miss any object a still-earlier reset already orphaned.
+  // Deleting the whole <puzzleId>/cells/ prefix catches all of them at once,
+  // regardless of how many past lives left one behind.
+  async clearAll(): Promise<void> {
+    await this.deps.removeByPrefix(`${this.deps.puzzleId}/cells/`);
   }
 
   private async drain(): Promise<void> {

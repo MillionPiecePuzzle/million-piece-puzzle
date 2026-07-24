@@ -106,8 +106,22 @@ export class PuzzleLifecycle {
       // Every previously-baked cell composite is now actively wrong, not just
       // stale (it would show a cell as locked that just went back to loose),
       // so this has to clear rather than let the next touch overwrite it (see
-      // state.clearCellCompositeVersions).
+      // state.clearCellCompositeVersions). The R2 objects themselves are
+      // bulk-deleted by prefix rather than by each cell's last-known version:
+      // clearing the index loses exactly the version numbers a per-key delete
+      // would need, and a per-key delete would miss any object a still-earlier
+      // reset already orphaned anyway (see CellCompositor.clearAll). Best-effort,
+      // like the compositor's own per-rebake cleanup: a failure here leaves this
+      // life's objects orphaned the same way an untreated reset always did,
+      // never blocks the reset itself.
       if (this.ctx.cellComposites) {
+        if (this.ctx.cellCompositor) {
+          try {
+            await this.ctx.cellCompositor.clearAll();
+          } catch (e) {
+            console.error("[cell-composite] reset failed to delete R2 objects", (e as Error).message);
+          }
+        }
         await this.ctx.state.clearCellCompositeVersions();
         this.ctx.cellComposites.clear();
       }
