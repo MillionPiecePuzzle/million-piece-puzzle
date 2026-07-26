@@ -4,7 +4,8 @@
 // codebase already uses (see worldGrid.ts, WORLD_TILE_SIZE), not the
 // minimap's separate downsampled overview grid.
 
-import { cellKey } from "./worldGrid.js";
+import type { CellComposite } from "@mpp/shared";
+import { cellKey, unpackCellKey } from "./worldGrid.js";
 import { ownedRange } from "./lockedPieces.js";
 
 // The pyramid builds levels 0 (this file's existing per-piece bake) through
@@ -51,6 +52,19 @@ export function haloGridIdsForCell(
 // (2cx+1, 2cy), (2cx, 2cy+1), (2cx+1, 2cy+1).
 export function parentCellKey(cx: number, cy: number): number {
   return cellKey(Math.floor(cx / 2), Math.floor(cy / 2));
+}
+
+// A level-0 cell key's ancestor `levels` pyramid levels up, by walking
+// parentCellKey repeatedly (halving is scale-invariant, so each step works
+// starting from the previous step's own (cx, cy), the same way parentCellKey
+// itself does at any single level). `levels === 0` returns the key unchanged.
+export function ancestorCellKey(key0: number, levels: number): number {
+  let key = key0;
+  for (let i = 0; i < levels; i++) {
+    const { cx, cy } = unpackCellKey(key);
+    key = parentCellKey(cx, cy);
+  }
+  return key;
 }
 
 // A range already empty (cell entirely outside the grid) stays empty: there is
@@ -109,8 +123,9 @@ export function allCellKeysForGrid(
 // pyramid level, answering "does this cell have a ready composite, and which
 // version" for region_state construction and for a level L>=1 bake's own read
 // of its level L-1 children. A cell absent at its level has no bake yet, so a
-// reader falls back (to per-piece rendering at level 0, or to simply omitting
-// that child at level>=1). There is no "permanent" flag: once every piece a
+// reader falls back (the client to a finer already-ready level, or to simply
+// omitting that child at level>=1 here on the server). There is no
+// "permanent" flag: once every piece a
 // cell can ever own is locked, no future lock event touches that cell (or,
 // transitively, its ancestors) again (see cellCompositeVersions in
 // cellCompositor.ts), so its last version simply never changes again on its
@@ -147,4 +162,30 @@ export class CellCompositeIndex {
     for (const [key, version] of entries) m.set(key, version);
     this.versions.set(level, m);
   }
+}
+
+// Every composited tile, at any pyramid level 0..maxLevel, covering a
+// region_state batch's level-0 cells (see ROADMAP Phase 5 Stage 5). Level 0
+// entries are the batch's own cells as-is; a level L>=1 entry is their
+// ancestor at that level, deduped so several of the batch's cells sharing the
+// same higher-level ancestor emit it only once. A (level, key) with no bake
+// yet in `index` is simply omitted, the same "absent means not ready yet"
+// convention region_state already uses for lockedPieceIds.
+export function collectRegionCellComposites(
+  index: CellCompositeIndex,
+  level0Keys: readonly number[],
+  maxLevel: number,
+): CellComposite[] {
+  const out: CellComposite[] = [];
+  for (let level = 0; level <= maxLevel; level++) {
+    const seen = new Set<number>();
+    for (const key0 of level0Keys) {
+      const key = ancestorCellKey(key0, level);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const version = index.get(level, key);
+      if (version !== undefined) out.push({ cellKey: key, level, version });
+    }
+  }
+  return out;
 }

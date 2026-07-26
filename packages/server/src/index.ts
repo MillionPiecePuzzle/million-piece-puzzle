@@ -121,8 +121,11 @@ async function main(): Promise<void> {
   await rebuildCellCompositeIndex(cellComposites, state, MAX_CELL_COMPOSITE_LEVEL);
   // The compositor itself (the background bake queue) only exists when R2
   // write credentials are configured; local dev has none by default, and a
-  // deployment with none simply never dirties a cell, leaving every locked
-  // piece rendered from Stage 2's per-piece path (see config.r2Write).
+  // deployment with none simply never dirties a cell, so no locked piece is
+  // ever composited there. Since Stage 5 the frontend has no other rendering
+  // path for a locked piece, so an R2-less deployment (including local dev)
+  // shows locked content as invisible rather than degrading to a per-piece
+  // fetch; accepted, see DECISIONS (see config.r2Write).
   let cellCompositor: CellCompositor | undefined;
   if (config.r2Write) {
     const r2 = createR2Client(config.r2Write);
@@ -143,28 +146,27 @@ async function main(): Promise<void> {
       removeByPrefix: r2.removeByPrefix,
       index: cellComposites,
       persistVersion: (level, key, version) => state.writeCellCompositeVersion(level, key, version),
-      // Level 0 keeps today's live broadcast, unchanged in shape (see
-      // DECISIONS: Stage 4 ships with no wire or protocol change): the wire's
-      // cellKey packing collides across levels and the deployed frontend has
-      // no notion of level, so a level>=1 composite is never pushed to a
-      // client yet, only built and versioned server-side. Every level below
-      // the pyramid's own ceiling cascades one level up by marking its parent
-      // dirty (via the outer cellCompositor binding, already assigned by the
-      // time this ever actually fires), so a parent can never bake from a
-      // stale child (see DECISIONS: composite pyramid stops at level 3).
+      // Every level's bake broadcasts live (see ROADMAP Phase 5 Stage 5): a
+      // level-L cell's own (cx, cy) covers 2**L times the world extent of a
+      // level-0 cell, so the scoping rect must scale with the level or a
+      // viewer of a coarse cell would be under-scoped and miss the push.
+      // Every level below the pyramid's own ceiling also cascades one level
+      // up by marking its parent dirty (via the outer cellCompositor binding,
+      // already assigned by the time this ever actually fires), so a parent
+      // can never bake from a stale child (see DECISIONS: composite pyramid
+      // stops at level 3).
       onComposited: (level, key, version) => {
         const { cx, cy } = unpackCellKey(key);
-        if (level === 0) {
-          hub.broadcastOverlapping(
-            { t: "cell_composite", cellKey: key, version },
-            {
-              minX: cx * cellSize,
-              minY: cy * cellSize,
-              maxX: (cx + 1) * cellSize,
-              maxY: (cy + 1) * cellSize,
-            },
-          );
-        }
+        const levelWorldSize = cellSize * 2 ** level;
+        hub.broadcastOverlapping(
+          { t: "cell_composite", cellKey: key, level, version },
+          {
+            minX: cx * levelWorldSize,
+            minY: cy * levelWorldSize,
+            maxX: (cx + 1) * levelWorldSize,
+            maxY: (cy + 1) * levelWorldSize,
+          },
+        );
         if (level < MAX_CELL_COMPOSITE_LEVEL) {
           cellCompositor?.markDirty(level + 1, [parentCellKey(cx, cy)]);
         }
@@ -173,7 +175,7 @@ async function main(): Promise<void> {
     });
   } else {
     console.warn(
-      "[cell-composite] MPP_R2_ENDPOINT/MPP_R2_ACCESS_KEY_ID/MPP_R2_SECRET_ACCESS_KEY unset: locked pieces stay on Stage 2's per-piece rendering, no server-composited tiles.",
+      "[cell-composite] MPP_R2_ENDPOINT/MPP_R2_ACCESS_KEY_ID/MPP_R2_SECRET_ACCESS_KEY unset: no server-composited tiles will ever exist for this puzzle, so locked pieces will not render.",
     );
   }
   // Minimap density grid, maintained incrementally on every drop/merge instead of

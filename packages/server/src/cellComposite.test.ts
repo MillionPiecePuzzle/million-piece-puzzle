@@ -1,13 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   allCellKeysForGrid,
+  ancestorCellKey,
   cellKeyForGridId,
   CellCompositeIndex,
+  collectRegionCellComposites,
   haloGridIdsForCell,
   parentCellKey,
 } from "./cellComposite.js";
 import { candidateGridIdsForCell } from "./lockedPieces.js";
-import { cellKey } from "./worldGrid.js";
+import { cellKey, unpackCellKey } from "./worldGrid.js";
 
 // Same fixture lockedPieces.test.ts uses: cellSize 325, pieceSize 32 does not
 // divide evenly, so cx=0 owns cols 0-10, cx=1 owns cols 11-20, cx=2 owns
@@ -149,5 +151,75 @@ describe("parentCellKey", () => {
 
   it("floors toward negative infinity, not toward zero, so negative pairs still group correctly", () => {
     expect(parentCellKey(-1, -1)).toBe(parentCellKey(-2, -2));
+  });
+});
+
+describe("ancestorCellKey", () => {
+  it("returns the key unchanged for 0 levels", () => {
+    expect(ancestorCellKey(cellKey(4, 6), 0)).toBe(cellKey(4, 6));
+  });
+
+  it("matches one parentCellKey step at 1 level", () => {
+    expect(ancestorCellKey(cellKey(4, 6), 1)).toBe(parentCellKey(4, 6));
+  });
+
+  it("matches repeated parentCellKey steps at higher levels", () => {
+    const level1 = parentCellKey(20, 17);
+    const { cx, cy } = unpackCellKey(level1);
+    const level2 = parentCellKey(cx, cy);
+    expect(ancestorCellKey(cellKey(20, 17), 2)).toBe(level2);
+  });
+
+  it("groups every level-0 descendant of a level-2 cell under the same ancestor", () => {
+    // A level-2 cell spans a 4x4 block of level-0 cells (two halvings).
+    const target = ancestorCellKey(cellKey(8, 12), 2);
+    for (let dx = 0; dx < 4; dx++) {
+      for (let dy = 0; dy < 4; dy++) {
+        expect(ancestorCellKey(cellKey(8 + dx, 12 + dy), 2)).toBe(target);
+      }
+    }
+  });
+});
+
+describe("collectRegionCellComposites", () => {
+  it("includes a batch's own level-0 cells as-is when baked", () => {
+    const idx = new CellCompositeIndex();
+    idx.set(0, cellKey(0, 0), 3);
+    idx.set(0, cellKey(1, 0), 5);
+    const out = collectRegionCellComposites(idx, [cellKey(0, 0), cellKey(1, 0)], 0);
+    expect(out.sort((a, b) => a.cellKey - b.cellKey)).toEqual([
+      { cellKey: cellKey(0, 0), level: 0, version: 3 },
+      { cellKey: cellKey(1, 0), level: 0, version: 5 },
+    ]);
+  });
+
+  it("omits a (level, key) with no bake yet, rather than a zero or placeholder entry", () => {
+    const idx = new CellCompositeIndex();
+    const out = collectRegionCellComposites(idx, [cellKey(0, 0)], 0);
+    expect(out).toEqual([]);
+  });
+
+  it("adds ancestor levels for the same batch, one entry per level per distinct ancestor", () => {
+    const idx = new CellCompositeIndex();
+    idx.set(0, cellKey(0, 0), 1);
+    idx.set(0, cellKey(1, 0), 1);
+    idx.set(1, parentCellKey(0, 0), 7);
+    // (0,0) and (1,0) share the same level-1 parent, so the level-1 entry must
+    // appear exactly once even though two of the batch's cells reach it.
+    const out = collectRegionCellComposites(idx, [cellKey(0, 0), cellKey(1, 0)], 1);
+    const level1Entries = out.filter((c) => c.level === 1);
+    expect(level1Entries).toEqual([{ cellKey: parentCellKey(0, 0), level: 1, version: 7 }]);
+  });
+
+  it("walks every level from 0 to maxLevel, not just the finest and coarsest", () => {
+    const idx = new CellCompositeIndex();
+    const key0 = cellKey(4, 4);
+    idx.set(0, key0, 1);
+    idx.set(1, ancestorCellKey(key0, 1), 2);
+    idx.set(2, ancestorCellKey(key0, 2), 3);
+    idx.set(3, ancestorCellKey(key0, 3), 4);
+    const out = collectRegionCellComposites(idx, [key0], 3);
+    expect(out.map((c) => c.level).sort()).toEqual([0, 1, 2, 3]);
+    expect(out.map((c) => c.version).sort()).toEqual([1, 2, 3, 4]);
   });
 });

@@ -23,11 +23,10 @@ import { WORLD_TILE_SIZE } from "@mpp/shared";
 import { loadConfig } from "./config.js";
 import { RedisState } from "./state.js";
 import { buildWireContext } from "./wire.js";
-import { MAX_CELL_COMPOSITE_LEVEL, CellCompositeIndex } from "./cellComposite.js";
+import { ancestorCellKey, MAX_CELL_COMPOSITE_LEVEL, CellCompositeIndex } from "./cellComposite.js";
 import { rebuildCellCompositeIndex } from "./init.js";
 import { CellCompositor } from "./cellCompositor.js";
 import { createR2Client } from "./r2.js";
-import { cellKey, unpackCellKey } from "./worldGrid.js";
 
 type Args = { redisUrl: string; puzzleId: string };
 
@@ -58,21 +57,12 @@ async function fetchCompositeTile(assetsBaseUrl: string, key: string): Promise<B
 }
 
 // Every level-L cell key with at least one real level-(L-1) child, derived
-// from level 0's own set of baked cells by repeated halving (see
-// cellComposite.ts's parentCellKey). Only ever visits an ancestor of a cell
-// that actually has a bake, rather than a bounding-box enumeration that would
-// also touch cells with nothing locked in them at all.
+// from level 0's own set of baked cells via cellComposite.ts's ancestorCellKey.
+// Only ever visits an ancestor of a cell that actually has a bake, rather than
+// a bounding-box enumeration that would also touch cells with nothing locked
+// in them at all.
 function ancestorKeysAtLevel(level0Keys: readonly number[], level: number): number[] {
-  let keys: readonly number[] = level0Keys;
-  for (let l = 1; l <= level; l++) {
-    const parents = new Set<number>();
-    for (const key of keys) {
-      const { cx, cy } = unpackCellKey(key);
-      parents.add(cellKey(Math.floor(cx / 2), Math.floor(cy / 2)));
-    }
-    keys = [...parents];
-  }
-  return keys as number[];
+  return [...new Set(level0Keys.map((key) => ancestorCellKey(key, level)))];
 }
 
 async function main(): Promise<void> {

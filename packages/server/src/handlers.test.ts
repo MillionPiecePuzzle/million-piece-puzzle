@@ -1136,15 +1136,16 @@ describe("handleViewport region_state construction", () => {
       worldH: 500,
     });
     expect(lastRegionStateMsg(ws)?.cellComposites).toEqual([
-      { cellKey: cellKey(0, 0), version: 3 },
+      { cellKey: cellKey(0, 0), level: 0, version: 3 },
     ]);
   });
 
-  it("never includes a pyramid level (>=1) composite, even when one is ready for the same cell key", async () => {
-    // See DECISIONS: Stage 4 ships with no wire or protocol change. A level-1
-    // entry set at the same numeric cellKey as the level-0 one above must not
-    // leak onto the wire: the deployed frontend has no notion of level and
-    // would misread it as an oddly-sized level-0 tile.
+  it("also includes a ready pyramid level (>=1) ancestor for the same entered cell", async () => {
+    // See ROADMAP Phase 5 Stage 5: region_state reports every level 0-3 tile
+    // covering the batch's cells. (0, 0)'s own level-1 ancestor is (0, 0)
+    // again (halving a fixed point), so setting level 1 at the same numeric
+    // key here is the correct ancestor for this fixture, not a coincidence to
+    // route around.
     const { ctx } = makeViewportCtx();
     ctx.cellComposites = new CellCompositeIndex();
     ctx.cellComposites.set(0, cellKey(0, 0), 3);
@@ -1157,8 +1158,10 @@ describe("handleViewport region_state construction", () => {
       worldW: 500,
       worldH: 500,
     });
-    expect(lastRegionStateMsg(ws)?.cellComposites).toEqual([
-      { cellKey: cellKey(0, 0), version: 3 },
+    const composites = lastRegionStateMsg(ws)?.cellComposites ?? [];
+    expect(composites.sort((a, b) => a.level - b.level)).toEqual([
+      { cellKey: cellKey(0, 0), level: 0, version: 3 },
+      { cellKey: cellKey(0, 0), level: 1, version: 9 },
     ]);
   });
 

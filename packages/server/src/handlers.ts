@@ -7,7 +7,12 @@ import type { MongoLogger } from "./mongo.js";
 import type { GroupQueue } from "./queue.js";
 import type { GroupIndex } from "./groupIndex.js";
 import type { LockedPieceIndex } from "./lockedPieces.js";
-import { cellKeyForGridId, type CellCompositeIndex } from "./cellComposite.js";
+import {
+  cellKeyForGridId,
+  collectRegionCellComposites,
+  MAX_CELL_COMPOSITE_LEVEL,
+  type CellCompositeIndex,
+} from "./cellComposite.js";
 import { detectSnap } from "./snap.js";
 import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
 import { batchEnteredCells, sleep } from "./regionStream.js";
@@ -351,18 +356,14 @@ async function streamRegionState(
     // Locked pieces in this batch's cells, flat (never grouped): a pure
     // in-memory bitset lookup, no Redis read needed (see LockedPieceIndex).
     const lockedGridIds = ctx.lockedPieces.collect(batch.cells);
-    // Ready server-composited tiles for this batch's cells (see ROADMAP Phase
-    // 5 Stage 3), absent entirely when no compositor is wired. A cell with no
-    // entry here has no bake yet, so the client keeps rendering it from
-    // lockedPieceIds above. Level 0 only: the pyramid's levels 1-3 (see
-    // ROADMAP Phase 5 Stage 4) are built and versioned server-side already,
-    // but stay off the wire until Stage 5 teaches the client what a level is
-    // (see DECISIONS: Stage 4 ships with no wire or protocol change).
+    // Ready server-composited tiles covering this batch's cells (see ROADMAP
+    // Phase 5 Stage 5), absent entirely when no compositor is wired. Every
+    // pyramid level 0-3 that already has a bake for one of the batch's cells
+    // or one of their deduped ancestors is included, so a client zoomed out
+    // enough to want a coarser level already has it with no second round
+    // trip; a (cell, level) with no bake yet is simply omitted.
     const cellComposites = ctx.cellComposites
-      ? batch.cells.flatMap((key) => {
-          const version = ctx.cellComposites!.get(0, key);
-          return version === undefined ? [] : [{ cellKey: key, version }];
-        })
+      ? collectRegionCellComposites(ctx.cellComposites, batch.cells, MAX_CELL_COMPOSITE_LEVEL)
       : [];
     // Re-check after the Redis round trip: a supersession or disconnect could
     // have landed while awaiting it.

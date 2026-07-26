@@ -308,10 +308,14 @@ export type SRegionState = {
   // RegionGroup's worldX/worldY already does for a loose group. Always an
   // array, never absent, so the client never needs to null-check it.
   lockedPieceIds: WirePiece[];
-  // Ready server-composited tiles for this batch's cells (see ROADMAP Phase 5
-  // Stage 3), one entry per cell that already has a bake. Always an array,
-  // never absent, same convention as lockedPieceIds; a cell absent here has no
-  // composite yet, so the client keeps rendering it from lockedPieceIds.
+  // Ready server-composited tiles covering this batch's cells (see ROADMAP
+  // Phase 5 Stages 3-5): every pyramid level 0-3 that already has a bake for
+  // one of the batch's level-0 cells or one of their deduped ancestors, so a
+  // client zoomed out enough to want a coarser level already has it without a
+  // second round trip. Always an array, never absent, same convention as
+  // lockedPieceIds; a (cellKey, level) pair absent here has no composite yet
+  // at that level, so the client falls back to whichever finer level (down to
+  // 0) is already ready for that area, rather than a per-piece render.
   cellComposites: CellComposite[];
   // World rectangle the client's entered broadcast cells cover. An entered cell
   // with no groups still acknowledges its area here (the message is sent even when
@@ -321,27 +325,33 @@ export type SRegionState = {
   coverage?: { minX: number; minY: number; maxX: number; maxY: number };
 };
 
-// One cell's server-composited locked-tile version (see ROADMAP Phase 5 Stage
-// 3): rebaked from that cell's currently-locked, bordered piece tiles on every
-// lock event that touches it, cached and versioned in R2. `cellKey` is the
-// same world-grid cell key the server's spatial indexes use internally; the
-// frontend needs no further indirection since a cell position is not a
-// solved-adjacency secret (unlike a piece id). `version` increments on every
-// rebake, so the URL it derives (a fixed, puzzle-scoped path convention) is a
-// new, immutable object each time: no cache invalidation needed, matching the
-// existing per-piece-tile caching model.
+// One cell's server-composited locked-tile version at one pyramid level (see
+// ROADMAP Phase 5 Stages 3-4): rebaked from that cell's currently-locked,
+// bordered piece tiles (level 0) or from its already-baked level-1 children
+// (level>=1) on every lock event that touches it, cached and versioned in R2.
+// `cellKey` is the same world-grid cell key the server's spatial indexes use
+// internally, in that level's own coordinate space (a level-L cell spans
+// 2**L level-0 cells per axis); the frontend needs no further indirection
+// since a cell position is not a solved-adjacency secret (unlike a piece id).
+// `version` increments on every rebake, so the URL it derives (a fixed,
+// puzzle-scoped path convention) is a new, immutable object each time: no
+// cache invalidation needed, matching the existing per-piece-tile caching
+// model.
 export type CellComposite = {
   cellKey: number;
+  level: number;
   version: number;
 };
 
 // Live push when a cell's composite finishes a new bake while a client is
 // already watching it (already covered, not newly entered, so region_state's
 // own cellComposites would not reach it). Scoped the same way drop/drag/cursor
-// are: broadcastOverlapping over the cell's world rect.
+// are: broadcastOverlapping over the cell's world rect (at that level's own,
+// larger-per-level, world extent).
 export type SCellComposite = {
   t: "cell_composite";
   cellKey: number;
+  level: number;
   version: number;
 };
 
