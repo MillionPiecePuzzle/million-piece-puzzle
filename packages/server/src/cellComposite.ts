@@ -4,15 +4,15 @@
 // codebase already uses (see worldGrid.ts, WORLD_TILE_SIZE), not the
 // minimap's separate downsampled overview grid.
 
-import type { CellComposite } from "@mpp/shared";
+import { MAX_CELL_COMPOSITE_LEVEL, type CellComposite } from "@mpp/shared";
 import { cellKey, unpackCellKey } from "./worldGrid.js";
 import { ownedRange } from "./lockedPieces.js";
 
-// The pyramid builds levels 0 (this file's existing per-piece bake) through
-// this constant (see ROADMAP Phase 5 Stage 4): level 3 already covers only
-// 1/25 of the board, so no level is ever small enough to need a broadcast
-// tier different from level 0's own viewport scoping.
-export const MAX_CELL_COMPOSITE_LEVEL = 3;
+// Re-exported so existing server-side imports (`from "./cellComposite.js"`)
+// stay unchanged now that the constant itself lives in @mpp/shared, shared
+// with the frontend's own pyramid-level selection (see ROADMAP Phase 5 Stage
+// 5).
+export { MAX_CELL_COMPOSITE_LEVEL };
 
 // Every grid id whose own tile (a pieceSize + 2*margin square centered on its
 // canonical cell, the same tile a piece is sliced into) can overlap a cell's
