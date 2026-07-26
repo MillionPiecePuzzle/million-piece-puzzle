@@ -10,6 +10,7 @@ import {
 } from "pixi.js";
 import {
   GRID_WORLD_CELL,
+  MAX_CELL_COMPOSITE_LEVEL,
   type CellComposite,
   type ImageManifest,
   type MinimapGrid,
@@ -21,16 +22,9 @@ import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
-import {
-  GroupGrid,
-  LOD_TILE_WORLD,
-  cellKeysForRect,
-  packCell,
-  unpackCell,
-  unpackWireCellKey,
-  type CellKey,
-} from "./groupGrid";
+import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, unpackCell, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
+import { CompositeTileLayer } from "./compositeTiles";
 import { LoadingOverlay } from "./loadingOverlay";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap, resolveAnchor } from "./membership";
@@ -38,7 +32,6 @@ import {
   cellContentPending,
   classifyTile,
   coalesceDirtyCells,
-  pieceCoveredByComposite,
   residencyDecision,
   type TileState,
 } from "./reconcile";
@@ -140,45 +133,18 @@ type GroupNode = {
 // A locked piece, flat and independent of any group: dx/dy are its grid-unit
 // offset from the frame origin (its own solved (col, row)), which doubles as
 // its absolute world position since the layer holding it sits at world (0, 0).
-// node is null until its texture is fetched; a locked piece is otherwise fully
-// described (position, cell membership) with no geometry or texture, the same
-// "described while dehydrated" property GroupNode has.
+// A locked piece is never individually fetched (see ROADMAP Phase 5 Stage 5:
+// the only rendering path for locked content is CompositeTileLayer's pyramid
+// tiles); node is populated only by salvage (see salvageLockedPiece), reusing
+// a texture the local client's own drag already hydrated, and freed the
+// moment a composite tile is confirmed to cover the piece. Otherwise a locked
+// piece is fully described (position, cell membership) with no geometry or
+// texture, the same "described while dehydrated" property GroupNode has.
 type LockedPieceSlot = {
   dx: number;
   dy: number;
   localBounds: Aabb;
   node: PieceNode | null;
-  // Fetch in flight, same purpose as GroupNode.hydrating: guards enqueueLockedHydrate
-  // against re-queueing a piece whose texture is already being fetched.
-  hydrating: boolean;
-};
-
-// One cell's server-composited locked-tile sprite (see ROADMAP Phase 5 Stage
-// 3, DECISIONS: composited cells replace per-piece rendering only once
-// loaded). cx/cy are the shared world-grid cell coordinate (unpacked from the
-// wire cellKey, see unpackWireCellKey); localBounds is its world rect,
-// widened by margin on every side the same way an individual piece tile
-// bleeds past its own cell, matching the server's compositing geometry.
-// wireCellKey is kept (distinct from this module's own CellKey) because it is
-// literally the R2 path component the fetch URL is built from. version is the
-// latest version this client knows about; appliedVersion/node/coveredPieceIds
-// describe what is actually hydrated right now, which can lag version while a
-// fetch is in flight or the cell is out of the hydrate ring.
-type CellCompositeSlot = {
-  wireCellKey: number;
-  cx: number;
-  cy: number;
-  localBounds: Aabb;
-  version: number;
-  appliedVersion: number;
-  // Locked piece ids known to be in this cell at the moment appliedVersion's
-  // sprite was hydrated: the server always rebakes from the full current
-  // locked set, so this snapshot is exactly what that sprite draws. A piece
-  // constructed after this snapshot is not in it, and so keeps rendering
-  // individually until a later hydrate replaces the snapshot.
-  coveredPieceIds: ReadonlySet<number>;
-  node: Sprite | null;
-  hydrating: boolean;
 };
 
 type HeldState = {
@@ -378,16 +344,19 @@ export class PuzzleStage {
   // ids and group ids share one numeric space (a singleton group's id equals
   // its one piece's id), so this is a separate map, never merged with `groups`.
   private lockedPieces = new Map<number, LockedPieceSlot>();
-  // Spatial index over the same LOD tile grid as groupGrid, for bakeTile and the
-  // loading-cell scan to find locked pieces per cell the same way groupGrid
-  // finds groups.
+  // Spatial index over the same LOD tile grid as groupGrid, for the
+  // loading-cell scan and the minimap overlay to find locked pieces per cell
+  // the same way groupGrid finds groups.
   private lockedPieceGrid = new GroupGrid(LOD_TILE_WORLD);
-  // Server-composited per-cell locked tiles, keyed by this module's own
-  // CellKey (translated from the wire cellKey, see unpackWireCellKey). Never
-  // more than a few hundred entries even at 1M scale (one per world-grid
-  // cell, not per piece), so unlike lockedPieceGrid this needs no spatial
-  // index: reconcileCellComposites just walks the whole map every frame.
-  private cellComposites = new Map<CellKey, CellCompositeSlot>();
+  // Locked pieces currently rendered via a salvaged node (see
+  // salvageLockedPiece), not yet freed because no composite tile has caught
+  // up to cover them. Tiny and self-limiting: only ever populated by this
+  // client's own recent anchors, freed the moment CompositeTileLayer reports
+  // the piece covered or it leaves the keep ring (see
+  // reconcileSalvagedLockedPieces). Never subject to budget eviction: unlike
+  // a group or a composite tile, there is no re-fetch to recover a salvaged
+  // node if it were freed early.
+  private salvagedPieceIds = new Set<number>();
   private camera = { x: 0, y: 0, zoom: 1 };
   private worldSize: { w: number; h: number } | null = null;
   // Hard-limit rectangle, received from the server in build() so every client
@@ -510,10 +479,6 @@ export class PuzzleStage {
   private groupGrid = new GroupGrid(LOD_TILE_WORLD);
   private lastVisible = new Set<number>();
   private lodHidden = new Set<number>();
-  // Same candidate-diff bookkeeping as above, for locked pieces (see
-  // lockedPieceGrid).
-  private lastVisibleLocked = new Set<number>();
-  private lockedPieceLodHidden = new Set<number>();
 
   // Zoom-out LOD tile cache. lodActive means baked tiles are shown; lodWarm means
   // the bake queue is filling tiles in the background (warm band or active).
@@ -521,6 +486,10 @@ export class PuzzleStage {
   // remote): excluded from bakes and drawn live on top so a piece in hand never
   // freezes into a tile.
   private lodLayer: LodTileLayer | null = null;
+  // Server-composited locked-tile pyramid (see ROADMAP Phase 5 Stage 5): the
+  // only rendering path for locked content, active at every zoom, sharing
+  // lockedPiecesLayer with any currently-salvaged node.
+  private compositeLayer: CompositeTileLayer | null = null;
   // Per-cell loading badges, drawn over viewport cells whose known content is not
   // yet displayed (a tile not baked, or a group still hydrating).
   private loadingOverlay: LoadingOverlay | null = null;
@@ -585,20 +554,6 @@ export class PuzzleStage {
   private hydrateQueue: number[] = [];
   private hydrateQueued = new Set<number>();
   private inFlight = 0;
-  // Same residency/hydration bookkeeping as above, one level down (piece
-  // instead of group): a locked piece is binary (fetched or not), never
-  // partial, so there is no per-entry hydrateAttempts or inner batch fetch.
-  // Shares this.residentLru so eviction orders both populations by one clock.
-  private lockedResident = new Map<number, number>();
-  private lockedHydrateQueue: number[] = [];
-  private lockedHydrateQueued = new Set<number>();
-  private lockedInFlight = 0;
-  // Same LRU-stamp bookkeeping, one level up (cell instead of piece), sharing
-  // residentLru so eviction orders all three populations (groups, locked
-  // pieces, cell composites) by one clock. No separate queue/cap/reorder: the
-  // low cell cardinality (see cellComposites) makes a direct fetch on ring
-  // entry simple enough with no risk of an unbounded fetch burst.
-  private compositeResident = new Map<CellKey, number>();
   private initialFill: {
     resolve: () => void;
     progress: ((loaded: number, total: number) => void) | undefined;
@@ -750,10 +705,8 @@ export class PuzzleStage {
     this.lockedPieceGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
-    this.lastVisibleLocked.clear();
-    this.lockedPieceLodHidden.clear();
-    this.cellComposites.clear();
-    this.compositeResident.clear();
+    this.salvagedPieceIds.clear();
+    this.compositeLayer?.clear();
     this.cellDirtyMs.clear();
     this.knownCells.clear();
     this.coverageSeen = false;
@@ -810,6 +763,7 @@ export class PuzzleStage {
     world.renderable = true;
     this.redrawBackdrop();
     this.createLodLayer();
+    this.createCompositeLayer();
     this.createLoadingOverlay();
     this.fitView();
 
@@ -900,28 +854,21 @@ export class PuzzleStage {
     return node;
   }
 
-  // Build one not-yet-hydrated locked-piece slot from its frame-relative
-  // offset: its absolute world bounds (no origin translation, unlike a group,
-  // since the layer holding it sits at world (0, 0)) and its spatial-index
-  // entry. No texture is fetched here; residency (reconcileLockedPieces) does
-  // that once the piece enters the hydrate ring, the same lazy-fetch contract
-  // constructGroup's dehydrated node has. Shared by applyRegionState (streamed
-  // construction) and applyAnchor (a live anchoring snap with no salvageable
-  // hydrated node to reuse).
+  // Build one locked-piece slot from its frame-relative offset: its absolute
+  // world bounds (no origin translation, unlike a group, since the layer
+  // holding it sits at world (0, 0)) and its spatial-index entry, for the
+  // minimap overlay and the salvage bridge below. No texture is ever fetched
+  // for it (see ROADMAP Phase 5 Stage 5: CompositeTileLayer's pyramid tiles
+  // are the only rendering path for locked content); node stays null unless
+  // salvageLockedPiece populates it. Shared by applyRegionState (streamed
+  // construction) and applyAnchor (a member with no salvageable node).
   private constructLockedPiece(wp: WirePiece): LockedPieceSlot {
     const pieceSize = this.manifest?.pieceSize ?? 0;
     const margin = this.manifest?.margin ?? 0;
     const localBounds = pieceLocalBounds(wp.dx * pieceSize, wp.dy * pieceSize, pieceSize, margin);
-    const slot: LockedPieceSlot = {
-      dx: wp.dx,
-      dy: wp.dy,
-      localBounds,
-      node: null,
-      hydrating: false,
-    };
+    const slot: LockedPieceSlot = { dx: wp.dx, dy: wp.dy, localBounds, node: null };
     this.lockedPieces.set(wp.id, slot);
     this.lockedPieceGrid.upsert(wp.id, localBounds);
-    this.markDirty(localBounds);
     return slot;
   }
 
@@ -1027,6 +974,8 @@ export class PuzzleStage {
     this.peerCursors = null;
     this.lodLayer?.destroy();
     this.lodLayer = null;
+    this.compositeLayer?.clear();
+    this.compositeLayer = null;
     this.loadingOverlay?.destroy();
     this.loadingOverlay = null;
     this.releaseAllTextures();
@@ -1043,10 +992,9 @@ export class PuzzleStage {
     this.groupGrid.clear();
     this.lockedPieces.clear();
     this.lockedPieceGrid.clear();
+    this.salvagedPieceIds.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
-    this.lastVisibleLocked.clear();
-    this.lockedPieceLodHidden.clear();
     this.effectNodes.clear();
     this.heldGroupIds.clear();
     this.cellDirtyMs.clear();
@@ -1090,10 +1038,6 @@ export class PuzzleStage {
     this.hydrateQueue = [];
     this.hydrateQueued.clear();
     this.inFlight = 0;
-    this.lockedResident.clear();
-    this.lockedHydrateQueue = [];
-    this.lockedHydrateQueued.clear();
-    this.lockedInFlight = 0;
     if (this.initialFill) {
       const fill = this.initialFill;
       this.initialFill = null;
@@ -1121,6 +1065,8 @@ export class PuzzleStage {
     }
     this.lodLayer?.destroy();
     this.lodLayer = null;
+    this.compositeLayer?.clear();
+    this.compositeLayer = null;
     // The overlay's container and badges were already freed by removeChildren
     // above (context:true), so just drop the reference for the rebuild.
     this.loadingOverlay = null;
@@ -1134,13 +1080,12 @@ export class PuzzleStage {
     this.groupGrid.clear();
     this.lastVisible.clear();
     this.lodHidden.clear();
-    this.lastVisibleLocked.clear();
-    this.lockedPieceLodHidden.clear();
     this.effectNodes.clear();
     this.groups.clear();
     this.pieceToGroup.clear();
     this.lockedPieces.clear();
     this.lockedPieceGrid.clear();
+    this.salvagedPieceIds.clear();
     // A carry in progress is dropped by the rebuild: the highlight was already
     // freed with the world above, so just clear the carry state and hide the hint.
     this.clearCarryIdle();
@@ -1345,45 +1290,18 @@ export class PuzzleStage {
       if (this.lockedPieces.has(wp.id)) continue;
       this.constructLockedPiece(wp);
     }
-    for (const c of cellComposites) this.applyCellComposite(c.cellKey, c.version);
+    for (const c of cellComposites) this.applyCellComposite(c.cellKey, c.level, c.version);
   }
 
-  // Registers or bumps one cell's server-composited locked-tile version (see
-  // ROADMAP Phase 5 Stage 3). Shared by applyRegionState's newly-covered-cell
-  // batch and the live cell_composite push: both just report a fact here,
-  // reconcileCellComposites decides whether/when to actually fetch it. A
-  // stale or duplicate report (version no newer than what's already known) is
-  // a no-op, the same monotonic-version convention the compositor itself uses.
-  applyCellComposite(wireCellKey: number, version: number): void {
-    if (!this.manifest) return;
-    const { cx, cy } = unpackWireCellKey(wireCellKey);
-    const key = packCell(cx, cy);
-    const existing = this.cellComposites.get(key);
-    if (existing) {
-      if (version <= existing.version) return;
-      existing.version = version;
-      this.markDirty(existing.localBounds);
-      return;
-    }
-    const margin = this.manifest.margin;
-    const localBounds: Aabb = {
-      minX: cx * LOD_TILE_WORLD - margin,
-      minY: cy * LOD_TILE_WORLD - margin,
-      maxX: (cx + 1) * LOD_TILE_WORLD + margin,
-      maxY: (cy + 1) * LOD_TILE_WORLD + margin,
-    };
-    this.cellComposites.set(key, {
-      wireCellKey,
-      cx,
-      cy,
-      localBounds,
-      version,
-      appliedVersion: 0,
-      coveredPieceIds: new Set(),
-      node: null,
-      hydrating: false,
-    });
-    this.markDirty(localBounds);
+  // Registers or bumps one (level, cell)'s known server-composited locked-tile
+  // version (see ROADMAP Phase 5 Stage 5), shared by applyRegionState's
+  // newly-covered-cell batch and the live cell_composite push: both just
+  // report a fact to CompositeTileLayer, which decides whether/when to
+  // actually fetch it. No LOD-tile invalidation needed here: a composite
+  // sprite renders on its own layer, independent of the loose-piece baked
+  // tile above it, so a version bump never needs that tile to re-bake.
+  applyCellComposite(wireCellKey: number, level: number, version: number): void {
+    this.compositeLayer?.reportVersion(level, wireCellKey, version);
   }
 
   // ----- collaborator cursors -----
@@ -1522,7 +1440,6 @@ export class PuzzleStage {
         const piece = group.pieces.find((p) => p.id === wp.id);
         if (!piece) {
           this.constructLockedPiece(wp);
-          this.enqueueLockedHydrate(wp.id);
           continue;
         }
         group.container.removeChild(piece.container);
@@ -1542,7 +1459,6 @@ export class PuzzleStage {
     for (const wp of plan.ungrouped) {
       if (this.lockedPieces.has(wp.id)) continue;
       this.constructLockedPiece(wp);
-      this.enqueueLockedHydrate(wp.id);
     }
 
     if (animate) {
@@ -1560,22 +1476,19 @@ export class PuzzleStage {
   // Reparents an already-hydrated piece node straight from its dying group into
   // the flat locked layer at its frame-relative position, registering it in
   // every locked-piece index the fresh-fetch path would have. No texture
-  // re-fetch, no destroy/rebuild flicker.
+  // re-fetch, no destroy/rebuild flicker. This is the only bridge between a
+  // piece anchoring and its cell's composite catching up (see ROADMAP Phase 5
+  // Stage 5): salvagedPieceIds tracks it so reconcileSalvagedLockedPieces can
+  // free it the moment a composite tile is confirmed to cover it.
   private salvageLockedPiece(piece: PieceNode, wp: WirePiece): void {
     const pieceSize = this.manifest?.pieceSize ?? 0;
     const margin = this.manifest?.margin ?? 0;
     this.placePieceInContainer(piece, { dx: wp.dx, dy: wp.dy });
     this.lockedPiecesLayer?.addChild(piece.container);
     const localBounds = pieceLocalBounds(wp.dx * pieceSize, wp.dy * pieceSize, pieceSize, margin);
-    this.lockedPieces.set(wp.id, {
-      dx: wp.dx,
-      dy: wp.dy,
-      localBounds,
-      node: piece,
-      hydrating: false,
-    });
+    this.lockedPieces.set(wp.id, { dx: wp.dx, dy: wp.dy, localBounds, node: piece });
     this.lockedPieceGrid.upsert(wp.id, localBounds);
-    this.lockedResident.set(wp.id, ++this.residentLru);
+    this.salvagedPieceIds.add(wp.id);
   }
 
   // Frees and forgets a group entirely: dirties its tiles, dehydrates its
@@ -2457,13 +2370,17 @@ export class PuzzleStage {
             }
           }
         }
-        if (lockedIds) {
-          for (const id of lockedIds) {
-            const slot = this.lockedPieces.get(id);
-            if (slot && !slot.node) {
-              allHydrated = false;
-              if (this.lockedHydrateQueued.has(id)) anyHydrating = true;
-            }
+        // A locked piece renders only via CompositeTileLayer (see ROADMAP
+        // Phase 5 Stage 5), so "ready" for the locked portion of a cell means
+        // some composite tile currently covers this world position; there is
+        // no per-piece hydrate state left to check, and no distinct loading
+        // signal for it here (an uncovered cell simply reads not-loaded, the
+        // same bucket a never-visited cell already falls into).
+        if (lockedIds && lockedIds.size > 0) {
+          const worldX = cx * LOD_TILE_WORLD;
+          const worldY = cy * LOD_TILE_WORLD;
+          if (!(this.compositeLayer?.isWorldPointCovered(worldX, worldY) ?? false)) {
+            allHydrated = false;
           }
         }
       }
@@ -2480,16 +2397,19 @@ export class PuzzleStage {
     return { cellWorld: LOD_TILE_WORLD, cells };
   }
 
-  // Combined resident-vs-budget bytes across both texture pools, for the minimap
-  // detail modal's memory line.
+  // Combined resident-vs-budget bytes across all three texture pools
+  // (per-piece nodes, the loose-piece LOD tiles, and the composite pyramid),
+  // for the minimap detail modal's memory line.
   getMemoryStats(): MemoryStats | null {
     if (!this.manifest) return null;
     const pieceBytes = this.manifest.tileSize * this.manifest.tileSize * 4;
     const lodUsed = this.lodLayer?.residentBytes() ?? 0;
     const lodBudget = this.lodLayer?.budgetBytes() ?? 0;
+    const compositeUsed = this.compositeLayer?.residentBytes() ?? 0;
+    const compositeBudget = this.compositeLayer?.budgetBytes() ?? 0;
     return {
-      usedBytes: this.residentPieceNodeCount() * pieceBytes + lodUsed,
-      budgetBytes: RESIDENT_PIECE_BUDGET * pieceBytes + lodBudget,
+      usedBytes: this.residentPieceNodeCount() * pieceBytes + lodUsed + compositeUsed,
+      budgetBytes: RESIDENT_PIECE_BUDGET * pieceBytes + lodBudget + compositeBudget,
     };
   }
 
@@ -2505,15 +2425,15 @@ export class PuzzleStage {
   // Total per-piece nodes currently resident (hydrated or in flight), for the
   // memory readout. A separate small scan from evictResidentsOverBudget's, which
   // interleaves the same count with building its evictable-candidates list.
+  // salvagedPieceIds is tiny (see reconcileSalvagedLockedPieces), so counting
+  // it directly costs nothing.
   private residentPieceNodeCount(): number {
     let total = 0;
     for (const gid of this.resident.keys()) {
       const node = this.groups.get(gid);
       if (node) total += node.pieces.length;
     }
-    for (const id of this.lockedResident.keys()) {
-      if (this.lockedPieces.get(id)?.node) total += 1;
-    }
+    total += this.salvagedPieceIds.size;
     return total;
   }
 
@@ -2621,13 +2541,26 @@ export class PuzzleStage {
     // was dirtied, or the LOD band just flipped; an idle, settled frame skips it.
     if (moved || hadDirty || lodChanged) {
       this.reconcileGroups();
-      this.reconcileLockedPieces();
-      this.reconcileCellComposites();
     }
+
+    // The composite pyramid's own reconcile (level selection, fetch, cull,
+    // budget eviction): cheap regardless of moved/hadDirty/lodChanged, since
+    // it only ever touches its own small per-level tile maps, never the
+    // board, so it just runs every frame like the hydration pumps below.
+    const hydrateRing = this.viewportRing(HYDRATE_MARGIN_FRAC);
+    const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
+    if (hydrateRing && keepRing && this.app) {
+      this.compositeLayer?.reconcile(
+        hydrateRing,
+        keepRing,
+        this.camera.zoom,
+        this.app.renderer.resolution,
+      );
+    }
+    this.reconcileSalvagedLockedPieces();
 
     // Drain hydration and the bake budget, then trim the resident tile set.
     this.pumpHydration();
-    this.pumpLockedHydration();
     if (this.lodLayer && (this.lodWarm || this.lodActive)) {
       if (this.initialFill && this.lodActive) {
         // Under the loading cover, bake the whole viewport cover each frame (bounded
@@ -3020,44 +2953,12 @@ export class PuzzleStage {
   // rather than partially hydrated, so forcing it through the group path would
   // add branches to every one of those for a case that never applies to it.
 
-  // Same per-frame candidate pass as reconcileGroups: cull and decide
-  // residency for every locked piece in the keep ring, then re-cull and evict
-  // whichever left it since last frame.
-  private reconcileLockedPieces(): void {
-    const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
-    if (!keepRing) return;
-    const now = performance.now();
-    const candidates = this.lockedPieceGrid.queryRect(keepRing);
-    for (const id of candidates) {
-      const slot = this.lockedPieces.get(id);
-      if (!slot) continue;
-      this.cullLockedPiece(slot);
-      this.reconcileLockedPieceResidency(id, slot, now);
-      if (this.lodActive) this.applyLockedPieceLodVisibility(id, slot);
-    }
-    for (const id of this.lastVisibleLocked) {
-      if (candidates.has(id)) continue;
-      const slot = this.lockedPieces.get(id);
-      if (!slot?.node) continue;
-      slot.node.container.culled = true;
-      if (this.lockedPieceLodHidden.delete(id)) slot.node.container.visible = true;
-    }
-    this.lastVisibleLocked = candidates;
-    for (const id of [...this.lockedResident.keys(), ...this.lockedHydrateQueued]) {
-      if (candidates.has(id)) continue;
-      const slot = this.lockedPieces.get(id);
-      if (!slot) {
-        this.lockedResident.delete(id);
-        this.lockedHydrateQueued.delete(id);
-        continue;
-      }
-      this.dehydrateLockedPiece(id, slot);
-    }
-  }
-
   // Culls one locked piece against the cached viewport. Its local bounds are
   // already absolute world coordinates (the layer holding it sits at world
-  // (0, 0)), unlike a group's, which are relative to a live origin.
+  // (0, 0)), unlike a group's, which are relative to a live origin. A no-op
+  // for a piece with no node: only a salvaged piece ever has one (see
+  // reconcileSalvagedLockedPieces), everything else renders via
+  // CompositeTileLayer instead.
   private cullLockedPiece(slot: LockedPieceSlot): void {
     const view = this.viewport;
     if (!view || !slot.node) return;
@@ -3071,321 +2972,46 @@ export class PuzzleStage {
     return b.maxX >= ring.minX && b.minX <= ring.maxX && b.maxY >= ring.minY && b.minY <= ring.maxY;
   }
 
-  private reconcileLockedPieceResidency(id: number, slot: LockedPieceSlot, now: number): void {
-    // An already-hydrated cell composite draws this piece; keeping its own
-    // node around too would be a redundant fetch and a redundant resident
-    // texture, exactly what Stage 3 exists to avoid.
-    if (this.isLockedPieceCoveredByComposite(id)) {
-      this.dehydrateLockedPiece(id, slot);
-      return;
-    }
-    const inRing = this.lockedPieceInRing(slot, HYDRATE_MARGIN_FRAC);
-    if (residencyDecision(inRing, inRing && this.isLockedPieceCoveredCold(id, now)) !== "hydrate")
-      return;
-    this.enqueueLockedHydrate(id);
-    this.touchLockedResident(id);
-  }
-
-  // Bump a resident locked piece's LRU stamp, sharing the group pool's own
-  // counter so the budget evictor can order both populations by one clock.
-  private touchLockedResident(id: number): void {
-    if (this.lockedResident.has(id)) this.lockedResident.set(id, ++this.residentLru);
-  }
-
-  // Same "covered by a baked tile, nothing recently changed" test as
-  // isCoveredCold, minus the liveness check: a locked piece is never held or
-  // dragged, so it is never "live" in that sense.
-  private isLockedPieceCoveredCold(id: number, now: number): boolean {
-    return (
-      this.initialFill === null &&
-      this.lodActive &&
-      this.allLockedCellsReady(id) &&
-      !this.isLockedPieceHot(id, now)
-    );
-  }
-
-  private allLockedCellsReady(id: number): boolean {
-    if (!this.lodLayer) return false;
-    for (const key of this.lockedPieceGrid.cellsOf(id)) {
-      if (!this.lodLayer.isReady(key)) return false;
-    }
-    return true;
-  }
-
-  private isLockedPieceHot(id: number, now: number): boolean {
-    for (const key of this.lockedPieceGrid.cellsOf(id)) {
-      if (this.isCellHot(key, now)) return true;
-    }
-    return false;
-  }
-
-  // Gapless fill for a locked piece, mirroring applyGroupLodVisibility: renders
-  // live until every tile it occupies is baked, then hides.
-  private applyLockedPieceLodVisibility(id: number, slot: LockedPieceSlot): void {
-    if (!slot.node) return;
-    const live = !this.allLockedCellsReady(id);
-    slot.node.container.visible = live;
-    if (live) this.lockedPieceLodHidden.delete(id);
-    else this.lockedPieceLodHidden.add(id);
-  }
-
-  // Dedup rationale mirrors enqueueHydrate: guarded on lockedHydrateQueued and
-  // the slot's own hydrating/node state, not on lockedResident (a resident slot
-  // can be left unhydrated by a budget eviction and needs to be re-enqueued).
-  private enqueueLockedHydrate(id: number): void {
-    if (this.lockedHydrateQueued.has(id)) return;
-    const slot = this.lockedPieces.get(id);
-    if (!slot || slot.node || slot.hydrating) return;
-    this.lockedHydrateQueued.add(id);
-    this.lockedHydrateQueue.push(id);
-  }
-
-  // Starts queued locked-piece loads up to the in-flight cap, same pacing and
-  // viewport-proximity reorder as pumpHydration.
-  private pumpLockedHydration(): void {
-    const capacity = HYDRATE_MAX_INFLIGHT - this.lockedInFlight;
-    if (capacity > 0 && this.lockedHydrateQueue.length > capacity) {
-      this.reorderLockedHydrateQueue();
-    }
-    while (this.lockedInFlight < HYDRATE_MAX_INFLIGHT && this.lockedHydrateQueue.length > 0) {
-      const id = this.lockedHydrateQueue.pop();
-      if (id === undefined) break;
-      if (!this.lockedHydrateQueued.has(id)) continue;
-      this.lockedHydrateQueued.delete(id);
+  // Per-frame reconcile for salvaged locked-piece nodes (see ROADMAP Phase 5
+  // Stage 5, salvageLockedPiece): tiny and self-limiting, so a plain walk of
+  // salvagedPieceIds every frame (rather than a spatial-index candidate pass
+  // like reconcileGroups) is simple enough. Culls each against the viewport,
+  // then frees it the moment either a composite tile is confirmed to cover
+  // it, or it leaves the (wide) keep ring: leaving the ring means it is
+  // off-screen, so freeing it there creates no visible gap even while still
+  // uncovered. Never budget-evicted: unlike a group or a composite tile,
+  // there is no re-fetch to recover a salvaged node if freed early, so these
+  // two conditions are the only way one is ever freed.
+  private reconcileSalvagedLockedPieces(): void {
+    if (this.salvagedPieceIds.size === 0 || !this.manifest) return;
+    const pieceSize = this.manifest.pieceSize;
+    for (const id of [...this.salvagedPieceIds]) {
       const slot = this.lockedPieces.get(id);
-      if (!slot || slot.node || slot.hydrating) continue;
-      this.lockedInFlight++;
-      void this.hydrateLockedPiece(id, slot).finally(() => {
-        this.lockedInFlight--;
-      });
+      if (!slot?.node) {
+        this.salvagedPieceIds.delete(id);
+        continue;
+      }
+      this.cullLockedPiece(slot);
+      const worldX = slot.dx * pieceSize;
+      const worldY = slot.dy * pieceSize;
+      // isPieceCovered, not isWorldPointCovered: a composite hydrated before
+      // this piece locked has this piece's position in its bounds without
+      // actually drawing it yet (see CompositeTileLayer.Tile.coveredPieceIds).
+      const covered = this.compositeLayer?.isPieceCovered(id, worldX, worldY) ?? false;
+      if (covered || !this.lockedPieceInRing(slot, DEHYDRATE_MARGIN_FRAC)) {
+        this.destroySalvagedNode(slot);
+        this.salvagedPieceIds.delete(id);
+      }
     }
   }
 
-  private reorderLockedHydrateQueue(): void {
-    const view = this.viewport;
-    if (!view) return;
-    const cx = view.worldX + view.worldW / 2;
-    const cy = view.worldY + view.worldH / 2;
-    const live = this.lockedHydrateQueue.filter((id) => this.lockedHydrateQueued.has(id));
-    live.sort(
-      (a, b) => this.lockedPieceDistanceSq(b, cx, cy) - this.lockedPieceDistanceSq(a, cx, cy),
-    );
-    this.lockedHydrateQueue = live;
-  }
-
-  private lockedPieceDistanceSq(id: number, cx: number, cy: number): number {
-    const slot = this.lockedPieces.get(id);
-    if (!slot || !this.manifest) return 0;
-    const dx = slot.dx * this.manifest.pieceSize - cx;
-    const dy = slot.dy * this.manifest.pieceSize - cy;
-    return dx * dx + dy * dy;
-  }
-
-  // Fetches one locked piece's texture and builds its node. Tolerant of the
-  // slot vanishing mid-fetch (world cleared, or evicted before the fetch
-  // resolved), the same stillMine guard hydrateGroup uses for a group member.
-  private async hydrateLockedPiece(id: number, slot: LockedPieceSlot): Promise<void> {
-    if (slot.node || slot.hydrating) return;
-    slot.hydrating = true;
-    this.lockedResident.set(id, ++this.residentLru);
-    const url = this.pieceUrl(id);
-    const texture = url ? await this.loadPieceTexture(url) : null;
-    slot.hydrating = false;
-    const stillMine = this.lockedPieces.get(id) === slot && this.lockedResident.has(id);
-    if (!texture || !stillMine || !this.manifest) {
-      if (url && texture) void Assets.unload(url);
-      return;
-    }
-    const built = buildPieceNode(id, { dx: slot.dx, dy: slot.dy }, texture, this.manifest);
-    this.lockedPiecesLayer?.addChild(built.container);
-    slot.node = built;
-    this.cullLockedPiece(slot);
-    if (this.lodActive) this.applyLockedPieceLodVisibility(id, slot);
-  }
-
-  // Frees a locked piece's texture and node while keeping its slot (position,
-  // cell membership) intact, the same "described while dehydrated" contract
-  // dehydrateGroup keeps for a group.
-  private dehydrateLockedPiece(id: number, slot: LockedPieceSlot): void {
-    this.lockedResident.delete(id);
-    this.lockedHydrateQueued.delete(id);
-    if (slot.hydrating || !slot.node) return;
-    this.destroyLockedPieceNode(id, slot);
-  }
-
-  private destroyLockedPieceNode(id: number, slot: LockedPieceSlot): void {
+  private destroySalvagedNode(slot: LockedPieceSlot): void {
     if (!slot.node) return;
-    const url = this.pieceUrl(id);
+    const url = this.pieceUrl(slot.node.id);
     this.lockedPiecesLayer?.removeChild(slot.node.container);
     slot.node.container.destroy({ children: true });
     slot.node = null;
     if (url) void Assets.unload(url);
-  }
-
-  // Whether a locked piece should skip its own node because an already-
-  // hydrated cell composite is known to cover it. See
-  // reconcile.pieceCoveredByComposite for the decision itself; this just
-  // gathers the piece's cells (already indexed by lockedPieceGrid) and the
-  // live composite state.
-  private isLockedPieceCoveredByComposite(id: number): boolean {
-    return pieceCoveredByComposite(id, this.lockedPieceGrid.cellsOf(id), this.cellComposites);
-  }
-
-  // Same per-frame candidate pass shape as reconcileLockedPieces, but with no
-  // spatial index to query: cellComposites never holds more than a few
-  // hundred entries (one per world-grid cell that has ever locked a piece,
-  // not per piece), so a direct walk of the whole map is cheap enough every
-  // frame.
-  private reconcileCellComposites(): void {
-    const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
-    if (!keepRing) return;
-    const hydrateRing = this.viewportRing(HYDRATE_MARGIN_FRAC);
-    const now = performance.now();
-    for (const [key, slot] of this.cellComposites) {
-      const b = slot.localBounds;
-      const inKeep =
-        b.maxX >= keepRing.minX &&
-        b.minX <= keepRing.maxX &&
-        b.maxY >= keepRing.minY &&
-        b.minY <= keepRing.maxY;
-      if (!inKeep) {
-        if (slot.node) this.dehydrateCellComposite(key, slot);
-        continue;
-      }
-      this.cullCellComposite(slot);
-      if (this.lodActive) this.applyCellCompositeLodVisibility(key, slot);
-      const inHydrate =
-        !!hydrateRing &&
-        b.maxX >= hydrateRing.minX &&
-        b.minX <= hydrateRing.maxX &&
-        b.maxY >= hydrateRing.minY &&
-        b.minY <= hydrateRing.maxY;
-      const action = residencyDecision(
-        inHydrate,
-        inHydrate && this.isCompositeCoveredCold(slot, now),
-      );
-      if (action !== "hydrate") continue;
-      if (slot.version > slot.appliedVersion && !slot.hydrating) {
-        void this.hydrateCellComposite(key, slot);
-      }
-      this.touchCompositeResident(key);
-    }
-  }
-
-  // Culls one cell composite sprite against the cached viewport. Its bounds
-  // are already absolute world coordinates, same as a locked piece's.
-  private cullCellComposite(slot: CellCompositeSlot): void {
-    const view = this.viewport;
-    if (!view || !slot.node) return;
-    slot.node.culled = !boundsVisible(slot.localBounds, 0, 0, view);
-  }
-
-  // Every cell the composite's (margin-widened) bounds touch must be
-  // LOD-baked before the sprite is considered "covered": mirrors
-  // allLockedCellsReady's reasoning for a piece straddling a cell boundary,
-  // since the composite canvas bleeds into neighbouring cells the same way an
-  // individual piece tile does (see DECISIONS: cell composite geometry
-  // mirrors individual piece-tile bleed).
-  private isCellCompositeFullyBaked(slot: CellCompositeSlot): boolean {
-    if (!this.lodLayer) return false;
-    for (const key of cellKeysForRect(slot.localBounds, LOD_TILE_WORLD)) {
-      if (!this.lodLayer.isReady(key)) return false;
-    }
-    return true;
-  }
-
-  private isCellCompositeHot(slot: CellCompositeSlot, now: number): boolean {
-    for (const key of cellKeysForRect(slot.localBounds, LOD_TILE_WORLD)) {
-      if (this.isCellHot(key, now)) return true;
-    }
-    return false;
-  }
-
-  // Same "covered by a baked tile, nothing recently changed" test as
-  // isLockedPieceCoveredCold, minus the liveness check: a composite sprite is
-  // never held or dragged.
-  private isCompositeCoveredCold(slot: CellCompositeSlot, now: number): boolean {
-    return (
-      this.initialFill === null &&
-      this.lodActive &&
-      this.isCellCompositeFullyBaked(slot) &&
-      !this.isCellCompositeHot(slot, now)
-    );
-  }
-
-  // Gapless fill, mirroring applyLockedPieceLodVisibility: renders live until
-  // every tile the composite's bounds touch is baked, then hides (the tiles
-  // draw it).
-  private applyCellCompositeLodVisibility(key: CellKey, slot: CellCompositeSlot): void {
-    if (!slot.node) return;
-    slot.node.visible = !this.isCellCompositeFullyBaked(slot);
-  }
-
-  // Bump a resident composite's LRU stamp, sharing the group/locked-piece
-  // pool's own counter so the budget evictor can order all three populations
-  // by one clock.
-  private touchCompositeResident(key: CellKey): void {
-    if (this.compositeResident.has(key)) this.compositeResident.set(key, ++this.residentLru);
-  }
-
-  private cellCompositeUrl(wireCellKey: number, version: number): string {
-    return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}.avif`);
-  }
-
-  // Fetches one cell's composite AVIF and swaps it in. The URL needs no
-  // manifest indirection: it is the puzzle-scoped asset base plus the wire
-  // cellKey and version, an immutable object per version the same way a
-  // piece tile's own bucketed path is (see DECISIONS: cell composites are
-  // version-suffixed immutable R2 objects). Tolerant of the slot vanishing or
-  // a newer version arriving mid-fetch, the same stillMine guard
-  // hydrateLockedPiece uses for a group member.
-  private async hydrateCellComposite(key: CellKey, slot: CellCompositeSlot): Promise<void> {
-    if (slot.hydrating) return;
-    slot.hydrating = true;
-    this.compositeResident.set(key, ++this.residentLru);
-    const version = slot.version;
-    const url = this.cellCompositeUrl(slot.wireCellKey, version);
-    const texture = await this.loadPieceTexture(url);
-    slot.hydrating = false;
-    const stillMine = this.cellComposites.get(key) === slot && this.compositeResident.has(key);
-    if (!texture || !stillMine) {
-      if (texture) void Assets.unload(url);
-      return;
-    }
-    // The server always rebakes a cell from its full current locked set, so
-    // every locked piece id known right now is exactly what this version's
-    // sprite draws; a piece constructed after this snapshot is simply not in
-    // it (see pieceCoveredByComposite).
-    const covered = new Set(this.lockedPieceGrid.cellGroups(key) ?? []);
-    const oldNode = slot.node;
-    const oldVersion = slot.appliedVersion;
-    const sprite = new Sprite(texture);
-    sprite.x = slot.localBounds.minX;
-    sprite.y = slot.localBounds.minY;
-    this.lockedPiecesLayer?.addChild(sprite);
-    slot.node = sprite;
-    slot.appliedVersion = version;
-    slot.coveredPieceIds = covered;
-    if (oldNode) {
-      this.lockedPiecesLayer?.removeChild(oldNode);
-      oldNode.destroy();
-      void Assets.unload(this.cellCompositeUrl(slot.wireCellKey, oldVersion));
-    }
-    this.cullCellComposite(slot);
-    if (this.lodActive) this.applyCellCompositeLodVisibility(key, slot);
-  }
-
-  // Frees a composite's texture and sprite while keeping its slot (version,
-  // position) intact, the same "described while dehydrated" contract
-  // dehydrateLockedPiece keeps for a locked piece.
-  private dehydrateCellComposite(key: CellKey, slot: CellCompositeSlot): void {
-    this.compositeResident.delete(key);
-    if (slot.hydrating || !slot.node) return;
-    const url = this.cellCompositeUrl(slot.wireCellKey, slot.appliedVersion);
-    this.lockedPiecesLayer?.removeChild(slot.node);
-    slot.node.destroy();
-    slot.node = null;
-    void Assets.unload(url);
   }
 
   // Resolves build()'s promise once the first viewport is painted: every group in
@@ -3465,6 +3091,37 @@ export class PuzzleStage {
     this.lodLayer.configure(screen.width, screen.height, MIN_ZOOM);
   }
 
+  // Builds the server-composited locked-tile pyramid layer (see ROADMAP Phase
+  // 5 Stage 5). Its sprites are added directly to lockedPiecesLayer (no new
+  // container): that layer already sits at the right z-order (below
+  // unlockedLayer, below the LOD tile layer for loose pieces), and since
+  // bakeTile no longer paints locked content into the LOD tile, the tile
+  // stays transparent wherever locked content lives, correctly revealing
+  // this layer underneath with no z-order change needed anywhere.
+  private createCompositeLayer(): void {
+    if (!this.manifest || !this.lockedPiecesLayer) return;
+    this.compositeLayer = new CompositeTileLayer({
+      container: this.lockedPiecesLayer,
+      margin: this.manifest.margin,
+      maxLevel: MAX_CELL_COMPOSITE_LEVEL,
+      loadTexture: (url) => this.loadPieceTexture(url),
+      urlFor: (level, wireCellKey, version) => this.compositeTileUrl(level, wireCellKey, version),
+      piecesInBounds: (bounds) => this.lockedPieceGrid.queryRect(bounds),
+    });
+  }
+
+  // URL for one pyramid level's cell composite AVIF. Mirrors the server's own
+  // R2 key convention exactly (see DECISIONS: level 0's R2 key shape stays
+  // bare, only levels 1-3 gain an L<level> segment): no manifest indirection
+  // needed, since a cell position is not a solved-adjacency secret.
+  private compositeTileUrl(level: number, wireCellKey: number, version: number): string {
+    const path =
+      level === 0
+        ? `cells/${wireCellKey}/${version}.avif`
+        : `cells/L${level}/${wireCellKey}/${version}.avif`;
+    return joinUrl(this.textureBase, path);
+  }
+
   // Inserts the loading overlay just above the LOD tiles and below the held
   // layers, so a badge covers the resting clusters or baked tile it stands in for
   // while a piece in hand still draws on top.
@@ -3498,9 +3155,13 @@ export class PuzzleStage {
         (groups !== undefined && groups.size > 0) ||
         (lockedIds !== undefined && lockedIds.size > 0);
       const known = this.knownCells.has(key);
-      // The group/locked-piece scan is the only costly fact, so compute it only
-      // in the case that reads it (zoomed in, region already streamed): the
+      // The group scan is the only costly fact, so compute it only in the
+      // case that reads it (zoomed in, region already streamed): the
       // zoom-out and not-streamed cases never touch the cell's contents.
+      // Locked content has no per-piece loading signal left to contribute
+      // (see ROADMAP Phase 5 Stage 5): it renders only via
+      // CompositeTileLayer, so a cell it covers just reads as loaded the
+      // instant that tile is confirmed, with no separate loading badge.
       const needsScan = !this.lodActive && !(this.coverageSeen && !known);
       const pending = cellContentPending({
         lodActive: this.lodActive,
@@ -3508,10 +3169,7 @@ export class PuzzleStage {
         tileReady: this.lodLayer?.isReady(key) ?? false,
         coverageSeen: this.coverageSeen,
         known,
-        hasUnhydratedInRingGroup:
-          needsScan &&
-          (this.cellHasUnhydratedInRingGroup(groups) ||
-            this.cellHasUnhydratedInRingLockedPiece(lockedIds)),
+        hasUnhydratedInRingGroup: needsScan && this.cellHasUnhydratedInRingGroup(groups),
       });
       if (pending) out.add(key);
     }
@@ -3526,17 +3184,6 @@ export class PuzzleStage {
       const node = this.groups.get(gid);
       if (!node) continue;
       if (!node.hydrated && this.groupInRing(node, HYDRATE_MARGIN_FRAC)) return true;
-    }
-    return false;
-  }
-
-  // Same check as cellHasUnhydratedInRingGroup, for locked pieces.
-  private cellHasUnhydratedInRingLockedPiece(lockedIds: ReadonlySet<number> | undefined): boolean {
-    if (!lockedIds) return false;
-    for (const id of lockedIds) {
-      const slot = this.lockedPieces.get(id);
-      if (!slot) continue;
-      if (!slot.node && this.lockedPieceInRing(slot, HYDRATE_MARGIN_FRAC)) return true;
     }
     return false;
   }
@@ -3625,33 +3272,19 @@ export class PuzzleStage {
         if (node) node.container.visible = true;
       }
       this.lodHidden.clear();
-      for (const id of this.lockedPieceLodHidden) {
-        const node = this.lockedPieces.get(id)?.node;
-        if (node) node.container.visible = true;
-      }
-      this.lockedPieceLodHidden.clear();
-      // No hidden-tracking set for composites: cellComposites never holds
-      // more than a few hundred entries, so a direct sweep is cheap enough
-      // on the comparatively rare LOD-exit transition.
-      for (const slot of this.cellComposites.values()) {
-        if (slot.node) slot.node.visible = true;
-      }
     }
   }
 
   // Re-evaluates LOD visibility for the current on-screen candidates. Used on
-  // enter and after a snapshot, where many tiles change at once.
+  // enter and after a snapshot, where many tiles change at once. Locked
+  // content has no LOD-band visibility left to refresh (see ROADMAP Phase 5
+  // Stage 5): a salvaged node only ever hides via culling (viewport, not LOD
+  // band) or gets destroyed once covered, and a composite sprite's own
+  // visibility is owned entirely by CompositeTileLayer's own reconcile.
   private refreshLodVisibility(): void {
     for (const gid of this.lastVisible) {
       const node = this.groups.get(gid);
       if (node) this.applyGroupLodVisibility(node);
-    }
-    for (const id of this.lastVisibleLocked) {
-      const slot = this.lockedPieces.get(id);
-      if (slot) this.applyLockedPieceLodVisibility(id, slot);
-    }
-    for (const [key, slot] of this.cellComposites) {
-      if (slot.node) this.applyCellCompositeLodVisibility(key, slot);
     }
   }
 
@@ -3729,16 +3362,19 @@ export class PuzzleStage {
     this.reconcile();
   }
 
-  // Frees the per-piece nodes of the coldest covered-cold clusters and locked
-  // pieces when resident nodes exceed RESIDENT_PIECE_BUDGET (one shared budget
-  // across both populations, ordered by one shared LRU clock), bounding
-  // resident VRAM at a deep zoom-out without freeing eagerly on every zoom:
-  // under the budget a covered cluster or piece stays resident, so a zoom
-  // in/out re-uses its nodes with no re-fetch. Only covered-cold entries are
-  // evictable (their baked tiles keep drawing them) and only while the LOD is
-  // active; zoomed in nothing is covered, so the whole window stays resident.
+  // Frees the per-piece nodes of the coldest covered-cold clusters when
+  // resident nodes exceed RESIDENT_PIECE_BUDGET, bounding resident VRAM at a
+  // deep zoom-out without freeing eagerly on every zoom: under the budget a
+  // covered cluster stays resident, so a zoom in/out re-uses its nodes with
+  // no re-fetch. Only covered-cold entries are evictable (their baked tiles
+  // keep drawing them) and only while the LOD is active; zoomed in nothing is
+  // covered, so the whole window stays resident. Locked pieces and composite
+  // tiles are no longer part of this budget (see ROADMAP Phase 5 Stage 5):
+  // CompositeTileLayer runs its own byte-weighted eviction, and a salvaged
+  // locked-piece node is freed only by reconcileSalvagedLockedPieces, never
+  // by budget pressure (there is no re-fetch to recover one evicted early).
   // Throttled to one pass every LOD_COLD_SWEEP_FRAMES; the scan is bounded by
-  // the resident sets. Also prunes hotness entries past the hot window so the
+  // the resident set. Also prunes hotness entries past the hot window so the
   // cell map stays the size of the hot set.
   private evictResidentsOverBudget(): void {
     if (!this.lodActive || this.initialFill) return;
@@ -3746,61 +3382,23 @@ export class PuzzleStage {
     this.coldSweepFrame = 0;
     const now = performance.now();
     let totalNodes = 0;
-    type Evictable =
-      | { kind: "group"; id: number }
-      | { kind: "locked"; id: number }
-      | { kind: "composite"; id: CellKey };
-    const evictable: Evictable[] = [];
+    const evictable: number[] = [];
     for (const gid of this.resident.keys()) {
       const node = this.groups.get(gid);
       if (!node) continue;
       totalNodes += node.pieces.length;
-      if (this.isCoveredCold(node, now)) evictable.push({ kind: "group", id: gid });
-    }
-    for (const id of this.lockedResident.keys()) {
-      const slot = this.lockedPieces.get(id);
-      if (!slot?.node) continue;
-      totalNodes += 1;
-      if (this.isLockedPieceCoveredCold(id, now)) evictable.push({ kind: "locked", id });
-    }
-    // Counted as 1 unit like a single piece, not its true (much larger) byte
-    // cost: composite cells are few enough in practice (see cellComposites)
-    // that this pool never approaches RESIDENT_PIECE_BUDGET on cell count
-    // alone. See DECISIONS for the accepted approximation.
-    for (const key of this.compositeResident.keys()) {
-      const slot = this.cellComposites.get(key);
-      if (!slot?.node) continue;
-      totalNodes += 1;
-      if (this.isCompositeCoveredCold(slot, now)) evictable.push({ kind: "composite", id: key });
+      if (this.isCoveredCold(node, now)) evictable.push(gid);
     }
     if (totalNodes > RESIDENT_PIECE_BUDGET && evictable.length > 0) {
-      const stampOf = (e: Evictable): number =>
-        (e.kind === "group"
-          ? this.resident.get(e.id)
-          : e.kind === "locked"
-            ? this.lockedResident.get(e.id)
-            : this.compositeResident.get(e.id)) ?? 0;
       // Coldest first: a covered-cold entry stops bumping its LRU stamp, so the
       // lowest stamp is the one longest off-screen-useful.
-      evictable.sort((a, b) => stampOf(a) - stampOf(b));
-      for (const e of evictable) {
+      evictable.sort((a, b) => (this.resident.get(a) ?? 0) - (this.resident.get(b) ?? 0));
+      for (const gid of evictable) {
         if (totalNodes <= RESIDENT_PIECE_BUDGET) break;
-        if (e.kind === "group") {
-          const node = this.groups.get(e.id);
-          if (!node) continue;
-          totalNodes -= node.pieces.length;
-          this.dehydrateGroup(node);
-        } else if (e.kind === "locked") {
-          const slot = this.lockedPieces.get(e.id);
-          if (!slot) continue;
-          totalNodes -= 1;
-          this.dehydrateLockedPiece(e.id, slot);
-        } else {
-          const slot = this.cellComposites.get(e.id);
-          if (!slot) continue;
-          totalNodes -= 1;
-          this.dehydrateCellComposite(e.id, slot);
-        }
+        const node = this.groups.get(gid);
+        if (!node) continue;
+        totalNodes -= node.pieces.length;
+        this.dehydrateGroup(node);
       }
     }
     for (const [key, t] of this.cellDirtyMs) {
@@ -3808,22 +3406,25 @@ export class PuzzleStage {
     }
   }
 
-  // Renders one tile's clusters into its texture with the tile matrix as the root
-  // transform (bypassing the camera). Live clusters (held or gliding), the frame,
-  // the backdrop, the loading overlay and the tile layer are excluded; non-tile
-  // clusters clip out of the texture, so only this tile's clusters contribute. The
-  // loading badge is a transient hint composited live above the tiles, so baking it
-  // in would freeze a stale badge into the cell until its next re-bake. After baking,
-  // the tile's clusters are re-culled and (if active) hidden now that the tile covers
-  // them.
+  // Renders one tile's loose clusters into its texture with the tile matrix
+  // as the root transform (bypassing the camera). Live clusters (held or
+  // gliding), the frame, the backdrop, the loading overlay, the tile layer
+  // itself, and lockedPiecesLayer are excluded; non-tile clusters clip out of
+  // the texture, so only this tile's loose clusters contribute. Locked
+  // content is never baked in (see ROADMAP Phase 5 Stage 5): it renders on
+  // its own layer beneath this one, always visible through the transparent
+  // parts of the resulting texture, so excluding lockedPiecesLayer here is
+  // what keeps it from being captured into this tile too. The loading badge
+  // is a transient hint composited live above the tiles, so baking it in
+  // would freeze a stale badge into the cell until its next re-bake. After
+  // baking, the tile's clusters are re-culled and (if active) hidden now that
+  // the tile covers them.
   private bakeTile(key: CellKey): boolean {
     if (!this.app || !this.world || !this.lodLayer) return false;
     const groupIds = this.groupGrid.cellGroups(key);
-    const lockedIds = this.lockedPieceGrid.cellGroups(key);
-    // Defer until every non-live cluster and every locked piece in the cell is
-    // hydrated: baking from missing textures would mark the tile ready with
-    // blank pieces. Enqueue the missing ones so a later frame can complete the
-    // bake.
+    // Defer until every non-live cluster in the cell is hydrated: baking from
+    // missing textures would mark the tile ready with blank pieces. Enqueue
+    // the missing ones so a later frame can complete the bake.
     let pending = false;
     if (groupIds) {
       for (const gid of groupIds) {
@@ -3836,24 +3437,7 @@ export class PuzzleStage {
         }
       }
     }
-    if (lockedIds) {
-      for (const id of lockedIds) {
-        if (this.isLockedPieceCoveredByComposite(id)) continue;
-        const slot = this.lockedPieces.get(id);
-        if (slot && !slot.node) {
-          this.enqueueLockedHydrate(id);
-          pending = true;
-        }
-      }
-    }
     if (pending) return false;
-    // The cell's own composite (if any) is not a bake precondition: a cell
-    // with no composite yet, or one still hydrating, bakes fine from
-    // whichever individual locked pieces are (by the loop above) already
-    // hydrated, exactly Stage 2's fallback. Once the composite does hydrate,
-    // it is picked up by a later bake the same way any other content change
-    // triggers one (see applyCellComposite's markDirty).
-    const composite = this.cellComposites.get(key);
     const target = this.lodLayer.prepareBake(key);
     if (!target) return false;
     const r = this.lodLayer.cellRect(key);
@@ -3867,6 +3451,7 @@ export class PuzzleStage {
     if (this.frame) this.frame.visible = false;
     if (this.backdrop) this.backdrop.visible = false;
     if (this.loadingOverlay) this.loadingOverlay.container.visible = false;
+    if (this.lockedPiecesLayer) this.lockedPiecesLayer.visible = false;
     this.lodLayer.setVisible(false);
     const liveHidden: GroupNode[] = [];
     const forced: GroupNode[] = [];
@@ -3895,25 +3480,6 @@ export class PuzzleStage {
         forced.push(node);
       }
     }
-    // A locked piece is never live (never held/dragged) and is a single atomic
-    // piece, not a multi-piece cluster, so it always renders in full here (no
-    // per-piece sub-culling needed).
-    const forcedLocked: number[] = [];
-    if (lockedIds) {
-      for (const id of lockedIds) {
-        const slot = this.lockedPieces.get(id);
-        if (!slot?.node) continue;
-        slot.node.container.visible = true;
-        slot.node.container.culled = false;
-        forcedLocked.push(id);
-      }
-    }
-    // A composite sprite is a single already-rendered image and, like a
-    // locked piece, is never live, so it needs no per-tile sub-culling.
-    if (composite?.node) {
-      composite.node.visible = true;
-      composite.node.culled = false;
-    }
 
     // Keep transient effects out of the texture: a mid-animation flash or burst
     // baked in would stay frozen in the tile until its next re-bake. Hidden only
@@ -3938,6 +3504,7 @@ export class PuzzleStage {
     if (this.frame) this.frame.visible = true;
     if (this.backdrop) this.backdrop.visible = true;
     if (this.loadingOverlay) this.loadingOverlay.container.visible = true;
+    if (this.lockedPiecesLayer) this.lockedPiecesLayer.visible = true;
     this.lodLayer.setVisible(this.lodActive);
     this.lodLayer.markBaked(key);
     for (const node of liveHidden) node.container.visible = true;
@@ -3945,18 +3512,6 @@ export class PuzzleStage {
       this.cullGroup(node);
       if (this.lodActive) this.applyGroupLodVisibility(node);
       else node.container.visible = true;
-    }
-    for (const id of forcedLocked) {
-      const slot = this.lockedPieces.get(id);
-      if (!slot) continue;
-      this.cullLockedPiece(slot);
-      if (this.lodActive) this.applyLockedPieceLodVisibility(id, slot);
-      else if (slot.node) slot.node.container.visible = true;
-    }
-    if (composite?.node) {
-      this.cullCellComposite(composite);
-      if (this.lodActive) this.applyCellCompositeLodVisibility(key, composite);
-      else composite.node.visible = true;
     }
     return true;
   }
