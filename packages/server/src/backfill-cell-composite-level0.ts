@@ -41,6 +41,17 @@ import { CellCompositor } from "./cellCompositor.js";
 import { cellKey } from "./worldGrid.js";
 import { createR2Client } from "./r2.js";
 
+// A cell's own bake fans out to one fetch per locked piece in its halo (up to
+// ~(cellSize/pieceSize)^2 of them, ~770 at synthetic-1m's density), so even a
+// few concurrent lanes multiply into thousands of simultaneous requests and
+// some transient "fetch failed" drops are expected, not a sign of a broken
+// cell (see CellCompositor.drain: a failed cell is logged and dropped, never
+// retried internally). Retried here instead, across a bounded number of
+// rounds over just whatever is still missing, each preceded by a short
+// backoff so the previous round's connection pressure clears first.
+const MAX_ATTEMPTS = 5;
+const RETRY_BACKOFF_MS = 5000;
+
 type Args = { redisUrl: string; puzzleId: string; concurrency: number };
 
 function parseArgs(argv: string[]): Args {
@@ -55,7 +66,7 @@ function parseArgs(argv: string[]): Args {
   }
   const puzzleId = args["puzzle"];
   if (!puzzleId) throw new Error("missing --puzzle <puzzleId>");
-  const concurrency = args["concurrency"] ? Number(args["concurrency"]) : 16;
+  const concurrency = args["concurrency"] ? Number(args["concurrency"]) : 4;
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error(`--concurrency must be a positive integer, got "${args["concurrency"]}"`);
   }
@@ -149,19 +160,36 @@ async function main(): Promise<void> {
       }
     }
 
-    const lanes = Math.min(args.concurrency, allCellKeys.length);
-    const chunks: number[][] = Array.from({ length: lanes }, () => []);
-    allCellKeys.forEach((key, i) => chunks[i % lanes]!.push(key));
-    console.log(
-      `[backfill-cell-composite-level0] baking ${allCellKeys.length} cells across ${lanes} concurrent lanes`,
-    );
-    await Promise.all(
-      chunks.map(async (chunk) => {
-        const compositor = new CellCompositor(compositorDeps);
-        compositor.markDirty(0, chunk);
-        await compositor.whenIdle();
-      }),
-    );
+    const bakeChunks = async (keys: number[]): Promise<void> => {
+      const lanes = Math.min(args.concurrency, keys.length);
+      const chunks: number[][] = Array.from({ length: lanes }, () => []);
+      keys.forEach((key, i) => chunks[i % lanes]!.push(key));
+      await Promise.all(
+        chunks.map(async (chunk) => {
+          const compositor = new CellCompositor(compositorDeps);
+          compositor.markDirty(0, chunk);
+          await compositor.whenIdle();
+        }),
+      );
+    };
+
+    let pending = allCellKeys;
+    for (let attempt = 1; pending.length > 0 && attempt <= MAX_ATTEMPTS; attempt++) {
+      console.log(
+        `[backfill-cell-composite-level0] attempt ${attempt}/${MAX_ATTEMPTS}: ` +
+          `baking ${pending.length} cells across ${Math.min(args.concurrency, pending.length)} lanes`,
+      );
+      await bakeChunks(pending);
+      pending = pending.filter((key) => cellComposites.get(0, key) === undefined);
+      if (pending.length > 0 && attempt < MAX_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS));
+      }
+    }
+    if (pending.length > 0) {
+      console.error(
+        `[backfill-cell-composite-level0] ${pending.length} cell(s) still failed after ${MAX_ATTEMPTS} attempts: ${pending.join(",")}`,
+      );
+    }
 
     console.log("[backfill-cell-composite-level0] done");
   } finally {
