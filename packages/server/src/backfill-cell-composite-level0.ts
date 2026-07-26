@@ -14,6 +14,15 @@
 // Safe to run more than once (see that script's own comment: a rerun just
 // rebakes from whatever is currently locked, bumping versions again).
 //
+// CellCompositor's own drain loop is deliberately one-cell-at-a-time (see its
+// header comment): correct for debouncing live traffic, far too slow for a
+// cold bulk bake of a full board's worth of cells (measured ~20s/cell at
+// ~99.5% locked density, ~7h for 1296 cells serially). This script instead
+// runs `--concurrency` independent CellCompositor instances, each fed a
+// disjoint round-robin slice of the cell list; safe because no cell key is
+// ever touched by more than one lane, and the shared deps (index, upload,
+// Redis writes) are either plain functions or single-threaded-JS-safe.
+//
 //   npm run backfill-cell-composite-level0 -w @mpp/server -- --puzzle synthetic-1m
 //
 // Requires the same R2 write credentials and MPP_ASSETS_BASE_URL/
@@ -32,7 +41,7 @@ import { CellCompositor } from "./cellCompositor.js";
 import { cellKey } from "./worldGrid.js";
 import { createR2Client } from "./r2.js";
 
-type Args = { redisUrl: string; puzzleId: string };
+type Args = { redisUrl: string; puzzleId: string; concurrency: number };
 
 function parseArgs(argv: string[]): Args {
   const args: Record<string, string> = {};
@@ -46,7 +55,11 @@ function parseArgs(argv: string[]): Args {
   }
   const puzzleId = args["puzzle"];
   if (!puzzleId) throw new Error("missing --puzzle <puzzleId>");
-  return { redisUrl: args["redis"] ?? "redis://127.0.0.1:6379", puzzleId };
+  const concurrency = args["concurrency"] ? Number(args["concurrency"]) : 16;
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error(`--concurrency must be a positive integer, got "${args["concurrency"]}"`);
+  }
+  return { redisUrl: args["redis"] ?? "redis://127.0.0.1:6379", puzzleId, concurrency };
 }
 
 // Same public-HTTPS read the live server's own fetchPieceTile uses (see
@@ -94,16 +107,21 @@ async function main(): Promise<void> {
     const r2 = createR2Client(config.r2Write);
     const cellComposites = new CellCompositeIndex();
 
-    const compositor = new CellCompositor({
+    // Shared across every lane below: none of it is lane-specific mutable
+    // state (CellCompositor's own dirty set/drain loop is the only per-lane
+    // state, created fresh per instance), so one deps object is safe to hand
+    // to several concurrent CellCompositor instances at once.
+    const compositorDeps = {
       gridCols: meta.gridCols,
       gridRows: meta.gridRows,
       pieceSize: meta.pieceSize,
       margin: manifest.margin,
       cellSize,
       wire,
-      pieceFileByWireId: (wireId) => manifest.pieces[wireId]!.file,
-      isLocked: (id) => lockedPieces.isLocked(id),
-      fetchTile: (relativePath) => fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
+      pieceFileByWireId: (wireId: number) => manifest.pieces[wireId]!.file,
+      isLocked: (id: number) => lockedPieces.isLocked(id),
+      fetchTile: (relativePath: string) =>
+        fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
       // Never called: this script only ever bakes level 0, which reads piece
       // tiles (fetchTile above), not an existing composite. A call here would
       // mean a real bug, not a value worth fabricating.
@@ -114,12 +132,13 @@ async function main(): Promise<void> {
       remove: r2.remove,
       removeByPrefix: r2.removeByPrefix,
       index: cellComposites,
-      persistVersion: (level, key, version) => state.writeCellCompositeVersion(level, key, version),
+      persistVersion: (level: number, key: number, version: number) =>
+        state.writeCellCompositeVersion(level, key, version),
       // No live clients to push to. Levels 1-3 are backfill-cell-composite-
       // pyramid.ts's job, run separately once every level-0 cell here is done.
       onComposited: () => {},
       puzzleId: manifest.puzzleId,
-    });
+    };
 
     const cellCols = Math.ceil((meta.gridCols * meta.pieceSize) / cellSize);
     const cellRows = Math.ceil((meta.gridRows * meta.pieceSize) / cellSize);
@@ -129,9 +148,20 @@ async function main(): Promise<void> {
         allCellKeys.push(cellKey(cx, cy));
       }
     }
-    console.log(`[backfill-cell-composite-level0] baking up to ${allCellKeys.length} cells`);
-    compositor.markDirty(0, allCellKeys);
-    await compositor.whenIdle();
+
+    const lanes = Math.min(args.concurrency, allCellKeys.length);
+    const chunks: number[][] = Array.from({ length: lanes }, () => []);
+    allCellKeys.forEach((key, i) => chunks[i % lanes]!.push(key));
+    console.log(
+      `[backfill-cell-composite-level0] baking ${allCellKeys.length} cells across ${lanes} concurrent lanes`,
+    );
+    await Promise.all(
+      chunks.map(async (chunk) => {
+        const compositor = new CellCompositor(compositorDeps);
+        compositor.markDirty(0, chunk);
+        await compositor.whenIdle();
+      }),
+    );
 
     console.log("[backfill-cell-composite-level0] done");
   } finally {
