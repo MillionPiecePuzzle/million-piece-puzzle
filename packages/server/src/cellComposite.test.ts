@@ -4,6 +4,7 @@ import {
   cellKeyForGridId,
   CellCompositeIndex,
   haloGridIdsForCell,
+  parentCellKey,
 } from "./cellComposite.js";
 import { candidateGridIdsForCell } from "./lockedPieces.js";
 import { cellKey } from "./worldGrid.js";
@@ -91,31 +92,62 @@ describe("allCellKeysForGrid", () => {
 describe("CellCompositeIndex", () => {
   it("has no version for a cell until one is set", () => {
     const idx = new CellCompositeIndex();
-    expect(idx.get(cellKey(0, 0))).toBeUndefined();
+    expect(idx.get(0, cellKey(0, 0))).toBeUndefined();
   });
 
   it("returns the version a cell was set to", () => {
     const idx = new CellCompositeIndex();
-    idx.set(cellKey(0, 0), 3);
-    expect(idx.get(cellKey(0, 0))).toBe(3);
+    idx.set(0, cellKey(0, 0), 3);
+    expect(idx.get(0, cellKey(0, 0))).toBe(3);
   });
 
-  it("rebuild replaces the whole map from persisted entries", () => {
+  it("keeps levels independent even when their packed cellKey coincides", () => {
+    // (cx, cy) = (0, 0) packs to the same cellKey at every level; the index
+    // must not let a level-1 write clobber level 0's own entry for it.
     const idx = new CellCompositeIndex();
-    idx.set(cellKey(0, 0), 1);
-    idx.rebuild([
+    idx.set(0, cellKey(0, 0), 1);
+    idx.set(1, cellKey(0, 0), 9);
+    expect(idx.get(0, cellKey(0, 0))).toBe(1);
+    expect(idx.get(1, cellKey(0, 0))).toBe(9);
+  });
+
+  it("rebuild replaces one level's map from persisted entries, leaving other levels untouched", () => {
+    const idx = new CellCompositeIndex();
+    idx.set(0, cellKey(0, 0), 1);
+    idx.set(1, cellKey(5, 5), 7);
+    idx.rebuild(0, [
       [cellKey(1, 0), 5],
       [cellKey(2, 0), 2],
     ]);
-    expect(idx.get(cellKey(0, 0))).toBeUndefined();
-    expect(idx.get(cellKey(1, 0))).toBe(5);
-    expect(idx.get(cellKey(2, 0))).toBe(2);
+    expect(idx.get(0, cellKey(0, 0))).toBeUndefined();
+    expect(idx.get(0, cellKey(1, 0))).toBe(5);
+    expect(idx.get(0, cellKey(2, 0))).toBe(2);
+    expect(idx.get(1, cellKey(5, 5))).toBe(7);
   });
 
-  it("clear empties the map", () => {
+  it("clear empties every level's map", () => {
     const idx = new CellCompositeIndex();
-    idx.set(cellKey(0, 0), 1);
+    idx.set(0, cellKey(0, 0), 1);
+    idx.set(2, cellKey(3, 3), 4);
     idx.clear();
-    expect(idx.get(cellKey(0, 0))).toBeUndefined();
+    expect(idx.get(0, cellKey(0, 0))).toBeUndefined();
+    expect(idx.get(2, cellKey(3, 3))).toBeUndefined();
+  });
+});
+
+describe("parentCellKey", () => {
+  it("halves both coordinates", () => {
+    expect(parentCellKey(4, 6)).toBe(cellKey(2, 3));
+  });
+
+  it("groups a 2x2 block of children under the same parent", () => {
+    const parent = parentCellKey(0, 0);
+    expect(parentCellKey(1, 0)).toBe(parent);
+    expect(parentCellKey(0, 1)).toBe(parent);
+    expect(parentCellKey(1, 1)).toBe(parent);
+  });
+
+  it("floors toward negative infinity, not toward zero, so negative pairs still group correctly", () => {
+    expect(parentCellKey(-1, -1)).toBe(parentCellKey(-2, -2));
   });
 });

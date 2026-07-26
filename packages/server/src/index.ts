@@ -26,7 +26,7 @@ import {
 } from "./init.js";
 import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
-import { CellCompositeIndex } from "./cellComposite.js";
+import { CellCompositeIndex, MAX_CELL_COMPOSITE_LEVEL, parentCellKey } from "./cellComposite.js";
 import { CellCompositor } from "./cellCompositor.js";
 import { createR2Client } from "./r2.js";
 import { unpackCellKey } from "./worldGrid.js";
@@ -115,9 +115,10 @@ async function main(): Promise<void> {
   );
   await rebuildLockedPieceIndex(lockedPieces, state, meta.totalPieces);
   // Server-composited locked-tile version read model (see ROADMAP Phase 5
-  // Stage 3), rebuilt from Redis at the same occasions the indexes above are.
+  // Stage 3, extended to a multi-level pyramid by Stage 4), rebuilt from
+  // Redis at the same occasions the indexes above are.
   const cellComposites = new CellCompositeIndex();
-  await rebuildCellCompositeIndex(cellComposites, state);
+  await rebuildCellCompositeIndex(cellComposites, state, MAX_CELL_COMPOSITE_LEVEL);
   // The compositor itself (the background bake queue) only exists when R2
   // write credentials are configured; local dev has none by default, and a
   // deployment with none simply never dirties a cell, leaving every locked
@@ -136,22 +137,37 @@ async function main(): Promise<void> {
       isLocked: (id) => lockedPieces.isLocked(id),
       fetchTile: (relativePath) =>
         fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
+      fetchComposite: (key) => fetchCompositeTile(config.assetsBaseUrl, key),
       upload: r2.upload,
       remove: r2.remove,
       removeByPrefix: r2.removeByPrefix,
       index: cellComposites,
-      persistVersion: (key, version) => state.writeCellCompositeVersion(key, version),
-      onComposited: (key, version) => {
+      persistVersion: (level, key, version) => state.writeCellCompositeVersion(level, key, version),
+      // Level 0 keeps today's live broadcast, unchanged in shape (see
+      // DECISIONS: Stage 4 ships with no wire or protocol change): the wire's
+      // cellKey packing collides across levels and the deployed frontend has
+      // no notion of level, so a level>=1 composite is never pushed to a
+      // client yet, only built and versioned server-side. Every level below
+      // the pyramid's own ceiling cascades one level up by marking its parent
+      // dirty (via the outer cellCompositor binding, already assigned by the
+      // time this ever actually fires), so a parent can never bake from a
+      // stale child (see DECISIONS: composite pyramid stops at level 3).
+      onComposited: (level, key, version) => {
         const { cx, cy } = unpackCellKey(key);
-        hub.broadcastOverlapping(
-          { t: "cell_composite", cellKey: key, version },
-          {
-            minX: cx * cellSize,
-            minY: cy * cellSize,
-            maxX: (cx + 1) * cellSize,
-            maxY: (cy + 1) * cellSize,
-          },
-        );
+        if (level === 0) {
+          hub.broadcastOverlapping(
+            { t: "cell_composite", cellKey: key, version },
+            {
+              minX: cx * cellSize,
+              minY: cy * cellSize,
+              maxX: (cx + 1) * cellSize,
+              maxY: (cy + 1) * cellSize,
+            },
+          );
+        }
+        if (level < MAX_CELL_COMPOSITE_LEVEL) {
+          cellCompositor?.markDirty(level + 1, [parentCellKey(cx, cy)]);
+        }
       },
       puzzleId: manifest.puzzleId,
     });
@@ -620,6 +636,19 @@ async function fetchPieceTile(
   const url = `${assetsBaseUrl}/${puzzleId}/${relativePath}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`piece tile fetch ${url} returned HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+// Reads back an already-baked cell composite (a level L-1 child, when baking
+// a pyramid level L>=1, see ROADMAP Phase 5 Stage 4): the same plain public
+// HTTPS read as fetchPieceTile above, but against the object's own
+// already-fully-qualified key (puzzleId- and cells/-prefixed, the same shape
+// upload/remove take), so unlike fetchPieceTile it must not be re-prefixed
+// with puzzleId.
+async function fetchCompositeTile(assetsBaseUrl: string, key: string): Promise<Buffer> {
+  const url = `${assetsBaseUrl}/${key}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`composite tile fetch ${url} returned HTTP ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
 

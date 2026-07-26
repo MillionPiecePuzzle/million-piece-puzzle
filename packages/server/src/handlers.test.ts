@@ -692,9 +692,12 @@ describe("handleDrop", () => {
     state.place(dropped(4, 3, -4), [4]);
     await handleDrop(ctx, client, 4, 3, -4);
     // dropMeta's whole 3x3 grid sits inside one WORLD_TILE_SIZE cell, so the
-    // single newly-locked piece (4) maps to exactly that one cell.
+    // single newly-locked piece (4) maps to exactly that one cell. Level 0
+    // always: an origin event never marks a pyramid level directly (see
+    // ROADMAP Phase 5 Stage 4), only a child's own bake completion does.
     expect(markDirty).toHaveBeenCalledTimes(1);
-    expect([...markDirty.mock.calls[0]![0]]).toEqual([cellKey(0, 0)]);
+    expect(markDirty.mock.calls[0]![0]).toBe(0);
+    expect([...markDirty.mock.calls[0]![1]]).toEqual([cellKey(0, 0)]);
   });
 
   it("does not touch the compositor when no cell compositor is wired", async () => {
@@ -1123,7 +1126,29 @@ describe("handleViewport region_state construction", () => {
   it("includes a ready cell composite from an entered cell", async () => {
     const { ctx } = makeViewportCtx();
     ctx.cellComposites = new CellCompositeIndex();
-    ctx.cellComposites.set(cellKey(0, 0), 3);
+    ctx.cellComposites.set(0, cellKey(0, 0), 3);
+    const { client, ws } = viewportClient();
+    await handleViewport(ctx, client, {
+      t: "viewport",
+      worldX: 0,
+      worldY: 0,
+      worldW: 500,
+      worldH: 500,
+    });
+    expect(lastRegionStateMsg(ws)?.cellComposites).toEqual([
+      { cellKey: cellKey(0, 0), version: 3 },
+    ]);
+  });
+
+  it("never includes a pyramid level (>=1) composite, even when one is ready for the same cell key", async () => {
+    // See DECISIONS: Stage 4 ships with no wire or protocol change. A level-1
+    // entry set at the same numeric cellKey as the level-0 one above must not
+    // leak onto the wire: the deployed frontend has no notion of level and
+    // would misread it as an oddly-sized level-0 tile.
+    const { ctx } = makeViewportCtx();
+    ctx.cellComposites = new CellCompositeIndex();
+    ctx.cellComposites.set(0, cellKey(0, 0), 3);
+    ctx.cellComposites.set(1, cellKey(0, 0), 9);
     const { client, ws } = viewportClient();
     await handleViewport(ctx, client, {
       t: "viewport",

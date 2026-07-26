@@ -94,7 +94,10 @@ export type Context = {
   // queue and bulk-clears every composite on a board reset (see
   // cellCompositor.ts). Typed as the minimal shape handlers and lifecycle
   // need rather than the concrete class, mirroring `lifecycle` below.
-  cellCompositor?: { markDirty: (cellKeys: Iterable<number>) => void; clearAll: () => Promise<void> };
+  cellCompositor?: {
+    markDirty: (level: number, cellKeys: Iterable<number>) => void;
+    clearAll: () => Promise<void>;
+  };
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any
   // client message is dispatched.
@@ -351,10 +354,13 @@ async function streamRegionState(
     // Ready server-composited tiles for this batch's cells (see ROADMAP Phase
     // 5 Stage 3), absent entirely when no compositor is wired. A cell with no
     // entry here has no bake yet, so the client keeps rendering it from
-    // lockedPieceIds above.
+    // lockedPieceIds above. Level 0 only: the pyramid's levels 1-3 (see
+    // ROADMAP Phase 5 Stage 4) are built and versioned server-side already,
+    // but stay off the wire until Stage 5 teaches the client what a level is
+    // (see DECISIONS: Stage 4 ships with no wire or protocol change).
     const cellComposites = ctx.cellComposites
       ? batch.cells.flatMap((key) => {
-          const version = ctx.cellComposites!.get(key);
+          const version = ctx.cellComposites!.get(0, key);
           return version === undefined ? [] : [{ cellKey: key, version }];
         })
       : [];
@@ -602,7 +608,7 @@ async function applyMerge(
           cellKeyForGridId(id, ctx.meta.gridCols, ctx.meta.pieceSize, ctx.worldTileSize),
         ),
       );
-      ctx.cellCompositor.markDirty(touchedCells);
+      ctx.cellCompositor.markDirty(0, touchedCells);
     }
     for (const id of allIds) {
       await ctx.state.deleteGroup(id);

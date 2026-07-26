@@ -1,10 +1,17 @@
 // Server-composited locked-tile geometry and version bookkeeping (see ROADMAP
-// Phase 5 Stage 3). "Cell" here is the same shared world-grid cell every other
-// per-cell index in this codebase already uses (see worldGrid.ts,
-// WORLD_TILE_SIZE), not the minimap's separate downsampled overview grid.
+// Phase 5 Stage 3, extended to a multi-level pyramid by Stage 4). "Cell" here
+// is the same shared world-grid cell every other per-cell index in this
+// codebase already uses (see worldGrid.ts, WORLD_TILE_SIZE), not the
+// minimap's separate downsampled overview grid.
 
 import { cellKey } from "./worldGrid.js";
 import { ownedRange } from "./lockedPieces.js";
+
+// The pyramid builds levels 0 (this file's existing per-piece bake) through
+// this constant (see ROADMAP Phase 5 Stage 4): level 3 already covers only
+// 1/25 of the board, so no level is ever small enough to need a broadcast
+// tier different from level 0's own viewport scoping.
+export const MAX_CELL_COMPOSITE_LEVEL = 3;
 
 // Every grid id whose own tile (a pieceSize + 2*margin square centered on its
 // canonical cell, the same tile a piece is sliced into) can overlap a cell's
@@ -35,6 +42,15 @@ export function haloGridIdsForCell(
     }
   }
   return out;
+}
+
+// The cell one pyramid level up that owns a given cell, in the parent's own
+// coordinate space (see ROADMAP Phase 5 Stage 4): halving is scale-invariant,
+// so the same step works starting from any level's (cx, cy), not just level
+// 0's; a level L>=1 cell's own children live one level down at (2cx, 2cy),
+// (2cx+1, 2cy), (2cx, 2cy+1), (2cx+1, 2cy+1).
+export function parentCellKey(cx: number, cy: number): number {
+  return cellKey(Math.floor(cx / 2), Math.floor(cy / 2));
 }
 
 // A range already empty (cell entirely outside the grid) stays empty: there is
@@ -89,34 +105,46 @@ export function allCellKeysForGrid(
   return out;
 }
 
-// In-process read model: each cell's current composite bake version, answering
-// "does this cell have a ready composite, and which version" for region_state
-// construction. A cell absent here has no bake yet, so a reader falls back to
-// per-piece rendering. There is no "permanent" flag: once every piece a cell
-// can ever own is locked, no future lock event touches that cell again (see
-// cellCompositeVersions in cellCompositor.ts), so its last version simply never
-// changes again on its own; force-complete is the one path that revisits an
-// already-complete cell anyway (see allCellKeysForGrid).
+// In-process read model: each cell's current composite bake version at each
+// pyramid level, answering "does this cell have a ready composite, and which
+// version" for region_state construction and for a level L>=1 bake's own read
+// of its level L-1 children. A cell absent at its level has no bake yet, so a
+// reader falls back (to per-piece rendering at level 0, or to simply omitting
+// that child at level>=1). There is no "permanent" flag: once every piece a
+// cell can ever own is locked, no future lock event touches that cell (or,
+// transitively, its ancestors) again (see cellCompositeVersions in
+// cellCompositor.ts), so its last version simply never changes again on its
+// own; force-complete is the one path that revisits an already-complete cell
+// anyway (see allCellKeysForGrid). Levels are namespaced by a separate Map per
+// level rather than one combined key, since the same (cx, cy) pair, and so the
+// same packed cellKey, recurs at every level.
 export class CellCompositeIndex {
-  private readonly versions = new Map<number, number>();
+  private readonly versions = new Map<number, Map<number, number>>();
 
-  get(key: number): number | undefined {
-    return this.versions.get(key);
+  get(level: number, key: number): number | undefined {
+    return this.versions.get(level)?.get(key);
   }
 
-  set(key: number, version: number): void {
-    this.versions.set(key, version);
+  set(level: number, key: number, version: number): void {
+    let m = this.versions.get(level);
+    if (!m) {
+      m = new Map();
+      this.versions.set(level, m);
+    }
+    m.set(key, version);
   }
 
   clear(): void {
     this.versions.clear();
   }
 
-  // Rebuilds the whole map from persisted state (see state.readCellCompositeVersions),
-  // used at boot and after a reset, the same occasions the other per-cell indexes
-  // rebuild from Redis (see init.ts).
-  rebuild(entries: Iterable<readonly [number, number]>): void {
-    this.versions.clear();
-    for (const [key, version] of entries) this.versions.set(key, version);
+  // Rebuilds one level's map from persisted state (see
+  // state.readCellCompositeVersions), used at boot and after a reset, the same
+  // occasions the other per-cell indexes rebuild from Redis (see init.ts),
+  // called once per level 0..MAX_CELL_COMPOSITE_LEVEL.
+  rebuild(level: number, entries: Iterable<readonly [number, number]>): void {
+    const m = new Map<number, number>();
+    for (const [key, version] of entries) m.set(key, version);
+    this.versions.set(level, m);
   }
 }
