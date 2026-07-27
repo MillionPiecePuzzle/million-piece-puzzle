@@ -11,12 +11,15 @@
 // any touched cell that still has no level-0 composite when it does.
 //
 // Each chosen piece is its own singleton group (a fresh, unplayed puzzle), so
-// dropping it at its own canonical solved position is exactly handleDrop's
-// frameAnchor path (see handlers.ts): the group's origin lands at (0,0)
-// directly, with no neighbor-adjacency or drag ordering needed. This keeps
-// the scenario simple while still exercising 100% real backend logic; it
-// does not simulate a player growing a cluster through several loose-loose
-// merges before dragging it to the frame.
+// dropping it at internal origin (0, 0) is exactly handleDrop's frameAnchor
+// path (see handlers.ts): a piece's local AABB already bakes in its solved
+// grid cell (col * pieceSize, row * pieceSize, see worldGrid.ts), and origin
+// is a pure translation on top of that, so (0, 0) is what places the piece at
+// its own solved position, not the piece's canonical world coordinates
+// themselves (those would double the offset and land the drop away from the
+// frame origin, never anchoring). This keeps the scenario simple while still
+// exercising 100% real backend logic; it does not simulate a player growing a
+// cluster through several loose-loose merges before dragging it to the frame.
 //
 //   npm run seed-lock-scenario -w @mpp/server -- \
 //     --redis redis://127.0.0.1:6379 \
@@ -306,22 +309,24 @@ async function main(): Promise<void> {
     let done = 0;
     const logEvery = Math.max(1, Math.floor(chosenIds.length / 20));
     await runPool(chosenIds, args.concurrency, async (gridId) => {
-      const col = gridId % meta.gridCols;
-      const row = Math.floor(gridId / meta.gridCols);
       try {
         // Mirrors dispatch's own grab handling (see handlers.ts's "grab" case):
         // reserve in client.held before the acquire, same invariant a real
         // connection's disconnect cleanup depends on.
         client.held.add(gridId);
         await handleGrab(ctx, client, gridId);
-        // No `lockedGroups`: a direct call always applies immediately. Safe
-        // here because a dropped singleton's only possible neighbours are
-        // either not yet locked (too far from this drop's target to ever
-        // become a loose-merge candidate) or already locked (handled via
-        // detectSnap's touchesLocked path, which needs no group lock at all;
-        // see snap.ts). matchedGroupIds is therefore always empty in this
-        // scenario, so there is never a second group to hold.
-        await handleDrop(ctx, client, gridId, col * meta.pieceSize, row * meta.pieceSize);
+        // Origin (0, 0), not the piece's own canonical world position: a
+        // singleton's local AABB already bakes in its solved grid cell (see
+        // worldGrid.ts), so (0, 0) is the internal origin that places it
+        // there (see wire.ts's anchorWorldX/Y and handleDrop's frameAnchor
+        // check). No `lockedGroups`: a direct call always applies
+        // immediately. Safe here because a dropped singleton's only possible
+        // neighbours are either not yet locked (too far from this drop's
+        // target to ever become a loose-merge candidate) or already locked
+        // (handled via detectSnap's touchesLocked path, which needs no group
+        // lock at all; see snap.ts). matchedGroupIds is therefore always
+        // empty in this scenario, so there is never a second group to hold.
+        await handleDrop(ctx, client, gridId, 0, 0);
       } catch (e) {
         console.error(`[seed-lock-scenario] piece ${gridId} failed`, (e as Error).message);
       }
