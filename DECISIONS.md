@@ -122,7 +122,7 @@ Why: one global serial queue blocked independent groups behind each other; per-g
 
 Choice: `/play` exposes Place/Reset/Complete buttons wired to `dev_*` WS messages, visible under `VITE_DEV_BUTTONS` and accepted server-side only under `MPP_DEV_ENABLED=1`. Reset/Complete require a `confirm()` since they affect every connected tester.
 Why: testers need to exercise the end-of-puzzle UI and reset a stuck board with no operator intervention; the env gate lets it be pulled in one redeploy.
-Revisit when: confirmed still on as of 2026-07-09: `MPP_DEV_ENABLED=1` is baked in `packages/server/Dockerfile`, and `VITE_DEV_BUTTONS` is unset in `packages/frontend/.env.production` (defaults to shown). Both must flip before the real photo goes live with real community progress at stake.
+Revisit when: flipped off 2026-07-27: `MPP_DEV_ENABLED=0` in `packages/server/Dockerfile`, `VITE_DEV_BUTTONS=0` in `packages/frontend/.env.production`. Local dev keeps both on via an explicit `docker-compose.override.yml` entry (server image is shared with prod; the frontend dev server never reads `.env.production`, so no override was needed there).
 
 ### 2026-05-18, backend-realtime, WS hardening
 

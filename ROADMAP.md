@@ -36,8 +36,6 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 
 **Exit criterion (met)**: the puzzle is open to the public, with 1 000 000 pieces on a single shared canvas, full auth, monitoring sufficient to operate, and legal documents in place.
 
-`MPP_DEV_ENABLED`/`VITE_DEV_BUTTONS` still default to on in prod (see [DECISIONS](DECISIONS.md#2026-05-18-frontend-shell-dev-controls)); flipping both is the last step before advertising the URL.
-
 ### `shared-protocol`
 - [x] Protocol frozen at v6 before public launch (bumped 4->5->6 for activity-feed sizes and the spectator drop); breaking changes go through a version bump asserted at the `hello` handshake. See DECISIONS
 - [x] `eventStartsAt` (unix ms) in `welcome` drives the landing countdown and the `/play` entry gate (`MPP_EVENT_STARTS_AT`, default 0 = no scheduled start)
@@ -56,6 +54,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Auth modal: single "Continue with Google" action, return flow forces pseudo then nationality. Google-only by design
 - [x] `/play` sealed before a scheduled event: `beforeEnter` guard reads `eventStartsAt`, fail-open on an unset date or a transient fetch failure. See DECISIONS
 - [x] Site localized EN/FR/ES/DE (vue-i18n): every user-facing string and both legal pages, flag dropdown on the landing, browser language auto-detected and persisted
+- [x] Dev-only Place/Reset/Complete controls off in prod: `MPP_DEV_ENABLED=0` (server Dockerfile), `VITE_DEV_BUTTONS=0` (frontend `.env.production`); local dev keeps both via `docker-compose.override.yml`. See DECISIONS
 
 ### `frontend-canvas`
 - [x] Zoom-out LOD scales to 1M via a client-baked tile cache, cull and bake bounded by the visible window through a spatial index

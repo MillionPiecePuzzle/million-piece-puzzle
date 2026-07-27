@@ -42,6 +42,9 @@ services:
       # via this directory's `.env`.
       MPP_ADMIN_PASSWORD: "${MPP_ADMIN_PASSWORD:-admin}"
       MPP_ADMIN_PUZZLES: '${MPP_ADMIN_PUZZLES:-[{"id":"synthetic-1m","label":"Synthetic 1M","seed":"synthetic-1m"},{"id":"synthetic-25","label":"Synthetic 25","seed":"synthetic-25"}]}'
+      # Dev-only Place/Reset/Complete controls: off in the prod image (see
+      # packages/server/Dockerfile), kept on here so local testing still has them.
+      MPP_DEV_ENABLED: "${MPP_DEV_ENABLED:-1}"
 
   # Local-dev only: the Vite dev server, bind-mounting the frontend source for
   # HMR on :5173. It lives here, not in docker-compose.yml, because prod
