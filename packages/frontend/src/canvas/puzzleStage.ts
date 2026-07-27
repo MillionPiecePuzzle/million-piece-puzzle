@@ -700,6 +700,13 @@ export class PuzzleStage {
       this.remoteHeldLayer,
       this.localHeldLayer,
     );
+    // Created here, before the chunked passes below, so a region_state or
+    // cell_composite arriving mid-build (they yield to the event loop between
+    // bursts) has a live layer to report its version to. applyCellComposite
+    // used to reach this via an optional chain that was silently a no-op
+    // while compositeLayer was still null, and the cell was already marked
+    // known by applyRegionState regardless, so the version was lost for good.
+    this.createCompositeLayer();
 
     this.groupGrid.clear();
     this.lockedPieceGrid.clear();
