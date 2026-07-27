@@ -210,20 +210,15 @@ export async function rebuildMinimapGrid(
 }
 
 // Rebuild the in-process cell-composite version index from Redis (see ROADMAP
-// Phase 5 Stage 3, extended to a multi-level pyramid by Stage 4), used at boot
-// and after a reset, the same occasions the other per-cell indexes above
-// rebuild. One read per pyramid level, since each level persists to its own
-// Redis hash (see redis/keys.ts). Unlike those other indexes, there is no
-// periodic defense-in-depth resync for this one: a missed increment just
+// Phase 5 Stage 3), used at boot and after a reset, the same occasions the
+// other per-cell indexes above rebuild. Unlike those other indexes, there is
+// no periodic defense-in-depth resync for this one: a missed increment just
 // leaves a cell one version behind its last successful bake (see
 // CellCompositor), never wrong, so nothing needs a slow full-board recheck.
 export async function rebuildCellCompositeIndex(
   index: CellCompositeIndex,
   state: RedisState,
-  maxLevel: number,
 ): Promise<void> {
-  for (let level = 0; level <= maxLevel; level++) {
-    const versions = await state.readCellCompositeVersions(level);
-    index.rebuild(level, versions);
-  }
+  const versions = await state.readCellCompositeVersions();
+  index.rebuild(versions);
 }

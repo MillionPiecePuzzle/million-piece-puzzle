@@ -10,7 +10,6 @@ import type { LockedPieceIndex } from "./lockedPieces.js";
 import {
   cellKeyForGridId,
   collectRegionCellComposites,
-  MAX_CELL_COMPOSITE_LEVEL,
   type CellCompositeIndex,
 } from "./cellComposite.js";
 import { detectSnap } from "./snap.js";
@@ -100,7 +99,7 @@ export type Context = {
   // cellCompositor.ts). Typed as the minimal shape handlers and lifecycle
   // need rather than the concrete class, mirroring `lifecycle` below.
   cellCompositor?: {
-    markDirty: (level: number, cellKeys: Iterable<number>) => void;
+    markDirty: (cellKeys: Iterable<number>) => void;
     clearAll: () => Promise<void>;
   };
   // Optional during construction (Context is created before PuzzleLifecycle
@@ -357,13 +356,10 @@ async function streamRegionState(
     // in-memory bitset lookup, no Redis read needed (see LockedPieceIndex).
     const lockedGridIds = ctx.lockedPieces.collect(batch.cells);
     // Ready server-composited tiles covering this batch's cells (see ROADMAP
-    // Phase 5 Stage 5), absent entirely when no compositor is wired. Every
-    // pyramid level 0-3 that already has a bake for one of the batch's cells
-    // or one of their deduped ancestors is included, so a client zoomed out
-    // enough to want a coarser level already has it with no second round
-    // trip; a (cell, level) with no bake yet is simply omitted.
+    // Phase 5 Stage 5), absent entirely when no compositor is wired. A cell
+    // with no bake yet is simply omitted.
     const cellComposites = ctx.cellComposites
-      ? collectRegionCellComposites(ctx.cellComposites, batch.cells, MAX_CELL_COMPOSITE_LEVEL)
+      ? collectRegionCellComposites(ctx.cellComposites, batch.cells)
       : [];
     // Re-check after the Redis round trip: a supersession or disconnect could
     // have landed while awaiting it.
@@ -609,7 +605,7 @@ async function applyMerge(
           cellKeyForGridId(id, ctx.meta.gridCols, ctx.meta.pieceSize, ctx.worldTileSize),
         ),
       );
-      ctx.cellCompositor.markDirty(0, touchedCells);
+      ctx.cellCompositor.markDirty(touchedCells);
     }
     for (const id of allIds) {
       await ctx.state.deleteGroup(id);

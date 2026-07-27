@@ -196,7 +196,7 @@ function routeMessage(msg: ServerMessage): void {
       stage.applyRegionState(msg.groups, msg.lockedPieceIds, msg.cellComposites, msg.coverage);
       break;
     case "cell_composite":
-      stage.applyCellComposite(msg.cellKey, msg.level, msg.version);
+      stage.applyCellComposite(msg.cellKey, msg.version);
       break;
     case "minimap":
       stage.setMinimapGrid(msg.grid);

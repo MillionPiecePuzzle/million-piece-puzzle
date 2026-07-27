@@ -5,10 +5,10 @@
 // lock this script produces goes through the same handleGrab/handleDrop/
 // applyMerge code a real client's drop does: real Redis reads/writes, real
 // minimap and group-index maintenance, a real cluster_merges log entry per
-// lock, and a real CellCompositor.markDirty call that composites the pyramid
-// exactly the way live play does. No backfill script is needed afterward:
-// this waits on the compositor's own drain queue before exiting, and reports
-// any touched cell that still has no level-0 composite when it does.
+// lock, and a real CellCompositor.markDirty call that composites the cell
+// exactly the way live play does. This waits on the compositor's own drain
+// queue before exiting, and reports any touched cell that still has no
+// composite when it does.
 //
 // Each chosen piece is its own singleton group (a fresh, unplayed puzzle), so
 // dropping it at internal origin (0, 0) is exactly handleDrop's frameAnchor
@@ -73,15 +73,9 @@ import { Hub, type Client } from "./hub.js";
 import { GroupQueue } from "./queue.js";
 import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
-import {
-  cellKeyForGridId,
-  CellCompositeIndex,
-  MAX_CELL_COMPOSITE_LEVEL,
-  parentCellKey,
-} from "./cellComposite.js";
+import { cellKeyForGridId, CellCompositeIndex } from "./cellComposite.js";
 import { CellCompositor } from "./cellCompositor.js";
 import { createR2Client } from "./r2.js";
-import { unpackCellKey } from "./worldGrid.js";
 import { TokenBucket } from "./limits.js";
 import { handleGrab, handleDrop, type Context } from "./handlers.js";
 
@@ -237,21 +231,13 @@ async function main(): Promise<void> {
         isLocked: (id) => lockedPieces.isLocked(id),
         fetchTile: (relativePath) =>
           fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
-        fetchComposite: (key) => fetchCompositeTile(config.assetsBaseUrl, key),
         upload: r2.upload,
         remove: r2.remove,
         removeByPrefix: r2.removeByPrefix,
         index: cellComposites,
-        persistVersion: (level, key, version) => state.writeCellCompositeVersion(level, key, version),
-        // Mirrors index.ts's own live wiring: a finished bake cascades one
-        // level up, so the pyramid builds itself the same way a real lock
-        // event does. No live client to broadcast to.
-        onComposited: (level, key) => {
-          if (level < MAX_CELL_COMPOSITE_LEVEL) {
-            const { cx, cy } = unpackCellKey(key);
-            cellCompositor?.markDirty(level + 1, [parentCellKey(cx, cy)]);
-          }
-        },
+        persistVersion: (key, version) => state.writeCellCompositeVersion(key, version),
+        // No live client to broadcast a finished bake to.
+        onComposited: () => {},
         puzzleId: manifest.puzzleId,
       });
     }
@@ -337,18 +323,18 @@ async function main(): Promise<void> {
     });
 
     if (cellCompositor) {
-      console.log("[seed-lock-scenario] waiting for the composite pyramid to finish baking...");
+      console.log("[seed-lock-scenario] waiting for the composites to finish baking...");
       await cellCompositor.whenIdle();
       const touchedCells = new Set(
         chosenIds.map((id) => cellKeyForGridId(id, meta.gridCols, meta.pieceSize, cellSize)),
       );
-      const missing = [...touchedCells].filter((key) => cellComposites.get(0, key) === undefined);
+      const missing = [...touchedCells].filter((key) => cellComposites.get(key) === undefined);
       if (missing.length > 0) {
         console.error(
-          `[seed-lock-scenario] ${missing.length}/${touchedCells.size} touched cell(s) have no level-0 composite: ${missing.join(",")}`,
+          `[seed-lock-scenario] ${missing.length}/${touchedCells.size} touched cell(s) have no composite: ${missing.join(",")}`,
         );
       } else {
-        console.log(`[seed-lock-scenario] all ${touchedCells.size} touched cells composited at level 0`);
+        console.log(`[seed-lock-scenario] all ${touchedCells.size} touched cells composited`);
       }
     }
 
@@ -369,15 +355,6 @@ async function fetchPieceTile(
   const url = `${assetsBaseUrl}/${puzzleId}/${relativePath}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`piece tile fetch ${url} returned HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
-}
-
-// Reads back an already-baked composite (a level L-1 child, when baking level
-// L>=1), mirroring index.ts's own fetchCompositeTile.
-async function fetchCompositeTile(assetsBaseUrl: string, key: string): Promise<Buffer> {
-  const url = `${assetsBaseUrl}/${key}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`composite tile fetch ${url} returned HTTP ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
 

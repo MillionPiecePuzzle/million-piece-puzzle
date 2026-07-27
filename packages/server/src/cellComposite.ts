@@ -1,18 +1,11 @@
 // Server-composited locked-tile geometry and version bookkeeping (see ROADMAP
-// Phase 5 Stage 3, extended to a multi-level pyramid by Stage 4). "Cell" here
-// is the same shared world-grid cell every other per-cell index in this
-// codebase already uses (see worldGrid.ts, WORLD_TILE_SIZE), not the
-// minimap's separate downsampled overview grid.
+// Phase 5 Stage 3). "Cell" here is the same shared world-grid cell every
+// other per-cell index in this codebase already uses (see worldGrid.ts,
+// WORLD_TILE_SIZE), not the minimap's separate downsampled overview grid.
 
-import { MAX_CELL_COMPOSITE_LEVEL, type CellComposite } from "@mpp/shared";
-import { cellKey, unpackCellKey } from "./worldGrid.js";
+import type { CellComposite } from "@mpp/shared";
+import { cellKey } from "./worldGrid.js";
 import { ownedRange } from "./lockedPieces.js";
-
-// Re-exported so existing server-side imports (`from "./cellComposite.js"`)
-// stay unchanged now that the constant itself lives in @mpp/shared, shared
-// with the frontend's own pyramid-level selection (see ROADMAP Phase 5 Stage
-// 5).
-export { MAX_CELL_COMPOSITE_LEVEL };
 
 // Every grid id whose own tile (a pieceSize + 2*margin square centered on its
 // canonical cell, the same tile a piece is sliced into) can overlap a cell's
@@ -43,28 +36,6 @@ export function haloGridIdsForCell(
     }
   }
   return out;
-}
-
-// The cell one pyramid level up that owns a given cell, in the parent's own
-// coordinate space (see ROADMAP Phase 5 Stage 4): halving is scale-invariant,
-// so the same step works starting from any level's (cx, cy), not just level
-// 0's; a level L>=1 cell's own children live one level down at (2cx, 2cy),
-// (2cx+1, 2cy), (2cx, 2cy+1), (2cx+1, 2cy+1).
-export function parentCellKey(cx: number, cy: number): number {
-  return cellKey(Math.floor(cx / 2), Math.floor(cy / 2));
-}
-
-// A level-0 cell key's ancestor `levels` pyramid levels up, by walking
-// parentCellKey repeatedly (halving is scale-invariant, so each step works
-// starting from the previous step's own (cx, cy), the same way parentCellKey
-// itself does at any single level). `levels === 0` returns the key unchanged.
-export function ancestorCellKey(key0: number, levels: number): number {
-  let key = key0;
-  for (let i = 0; i < levels; i++) {
-    const { cx, cy } = unpackCellKey(key);
-    key = parentCellKey(cx, cy);
-  }
-  return key;
 }
 
 // A range already empty (cell entirely outside the grid) stays empty: there is
@@ -119,73 +90,50 @@ export function allCellKeysForGrid(
   return out;
 }
 
-// In-process read model: each cell's current composite bake version at each
-// pyramid level, answering "does this cell have a ready composite, and which
-// version" for region_state construction and for a level L>=1 bake's own read
-// of its level L-1 children. A cell absent at its level has no bake yet, so a
-// reader falls back (the client to a finer already-ready level, or to simply
-// omitting that child at level>=1 here on the server). There is no
-// "permanent" flag: once every piece a
-// cell can ever own is locked, no future lock event touches that cell (or,
-// transitively, its ancestors) again (see cellCompositeVersions in
+// In-process read model: each cell's current composite bake version,
+// answering "does this cell have a ready composite, and which version" for
+// region_state construction. A cell absent here has no bake yet. There is no
+// "permanent" flag: once every piece a cell can ever own is locked, no future
+// lock event touches that cell again (see cellCompositeVersions in
 // cellCompositor.ts), so its last version simply never changes again on its
 // own; force-complete is the one path that revisits an already-complete cell
-// anyway (see allCellKeysForGrid). Levels are namespaced by a separate Map per
-// level rather than one combined key, since the same (cx, cy) pair, and so the
-// same packed cellKey, recurs at every level.
+// anyway (see allCellKeysForGrid).
 export class CellCompositeIndex {
-  private readonly versions = new Map<number, Map<number, number>>();
+  private readonly versions = new Map<number, number>();
 
-  get(level: number, key: number): number | undefined {
-    return this.versions.get(level)?.get(key);
+  get(key: number): number | undefined {
+    return this.versions.get(key);
   }
 
-  set(level: number, key: number, version: number): void {
-    let m = this.versions.get(level);
-    if (!m) {
-      m = new Map();
-      this.versions.set(level, m);
-    }
-    m.set(key, version);
+  set(key: number, version: number): void {
+    this.versions.set(key, version);
   }
 
   clear(): void {
     this.versions.clear();
   }
 
-  // Rebuilds one level's map from persisted state (see
-  // state.readCellCompositeVersions), used at boot and after a reset, the same
-  // occasions the other per-cell indexes rebuild from Redis (see init.ts),
-  // called once per level 0..MAX_CELL_COMPOSITE_LEVEL.
-  rebuild(level: number, entries: Iterable<readonly [number, number]>): void {
-    const m = new Map<number, number>();
-    for (const [key, version] of entries) m.set(key, version);
-    this.versions.set(level, m);
+  // Rebuilds the map from persisted state (see state.readCellCompositeVersions),
+  // used at boot and after a reset, the same occasions the other per-cell
+  // indexes rebuild from Redis (see init.ts).
+  rebuild(entries: Iterable<readonly [number, number]>): void {
+    this.versions.clear();
+    for (const [key, version] of entries) this.versions.set(key, version);
   }
 }
 
-// Every composited tile, at any pyramid level 0..maxLevel, covering a
-// region_state batch's level-0 cells (see ROADMAP Phase 5 Stage 5). Level 0
-// entries are the batch's own cells as-is; a level L>=1 entry is their
-// ancestor at that level, deduped so several of the batch's cells sharing the
-// same higher-level ancestor emit it only once. A (level, key) with no bake
-// yet in `index` is simply omitted, the same "absent means not ready yet"
-// convention region_state already uses for lockedPieceIds.
+// Every composited tile covering a region_state batch's cells (see ROADMAP
+// Phase 5 Stage 5). A cell with no bake yet in `index` is simply omitted, the
+// same "absent means not ready yet" convention region_state already uses for
+// lockedPieceIds.
 export function collectRegionCellComposites(
   index: CellCompositeIndex,
-  level0Keys: readonly number[],
-  maxLevel: number,
+  cellKeys: readonly number[],
 ): CellComposite[] {
   const out: CellComposite[] = [];
-  for (let level = 0; level <= maxLevel; level++) {
-    const seen = new Set<number>();
-    for (const key0 of level0Keys) {
-      const key = ancestorCellKey(key0, level);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const version = index.get(level, key);
-      if (version !== undefined) out.push({ cellKey: key, level, version });
-    }
+  for (const key of cellKeys) {
+    const version = index.get(key);
+    if (version !== undefined) out.push({ cellKey: key, version });
   }
   return out;
 }

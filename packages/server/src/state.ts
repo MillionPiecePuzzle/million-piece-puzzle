@@ -392,28 +392,24 @@ export class RedisState {
   }
 
   // Persisted cell-composite bake versions (see ROADMAP Phase 5 Stage 3), read
-  // once per pyramid level at boot to rebuild CellCompositeIndex, the same
-  // pattern the group and locked-piece indexes already follow.
-  async readCellCompositeVersions(level: number): Promise<Map<number, number>> {
-    const h = await this.r.hgetall(keys.cellCompositeVersions(this.puzzleId, level));
+  // once at boot to rebuild CellCompositeIndex, the same pattern the group
+  // and locked-piece indexes already follow.
+  async readCellCompositeVersions(): Promise<Map<number, number>> {
+    const h = await this.r.hgetall(keys.cellCompositeVersions(this.puzzleId));
     const out = new Map<number, number>();
     for (const [key, version] of Object.entries(h)) out.set(Number(key), Number(version));
     return out;
   }
 
-  async writeCellCompositeVersion(level: number, cellKey: number, version: number): Promise<void> {
-    await this.r.hset(keys.cellCompositeVersions(this.puzzleId, level), String(cellKey), version);
+  async writeCellCompositeVersion(cellKey: number, version: number): Promise<void> {
+    await this.r.hset(keys.cellCompositeVersions(this.puzzleId), String(cellKey), version);
   }
 
   // A reset wipes every locked piece back to loose, so every previously-baked
-  // composite at every pyramid level is now wrong (it would show a cell as
-  // locked that no longer is) rather than merely stale; unlike a transient
-  // bake failure, this one case has to actively clear rather than let the
-  // next touch overwrite it.
-  async clearCellCompositeVersions(maxLevel: number): Promise<void> {
-    const levelKeys = Array.from({ length: maxLevel + 1 }, (_, level) =>
-      keys.cellCompositeVersions(this.puzzleId, level),
-    );
-    await this.r.del(...levelKeys);
+  // composite is now wrong (it would show a cell as locked that no longer is)
+  // rather than merely stale; unlike a transient bake failure, this one case
+  // has to actively clear rather than let the next touch overwrite it.
+  async clearCellCompositeVersions(): Promise<void> {
+    await this.r.del(keys.cellCompositeVersions(this.puzzleId));
   }
 }

@@ -10,7 +10,7 @@ import {
   rebuildLockedPieceIndex,
   rebuildMinimapGrid,
 } from "./init.js";
-import { allCellKeysForGrid, MAX_CELL_COMPOSITE_LEVEL } from "./cellComposite.js";
+import { allCellKeysForGrid } from "./cellComposite.js";
 
 // Anchoring entries sent to seed a connecting client's activity ticker. Matches
 // the ticker's display capacity on the frontend.
@@ -102,15 +102,15 @@ export class PuzzleLifecycle {
       // fresh (fully unlocked) board too.
       await rebuildLockedPieceIndex(this.ctx.lockedPieces, this.ctx.state, meta.totalPieces);
       await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, meta.totalPieces);
-      // Every previously-baked cell composite, at every pyramid level, is now
-      // actively wrong, not just stale (it would show a cell as locked that
-      // just went back to loose), so this has to clear rather than let the
-      // next touch overwrite it (see state.clearCellCompositeVersions). The
-      // R2 objects themselves are bulk-deleted by prefix rather than by each
-      // cell's last-known version: clearing the index loses exactly the
-      // version numbers a per-key delete would need, and a per-key delete
-      // would miss any object a still-earlier reset already orphaned anyway
-      // (see CellCompositor.clearAll). Best-effort, like the compositor's own
+      // Every previously-baked cell composite is now actively wrong, not just
+      // stale (it would show a cell as locked that just went back to loose),
+      // so this has to clear rather than let the next touch overwrite it
+      // (see state.clearCellCompositeVersions). The R2 objects themselves are
+      // bulk-deleted by prefix rather than by each cell's last-known version:
+      // clearing the index loses exactly the version numbers a per-key
+      // delete would need, and a per-key delete would miss any object a
+      // still-earlier reset already orphaned anyway (see
+      // CellCompositor.clearAll). Best-effort, like the compositor's own
       // per-rebake cleanup: a failure here leaves this life's objects
       // orphaned the same way an untreated reset always did, never blocks the
       // reset itself.
@@ -122,7 +122,7 @@ export class PuzzleLifecycle {
             console.error("[cell-composite] reset failed to delete R2 objects", (e as Error).message);
           }
         }
-        await this.ctx.state.clearCellCompositeVersions(MAX_CELL_COMPOSITE_LEVEL);
+        await this.ctx.state.clearCellCompositeVersions();
         this.ctx.cellComposites.clear();
       }
       // Regenerate before resending welcome so the welcome's minimap grid (read
@@ -196,14 +196,11 @@ export class PuzzleLifecycle {
     await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, total);
     // force-complete has no per-piece incremental hook telling us which cells
     // just gained a lock (anchorAllGroups moves everything directly, bypassing
-    // applyMerge's own dirty-marking), so every level-0 cell in the grid is
-    // dirtied instead; a rare dev-only bulk operation, so redundantly
-    // recompositing an already-complete cell is an acceptable one-off cost
-    // (see allCellKeysForGrid). Levels 1-3 need no direct mark here: each
-    // level-0 bake's own onComposited completion cascades one level up (see
-    // index.ts), so the pyramid catches up on its own once its base rebuilds.
-    // Runs after the locked-piece index rebuild above so the compositor's
-    // isLocked reads see the fresh, fully-anchored state.
+    // applyMerge's own dirty-marking), so every cell in the grid is dirtied
+    // instead; a rare dev-only bulk operation, so redundantly recompositing
+    // an already-complete cell is an acceptable one-off cost (see
+    // allCellKeysForGrid). Runs after the locked-piece index rebuild above so
+    // the compositor's isLocked reads see the fresh, fully-anchored state.
     if (this.ctx.cellCompositor) {
       const allCells = allCellKeysForGrid(
         this.ctx.meta.gridCols,
@@ -211,7 +208,7 @@ export class PuzzleLifecycle {
         this.ctx.meta.pieceSize,
         this.ctx.worldTileSize,
       );
-      this.ctx.cellCompositor.markDirty(0, allCells);
+      this.ctx.cellCompositor.markDirty(allCells);
     }
     // forceComplete sets state directly (no per-group snaps), so the assembled
     // board only reaches the frozen keyframe through a forced regeneration;

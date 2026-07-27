@@ -10,7 +10,6 @@ import {
 } from "pixi.js";
 import {
   GRID_WORLD_CELL,
-  MAX_CELL_COMPOSITE_LEVEL,
   type CellComposite,
   type ImageManifest,
   type MinimapGrid,
@@ -134,12 +133,13 @@ type GroupNode = {
 // offset from the frame origin (its own solved (col, row)), which doubles as
 // its absolute world position since the layer holding it sits at world (0, 0).
 // A locked piece is never individually fetched (see ROADMAP Phase 5 Stage 5:
-// the only rendering path for locked content is CompositeTileLayer's pyramid
-// tiles); node is populated only by salvage (see salvageLockedPiece), reusing
-// a texture the local client's own drag already hydrated, and freed the
-// moment a composite tile is confirmed to cover the piece. Otherwise a locked
-// piece is fully described (position, cell membership) with no geometry or
-// texture, the same "described while dehydrated" property GroupNode has.
+// the only rendering path for locked content is CompositeTileLayer's
+// composite tiles); node is populated only by salvage (see
+// salvageLockedPiece), reusing a texture the local client's own drag already
+// hydrated, and freed the moment a composite tile is confirmed to cover the
+// piece. Otherwise a locked piece is fully described (position, cell
+// membership) with no geometry or texture, the same "described while
+// dehydrated" property GroupNode has.
 type LockedPieceSlot = {
   dx: number;
   dy: number;
@@ -486,7 +486,7 @@ export class PuzzleStage {
   // remote): excluded from bakes and drawn live on top so a piece in hand never
   // freezes into a tile.
   private lodLayer: LodTileLayer | null = null;
-  // Server-composited locked-tile pyramid (see ROADMAP Phase 5 Stage 5): the
+  // Server-composited locked-tile layer (see ROADMAP Phase 5 Stage 5): the
   // only rendering path for locked content, active at every zoom, sharing
   // lockedPiecesLayer with any currently-salvaged node.
   private compositeLayer: CompositeTileLayer | null = null;
@@ -865,7 +865,7 @@ export class PuzzleStage {
   // world bounds (no origin translation, unlike a group, since the layer
   // holding it sits at world (0, 0)) and its spatial-index entry, for the
   // minimap overlay and the salvage bridge below. No texture is ever fetched
-  // for it (see ROADMAP Phase 5 Stage 5: CompositeTileLayer's pyramid tiles
+  // for it (see ROADMAP Phase 5 Stage 5: CompositeTileLayer's composite tiles
   // are the only rendering path for locked content); node stays null unless
   // salvageLockedPiece populates it. Shared by applyRegionState (streamed
   // construction) and applyAnchor (a member with no salvageable node).
@@ -1297,18 +1297,18 @@ export class PuzzleStage {
       if (this.lockedPieces.has(wp.id)) continue;
       this.constructLockedPiece(wp);
     }
-    for (const c of cellComposites) this.applyCellComposite(c.cellKey, c.level, c.version);
+    for (const c of cellComposites) this.applyCellComposite(c.cellKey, c.version);
   }
 
-  // Registers or bumps one (level, cell)'s known server-composited locked-tile
-  // version (see ROADMAP Phase 5 Stage 5), shared by applyRegionState's
+  // Registers or bumps one cell's known server-composited locked-tile version
+  // (see ROADMAP Phase 5 Stage 5), shared by applyRegionState's
   // newly-covered-cell batch and the live cell_composite push: both just
   // report a fact to CompositeTileLayer, which decides whether/when to
   // actually fetch it. No LOD-tile invalidation needed here: a composite
   // sprite renders on its own layer, independent of the loose-piece baked
   // tile above it, so a version bump never needs that tile to re-bake.
-  applyCellComposite(wireCellKey: number, level: number, version: number): void {
-    this.compositeLayer?.reportVersion(level, wireCellKey, version);
+  applyCellComposite(wireCellKey: number, version: number): void {
+    this.compositeLayer?.reportVersion(wireCellKey, version);
   }
 
   // ----- collaborator cursors -----
@@ -2405,7 +2405,7 @@ export class PuzzleStage {
   }
 
   // Combined resident-vs-budget bytes across all three texture pools
-  // (per-piece nodes, the loose-piece LOD tiles, and the composite pyramid),
+  // (per-piece nodes, the loose-piece LOD tiles, and the composite tiles),
   // for the minimap detail modal's memory line.
   getMemoryStats(): MemoryStats | null {
     if (!this.manifest) return null;
@@ -2550,19 +2550,14 @@ export class PuzzleStage {
       this.reconcileGroups();
     }
 
-    // The composite pyramid's own reconcile (level selection, fetch, cull,
-    // budget eviction): cheap regardless of moved/hadDirty/lodChanged, since
-    // it only ever touches its own small per-level tile maps, never the
-    // board, so it just runs every frame like the hydration pumps below.
+    // The composite tile layer's own reconcile (fetch, cull, budget
+    // eviction): cheap regardless of moved/hadDirty/lodChanged, since it only
+    // ever touches its own small tile map, never the board, so it just runs
+    // every frame like the hydration pumps below.
     const hydrateRing = this.viewportRing(HYDRATE_MARGIN_FRAC);
     const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
-    if (hydrateRing && keepRing && this.app) {
-      this.compositeLayer?.reconcile(
-        hydrateRing,
-        keepRing,
-        this.camera.zoom,
-        this.app.renderer.resolution,
-      );
+    if (hydrateRing && keepRing) {
+      this.compositeLayer?.reconcile(hydrateRing, keepRing);
     }
     this.reconcileSalvagedLockedPieces();
 
@@ -3098,8 +3093,8 @@ export class PuzzleStage {
     this.lodLayer.configure(screen.width, screen.height, MIN_ZOOM);
   }
 
-  // Builds the server-composited locked-tile pyramid layer (see ROADMAP Phase
-  // 5 Stage 5). Its sprites are added directly to lockedPiecesLayer (no new
+  // Builds the server-composited locked-tile layer (see ROADMAP Phase 5
+  // Stage 5). Its sprites are added directly to lockedPiecesLayer (no new
   // container): that layer already sits at the right z-order (below
   // unlockedLayer, below the LOD tile layer for loose pieces), and since
   // bakeTile no longer paints locked content into the LOD tile, the tile
@@ -3110,23 +3105,17 @@ export class PuzzleStage {
     this.compositeLayer = new CompositeTileLayer({
       container: this.lockedPiecesLayer,
       margin: this.manifest.margin,
-      maxLevel: MAX_CELL_COMPOSITE_LEVEL,
       loadTexture: (url) => this.loadPieceTexture(url),
-      urlFor: (level, wireCellKey, version) => this.compositeTileUrl(level, wireCellKey, version),
+      urlFor: (wireCellKey, version) => this.compositeTileUrl(wireCellKey, version),
       piecesInBounds: (bounds) => this.lockedPieceGrid.queryRect(bounds),
     });
   }
 
-  // URL for one pyramid level's cell composite AVIF. Mirrors the server's own
-  // R2 key convention exactly (see DECISIONS: level 0's R2 key shape stays
-  // bare, only levels 1-3 gain an L<level> segment): no manifest indirection
-  // needed, since a cell position is not a solved-adjacency secret.
-  private compositeTileUrl(level: number, wireCellKey: number, version: number): string {
-    const path =
-      level === 0
-        ? `cells/${wireCellKey}/${version}.avif`
-        : `cells/L${level}/${wireCellKey}/${version}.avif`;
-    return joinUrl(this.textureBase, path);
+  // URL for one cell's composite AVIF. Mirrors the server's own R2 key
+  // convention exactly: no manifest indirection needed, since a cell position
+  // is not a solved-adjacency secret.
+  private compositeTileUrl(wireCellKey: number, version: number): string {
+    return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}.avif`);
   }
 
   // Inserts the loading overlay just above the LOD tiles and below the held

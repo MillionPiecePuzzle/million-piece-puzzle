@@ -176,11 +176,8 @@ describe("PuzzleLifecycle.forceComplete", () => {
 
     // gridRows 1, gridCols 7, pieceSize 100 all sit well inside one
     // WORLD_TILE_SIZE cell, so the whole tiny grid is exactly one cell.
-    // Level 0 always: force-complete never marks a pyramid level directly
-    // (see ROADMAP Phase 5 Stage 4), only a child's own bake completion does.
     expect(markDirty).toHaveBeenCalledTimes(1);
-    expect(markDirty.mock.calls[0]![0]).toBe(0);
-    expect([...markDirty.mock.calls[0]![1]]).toEqual([cellKey(0, 0)]);
+    expect([...markDirty.mock.calls[0]![0]]).toEqual([cellKey(0, 0)]);
   });
 
   it("does not touch the compositor when none is wired", async () => {

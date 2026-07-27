@@ -50,17 +50,12 @@ export const rateLimit = (bucket: string, ip: string) => `ratelimit:${bucket}:${
 export const interested = (puzzleId: string) => `puzzle:${puzzleId}:interested`;
 
 /**
- * Hash: cellKey (string) -> composite bake version, one hash per pyramid
- * level (see ROADMAP Phase 5 Stage 4) and cellComposite.ts's
- * CellCompositeIndex, the in-process read model this persists across
- * restarts. Level 0 keeps its exact original key (already live in prod, see
- * DECISIONS: level 0's R2 key shape stays bare); only level>=1 gets a
- * dedicated suffixed key, since it did not exist before the pyramid.
+ * Hash: cellKey (string) -> composite bake version, mirroring
+ * cellComposite.ts's CellCompositeIndex, the in-process read model this
+ * persists across restarts.
  */
-export const cellCompositeVersions = (puzzleId: string, level: number) =>
-  level === 0
-    ? `puzzle:${puzzleId}:cell-composite-versions`
-    : `puzzle:${puzzleId}:cell-composite-versions:L${level}`;
+export const cellCompositeVersions = (puzzleId: string) =>
+  `puzzle:${puzzleId}:cell-composite-versions`;
 
 /**
  * String (JSON {puzzleId, seed}): admin-set puzzle override, read at boot to
