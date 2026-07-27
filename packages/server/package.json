@@ -10,7 +10,6 @@
     "start": "node dist/index.js",
     "validate-state": "tsx src/validate-state.ts",
     "seed-lock-scenario": "tsx src/seed-lock-scenario.ts",
-    "backfill-cell-composite-level0": "tsx src/backfill-cell-composite-level0.ts",
     "backfill-cell-composite-pyramid": "tsx src/backfill-cell-composite-pyramid.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf dist"

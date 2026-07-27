@@ -19,8 +19,7 @@ export const ACTIVITY_BACKFILL_LIMIT = 6;
 // Mongo's per-document BSON limit is 16 MB, but a cluster_merges doc carrying
 // two id arrays across every piece hits a Node buffer error inside the BSON
 // serializer well before that limit (observed failing at ~995 000 ids in one
-// doc; see seed-lock-scenario.ts, which hit and fixed the same failure).
-// Chunking is safe: replayMerges (stateInvariants.ts) only sums lockedDelta
+// doc). Chunking is safe: replayMerges (stateInvariants.ts) only sums lockedDelta
 // and unions lockedPieceIds across the whole log, so N smaller docs replay
 // identically to one giant one.
 export const MERGE_LOG_CHUNK = 50000;

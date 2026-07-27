@@ -1,64 +1,93 @@
-// Seeds a near-complete-board scenario for Phase 5 verification: marks
-// ~995,000 of a fresh puzzle's pieces locked directly, bypassing cluster
-// merging entirely (locked pieces are independent of groups since Stage 1/2,
-// see DECISIONS: locked pieces stop being a group). Exercises a scale no
-// gameplay session realistically reaches quickly: a board already
-// near-solved, stressing the locked-piece delivery path (region_state's
-// lockedPieceIds, LOD tile baking over locked regions) the 50-bot 1M soak
-// never touched.
+// Seeds a near-complete-board scenario for Phase 5 verification: locks a
+// configurable subset of a fresh puzzle's pieces through the real gameplay
+// path (grab, then a drop that lands exactly on the piece's own solved
+// position) instead of writing `locked` flags into Redis directly. Every
+// lock this script produces goes through the same handleGrab/handleDrop/
+// applyMerge code a real client's drop does: real Redis reads/writes, real
+// minimap and group-index maintenance, a real cluster_merges log entry per
+// lock, and a real CellCompositor.markDirty call that composites the pyramid
+// exactly the way live play does. No backfill script is needed afterward:
+// this waits on the compositor's own drain queue before exiting, and reports
+// any touched cell that still has no level-0 composite when it does.
 //
-// Requires a fresh, unplayed puzzle: every chosen piece must still be its own
-// singleton group (group.id === pieceId), so deleting "its own" group is
-// exactly the one group it belongs to. This is DESTRUCTIVE and test-only:
-// refuses to run against a puzzle id that already has state (a live or
-// previously-played puzzle), never overwrites one. Target a dedicated /
-// throwaway puzzle id and a Redis/Mongo you can afford to wipe. If the target
-// has no meta yet, this inits it itself, using the same manifest/seed the
-// real server would (MPP_ASSETS_BASE_URL / MPP_GENERATION_SEED / --puzzle).
-//
-// Must run before the server (re)starts, or against a stopped server: the
-// running process's in-memory GroupIndex/MinimapGridTracker/LockedPieceIndex
-// are boot-time snapshots of Redis with no mechanism to notice a direct
-// external mutation.
+// Each chosen piece is its own singleton group (a fresh, unplayed puzzle), so
+// dropping it at its own canonical solved position is exactly handleDrop's
+// frameAnchor path (see handlers.ts): the group's origin lands at (0,0)
+// directly, with no neighbor-adjacency or drag ordering needed. This keeps
+// the scenario simple while still exercising 100% real backend logic; it
+// does not simulate a player growing a cluster through several loose-loose
+// merges before dragging it to the frame.
 //
 //   npm run seed-lock-scenario -w @mpp/server -- \
 //     --redis redis://127.0.0.1:6379 \
 //     --mongo mongodb://127.0.0.1:27017 --mongo-db mpp \
-//     --puzzle synthetic-1m-lock-test --locked-count 995000
+//     --puzzle synthetic-1m-lock-test --locked-count 10000
+//
+// Requires a fresh, unplayed puzzle: every chosen piece must still be its own
+// singleton group. This is DESTRUCTIVE and test-only: refuses to run against
+// a puzzle id that already has state (a live or previously-played puzzle),
+// never overwrites one. Target a dedicated / throwaway puzzle id and a
+// Redis/Mongo you can afford to wipe. If the target has no meta yet, this
+// inits it itself, using the same manifest/seed the real server would
+// (MPP_ASSETS_BASE_URL / MPP_GENERATION_SEED / --puzzle). Also needs the same
+// R2 write credentials (MPP_R2_ENDPOINT/MPP_R2_ACCESS_KEY_ID/
+// MPP_R2_SECRET_ACCESS_KEY) the live server needs to composite at all: with
+// none set, pieces still lock but no composite ever bakes, same as a real
+// deployment with no R2 write creds.
+//
+// Must run before the server (re)starts, or against a stopped server: this
+// script owns its own in-process Hub/GroupIndex/LockedPieceIndex/
+// CellCompositor, entirely separate from any running server's.
 //
 // Then:
 //   1. npm run validate-state -w @mpp/server -- --puzzle synthetic-1m-lock-test
 //   2. start (or restart) the server against the same Redis/Mongo (boot rebuilds
 //      the in-memory indexes from the seeded state)
 //   3. connect a real browser client, pan across the board including
-//      never-visited, ~100%-locked cells: watch for hang/crash, resident piece
-//      count staying under the client's budget, LOD tiles baking correctly
-//      over the locked regions
+//      never-visited, locked cells: watch for hang/crash, resident piece
+//      count staying under the client's budget, composite tiles baking
+//      correctly over the locked regions.
 // validate-state alone is necessary but not sufficient: it proves Redis/Mongo
 // consistency, not client-side rendering survival, which needs a real
 // connect-and-pan.
 
 import { Redis as IORedis } from "ioredis";
 import { MongoClient } from "mongodb";
-import { mulberry32, seedFromString, subseed } from "@mpp/shared";
+import type { WebSocket } from "ws";
+import {
+  MinimapGridTracker,
+  WORLD_TILE_SIZE,
+  mulberry32,
+  seedFromString,
+  subseed,
+} from "@mpp/shared";
 import { loadConfig } from "./config.js";
 import { RedisState } from "./state.js";
 import { MongoLogger } from "./mongo.js";
-import { forceInitPuzzle } from "./init.js";
-import * as keys from "./redis/keys.js";
+import { forceInitPuzzle, playZoneForManifest } from "./init.js";
+import { buildWireContext } from "./wire.js";
+import { Hub, type Client } from "./hub.js";
+import { GroupQueue } from "./queue.js";
+import { GroupIndex } from "./groupIndex.js";
+import { LockedPieceIndex } from "./lockedPieces.js";
+import {
+  cellKeyForGridId,
+  CellCompositeIndex,
+  MAX_CELL_COMPOSITE_LEVEL,
+  parentCellKey,
+} from "./cellComposite.js";
+import { CellCompositor } from "./cellCompositor.js";
+import { createR2Client } from "./r2.js";
+import { unpackCellKey } from "./worldGrid.js";
+import { TokenBucket } from "./limits.js";
+import { handleGrab, handleDrop, type Context } from "./handlers.js";
 
 // Domain-separates this script's RNG stream from the generator's own (see
 // init.ts's SCATTER_DOMAIN, generate.ts's HORIZONTAL_DOMAIN/VERTICAL_DOMAIN):
 // distinct domains off the same generationSeed never correlate.
 const LOCK_SCENARIO_DOMAIN = 3;
-const DEFAULT_LOCKED_COUNT = 995000;
-const CHUNK = 1000;
-// Mongo's per-document BSON limit is 16 MB; a single cluster_merges doc carries
-// two id arrays (droppedPieceIds, lockedPieceIds), so the safe id count per doc
-// is roughly half that. 50,000 keeps every doc under ~1.2 MB, comfortably clear
-// of both the hard limit and the BSON serializer's own buffer-growth edge cases
-// observed failing already below the nominal 16 MB boundary.
-const MERGE_LOG_CHUNK = 50000;
+const DEFAULT_LOCKED_COUNT = 10000;
+const DEFAULT_CONCURRENCY = 16;
 
 type Args = {
   redisUrl: string;
@@ -66,6 +95,7 @@ type Args = {
   mongoDb: string;
   puzzleId: string;
   lockedCount: number;
+  concurrency: number;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -84,22 +114,26 @@ function parseArgs(argv: string[]): Args {
   if (!Number.isFinite(lockedCount) || lockedCount < 0) {
     throw new Error(`--locked-count must be a non-negative number, got "${args["locked-count"]}"`);
   }
+  const concurrency = args["concurrency"] ? Number(args["concurrency"]) : DEFAULT_CONCURRENCY;
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error(`--concurrency must be a positive integer, got "${args["concurrency"]}"`);
+  }
   return {
     redisUrl: args["redis"] ?? "redis://127.0.0.1:6379",
     mongoUrl: args["mongo"] ?? "mongodb://127.0.0.1:27017",
     mongoDb: args["mongo-db"] ?? "mpp",
     puzzleId,
     lockedCount,
+    concurrency,
   };
 }
 
 // Bernoulli-selects roughly lockedCount of [0, totalPieces) via a seeded RNG,
 // deterministic per generationSeed (matching init.ts's domain-separated
-// subseed convention, not Math.random()). Exactness to the piece doesn't
-// matter, only the target fraction ("~995,000" per the ROADMAP wording); the
-// remaining pieces stay in their natural scattered-singleton state, already
-// the realistic end-game shape (unsolved pieces spread across the whole
-// board, not clumped).
+// subseed convention, not Math.random()), so a re-run against the same
+// puzzle id chooses the same set. Exactness to the piece doesn't matter, only
+// the target fraction; the pieces left out stay in their natural scattered
+// state, spread across the whole board rather than clumped.
 function pickLockedIds(totalPieces: number, lockedCount: number, generationSeed: string): number[] {
   const fraction = Math.min(1, lockedCount / totalPieces);
   const rng = mulberry32(subseed(seedFromString(generationSeed), LOCK_SCENARIO_DOMAIN, 0, 0));
@@ -110,31 +144,42 @@ function pickLockedIds(totalPieces: number, lockedCount: number, generationSeed:
   return chosen;
 }
 
-// Locks every chosen id directly and deletes its (still-singleton) group, in
-// one chunked pipeline pass: the same coupling applyMerge's anchored branch
-// and state.ts's anchorAllGroups both enforce (a locked piece must never
-// leave a group behind), valid here specifically because a fresh puzzle's
-// untouched pieces are each still their own singleton group.
-async function lockPiecesDirectly(
-  redis: IORedis,
-  puzzleId: string,
-  ids: readonly number[],
+// A stand-in WebSocket: handleGrab/handleDrop only ever write to it on an
+// error path (grab_denied, rollback, tile_full, ...), which this scenario's
+// single-writer, no-contention Redis access should never actually hit. Real
+// enough to satisfy Client's type and survive a stray write if one ever does.
+function fakeSocket(): WebSocket {
+  return {
+    readyState: 1, // WebSocket.OPEN
+    bufferedAmount: 0,
+    send: () => {},
+    close: () => {},
+  } as unknown as WebSocket;
+}
+
+// Runs `task` over `items` with up to `concurrency` in flight at once. Safe
+// here because every item is an independent, disjoint singleton group (no two
+// tasks ever touch the same group id), so concurrent Redis operations never
+// race on the same key.
+async function runPool<T>(
+  items: readonly T[],
+  concurrency: number,
+  task: (item: T) => Promise<void>,
 ): Promise<void> {
-  for (let start = 0; start < ids.length; start += CHUNK) {
-    const slice = ids.slice(start, start + CHUNK);
-    const pipe = redis.pipeline();
-    for (const id of slice) {
-      pipe.hset(keys.piece(puzzleId, id), "locked", 1);
-      pipe.del(keys.group(puzzleId, id), keys.groupPieces(puzzleId, id));
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const item = items[next++]!;
+      await task(item);
     }
-    await pipe.exec();
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
 }
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log(
-    `[seed-lock-scenario] puzzle=${args.puzzleId} lockedCount=${args.lockedCount} redis=${args.redisUrl} mongo=${args.mongoUrl}/${args.mongoDb}`,
+    `[seed-lock-scenario] puzzle=${args.puzzleId} lockedCount=${args.lockedCount} concurrency=${args.concurrency} redis=${args.redisUrl} mongo=${args.mongoUrl}/${args.mongoDb}`,
   );
   const redis = new IORedis(args.redisUrl, { maxRetriesPerRequest: null });
   const mongoClient = new MongoClient(args.mongoUrl);
@@ -150,49 +195,185 @@ async function main(): Promise<void> {
       );
     }
     const config = await loadConfig({ puzzleId: args.puzzleId });
-    const meta = await forceInitPuzzle(state, config.manifest, config.generationSeed);
+    if (!config.r2Write) {
+      console.warn(
+        "[seed-lock-scenario] MPP_R2_ENDPOINT/MPP_R2_ACCESS_KEY_ID/MPP_R2_SECRET_ACCESS_KEY unset: " +
+          "pieces will lock, but no composite will ever bake, same as a real deployment with no R2 write creds.",
+      );
+    }
+    const manifest = config.manifest;
+    const meta = await forceInitPuzzle(state, manifest, config.generationSeed);
 
-    const chosenIds = pickLockedIds(meta.totalPieces, args.lockedCount, meta.generationSeed);
-    console.log(`[seed-lock-scenario] locking ${chosenIds.length} of ${meta.totalPieces} pieces`);
-
-    await lockPiecesDirectly(redis, args.puzzleId, chosenIds);
-    await state.addLockedCount(chosenIds.length);
-
-    // Synthetic cluster_merges documents, modeled on lifecycle.ts's
-    // forceComplete precedent for a direct, non-gameplay state change: without
-    // them, validate-state's replay-based check would correctly fail (Redis
-    // flagged these ids locked, but no merge log entry ever locked them).
-    // Chunked (see MERGE_LOG_CHUNK): replayMerges only ever sums lockedDelta and
-    // unions lockedPieceIds across the log, so N smaller docs replay identically
-    // to one giant one, and stay clear of Mongo's 16 MB per-document BSON limit
-    // that one document carrying all ~995,000 ids in two fields would hit.
+    const wire = buildWireContext(config.generationSeed, meta.totalPieces, meta.gridCols, meta.pieceSize);
+    const cellSize = WORLD_TILE_SIZE;
+    // A Hub with no added clients: broadcast/send walk an empty client set, so
+    // every hub call handleGrab/handleDrop/applyMerge might make is a no-op.
+    const hub = new Hub(config.wsBufferedAmountLimitBytes, cellSize, config.broadcastMaxCells);
+    const groupIndex = new GroupIndex(cellSize);
+    const lockedPieces = new LockedPieceIndex(
+      meta.gridCols,
+      meta.gridRows,
+      meta.pieceSize,
+      cellSize,
+      meta.totalPieces,
+    );
+    const cellComposites = new CellCompositeIndex();
     const mongo = new MongoLogger(mongoClient.db(args.mongoDb));
-    const at = new Date();
-    let logged = 0;
-    for (let start = 0; start < chosenIds.length; start += MERGE_LOG_CHUNK) {
-      const slice = chosenIds.slice(start, start + MERGE_LOG_CHUNK);
-      await mongo.logMerge({
-        puzzleId: args.puzzleId,
-        userId: "seed-script",
-        addedPieceIds: [],
-        droppedPieceIds: slice,
-        targetAnchorPieceId: slice[0] ?? 0,
-        anchored: true,
-        lockedDelta: slice.length,
-        lockedPieceIds: slice,
-        mergedSize: slice.length,
-        at,
+
+    let cellCompositor: CellCompositor | undefined;
+    if (config.r2Write) {
+      const r2 = createR2Client(config.r2Write);
+      cellCompositor = new CellCompositor({
+        gridCols: meta.gridCols,
+        gridRows: meta.gridRows,
+        pieceSize: meta.pieceSize,
+        margin: manifest.margin,
+        cellSize,
+        wire,
+        pieceFileByWireId: (wireId) => manifest.pieces[wireId]!.file,
+        isLocked: (id) => lockedPieces.isLocked(id),
+        fetchTile: (relativePath) =>
+          fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
+        fetchComposite: (key) => fetchCompositeTile(config.assetsBaseUrl, key),
+        upload: r2.upload,
+        remove: r2.remove,
+        removeByPrefix: r2.removeByPrefix,
+        index: cellComposites,
+        persistVersion: (level, key, version) => state.writeCellCompositeVersion(level, key, version),
+        // Mirrors index.ts's own live wiring: a finished bake cascades one
+        // level up, so the pyramid builds itself the same way a real lock
+        // event does. No live client to broadcast to.
+        onComposited: (level, key) => {
+          if (level < MAX_CELL_COMPOSITE_LEVEL) {
+            const { cx, cy } = unpackCellKey(key);
+            cellCompositor?.markDirty(level + 1, [parentCellKey(cx, cy)]);
+          }
+        },
+        puzzleId: manifest.puzzleId,
       });
-      logged += slice.length;
     }
 
+    const playZone = playZoneForManifest(manifest, config.generationSeed);
+    const minimapGrid = new MinimapGridTracker(meta.gridCols, meta.pieceSize, playZone);
+    const solvedDensity = Math.round((cellSize / meta.pieceSize) ** 2);
+    const tilePieceCap =
+      config.tilePieceCapAbsolute > 0
+        ? config.tilePieceCapAbsolute
+        : solvedDensity * config.tilePieceCapMultiplier;
+
+    const ctx: Context = {
+      hub,
+      state,
+      meta,
+      puzzleId: args.puzzleId,
+      mongo,
+      devEnabled: config.devEnabled,
+      eventStartsAt: config.eventStartsAt,
+      generationSeed: config.generationSeed,
+      queue: new GroupQueue(),
+      wire,
+      groupIndex,
+      lockedPieces,
+      minimapGrid,
+      tilePieceCap,
+      clusterPieceCap: config.clusterPieceCap,
+      broadcastMaxCells: config.broadcastMaxCells,
+      worldTileSize: cellSize,
+      regionStreamBatchCells: config.regionStreamBatchCells,
+      regionStreamPaceThresholdBytes: config.regionStreamPaceThresholdBytes,
+      regionStreamPollIntervalMs: config.regionStreamPollIntervalMs,
+    };
+    ctx.cellComposites = cellComposites;
+    if (cellCompositor) ctx.cellCompositor = cellCompositor;
+
+    const chosenIds = pickLockedIds(meta.totalPieces, args.lockedCount, meta.generationSeed);
     console.log(
-      `[seed-lock-scenario] done: ${chosenIds.length} pieces locked, ${Math.ceil(logged / MERGE_LOG_CHUNK)} synthetic cluster_merges docs logged`,
+      `[seed-lock-scenario] locking ${chosenIds.length} of ${meta.totalPieces} pieces via the real grab/drop path`,
     );
+
+    const client: Client = {
+      userId: "seed-script",
+      ws: fakeSocket(),
+      bucket: new TokenBucket(1_000_000, 1_000_000),
+      viewport: null,
+      pseudo: "seed-script",
+      held: new Set(),
+      cells: new Set(),
+      alive: true,
+      regionStreamSeq: 0,
+    };
+
+    let done = 0;
+    const logEvery = Math.max(1, Math.floor(chosenIds.length / 20));
+    await runPool(chosenIds, args.concurrency, async (gridId) => {
+      const col = gridId % meta.gridCols;
+      const row = Math.floor(gridId / meta.gridCols);
+      try {
+        // Mirrors dispatch's own grab handling (see handlers.ts's "grab" case):
+        // reserve in client.held before the acquire, same invariant a real
+        // connection's disconnect cleanup depends on.
+        client.held.add(gridId);
+        await handleGrab(ctx, client, gridId);
+        // No `lockedGroups`: a direct call always applies immediately. Safe
+        // here because a dropped singleton's only possible neighbours are
+        // either not yet locked (too far from this drop's target to ever
+        // become a loose-merge candidate) or already locked (handled via
+        // detectSnap's touchesLocked path, which needs no group lock at all;
+        // see snap.ts). matchedGroupIds is therefore always empty in this
+        // scenario, so there is never a second group to hold.
+        await handleDrop(ctx, client, gridId, col * meta.pieceSize, row * meta.pieceSize);
+      } catch (e) {
+        console.error(`[seed-lock-scenario] piece ${gridId} failed`, (e as Error).message);
+      }
+      done++;
+      if (done % logEvery === 0 || done === chosenIds.length) {
+        console.log(`[seed-lock-scenario] ${done}/${chosenIds.length} pieces processed`);
+      }
+    });
+
+    if (cellCompositor) {
+      console.log("[seed-lock-scenario] waiting for the composite pyramid to finish baking...");
+      await cellCompositor.whenIdle();
+      const touchedCells = new Set(
+        chosenIds.map((id) => cellKeyForGridId(id, meta.gridCols, meta.pieceSize, cellSize)),
+      );
+      const missing = [...touchedCells].filter((key) => cellComposites.get(0, key) === undefined);
+      if (missing.length > 0) {
+        console.error(
+          `[seed-lock-scenario] ${missing.length}/${touchedCells.size} touched cell(s) have no level-0 composite: ${missing.join(",")}`,
+        );
+      } else {
+        console.log(`[seed-lock-scenario] all ${touchedCells.size} touched cells composited at level 0`);
+      }
+    }
+
+    console.log("[seed-lock-scenario] done");
   } finally {
     redis.disconnect();
     await mongoClient.close();
   }
+}
+
+// Same public-HTTPS read the live server's own fetchPieceTile uses (see
+// index.ts): no credentials, reading exactly what the frontend already fetches.
+async function fetchPieceTile(
+  assetsBaseUrl: string,
+  puzzleId: string,
+  relativePath: string,
+): Promise<Buffer> {
+  const url = `${assetsBaseUrl}/${puzzleId}/${relativePath}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`piece tile fetch ${url} returned HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+// Reads back an already-baked composite (a level L-1 child, when baking level
+// L>=1), mirroring index.ts's own fetchCompositeTile.
+async function fetchCompositeTile(assetsBaseUrl: string, key: string): Promise<Buffer> {
+  const url = `${assetsBaseUrl}/${key}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`composite tile fetch ${url} returned HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 main().catch((e: unknown) => {

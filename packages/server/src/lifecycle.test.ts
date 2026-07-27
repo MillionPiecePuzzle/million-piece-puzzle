@@ -125,9 +125,9 @@ describe("PuzzleLifecycle.forceComplete", () => {
       expect(doc.targetAnchorPieceId).toBe(doc.droppedPieceIds[0]);
       expect(doc.lockedDelta).toBeGreaterThanOrEqual(0);
     }
-    // One shared timestamp per call, mirroring seed-lock-scenario.ts: no piece
-    // id repeats across chunks, so there is no ordering ambiguity for the
-    // leaderboard's "first merge by `at`" attribution to resolve.
+    // One shared timestamp per call: no piece id repeats across chunks, so
+    // there is no ordering ambiguity for the leaderboard's "first merge by
+    // `at`" attribution to resolve.
     expect(new Set(docs.map((d) => d.at.getTime())).size).toBe(1);
 
     // Every piece id is dropped/locked by exactly one chunk, in id order, with
