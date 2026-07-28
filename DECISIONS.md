@@ -38,6 +38,7 @@ Quick scan of choices with a genuine open trigger: something not yet resolved an
 - [seed-lock-scenario locks pieces through the real grab/drop path](#2026-07-27-qa-and-load-seed-lock-scenario-locks-pieces-through-the-real-grabdrop-path) -> verified at 10 000-piece scale (clean composite, no missing cells) against the pre-collapse pyramid code; still not run at the real ~995 000-piece scale, and full client-side rendering not yet visually confirmed end to end.
 - [Composite pyramid collapsed back to a single level](#2026-07-27-qa-and-load-composite-pyramid-collapsed-back-to-a-single-level) -> at full board lock and minimum zoom, `CompositeTileLayer` can now be asked to cover the whole board with native-resolution tiles at once; watch for this at the ~995 000-piece scale re-run.
 - [Per-tile loading badge removed](#2026-07-28-frontend-canvas-per-tile-loading-badge-removed) -> a cell not yet streamed in now looks identical to an empty one while zoomed in; revisit if that reads as a bug during ordinary panning.
+- [DZI-native reveal prototyped for locked content](#2026-07-28-frontend-canvas-dzi-native-reveal-prototyped-for-locked-content) -> border/seam geometry source undecided (locked pieces reveal as flat rectangles today); whether this replaces `CompositeTileLayer` in production or the two coexist behind a flag is also still undecided.
 
 ---
 
@@ -261,7 +262,7 @@ Revisit when: `RESIDENT_PIECE_BUDGET` is a node-count proxy for VRAM, derive fro
 
 Choice: `welcome` carries no board (protocol v3); the client starts empty and streams groups in per viewport via `region_state` off the group index, bounded by viewport, not piece count. A default (unzoomed) viewport is a global subscriber and streams nothing; the minimap covers the overview until the user zooms in.
 Why: a full `state` array on connect was O(board), ~25 MB at 1M, the last unscaled join path.
-Revisit when: per-cell payload size bites (stream only changed groups); or a zoomed-out backdrop image is wanted (ROADMAP backlog).
+Revisit when: per-cell payload size bites (stream only changed groups).
 
 ### 2026-06-06, backend-realtime, server-computed minimap grid
 
@@ -483,3 +484,9 @@ Revisit when: at or near full board lock, a client at minimum zoom now asks `Com
 Choice: `LoadingOverlay` (the pulsing dark-scrim, cream-border badge drawn over a viewport cell whose content is known but not yet displayed) is deleted outright rather than hidden. `computeLoadingCells` stays: it still gates the initial-fill loading cover (every viewport tile must be baked before that cover drops), only the per-cell visual drawn on top of it is gone.
 Why: flagged directly against a live screenshot as visually unpleasant ("gray squares") during ordinary play; the badge fired routinely during normal panning and zooming, not just the rare cold-start case it was meant to soften.
 Revisit when: a cell whose content has not streamed in yet is now visually identical to an empty one (just the plain backdrop) while zoomed in; if that reads as a bug (missing pieces) rather than "still loading" during a fast pan into a fresh region, a lighter affordance may be worth reintroducing.
+
+### 2026-07-28, frontend-canvas, DZI-native reveal prototyped for locked content
+
+Choice: an alternative locked-content renderer, gated behind `?dziReveal=1` and off by default: the public reference DZI pyramid (already served for the reference panel) shown through an independent, zoom-driven tile layer (`dziTiles.ts`, `dziRevealLayer.ts`), masked to the union of locked pieces' own rectangular bounds. No server baking, no R2, no `CellCompositor` involved on this path; `CompositeTileLayer` is untouched and still the production renderer when the flag is off.
+Why: `CompositeTileLayer`'s per-lock AVIF baking is exactly the unbounded zoomed-out cost the "composite pyramid collapsed" entry above flags as still open, and DZI is a public, pre-built, already-cached pyramid, so showing it needs no per-lock server work at all. Verified pixel-precise for photo content (same source crop as piece tiles, 1:1 world-unit mapping) and correctly aligned (anchoring snaps to the exact canonical origin, no residual offset). Locked up to ~100 000 pieces via `seed-lock-scenario` on a throwaway Redis/Mongo (no shared dev state touched, no R2 credentials needed): 91-118 simultaneously-hydrated cells reconcile in well under 1 ms, 10-30 MB resident against a 128 MB budget.
+Revisit when: the border/seam geometry source is decided (a lightweight server-baked seam-only texture per cell vs. raw per-piece Bezier parameters sent to the client for locked pieces only, the latter needing new wire capability and client-side curve rendering that does not exist today) - until then locked pieces reveal as flat rectangles, no jigsaw seams. Also revisit whether this replaces `CompositeTileLayer` in production or the two coexist behind a flag long-term.

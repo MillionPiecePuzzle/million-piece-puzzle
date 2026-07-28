@@ -24,6 +24,8 @@ import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport 
 import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, unpackCell, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
 import { CompositeTileLayer } from "./compositeTiles";
+import { fetchDziInfo, type DziInfo } from "./dziTiles";
+import { DziRevealLayer } from "./dziRevealLayer";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap, resolveAnchor } from "./membership";
 import {
@@ -485,6 +487,16 @@ export class PuzzleStage {
   // only rendering path for locked content, active at every zoom, sharing
   // lockedPiecesLayer with any currently-salvaged node.
   private compositeLayer: CompositeTileLayer | null = null;
+  // Spike-only (see ROADMAP backlog: DZI native in Pixi), on only behind
+  // ?dziReveal=1: replaces compositeLayer entirely (see createCompositeLayer),
+  // no server-baked AVIF, no R2 involved. Reveals the reference DZI pyramid
+  // through each locked piece's own rectangular bounds; no seam lines between
+  // adjacent pieces yet (see dziRevealLayer.ts). Off by default, so normal
+  // play is unchanged.
+  private dziRevealEnabled = false;
+  private dziInfo: DziInfo | null = null;
+  private dziBaseUrl = "";
+  private dziRevealLayer: DziRevealLayer | null = null;
   // Cells whose region_state has streamed in (their area was acked by the server's
   // coverage rect), so a viewport cell that is in the play zone but absent here has
   // not loaded yet. coverageSeen flips on the first ack: a scoped viewport gets one,
@@ -656,6 +668,7 @@ export class PuzzleStage {
 
     this.manifest = manifest;
     this.textureBase = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
+    this.startDziReveal(manifest);
 
     this.worldSize = {
       w: manifest.cols * manifest.pieceSize,
@@ -706,6 +719,7 @@ export class PuzzleStage {
     this.lodHidden.clear();
     this.salvagedPieceIds.clear();
     this.compositeLayer?.clear();
+    this.dziRevealLayer?.clear();
     this.cellDirtyMs.clear();
     this.knownCells.clear();
     this.coverageSeen = false;
@@ -974,6 +988,8 @@ export class PuzzleStage {
     this.lodLayer = null;
     this.compositeLayer?.clear();
     this.compositeLayer = null;
+    this.dziRevealLayer?.clear();
+    this.dziRevealLayer = null;
     this.releaseAllTextures();
     this.resetStreaming();
     this.app?.destroy(true, { children: true, texture: true });
@@ -1063,6 +1079,8 @@ export class PuzzleStage {
     this.lodLayer = null;
     this.compositeLayer?.clear();
     this.compositeLayer = null;
+    this.dziRevealLayer?.clear();
+    this.dziRevealLayer = null;
     this.lodActive = false;
     this.lodWarm = false;
     this.heldGroupIds.clear();
@@ -2398,8 +2416,8 @@ export class PuzzleStage {
     const pieceBytes = this.manifest.tileSize * this.manifest.tileSize * 4;
     const lodUsed = this.lodLayer?.residentBytes() ?? 0;
     const lodBudget = this.lodLayer?.budgetBytes() ?? 0;
-    const compositeUsed = this.compositeLayer?.residentBytes() ?? 0;
-    const compositeBudget = this.compositeLayer?.budgetBytes() ?? 0;
+    const compositeUsed = (this.compositeLayer?.residentBytes() ?? 0) + (this.dziRevealLayer?.residentBytes() ?? 0);
+    const compositeBudget = (this.compositeLayer?.budgetBytes() ?? 0) + (this.dziRevealLayer?.budgetBytes() ?? 0);
     return {
       usedBytes: this.residentPieceNodeCount() * pieceBytes + lodUsed + compositeUsed,
       budgetBytes: RESIDENT_PIECE_BUDGET * pieceBytes + lodBudget + compositeBudget,
@@ -2544,6 +2562,7 @@ export class PuzzleStage {
     const keepRing = this.viewportRing(DEHYDRATE_MARGIN_FRAC);
     if (hydrateRing && keepRing) {
       this.compositeLayer?.reconcile(hydrateRing, keepRing);
+      this.dziRevealLayer?.reconcile(hydrateRing, keepRing, this.camera.zoom);
     }
     this.reconcileSalvagedLockedPieces();
 
@@ -3077,15 +3096,52 @@ export class PuzzleStage {
     this.lodLayer.configure(screen.width, screen.height, MIN_ZOOM);
   }
 
-  // Builds the server-composited locked-tile layer (see ROADMAP Phase 5
-  // Stage 5). Its sprites are added directly to lockedPiecesLayer (no new
-  // container): that layer already sits at the right z-order (below
-  // unlockedLayer, below the LOD tile layer for loose pieces), and since
-  // bakeTile no longer paints locked content into the LOD tile, the tile
-  // stays transparent wherever locked content lives, correctly revealing
-  // this layer underneath with no z-order change needed anywhere.
+  // Spike-only (see ROADMAP backlog: DZI native in Pixi), gated behind
+  // ?dziReveal=1 so normal play never fetches or compiles any of this. Kicks
+  // off the one dzi.xml fetch for the puzzle; createCompositeLayer builds
+  // dziRevealLayer instead of compositeLayer once it resolves (a single
+  // rebuild at startup, not worth threading dzi readiness through
+  // CompositeTileLayerDeps as a live toggle).
+  private startDziReveal(manifest: ImageManifest): void {
+    this.dziRevealEnabled = new URLSearchParams(window.location.search).get("dziReveal") === "1";
+    if (!this.dziRevealEnabled) return;
+    this.dziBaseUrl = joinUrl(this.textureBase, "source_files/");
+    const dziUrl = this.textureBase + manifest.source.dzi;
+    fetchDziInfo(dziUrl)
+      .then((info) => {
+        if (this.manifest?.puzzleId !== manifest.puzzleId) return;
+        this.dziInfo = info;
+        this.createCompositeLayer();
+      })
+      .catch((e: unknown) => console.warn("[stage] dzi reveal disabled: info fetch failed", e));
+  }
+
+  // Builds the locked-content layer. Normally the server-composited
+  // CompositeTileLayer (see ROADMAP Phase 5 Stage 5); under ?dziReveal=1
+  // (once dzi info has resolved) dziRevealLayer entirely replaces it instead
+  // (see its own doc comment for why the two never coexist). Either way the
+  // sprites land directly in lockedPiecesLayer (no new container): that layer
+  // already sits at the right z-order (below unlockedLayer, below the LOD
+  // tile layer for loose pieces), and since bakeTile never paints locked
+  // content into the LOD tile, the tile stays transparent wherever locked
+  // content lives, correctly revealing this layer underneath with no z-order
+  // change needed anywhere.
   private createCompositeLayer(): void {
     if (!this.manifest || !this.lockedPiecesLayer) return;
+    if (this.dziRevealEnabled) {
+      if (!this.dziInfo) return; // rebuilt again once startDziReveal resolves
+      this.compositeLayer?.clear();
+      this.compositeLayer = null;
+      this.dziRevealLayer = new DziRevealLayer({
+        container: this.lockedPiecesLayer,
+        loadTexture: (url) => this.loadPieceTexture(url),
+        dziInfo: this.dziInfo,
+        dziBaseUrl: this.dziBaseUrl,
+        lockedIdsInRect: (bounds) => this.lockedPieceGrid.queryRect(bounds),
+        lockedPieceBounds: (id) => this.lockedPieces.get(id)?.localBounds,
+      });
+      return;
+    }
     this.compositeLayer = new CompositeTileLayer({
       container: this.lockedPiecesLayer,
       margin: this.manifest.margin,
