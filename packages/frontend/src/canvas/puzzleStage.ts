@@ -24,7 +24,6 @@ import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport 
 import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, unpackCell, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
 import { CompositeTileLayer } from "./compositeTiles";
-import { LoadingOverlay } from "./loadingOverlay";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap, resolveAnchor } from "./membership";
 import {
@@ -223,10 +222,6 @@ const LOD_ENTER_ZOOM = 0.3;
 const LOD_EXIT_ZOOM = 0.35;
 const LOD_WARM_ZOOM = 0.5;
 const LOD_BAKE_PER_FRAME = 2;
-
-// Shared empty set passed to the loading overlay when badges are suppressed (a
-// zoom-out), so existing badges still age out via LINGER without a per-frame alloc.
-const NO_LOADING_CELLS: ReadonlySet<CellKey> = new Set();
 
 // A tile cell is "hot" for this long after its last real change (a drop, snap,
 // rollback, grab, or a snapshot diff). A non-held cluster all of whose tiles are
@@ -490,9 +485,6 @@ export class PuzzleStage {
   // only rendering path for locked content, active at every zoom, sharing
   // lockedPiecesLayer with any currently-salvaged node.
   private compositeLayer: CompositeTileLayer | null = null;
-  // Per-cell loading badges, drawn over viewport cells whose known content is not
-  // yet displayed (a tile not baked, or a group still hydrating).
-  private loadingOverlay: LoadingOverlay | null = null;
   // Cells whose region_state has streamed in (their area was acked by the server's
   // coverage rect), so a viewport cell that is in the play zone but absent here has
   // not loaded yet. coverageSeen flips on the first ack: a scoped viewport gets one,
@@ -771,7 +763,6 @@ export class PuzzleStage {
     this.redrawBackdrop();
     this.createLodLayer();
     this.createCompositeLayer();
-    this.createLoadingOverlay();
     this.fitView();
 
     // Stream the first viewport in (and bake its tiles when zoomed out) before
@@ -983,8 +974,6 @@ export class PuzzleStage {
     this.lodLayer = null;
     this.compositeLayer?.clear();
     this.compositeLayer = null;
-    this.loadingOverlay?.destroy();
-    this.loadingOverlay = null;
     this.releaseAllTextures();
     this.resetStreaming();
     this.app?.destroy(true, { children: true, texture: true });
@@ -1074,9 +1063,6 @@ export class PuzzleStage {
     this.lodLayer = null;
     this.compositeLayer?.clear();
     this.compositeLayer = null;
-    // The overlay's container and badges were already freed by removeChildren
-    // above (context:true), so just drop the reference for the rebuild.
-    this.loadingOverlay = null;
     this.lodActive = false;
     this.lodWarm = false;
     this.heldGroupIds.clear();
@@ -2508,8 +2494,8 @@ export class PuzzleStage {
   // Single per-frame authority over the view. Event handlers only mutate the model
   // (group positions, membership, locked, held, pendingDrops) and record dirty rects
   // via markDirty; reconcile turns that recorded intent into tile invalidations,
-  // culling, residency, LOD tile visibility, baking and the loading overlay. Called
-  // at the end of every camera change and once per frame from the LOD ticker;
+  // culling, residency, LOD tile visibility and baking. Called at the end of
+  // every camera change and once per frame from the LOD ticker;
   // idempotent, so running it twice in a frame (camera moved + tick) settles to the
   // same state with no extra bakes.
   private reconcile(): void {
@@ -2583,11 +2569,9 @@ export class PuzzleStage {
       this.lodLayer.cull(view);
     }
 
-    // Loading cells: the cover gate consumes the full set; the per-cell badges are a
-    // zoomed-in affordance, suppressed while the LOD is active and during the cover.
+    // Loading cells drive the cover gate: every viewport tile must be baked
+    // before the cover drops.
     const loadingCells = this.computeLoadingCells();
-    const badgeCells = this.lodActive ? NO_LOADING_CELLS : loadingCells;
-    if (!this.initialFill) this.loadingOverlay?.update(badgeCells, performance.now());
     this.evictResidentsOverBudget();
     this.tickInitialFill(loadingCells);
   }
@@ -3118,21 +3102,11 @@ export class PuzzleStage {
     return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}.avif`);
   }
 
-  // Inserts the loading overlay just above the LOD tiles and below the held
-  // layers, so a badge covers the resting clusters or baked tile it stands in for
-  // while a piece in hand still draws on top.
-  private createLoadingOverlay(): void {
-    if (!this.world || !this.remoteHeldLayer) return;
-    const overlay = new LoadingOverlay();
-    this.world.addChildAt(overlay.container, this.world.getChildIndex(this.remoteHeldLayer));
-    this.loadingOverlay = overlay;
-  }
-
   // Viewport cells (within the play zone) whose content should be visible but is not
-  // yet. Drives both the loading-cover gate (every viewport tile baked before the
-  // cover drops) and, while zoomed in, the per-cell badges. The three zoom-band cases
-  // live in the pure cellContentPending; this gathers each cell's facts off the same
-  // residency/visibility truth reconcile already maintains.
+  // yet. Drives the loading-cover gate (every viewport tile baked before the cover
+  // drops). The three zoom-band cases live in the pure cellContentPending; this
+  // gathers each cell's facts off the same residency/visibility truth reconcile
+  // already maintains.
   private computeLoadingCells(): Set<CellKey> {
     const out = new Set<CellKey>();
     const v = this.viewport;
@@ -3404,17 +3378,15 @@ export class PuzzleStage {
 
   // Renders one tile's loose clusters into its texture with the tile matrix
   // as the root transform (bypassing the camera). Live clusters (held or
-  // gliding), the frame, the backdrop, the loading overlay, the tile layer
-  // itself, and lockedPiecesLayer are excluded; non-tile clusters clip out of
-  // the texture, so only this tile's loose clusters contribute. Locked
-  // content is never baked in (see ROADMAP Phase 5 Stage 5): it renders on
-  // its own layer beneath this one, always visible through the transparent
-  // parts of the resulting texture, so excluding lockedPiecesLayer here is
-  // what keeps it from being captured into this tile too. The loading badge
-  // is a transient hint composited live above the tiles, so baking it in
-  // would freeze a stale badge into the cell until its next re-bake. After
-  // baking, the tile's clusters are re-culled and (if active) hidden now that
-  // the tile covers them.
+  // gliding), the frame, the backdrop, the tile layer itself, and
+  // lockedPiecesLayer are excluded; non-tile clusters clip out of the
+  // texture, so only this tile's loose clusters contribute. Locked content is
+  // never baked in (see ROADMAP Phase 5 Stage 5): it renders on its own layer
+  // beneath this one, always visible through the transparent parts of the
+  // resulting texture, so excluding lockedPiecesLayer here is what keeps it
+  // from being captured into this tile too. After baking, the tile's
+  // clusters are re-culled and (if active) hidden now that the tile covers
+  // them.
   private bakeTile(key: CellKey): boolean {
     if (!this.app || !this.world || !this.lodLayer) return false;
     const groupIds = this.groupGrid.cellGroups(key);
@@ -3446,7 +3418,6 @@ export class PuzzleStage {
 
     if (this.frame) this.frame.visible = false;
     if (this.backdrop) this.backdrop.visible = false;
-    if (this.loadingOverlay) this.loadingOverlay.container.visible = false;
     if (this.lockedPiecesLayer) this.lockedPiecesLayer.visible = false;
     this.lodLayer.setVisible(false);
     const liveHidden: GroupNode[] = [];
@@ -3499,7 +3470,6 @@ export class PuzzleStage {
     for (const fx of effectsHidden) fx.visible = true;
     if (this.frame) this.frame.visible = true;
     if (this.backdrop) this.backdrop.visible = true;
-    if (this.loadingOverlay) this.loadingOverlay.container.visible = true;
     if (this.lockedPiecesLayer) this.lockedPiecesLayer.visible = true;
     this.lodLayer.setVisible(this.lodActive);
     this.lodLayer.markBaked(key);

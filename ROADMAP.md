@@ -61,7 +61,6 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Viewport-driven texture streaming: per-piece textures and nodes hydrate on demand within a viewport ring, freed past a keep ring. See DECISIONS
 - [x] Chunked, time-budgeted board build behind a `build` loading phase, per-piece geometry lazy; no frozen gap. See DECISIONS
 - [x] Smooth at 1M: fixed z-order layers (no `sortableChildren`), evicted geometry cache, deep zoom-out VRAM bounded by freeing covered idle clusters. See DECISIONS
-- [x] Per-tile loading indicator: pulsing badge over viewport cells not yet on screen, `region_state` coverage distinguishes pending from empty
 - [x] Per-tile piece cap: a non-merging drop onto a cell at 8x solved density is rejected with a `rollback` + "tile_full" toast; merges and anchors exempt. See DECISIONS
 - [x] Single per-frame `reconcile()` is the sole authority for cull, LOD visibility, residency, dirty-flush and loading cells; pure decisions extracted and unit-tested. See DECISIONS
 - [x] Zoom in/out stops reloading the window: covered-cold nodes freed lazily under an LRU budget, so a zoom cycle re-uses resident nodes with no re-fetch even at a 1M deep zoom-out. See DECISIONS
