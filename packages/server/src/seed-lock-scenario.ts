@@ -226,6 +226,7 @@ async function main(): Promise<void> {
         pieceSize: meta.pieceSize,
         margin: manifest.margin,
         cellSize,
+        generationSeed: seedFromString(config.generationSeed),
         wire,
         pieceFileByWireId: (wireId) => manifest.pieces[wireId]!.file,
         isLocked: (id) => lockedPieces.isLocked(id),

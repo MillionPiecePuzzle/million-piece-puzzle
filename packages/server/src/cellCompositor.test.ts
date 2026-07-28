@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import sharp from "sharp";
+import { seedFromString } from "@mpp/shared";
 import { CellCompositor, type CellCompositorDeps } from "./cellCompositor.js";
 import { CellCompositeIndex } from "./cellComposite.js";
 import { buildWireContext } from "./wire.js";
@@ -48,6 +49,7 @@ function makeDeps(overrides: Partial<CellCompositorDeps> = {}): {
     pieceSize: PIECE_SIZE,
     margin: MARGIN,
     cellSize: CELL_SIZE,
+    generationSeed: seedFromString("test-seed"),
     wire,
     pieceFileByWireId: (wireId) => `pieces/${wireId}.avif`,
     isLocked: (id) => locked.has(id),
@@ -100,9 +102,16 @@ describe("CellCompositor.markDirty", () => {
     compositor.markDirty([cellKey(0, 0)]);
     await compositor.whenIdle();
 
-    expect(uploads).toHaveLength(1);
-    expect(uploads[0]!.key).toBe(`test-puzzle/cells/${cellKey(0, 0)}/1.avif`);
-    expect(uploads[0]!.contentType).toBe("image/avif");
+    // One bake now produces three sibling objects (photo, mask, seam), all at
+    // the same version, so the client can derive all three from the one
+    // {cellKey, version} pair region_state/cell_composite already carries.
+    expect(uploads).toHaveLength(3);
+    expect(uploads.map((u) => u.key)).toEqual([
+      `test-puzzle/cells/${cellKey(0, 0)}/1.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-mask.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-seam.avif`,
+    ]);
+    expect(uploads.every((u) => u.contentType === "image/avif")).toBe(true);
     expect(index.get(cellKey(0, 0))).toBe(1);
     expect(persisted).toEqual([{ cellKey: cellKey(0, 0), version: 1 }]);
     expect(composited).toEqual([{ cellKey: cellKey(0, 0), version: 1 }]);
@@ -127,13 +136,13 @@ describe("CellCompositor.markDirty", () => {
     // any await), so these three marks all land while it is already being
     // processed. They collapse into a single Set entry, so the drain loop
     // does exactly one necessary follow-up bake once the first finishes, not
-    // three: 2 uploads total, never 4.
+    // three: 2 bakes total (6 uploads: photo+mask+seam each), never 4 bakes.
     compositor.markDirty([cellKey(0, 0)]);
     compositor.markDirty([cellKey(0, 0)]);
     compositor.markDirty([cellKey(0, 0)]);
     compositor.markDirty([cellKey(0, 0)]);
     await compositor.whenIdle();
-    expect(uploads).toHaveLength(2);
+    expect(uploads).toHaveLength(6);
   });
 
   it("bumps the version on a later rebake of the same cell", async () => {
@@ -145,10 +154,19 @@ describe("CellCompositor.markDirty", () => {
     locked.add(1);
     compositor.markDirty([cellKey(0, 0)]);
     await compositor.whenIdle();
-    expect(uploads).toHaveLength(2);
-    expect(uploads[1]!.key).toBe(`test-puzzle/cells/${cellKey(0, 0)}/2.avif`);
-    // The now-superseded v1 object is cleaned up once v2 is fully live.
-    expect(removed).toEqual([`test-puzzle/cells/${cellKey(0, 0)}/1.avif`]);
+    expect(uploads).toHaveLength(6);
+    expect(uploads.slice(3).map((u) => u.key)).toEqual([
+      `test-puzzle/cells/${cellKey(0, 0)}/2.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/2-mask.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/2-seam.avif`,
+    ]);
+    // The now-superseded v1 objects (all three variants) are cleaned up once
+    // v2 is fully live.
+    expect(removed).toEqual([
+      `test-puzzle/cells/${cellKey(0, 0)}/1.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-mask.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-seam.avif`,
+    ]);
   });
 
   it("logs and continues past a cell whose stale-version delete fails, instead of treating the bake as failed", async () => {
@@ -165,8 +183,8 @@ describe("CellCompositor.markDirty", () => {
     await compositor.whenIdle();
 
     // The bake itself (upload, version, persist, broadcast) still succeeds
-    // even though cleaning up the old version failed.
-    expect(uploads).toHaveLength(2);
+    // even though cleaning up one of the old version's three objects failed.
+    expect(uploads).toHaveLength(6);
     expect(persisted).toEqual([
       { cellKey: cellKey(0, 0), version: 1 },
       { cellKey: cellKey(0, 0), version: 2 },
@@ -177,13 +195,16 @@ describe("CellCompositor.markDirty", () => {
   });
 
   it("logs and continues past a cell whose upload fails, instead of losing the rest of the queue", async () => {
-    const { deps, uploads, locked } = makeDeps({
-      upload: vi
-        .fn()
-        .mockRejectedValueOnce(new Error("network blip"))
-        .mockImplementation(async (key: string, body: Buffer, contentType: string) => {
-          uploads.push({ key, body, contentType });
-        }),
+    let calls = 0;
+    const uploads: { key: string; body: Buffer; contentType: string }[] = [];
+    const { deps, locked } = makeDeps({
+      // Fails all three uploads of the first bake it sees (photo/mask/seam),
+      // succeeds from the second cell's bake onward.
+      upload: vi.fn(async (key: string, body: Buffer, contentType: string) => {
+        calls++;
+        if (calls <= 3) throw new Error("network blip");
+        uploads.push({ key, body, contentType });
+      }),
     });
     locked.add(0); // cell (0,0)
     locked.add(2); // cell (1,0): ids 2,3,6,7 at CELL_SIZE=20/PIECE_SIZE=10
@@ -191,9 +212,51 @@ describe("CellCompositor.markDirty", () => {
     const compositor = new CellCompositor(deps);
     compositor.markDirty([cellKey(0, 0), cellKey(1, 0)]);
     await compositor.whenIdle();
-    expect(uploads).toHaveLength(1);
+    // Cell (0,0)'s bake fully failed (0 uploads recorded); cell (1,0)'s bake
+    // still completed with all three of its own objects.
+    expect(uploads).toHaveLength(3);
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  it("bakes a silhouette mask that is opaque inside the locked piece and transparent outside it", async () => {
+    const { deps, uploads, locked } = makeDeps();
+    locked.add(0);
+    const compositor = new CellCompositor(deps);
+    compositor.markDirty([cellKey(0, 0)]);
+    await compositor.whenIdle();
+    const maskUpload = uploads.find((u) => u.key.endsWith("-mask.avif"))!;
+    const { data, info } = await sharp(maskUpload.body)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const alphaAt = (x: number, y: number) => data[(y * info.width + x) * 4 + 3]!;
+    // Piece 0's own body sits at canvas-local [3,13)x[3,13) (col 0, row 0,
+    // minus the canvas's own -margin origin), so its center is solidly inside
+    // its silhouette regardless of tab wobble on its curved right/bottom
+    // edges (its top/left edges are flat, the puzzle border).
+    expect(alphaAt(8, 8)).toBeGreaterThan(250);
+    // The canvas's far corner is well past even the largest possible tab
+    // bulge, and pieces 1/4/5 (the cell's other halo candidates) are not
+    // locked, so nothing should paint there.
+    expect(alphaAt(25, 25)).toBeLessThan(5);
+  });
+
+  it("bakes a seam texture that only marks the border, not the whole piece body", async () => {
+    const { deps, uploads, locked } = makeDeps();
+    locked.add(0);
+    const compositor = new CellCompositor(deps);
+    compositor.markDirty([cellKey(0, 0)]);
+    await compositor.whenIdle();
+    const seamUpload = uploads.find((u) => u.key.endsWith("-seam.avif"))!;
+    const { data, info } = await sharp(seamUpload.body)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const alphaAt = (x: number, y: number) => data[(y * info.width + x) * 4 + 3]!;
+    // Deep in piece 0's interior, away from any edge: the seam only strokes
+    // the border, so unlike the mask, its interior stays transparent.
+    expect(alphaAt(8, 8)).toBeLessThan(5);
   });
 
   it("produces a composite that actually shows the locked piece's pixels", async () => {

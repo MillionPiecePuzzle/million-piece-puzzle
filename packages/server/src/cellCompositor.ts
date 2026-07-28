@@ -8,6 +8,13 @@
 // is a no-op).
 
 import sharp from "sharp";
+import {
+  generatePieceGeometry,
+  pieceBorderSvg,
+  pieceMaskSvg,
+  piecePath,
+  piecePathD,
+} from "@mpp/shared";
 import { haloGridIdsForCell, type CellCompositeIndex } from "./cellComposite.js";
 import { unpackCellKey } from "./worldGrid.js";
 import { toWireId, type WireContext } from "./wire.js";
@@ -18,6 +25,13 @@ export type CellCompositorDeps = {
   pieceSize: number;
   margin: number;
   cellSize: number;
+  // The server's own copy of the puzzle's generation seed (see DECISIONS:
+  // anti-programmatic-solving), already held in-process for every other
+  // seed-derived computation this server does (canonical offsets, play zone,
+  // etc.). Reused here to rebuild a locked piece's own silhouette on demand for
+  // the mask/seam bake below, the same way the offline slicer derives it, with
+  // nothing new exposed: the seed itself never leaves this process.
+  generationSeed: number;
   wire: WireContext;
   // manifest.pieces[wireId].file, injected so this module does not need the
   // manifest shape itself.
@@ -110,9 +124,14 @@ export class CellCompositor {
     }
   }
 
-  // Composites a cell's currently-locked piece tiles.
+  // Composites a cell's currently-locked piece tiles, plus a silhouette mask
+  // and a seam (border-only) texture rasterized straight from geometry (see
+  // ROADMAP backlog: DZI-native reveal). The three always bake and version
+  // together: a mask/seam pair only ever means something alongside the photo
+  // bake it was computed from (same lockedIds, same canvas), so there is no
+  // case where one would need rebaking without the others.
   private async processCell(key: number): Promise<void> {
-    const { gridCols, gridRows, pieceSize, margin, cellSize } = this.deps;
+    const { gridCols, gridRows, pieceSize, margin, cellSize, generationSeed } = this.deps;
     const { cx, cy } = unpackCellKey(key);
     const haloIds = haloGridIdsForCell(cx, cy, cellSize, gridCols, gridRows, pieceSize);
     const lockedIds = haloIds.filter((id) => this.deps.isLocked(id));
@@ -140,7 +159,7 @@ export class CellCompositor {
     const composite = placements.filter((p): p is Placement => p !== null);
     if (composite.length === 0) return;
 
-    const buffer = await sharp({
+    const photoBuffer = await sharp({
       create: {
         width: canvasSize,
         height: canvasSize,
@@ -152,29 +171,72 @@ export class CellCompositor {
       .avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT })
       .toBuffer();
 
-    await this.finishBake(key, buffer);
+    // Pure geometry, no fetch: a locked piece's silhouette is a function of
+    // (generationSeed, gridId) alone, already held in-process, so this needs
+    // no piece tile bytes at all, unlike the photo composite above. Each
+    // piece's own path is placed at its true canvas-local position with no
+    // extra margin term (unlike the raster tile placement above): the path's
+    // coordinates already carry a tab's true overflow past the piece's
+    // nominal [0, pieceSize] box, so no separate bleed accounting is needed
+    // the way a fixed-size raster tile requires (see DECISIONS: tile margin).
+    const pathDs = lockedIds.map((gridId) => {
+      const col = gridId % gridCols;
+      const row = Math.floor(gridId / gridCols);
+      const geom = generatePieceGeometry(generationSeed, gridRows, gridCols, pieceSize, gridId);
+      return piecePathD(
+        piecePath(geom, pieceSize),
+        col * pieceSize - canvasOriginX,
+        row * pieceSize - canvasOriginY,
+      );
+    });
+    const [maskBuffer, seamBuffer] = await Promise.all([
+      sharp(pieceMaskSvg(pathDs, canvasSize, canvasSize))
+        .avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT })
+        .toBuffer(),
+      sharp(pieceBorderSvg(pathDs, canvasSize, canvasSize))
+        .avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT })
+        .toBuffer(),
+    ]);
+
+    await this.finishBake(key, photoBuffer, maskBuffer, seamBuffer);
   }
 
-  // Bump the version, upload, update the in-process index, persist to Redis,
-  // report completion (the caller broadcasts, see index.ts), then
-  // best-effort delete the now-superseded version.
-  private async finishBake(key: number, buffer: Buffer): Promise<void> {
+  // Bump the version, upload all three variants, update the in-process index,
+  // persist to Redis, report completion (the caller broadcasts, see
+  // index.ts), then best-effort delete the now-superseded version. The three
+  // variants share one version number: the client derives all three URLs from
+  // the same {cellKey, version} pair already on the wire (see protocol.ts's
+  // CellComposite), so no wire shape change is needed for the new assets.
+  private async finishBake(
+    key: number,
+    photo: Buffer,
+    mask: Buffer,
+    seam: Buffer,
+  ): Promise<void> {
     const previousVersion = this.deps.index.get(key) ?? 0;
     const version = previousVersion + 1;
-    await this.deps.upload(this.objectKey(key, version), buffer, "image/avif");
+    await Promise.all([
+      this.deps.upload(this.objectKey(key, version), photo, "image/avif"),
+      this.deps.upload(this.objectKey(key, version, "mask"), mask, "image/avif"),
+      this.deps.upload(this.objectKey(key, version, "seam"), seam, "image/avif"),
+    ]);
     this.deps.index.set(key, version);
     await this.deps.persistVersion(key, version);
     this.deps.onComposited(key, version);
 
-    // The old version is now dead weight, not a fallback anyone still reads:
+    // The old versions are now dead weight, not a fallback anyone still reads:
     // every reader that could learn of this cell (index, Redis, the broadcast
     // above) already points at the new version. Best-effort: a failure here
-    // is logged and leaves that one object orphaned permanently, since
-    // nothing revisits a specific past version's cleanup again, unlike a
-    // failed bake itself, which the next dirty mark on this cell re-attempts.
+    // is logged and leaves that object orphaned permanently, since nothing
+    // revisits a specific past version's cleanup again, unlike a failed bake
+    // itself, which the next dirty mark on this cell re-attempts.
     if (previousVersion > 0) {
       try {
-        await this.deps.remove(this.objectKey(key, previousVersion));
+        await Promise.all([
+          this.deps.remove(this.objectKey(key, previousVersion)),
+          this.deps.remove(this.objectKey(key, previousVersion, "mask")),
+          this.deps.remove(this.objectKey(key, previousVersion, "seam")),
+        ]);
       } catch (e) {
         console.error(
           `[cell-composite] cell ${key} failed to delete stale v${previousVersion}`,
@@ -184,8 +246,9 @@ export class CellCompositor {
     }
   }
 
-  private objectKey(key: number, version: number): string {
-    return `${this.deps.puzzleId}/cells/${key}/${version}.avif`;
+  private objectKey(key: number, version: number, variant?: "mask" | "seam"): string {
+    const suffix = variant ? `-${variant}` : "";
+    return `${this.deps.puzzleId}/cells/${key}/${version}${suffix}.avif`;
   }
 }
 

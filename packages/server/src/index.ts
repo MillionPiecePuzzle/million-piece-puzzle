@@ -4,7 +4,7 @@ import { Redis as IORedis } from "ioredis";
 import { MongoClient } from "mongodb";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import { WebSocketServer, type WebSocket, type VerifyClientCallbackAsync } from "ws";
-import { PROTOCOL_VERSION, WORLD_TILE_SIZE, MinimapGridTracker } from "@mpp/shared";
+import { PROTOCOL_VERSION, WORLD_TILE_SIZE, MinimapGridTracker, seedFromString } from "@mpp/shared";
 import { loadConfig, DEFAULT_REDIS_URL } from "./config.js";
 import { readAdminOverrides, UnknownPuzzleError } from "./admin.js";
 import { adminEventStart, adminPuzzleOverride } from "./redis/keys.js";
@@ -134,6 +134,7 @@ async function main(): Promise<void> {
       pieceSize: meta.pieceSize,
       margin: manifest.margin,
       cellSize,
+      generationSeed: seedFromString(config.generationSeed),
       wire,
       pieceFileByWireId: (wireId) => manifest.pieces[wireId]!.file,
       isLocked: (id) => lockedPieces.isLocked(id),

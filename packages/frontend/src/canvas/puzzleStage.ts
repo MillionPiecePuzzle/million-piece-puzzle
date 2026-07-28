@@ -1313,6 +1313,7 @@ export class PuzzleStage {
   // tile above it, so a version bump never needs that tile to re-bake.
   applyCellComposite(wireCellKey: number, version: number): void {
     this.compositeLayer?.reportVersion(wireCellKey, version);
+    this.dziRevealLayer?.reportVersion(wireCellKey, version);
   }
 
   // ----- collaborator cursors -----
@@ -3137,8 +3138,13 @@ export class PuzzleStage {
         loadTexture: (url) => this.loadPieceTexture(url),
         dziInfo: this.dziInfo,
         dziBaseUrl: this.dziBaseUrl,
-        lockedIdsInRect: (bounds) => this.lockedPieceGrid.queryRect(bounds),
-        lockedPieceBounds: (id) => this.lockedPieces.get(id)?.localBounds,
+        margin: this.manifest.margin,
+        maskUrlFor: (wireCellKey, version) => this.compositeMaskUrl(wireCellKey, version),
+        seamUrlFor: (wireCellKey, version) => this.compositeSeamUrl(wireCellKey, version),
+        renderToTexture: (source, target, transform) => {
+          if (!this.app) return;
+          this.app.renderer.render({ container: source, target, transform, clear: true });
+        },
       });
       return;
     }
@@ -3156,6 +3162,18 @@ export class PuzzleStage {
   // is not a solved-adjacency secret.
   private compositeTileUrl(wireCellKey: number, version: number): string {
     return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}.avif`);
+  }
+
+  // Sibling assets baked alongside the photo composite at the same version
+  // (see DECISIONS: DZI reveal mask/seam bake): same {cellKey, version} pair,
+  // same R2 key convention, just a `-mask`/`-seam` suffix, so no protocol
+  // change was needed to carry them.
+  private compositeMaskUrl(wireCellKey: number, version: number): string {
+    return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}-mask.avif`);
+  }
+
+  private compositeSeamUrl(wireCellKey: number, version: number): string {
+    return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}-seam.avif`);
   }
 
   // Viewport cells (within the play zone) whose content should be visible but is not

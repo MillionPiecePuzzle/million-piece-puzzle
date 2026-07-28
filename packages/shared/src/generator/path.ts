@@ -185,6 +185,57 @@ function emitEdge(
   }
 }
 
+// SVG path `d` for a piece silhouette, translated by an arbitrary offset: the
+// piece path is in piece-local coords (origin at the piece's own top-left), so
+// each command is shifted by (offsetX, offsetY) to place it at its final
+// position in the target canvas. A single-piece tile places its one piece at
+// (margin, margin) (see the slicer); a multi-piece cell canvas places each
+// locked piece at its own halo-relative position (see the server's
+// CellCompositor).
+export function piecePathD(cmds: PathCommand[], offsetX: number, offsetY: number): string {
+  const parts: string[] = [];
+  for (const c of cmds) {
+    if (c.t === "M") parts.push(`M${c.x + offsetX} ${c.y + offsetY}`);
+    else if (c.t === "L") parts.push(`L${c.x + offsetX} ${c.y + offsetY}`);
+    else if (c.t === "C")
+      parts.push(
+        `C${c.cp1x + offsetX} ${c.cp1y + offsetY} ${c.cp2x + offsetX} ${c.cp2y + offsetY} ${c.x + offsetX} ${c.y + offsetY}`,
+      );
+    else if (c.t === "Z") parts.push("Z");
+  }
+  return parts.join(" ");
+}
+
+export function svgWrap(width: number, height: number, body: string): Buffer {
+  return Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${body}</svg>`,
+  );
+}
+
+// White-filled silhouette(s): one `d` per piece, each already translated to its
+// final canvas position. Composited `dest-in` to cut a single-piece tile to
+// its shape, or rasterized directly as a cell's alpha mask (see DECISIONS: DZI
+// reveal mask/seam bake).
+export function pieceMaskSvg(ds: string[], width: number, height: number): Buffer {
+  const paths = ds.map((d) => `<path d="${d}" fill="#fff"/>`).join("");
+  return svgWrap(width, height, paths);
+}
+
+// Stroked silhouette(s) in the shared PIECE_BORDER_* style: one `d` per piece,
+// each already translated to its final canvas position. Composited `over` an
+// already-cut single-piece tile, or rasterized directly as a cell's seam
+// overlay (see DECISIONS: DZI reveal mask/seam bake).
+export function pieceBorderSvg(ds: string[], width: number, height: number): Buffer {
+  const color = `#${PIECE_BORDER_COLOR.toString(16).padStart(6, "0")}`;
+  const paths = ds
+    .map(
+      (d) =>
+        `<path d="${d}" fill="none" stroke="${color}" stroke-width="${PIECE_BORDER_WIDTH}" stroke-opacity="${PIECE_BORDER_ALPHA}"/>`,
+    )
+    .join("");
+  return svgWrap(width, height, paths);
+}
+
 export function piecePath(piece: PieceGeometry, pieceSize: number): PathCommand[] {
   const L = pieceSize;
   const cmds: PathCommand[] = [];

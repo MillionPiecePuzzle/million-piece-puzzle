@@ -52,12 +52,11 @@ import {
   buildPermutation,
   generatePieceGeometry,
   piecePath,
+  piecePathD,
+  pieceMaskSvg,
+  pieceBorderSvg,
   seedFromString,
-  PIECE_BORDER_WIDTH,
-  PIECE_BORDER_COLOR,
-  PIECE_BORDER_ALPHA,
   type ImageManifest,
-  type PathCommand,
 } from "@mpp/shared";
 
 type Args = {
@@ -108,47 +107,6 @@ function parseArgs(argv: string[]): Args {
 
 function pad(n: number, width: number): string {
   return n.toString().padStart(width, "0");
-}
-
-// SVG path `d` for the piece silhouette in tile-local space: the piece path is
-// in piece-local coords (origin at the piece top-left), so each command is
-// shifted by +margin to place the body at [margin, margin + pieceSize] inside
-// the tile, leaving the margin ring for tabs.
-function piecePathD(cmds: PathCommand[], margin: number): string {
-  const parts: string[] = [];
-  for (const c of cmds) {
-    if (c.t === "M") parts.push(`M${c.x + margin} ${c.y + margin}`);
-    else if (c.t === "L") parts.push(`L${c.x + margin} ${c.y + margin}`);
-    else if (c.t === "C")
-      parts.push(
-        `C${c.cp1x + margin} ${c.cp1y + margin} ${c.cp2x + margin} ${c.cp2y + margin} ${c.x + margin} ${c.y + margin}`,
-      );
-    else if (c.t === "Z") parts.push("Z");
-  }
-  return parts.join(" ");
-}
-
-function svgWrap(tileSize: number, body: string): Buffer {
-  return Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${tileSize}" height="${tileSize}">${body}</svg>`,
-  );
-}
-
-// White-filled silhouette, composited `dest-in` to cut the tile to the piece.
-function pieceMaskSvg(d: string, tileSize: number): Buffer {
-  return svgWrap(tileSize, `<path d="${d}" fill="#fff"/>`);
-}
-
-// Stroked silhouette in the shared PIECE_BORDER_* style, composited `over` the
-// already-cut tile so the outline costs nothing at render time. Centered on the
-// path like the client stroke, so its outer half lands in the (now transparent)
-// margin ring, matching the live-stroked look.
-function pieceBorderSvg(d: string, tileSize: number): Buffer {
-  const color = `#${PIECE_BORDER_COLOR.toString(16).padStart(6, "0")}`;
-  return svgWrap(
-    tileSize,
-    `<path d="${d}" fill="none" stroke="${color}" stroke-width="${PIECE_BORDER_WIDTH}" stroke-opacity="${PIECE_BORDER_ALPHA}"/>`,
-  );
 }
 
 // Runs `fn(id)` for ids 0..total-1 with at most `limit` in flight, so a 1M-piece
@@ -243,9 +201,9 @@ async function main() {
     const padBottom = tileSize - extractHeight - padTop;
 
     const geom = generatePieceGeometry(base, args.rows, args.cols, pieceSize, id);
-    const pathD = piecePathD(piecePath(geom, pieceSize), margin);
-    const mask = pieceMaskSvg(pathD, tileSize);
-    const border = pieceBorderSvg(pathD, tileSize);
+    const pathD = piecePathD(piecePath(geom, pieceSize), margin, margin);
+    const mask = pieceMaskSvg([pathD], tileSize, tileSize);
+    const border = pieceBorderSvg([pathD], tileSize, tileSize);
 
     // The tile content is generated from the grid id, but written under its wire
     // id: a piece a client knows as `wireId` loads the grid-id image at that path.

@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { generatePuzzle } from "./generate.js";
-import { piecePath, type PathCommand } from "./path.js";
+import {
+  piecePath,
+  piecePathD,
+  pieceMaskSvg,
+  pieceBorderSvg,
+  PIECE_BORDER_COLOR,
+  PIECE_BORDER_WIDTH,
+  type PathCommand,
+} from "./path.js";
 
 type Pt = { x: number; y: number };
 
@@ -72,5 +80,49 @@ describe("piecePath", () => {
       expect(p.x).toBeCloseTo(reversed[i]!.x, 9);
       expect(p.y).toBeCloseTo(reversed[i]!.y, 9);
     });
+  });
+});
+
+describe("piecePathD", () => {
+  it("shifts every command by the given offset", () => {
+    const puzzle = generatePuzzle({ seed: "s", rows: 1, cols: 1 });
+    const cmds = piecePath(puzzle.pieces[0]!, puzzle.pieceSize);
+    const d = piecePathD(cmds, 10, 20);
+    expect(d.startsWith("M10 20")).toBe(true);
+  });
+
+  it("uses independent x/y offsets, unlike a single scalar margin", () => {
+    const puzzle = generatePuzzle({ seed: "s", rows: 1, cols: 1 });
+    const cmds = piecePath(puzzle.pieces[0]!, puzzle.pieceSize);
+    const d = piecePathD(cmds, 5, 7);
+    expect(d.startsWith("M5 7")).toBe(true);
+  });
+});
+
+describe("pieceMaskSvg / pieceBorderSvg", () => {
+  const puzzle = generatePuzzle({ seed: "s", rows: 2, cols: 2 });
+  const size = puzzle.pieceSize;
+  const dA = piecePathD(piecePath(puzzle.pieces[0]!, size), 0, 0);
+  const dB = piecePathD(piecePath(puzzle.pieces[1]!, size), size, 0);
+
+  it("emits one fill-only path per piece for the mask", () => {
+    const svg = pieceMaskSvg([dA, dB], size * 2, size).toString("utf8");
+    expect(svg.match(/<path/g)).toHaveLength(2);
+    expect(svg).toContain('fill="#fff"');
+    expect(svg).not.toContain("stroke");
+  });
+
+  it("emits one stroke-only path per piece in the shared border style", () => {
+    const svg = pieceBorderSvg([dA, dB], size * 2, size).toString("utf8");
+    expect(svg.match(/<path/g)).toHaveLength(2);
+    expect(svg).toContain('fill="none"');
+    expect(svg).toContain(`stroke-width="${PIECE_BORDER_WIDTH}"`);
+    expect(svg).toContain(PIECE_BORDER_COLOR.toString(16));
+  });
+
+  it("wraps at the given width/height, independent of piece count", () => {
+    const svg = pieceMaskSvg([dA], 123, 45).toString("utf8");
+    expect(svg).toContain('width="123"');
+    expect(svg).toContain('height="45"');
   });
 });
