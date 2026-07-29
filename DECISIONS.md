@@ -498,15 +498,15 @@ Choice: `fetch-tile-images.ts` only accepts a Wikimedia Commons file whose `extm
 Why: the app has no photo-credit UI anywhere and none is planned, so a license requiring attribution can't be honored; CC0/public-domain needs none. Live testing during planning showed this is a small minority of Commons nature/animal photography, so the fetcher paginates deep per category and prints an accepted/scanned tally to reveal when `--categories` needs widening.
 Revisit when: never expected; the manifest keeps each tile's license and description URL for provenance/audit even though nothing renders it.
 
-### 2026-07-29, image-pipeline, mosaic block-size 4 with tinted stamps, not 1:1 raw tiles
+### 2026-07-29, image-pipeline, mosaic tiles are irregular bordered regions, not a uniform square grid
 
-Choice: `build-mosaic.ts` maps one tile photo to a `--block-size` (default 4) x 4 block of puzzle pieces, not one tile per piece; each stamp is tinted toward its cell's target color via sharp's `.tint()` (a Lab-space recolor that preserves the source photo's own luminance and texture) blended against the untouched original by `--blend` (default 0.7).
-Why: at 1:1 a stamp would be a single `pieceSize`-wide square (72px at the default), too small for a photo's subject to read as anything; a 4x4 block gives a 288px stamp, big enough to still read as a nature/animal photo up close while still working as one color sample of the main image from afar.
-Revisit when: never expected; `--block-size 1` and `--blend 1` stay available for a from-scratch retune by eye.
+Choice: `build-mosaic.ts` splits the piece grid into horizontal bands of random height in `[--min-block, --max-block]` (default 3-6 pieces), each independently split into column slices of random width in the same range, so seams between bands don't line up (a running-bond, brick-like offset) and one tile photo can land on a wide, tall, or square region. A `--border`-px `--border-color` seam (default 3px, near-black) is inset from every region's own edges before the tinted, blended stamp fills the rest. Each stamp is tinted toward its region's target color via sharp's `.tint()` (a Lab-space recolor that preserves the source photo's own luminance and texture) blended against the untouched original by `--blend` (default 0.7).
+Why: a uniform grid of same-size square stamps read as too mechanical; independent per-band splits plus a grout-line border give the deliberate variety and chaos a real photo mosaic has, closer to physical mosaic tiling than a spreadsheet of thumbnails. Every region still resolves to whole pieces (`--min-block`/`--max-block` are in piece units), so `slice-image.ts` downstream sees no difference from a uniform grid.
+Revisit when: never expected; `--min-block`/`--max-block` equal to each other, and `--border 0`, both still fall back to the old uniform look for a from-scratch retune by eye.
 
-### 2026-07-29, image-pipeline, mosaic grid need not be square, main image resize is a non-cropping stretch
+### 2026-07-29, image-pipeline, main image resize is a non-cropping stretch, no grid aspect-ratio constraint
 
-Choice: `build-mosaic.ts` requires `--rows`/`--cols` divisible by `--block-size` but not equal to each other. The main image's target-color resize uses `{fit: "fill"}` (stretch to the full cell grid, no crop) rather than `slice-image.ts`'s own center-crop.
+Choice: `build-mosaic.ts` samples the main image once per piece (`{fit: "fill"}`, stretched to the full `--rows`x`--cols` grid, no crop) rather than `slice-image.ts`'s own center-crop; `--rows`/`--cols` carry no divisibility constraint of any kind (the irregular-region partition tiles any total exactly).
 Why: cropping would permanently discard part of a one-of-a-kind source photo (the NASA Blue Marble image) for a puzzle whose whole point is showing it; `fill` keeps every pixel, at the cost of distortion if `--rows`/`--cols` isn't chosen proportional to the source's own aspect ratio, which is left to whoever runs the real production build rather than auto-derived from the image.
 Revisit when: never expected; look at the real output once a real `--main` and a matching `--rows`/`--cols` are picked.
 
