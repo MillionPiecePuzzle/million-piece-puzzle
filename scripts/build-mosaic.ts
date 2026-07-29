@@ -123,7 +123,7 @@ function parseArgs(argv: string[]): Args {
     pieceSize: Number(flag(argv, "piece-size") ?? 72),
     minBlock: Number(flag(argv, "min-block") ?? 3),
     maxBlock: Number(flag(argv, "max-block") ?? 6),
-    border: Number(flag(argv, "border") ?? 3),
+    border: Number(flag(argv, "border") ?? 1),
     borderColor: parseHexColor(flag(argv, "border-color") ?? "#161616"),
     candidates: Number(flag(argv, "candidates") ?? 16),
     minReuseDistance: Number(flag(argv, "min-reuse-distance") ?? 6),
