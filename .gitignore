@@ -71,6 +71,10 @@ generated/
 samples/source/*
 !samples/source/.gitkeep
 
+# Tile photo library (fetched, not tracked)
+samples/tiles/*
+!samples/tiles/.gitkeep
+
 # Local data
 /data/
 dump.rdb

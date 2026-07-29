@@ -23,6 +23,8 @@
     "validate:generation": "tsx scripts/validate-generation.ts",
     "slice": "tsx scripts/slice-image.ts",
     "upload": "tsx scripts/upload-puzzle.ts",
+    "fetch:tiles": "tsx scripts/fetch-tile-images.ts",
+    "mosaic": "tsx scripts/build-mosaic.ts",
     "test": "vitest run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

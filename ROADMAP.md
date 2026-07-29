@@ -1,6 +1,6 @@
 # Roadmap
 
-Five phases, eleven tracks. A phase is closed only when its exit criterion is met. Each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
+Six phases, eleven tracks. A phase is closed only when its exit criterion is met. Each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
 
 Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
@@ -176,6 +176,17 @@ Delivered in 4 stages, each independently shippable and separately testable, sin
 
 - [x] `shared-protocol` / `backend-realtime`: `region_state` reports every already-baked composite covering its batch's cells (`collectRegionCellComposites`), and a live rebake pushes `cell_composite` to every client whose broadcast-scoped cells overlap it.
 - [x] `frontend-canvas`: a new `CompositeTileLayer` (sibling to `LodTileLayer`, not a merge into it: baking a live scene and fetching a server AVIF are different enough lifecycles) fetches and displays every composite tile covering the current viewport as a `Sprite`, added directly to the existing `lockedPiecesLayer`. `hydrateLockedPiece`/`lockedHydrateQueue`/`lockedResident` and the per-piece fallback they existed for are removed rather than kept as a second path: a locked piece never gets its own fetch again. The only bridge between a piece anchoring and its cell's composite catching up is reusing the texture already resident from the local client's own drag (`salvageLockedPiece`, zero fetch), freed once `CompositeTileLayer` confirms coverage or the piece leaves the keep ring, exempt from budget eviction (no re-fetch exists to recover it if freed early). The composite pool's own eviction is byte-weighted (real decoded size), replacing the earlier "1 unit like a single piece" approximation, unsafe once composites became the only rendering path. See DECISIONS.
+
+---
+
+## Phase 6, Real Photo
+
+**Exit criterion**: a real gigapixel source image exists (NASA Blue Marble main image, CC0/public-domain Wikimedia Commons nature and animal tile photos, assembled as a photo mosaic), producible end to end by two dev scripts, and verified to slice cleanly through the existing, unchanged `slice-image.ts` at both a small test scale and the real production scale (grid dimensions matching the source image's own aspect ratio; the puzzle grid does not have to be square). Uploading the asset and switching prod to serve it stays a separate follow-up, as Phase 2's own `image-pipeline` track already treated that step.
+
+### `image-pipeline`
+- [x] `fetch-tile-images.ts`: downloads a local library of a few hundred to ~1000 CC0/public-domain nature and animal photos from Wikimedia Commons, with a provenance manifest and idempotent resume. See DECISIONS.
+- [x] `build-mosaic.ts`: assembles the NASA Blue Marble image and the tile library into one gigapixel BigTIFF photo mosaic, using the same banded chunk/strip streaming strategy as `synthetic-source.ts`. See DECISIONS.
+- [ ] Full-scale run verified: the real mosaic slices cleanly through the unchanged `slice-image.ts` at the validated safe operating point (`--piece-size 72`). See DECISIONS.
 
 ---
 
