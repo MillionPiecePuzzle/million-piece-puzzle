@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CCursor, CHello, CViewport, ClientMessage, ServerMessage } from "@mpp/shared";
-import { PROTOCOL_VERSION, type MinimapGridTracker } from "@mpp/shared";
+import { PROTOCOL_VERSION, type LeaderboardTracker, type MinimapGridTracker } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
 import type { MongoLogger } from "./mongo.js";
@@ -27,8 +27,8 @@ import {
   wireLockedPieces,
 } from "./wire.js";
 
-// Cap on leaderboard entries derived on completion. Generous for the closed
-// alpha (5 to 20 contributors); bounds the payload once the puzzle scales up.
+// Cap on leaderboard entries sent over the wire. Bounds the payload
+// regardless of how many contributors the puzzle actually has.
 export const LEADERBOARD_LIMIT = 100;
 
 export type Context = {
@@ -63,6 +63,12 @@ export type Context = {
   // instead of the periodic snapshot re-scanning the whole board; rebuilt from
   // scratch at boot, reset, force-complete, and a slow defense-in-depth resync.
   minimapGrid: MinimapGridTracker;
+  // Incrementally-maintained per-user piece tally (see DECISIONS: leaderboard
+  // scoring). recordDrop runs on every merge (even a non-anchoring one, since
+  // a piece's first-ever drop can happen there); rebuilt from scratch at
+  // boot, reset, force-complete, and a slow defense-in-depth resync, the same
+  // occasions minimapGrid above rebuilds.
+  leaderboardTracker: LeaderboardTracker;
   // Max pieces allowed to rest in one world grid cell (one LOD tile). A non-merging
   // drop that would push the destination cell past this is rejected (see handleDrop).
   tilePieceCap: number;
@@ -582,6 +588,11 @@ async function applyMerge(
     ctx.minimapGrid.applyTranslation(piecesByGroup.get(id) ?? [], from, to);
   }
 
+  // Every merge (anchoring or not) can be the first-ever drop of one of its
+  // own pieces (see DECISIONS: leaderboard scoring), so this runs
+  // unconditionally, not just when anchored.
+  ctx.leaderboardTracker.recordDrop(client.userId, droppedPieces);
+
   const allPieces = allIds.flatMap((id) => piecesByGroup.get(id) ?? []);
   const addedPieceIds = allIds
     .filter((id) => id !== newId)
@@ -706,11 +717,13 @@ async function applyMerge(
     lockedCount,
   });
 
-  // Standings shift on every anchoring snap; rebroadcast so the in-game
-  // leaderboard stays live. The aggregation is a full scan of the merge log,
-  // acceptable at alpha scale (see DECISIONS).
+  // Standings shift on every merge (see recordDrop above), but only
+  // rebroadcast on an anchoring snap, the existing cadence: reading the
+  // in-memory tracker's top N and attaching profiles for just those is
+  // O(limit), not the full-log scan a per-snap Mongo aggregation used to pay
+  // (see DECISIONS: leaderboard scoring).
   if (lockedDelta > 0) {
-    const entries = await ctx.mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT);
+    const entries = await ctx.mongo.attachProfiles(ctx.leaderboardTracker.top(LEADERBOARD_LIMIT));
     ctx.hub.broadcast({ t: "leaderboard", entries });
   }
 

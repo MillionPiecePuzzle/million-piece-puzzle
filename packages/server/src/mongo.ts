@@ -4,6 +4,8 @@ import {
   type ActivityItem,
   type ClusterMerge,
   type LeaderboardEntry,
+  type LeaderboardScoreRow,
+  type LeaderboardStanding,
 } from "@mpp/shared";
 
 export type ClusterMergeDoc = Omit<ClusterMerge, "_id">;
@@ -155,35 +157,52 @@ export class MongoLogger {
     });
   }
 
-  // Per-user contribution standings, derived on demand. Each piece scores one
-  // point for the user of the first merge (by `at`) that dragged it; every
-  // piece is dragged at least once on its way to its solved position, so
-  // per-user totals sum to the puzzle's piece count. The `puzzleId_at` index
-  // serves the match-then-sort; the unwind and grouping that follow are a full
-  // scan, re-run on every anchoring snap to keep the in-game leaderboard live,
-  // acceptable at alpha scale. A final lookup attaches each user's pseudo.
-  async leaderboard(puzzleId: string, limit: number): Promise<LeaderboardEntry[]> {
+  // Every piece's first dropper (see DECISIONS: leaderboard scoring): one row
+  // per piece ever dropped, the exact shape LeaderboardTracker.rebuildFromLog
+  // needs to seed the live standings from scratch. Same match/sort/unwind/
+  // group shape a per-merge aggregation would use, but paid once (boot,
+  // reset, force-complete, the slow defense-in-depth resync) instead of on
+  // every anchoring snap: re-running this full scan per snap degraded
+  // visibly once the merge log grew past ~600 000 documents (a
+  // 995 000-piece lock run went from 13 to 1.7 pieces/s), the exact per-event
+  // cost the incremental tracker exists to avoid.
+  async leaderboardScoreRows(puzzleId: string): Promise<LeaderboardScoreRow[]> {
     const rows = await this.merges
-      .aggregate<{
-        _id: string;
-        pieces: number;
-        u: { pseudo?: string | null; country?: string | null }[];
-      }>([
+      .aggregate<{ _id: number; userId: string }>([
         { $match: { puzzleId } },
         { $sort: { at: 1 } },
         { $unwind: "$droppedPieceIds" },
         { $group: { _id: "$droppedPieceIds", userId: { $first: "$userId" } } },
-        { $group: { _id: "$userId", pieces: { $sum: 1 } } },
-        { $sort: { pieces: -1, _id: 1 } },
-        { $limit: limit },
-        profileLookup("_id"),
       ])
       .toArray();
-    return rows.map((r) => ({
-      userId: r._id,
-      pseudo: r.u[0]?.pseudo ?? null,
-      country: r.u[0]?.country ?? null,
-      pieces: r.pieces,
+    return rows.map((r) => ({ pieceId: r._id, userId: r.userId }));
+  }
+
+  // Attaches pseudo/country to a bounded top-N standings list
+  // (LeaderboardTracker.top), a plain $in lookup on just those userIds
+  // (O(entries), never the merge log). Tolerant of a non-ObjectId userId
+  // (dev/test data), the same posture profileLookup's $convert takes.
+  async attachProfiles(entries: LeaderboardStanding[]): Promise<LeaderboardEntry[]> {
+    const ids: ObjectId[] = [];
+    for (const e of entries) {
+      try {
+        ids.push(new ObjectId(e.userId));
+      } catch {
+        // Not a valid ObjectId (dev/test data): no profile to attach.
+      }
+    }
+    const profiles =
+      ids.length > 0
+        ? await this.users
+            .find({ _id: { $in: ids } }, { projection: { pseudo: 1, country: 1 } })
+            .toArray()
+        : [];
+    const byId = new Map(profiles.map((p) => [p._id.toString(), p]));
+    return entries.map((e) => ({
+      userId: e.userId,
+      pseudo: byId.get(e.userId)?.pseudo ?? null,
+      country: byId.get(e.userId)?.country ?? null,
+      pieces: e.pieces,
     }));
   }
 

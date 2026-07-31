@@ -26,7 +26,6 @@ Quick scan of choices with a genuine open trigger: something not yet resolved an
 - [WS hardening: Origin allowlist, per-IP caps, backpressure close](#2026-05-18-backend-realtime-ws-hardening) -> tied to the same open firewall gap; `CF-Connecting-IP` is spoofable until it closes.
 - [Server-computed minimap grid, maintained incrementally](#2026-06-06-backend-realtime-server-computed-minimap-grid) -> 24h resync interval is an unmeasured default, tune once there is live data.
 - [Per-tile piece cap on non-merging drops](#2026-06-11-backend-realtime-per-tile-piece-cap-on-non-merging-drops) -> tune the 8x multiplier from live usage.
-- [Leaderboard scored live from the full merge log](#2026-05-21-frontend-canvas-leaderboard-scoring) -> the puzzle is now actually at 1M scale, not a future one; worth checking whether the per-snap aggregation shows up in live latency.
 - [Hot-tile residency frees covered-cold clusters](#2026-06-05-frontend-canvas-hot-tile-residency-frees-covered-cold-clusters) -> tune the piece budget and hot TTL from real usage.
 - [Soak-test validator + per-bot IP spoofing](#2026-06-19-qa-and-load-soak-test-state-corruption-validator-and-per-bot-ip-spoofing) -> the IP spoof rides the open firewall gap above; closing it moves the spoof inside the edge.
 - [Grab reservation race and stale-hold sweep](#2026-07-05-backend-realtime-grab-reservation-race-and-stale-hold-sweep) -> `MPP_STALE_HOLD_MS` is an unmeasured heuristic; tune from observed live hold durations.
@@ -150,11 +149,11 @@ Why: linear scan was O(connected clients) per event, the scaling bottleneck; ful
 Choice: a second per-process index (`GroupIndex`, one cell per group by body top-left) answers "which groups sit in these cells", so a client panning into a region gets resynced via `region_state`, closing the gap where a non-merging drop (scoped, unpersisted) never reached a client that wasn't watching. A resync applies only when the client isn't already holding or awaiting that group, so it never rewinds a newer live update.
 Why: the broadcast index reaches current viewers of a live drop but does nothing for a later arrival; this index serves that read path the way the broadcast index serves the write path.
 
-### 2026-05-21, frontend-canvas, leaderboard scoring
+### 2026-05-21, backend-realtime, leaderboard scoring
 
-Choice: each piece scores one point, credited to the user of the first `ClusterMerge` (by time) whose `droppedPieceIds` lists it. Standings are a `cluster_merges` aggregation, re-run after every anchoring snap.
-Why: a piece moves only when its group is dragged, so crediting the first drag gives each piece exactly one point; `droppedPieceIds` (not `addedPieceIds`) is the side the user actually dragged.
-Revisit when: the puzzle is now genuinely at 1M scale, not a future hypothetical; re-running the full aggregation on every snap is worth checking against live latency, and precomputing a per-user counter if it shows up.
+Choice: each piece scores one point, credited to the user of the first `ClusterMerge` (by time) whose `droppedPieceIds` lists it. Standings are maintained in memory (`LeaderboardTracker`: a scored-piece bitset plus a per-user tally), updated incrementally on every merge (`recordDrop`, anchoring or not, since a piece's first-ever drop can happen on either). A full rebuild from the merge log (`MongoLogger.leaderboardScoreRows`) seeds it at boot, reset, force-complete, and a slow defense-in-depth resync, the same split `MinimapGridTracker` already established for the minimap grid.
+Why: a piece moves only when its group is dragged, so crediting the first drag gives each piece exactly one point; `droppedPieceIds` (not `addedPieceIds`) is the side the user actually dragged. Re-running the full aggregation on every anchoring snap did show up in live latency: a 995 000-piece lock run's own rate degraded from 13 to 1.7 pieces/s as the merge log grew past ~600 000 documents, the aggregation's cost scaling with collection size. Moving that cost from per-event to a one-off rebuild mirrors the minimap grid's own fix for the identical shape of problem.
+Revisit when: never expected; this now shares the minimap grid's already-proven-at-1M-scale pattern, including its resync cadence (see that entry's own revisit trigger).
 
 ### 2026-05-20, shared-protocol, lockedDelta stored on ClusterMerge
 

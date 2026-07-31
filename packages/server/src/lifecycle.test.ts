@@ -8,6 +8,7 @@ import { LockedPieceIndex } from "./lockedPieces.js";
 import { cellKey } from "./worldGrid.js";
 import { replayMerges, type MergeRecord } from "./stateInvariants.js";
 import {
+  LeaderboardTracker,
   MinimapGridTracker,
   WORLD_TILE_SIZE,
   type ImageManifest,
@@ -52,6 +53,7 @@ function makeLifecycle(totalPieces: number, lockedCount: number) {
   const logMerge = vi.fn().mockResolvedValue(undefined);
   const addLockedCount = vi.fn().mockResolvedValue(0);
   const anchorAllGroups = vi.fn().mockResolvedValue(undefined);
+  const leaderboardScoreRows = vi.fn().mockResolvedValue([]);
   const ctx = {
     hub: { allClients: () => [], resetSubscription: vi.fn(), send: vi.fn() },
     state: {
@@ -65,7 +67,7 @@ function makeLifecycle(totalPieces: number, lockedCount: number) {
     },
     meta,
     puzzleId: "test",
-    mongo: { logMerge },
+    mongo: { logMerge, leaderboardScoreRows },
     generationSeed: meta.generationSeed,
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
     lockedPieces: new LockedPieceIndex(
@@ -76,17 +78,23 @@ function makeLifecycle(totalPieces: number, lockedCount: number) {
       meta.totalPieces,
     ),
     minimapGrid: new MinimapGridTracker(meta.gridCols, meta.pieceSize, TEST_ZONE),
+    leaderboardTracker: new LeaderboardTracker(meta.totalPieces),
   } as unknown as Context;
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
-  return { lifecycle, ctx, logMerge, addLockedCount, anchorAllGroups };
+  return { lifecycle, ctx, logMerge, addLockedCount, anchorAllGroups, leaderboardScoreRows };
 }
 
 describe("PuzzleLifecycle.forceComplete", () => {
   it("logs one merge doc when every piece fits in a single chunk", async () => {
-    const { lifecycle, ctx, logMerge, addLockedCount } = makeLifecycle(7, 2);
+    const { lifecycle, ctx, logMerge, addLockedCount, leaderboardScoreRows } = makeLifecycle(7, 2);
 
     await lifecycle.forceComplete("user-1");
 
+    // anchorAllGroups bypasses applyMerge's own recordDrop calls (see
+    // forceComplete's own comment), so the leaderboard tracker is rebuilt
+    // from the merge log directly, the same as the other per-cell/board
+    // indexes.
+    expect(leaderboardScoreRows).toHaveBeenCalledWith("test");
     expect(logMerge).toHaveBeenCalledTimes(1);
     const doc = logMerge.mock.calls[0]![0] as ClusterMergeDoc;
     expect(doc.droppedPieceIds).toEqual(range(0, 7));

@@ -4,7 +4,13 @@ import { Redis as IORedis } from "ioredis";
 import { MongoClient } from "mongodb";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import { WebSocketServer, type WebSocket, type VerifyClientCallbackAsync } from "ws";
-import { PROTOCOL_VERSION, WORLD_TILE_SIZE, MinimapGridTracker, seedFromString } from "@mpp/shared";
+import {
+  PROTOCOL_VERSION,
+  WORLD_TILE_SIZE,
+  LeaderboardTracker,
+  MinimapGridTracker,
+  seedFromString,
+} from "@mpp/shared";
 import { loadConfig, DEFAULT_REDIS_URL } from "./config.js";
 import { readAdminOverrides, UnknownPuzzleError } from "./admin.js";
 import { adminEventStart, adminPuzzleOverride } from "./redis/keys.js";
@@ -20,6 +26,7 @@ import {
   initPuzzleIfEmpty,
   playZoneForManifest,
   rebuildGroupIndex,
+  rebuildLeaderboardTracker,
   rebuildLockedPieceIndex,
   rebuildMinimapGrid,
   rebuildCellCompositeIndex,
@@ -173,6 +180,12 @@ async function main(): Promise<void> {
   const playZone = playZoneForManifest(manifest, config.generationSeed);
   const minimapGrid = new MinimapGridTracker(meta.gridCols, meta.pieceSize, playZone);
   await rebuildMinimapGrid(minimapGrid, state, meta.totalPieces);
+  // Per-user piece tally, maintained incrementally on every merge instead of a
+  // full merge-log aggregation on every anchoring snap (see DECISIONS:
+  // leaderboard scoring). Seeded once here from Mongo, mirroring the minimap
+  // grid's own one-off boot cost above.
+  const leaderboardTracker = new LeaderboardTracker(meta.totalPieces);
+  await rebuildLeaderboardTracker(leaderboardTracker, mongo, manifest.puzzleId);
   // Per-tile piece cap = the cell's solved density (how many pieces fill one cell
   // when solved, (cellSize / pieceSize) squared) times the configured multiple, so
   // the cap scales with the cell. An absolute MPP_TILE_PIECE_CAP overrides it when
@@ -200,6 +213,7 @@ async function main(): Promise<void> {
     groupIndex,
     lockedPieces,
     minimapGrid,
+    leaderboardTracker,
     tilePieceCap,
     clusterPieceCap: config.clusterPieceCap,
     broadcastMaxCells: config.broadcastMaxCells,
@@ -264,7 +278,7 @@ async function main(): Promise<void> {
     eventStartsAt: () => ctx.eventStartsAt,
     status: () => ctx.meta.status,
     getLockedCount: () => state.getLockedCount(),
-    leaderboard: () => mongo.leaderboard(ctx.puzzleId, LEADERBOARD_LIMIT),
+    leaderboard: () => mongo.attachProfiles(leaderboardTracker.top(LEADERBOARD_LIMIT)),
     activity: () => mongo.recentMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
     minimapGrid: () => minimapGrid.snapshot(),
   });
@@ -563,14 +577,15 @@ async function main(): Promise<void> {
     });
   }, STALE_HOLD_SWEEP_INTERVAL_MS);
 
-  // Defense-in-depth resync: a slow, independent full-board recompute that
-  // overwrites both the incrementally-maintained minimap grid (see DECISIONS:
-  // server-computed minimap grid) and the locked-piece index (updated
-  // incrementally on every anchor, the same drift risk). The synchronous
-  // updates on the hot path are the fix at the root; this is the periodic
-  // safety net for whatever they do not cover, the same dual-layer shape as
-  // the stale-hold sweep above. Guarded against overlap the same way
-  // KeyframePublisher guards its own regenerate.
+  // Defense-in-depth resync: a slow, independent full recompute that
+  // overwrites the incrementally-maintained minimap grid and the
+  // locked-piece index (both updated incrementally on every anchor, the same
+  // drift risk; see DECISIONS: server-computed minimap grid), plus the
+  // leaderboard tracker (updated incrementally on every merge; see DECISIONS:
+  // leaderboard scoring). The synchronous updates on the hot path are the fix
+  // at the root; this is the periodic safety net for whatever they do not
+  // cover, the same dual-layer shape as the stale-hold sweep above. Guarded
+  // against overlap the same way KeyframePublisher guards its own regenerate.
   let boardIndexResyncing = false;
   const boardIndexResyncTimer = setInterval(() => {
     if (boardIndexResyncing) return;
@@ -578,6 +593,7 @@ async function main(): Promise<void> {
     void Promise.all([
       rebuildMinimapGrid(minimapGrid, state, ctx.meta.totalPieces),
       rebuildLockedPieceIndex(lockedPieces, state, ctx.meta.totalPieces),
+      rebuildLeaderboardTracker(leaderboardTracker, mongo, ctx.puzzleId),
     ])
       .catch((e: unknown) => {
         console.error("[board-index-resync]", (e as Error).message);

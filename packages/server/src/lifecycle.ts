@@ -7,6 +7,7 @@ import {
   forceInitPuzzle,
   playZoneForManifest,
   rebuildGroupIndex,
+  rebuildLeaderboardTracker,
   rebuildLockedPieceIndex,
   rebuildMinimapGrid,
 } from "./init.js";
@@ -75,7 +76,9 @@ export class PuzzleLifecycle {
     });
     const items = await this.ctx.mongo.recentMerges(this.ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT);
     this.ctx.hub.send(client, { t: "activity", items });
-    const entries = await this.ctx.mongo.leaderboard(this.ctx.puzzleId, LEADERBOARD_LIMIT);
+    const entries = await this.ctx.mongo.attachProfiles(
+      this.ctx.leaderboardTracker.top(LEADERBOARD_LIMIT),
+    );
     this.ctx.hub.send(client, { t: "leaderboard", entries });
     // The minimap grid is reused from the latest keyframe (computed on the
     // keyframe cadence), so a join costs no extra full-board read. None yet at
@@ -97,11 +100,12 @@ export class PuzzleLifecycle {
       // Fresh scattered board: rebuild the group index off the new Redis state so
       // resyncs reflect the reset, not the old positions.
       await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, meta.totalPieces);
-      // Same for the locked-piece index and the minimap grid: neither tracker
-      // has any way to know about a wipe, so both must be reseeded from the
-      // fresh (fully unlocked) board too.
+      // Same for the locked-piece index, the minimap grid, and the leaderboard
+      // tracker: none of the three has any way to know about a wipe, so all
+      // must be reseeded from the fresh board (and now-empty merge log) too.
       await rebuildLockedPieceIndex(this.ctx.lockedPieces, this.ctx.state, meta.totalPieces);
       await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, meta.totalPieces);
+      await rebuildLeaderboardTracker(this.ctx.leaderboardTracker, this.ctx.mongo, this.ctx.puzzleId);
       // Every previously-baked cell composite is now actively wrong, not just
       // stale (it would show a cell as locked that just went back to loose),
       // so this has to clear rather than let the next touch overwrite it
@@ -189,11 +193,14 @@ export class PuzzleLifecycle {
     // positions match the assembled board (force-complete moves groups directly,
     // outside the per-group drop/merge paths that maintain the index).
     await rebuildGroupIndex(this.ctx.groupIndex, this.ctx.state, total);
-    // Same reasoning for the locked-piece index and the minimap grid:
-    // anchorAllGroups locks and moves everything directly, bypassing the
-    // incremental ctx.lockedPieces.lock/applyTranslation calls applyMerge makes.
+    // Same reasoning for the locked-piece index, the minimap grid, and the
+    // leaderboard tracker: anchorAllGroups locks and moves everything
+    // directly, bypassing the incremental ctx.lockedPieces.lock/
+    // applyTranslation/leaderboardTracker.recordDrop calls applyMerge makes;
+    // the chunked logMerge calls above never went through recordDrop either.
     await rebuildLockedPieceIndex(this.ctx.lockedPieces, this.ctx.state, total);
     await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, total);
+    await rebuildLeaderboardTracker(this.ctx.leaderboardTracker, this.ctx.mongo, this.ctx.puzzleId);
     // force-complete has no per-piece incremental hook telling us which cells
     // just gained a lock (anchorAllGroups moves everything directly, bypassing
     // applyMerge's own dirty-marking), so every cell in the grid is dirtied

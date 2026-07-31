@@ -4,6 +4,7 @@ import type { Context } from "./handlers.js";
 import { Hub, type Client } from "./hub.js";
 import type { PuzzleMeta } from "./state.js";
 import {
+  LeaderboardTracker,
   MinimapGridTracker,
   WORLD_TILE_SIZE,
   type GroupRuntime,
@@ -462,14 +463,14 @@ function makeDropCtx() {
   const broadcast = vi.fn();
   const broadcastOverlapping = vi.fn();
   const logMerge = vi.fn();
-  const leaderboard = vi.fn().mockResolvedValue([]);
+  const attachProfiles = vi.fn().mockResolvedValue([]);
   const state = new FakeState();
   const ctx = {
     hub: { send, broadcast, broadcastOverlapping },
     state,
     meta: dropMeta,
     puzzleId: "test",
-    mongo: { logMerge, leaderboard },
+    mongo: { logMerge, attachProfiles },
     queue: new GroupQueue(),
     wire: transparentWire(dropMeta.totalPieces, dropMeta.gridCols),
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
@@ -481,10 +482,11 @@ function makeDropCtx() {
       dropMeta.totalPieces,
     ),
     minimapGrid: testMinimapGrid(dropMeta.gridCols, dropMeta.pieceSize),
+    leaderboardTracker: new LeaderboardTracker(dropMeta.totalPieces),
     tilePieceCap: 2048,
     clusterPieceCap: 20000,
   } as unknown as Context;
-  return { ctx, send, broadcast, broadcastOverlapping, logMerge, leaderboard, state };
+  return { ctx, send, broadcast, broadcastOverlapping, logMerge, attachProfiles, state };
 }
 
 const dropped = (id: number, worldX: number, worldY: number): GroupRuntime => ({
@@ -746,7 +748,7 @@ describe("handleDrop", () => {
     const broadcast = vi.fn();
     const broadcastOverlapping = vi.fn();
     const logMerge = vi.fn();
-    const leaderboard = vi.fn().mockResolvedValue([{ userId: "u1", pieces: 1 }]);
+    const attachProfiles = vi.fn().mockResolvedValue([{ userId: "u1", pieces: 1 }]);
     const markCompleted = vi.fn().mockResolvedValue(undefined);
     const state = new FakeState();
     const onePieceMeta: PuzzleMeta = { ...dropMeta, totalPieces: 1, gridRows: 1, gridCols: 1 };
@@ -755,7 +757,7 @@ describe("handleDrop", () => {
       state,
       meta: onePieceMeta,
       puzzleId: "test",
-      mongo: { logMerge, leaderboard },
+      mongo: { logMerge, attachProfiles },
       queue: new GroupQueue(),
       wire: transparentWire(onePieceMeta.totalPieces, onePieceMeta.gridCols),
       groupIndex: new GroupIndex(WORLD_TILE_SIZE),
@@ -767,6 +769,7 @@ describe("handleDrop", () => {
         onePieceMeta.totalPieces,
       ),
       minimapGrid: testMinimapGrid(onePieceMeta.gridCols, onePieceMeta.pieceSize),
+      leaderboardTracker: new LeaderboardTracker(onePieceMeta.totalPieces),
       lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);
@@ -774,7 +777,10 @@ describe("handleDrop", () => {
     await handleDrop(ctx, client, 0, 2, 2);
 
     expect(state.lockedCount).toBe(1);
-    expect(leaderboard).toHaveBeenCalledWith("test", expect.any(Number));
+    // The one piece's first (and only) drop credits client.userId ("u1") with
+    // exactly one point; attachProfiles is called with the tracker's own
+    // computed top N, not a mocked pass-through.
+    expect(attachProfiles).toHaveBeenCalledWith([{ userId: "u1", pieces: 1 }]);
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "leaderboard", entries: [{ userId: "u1", pieces: 1 }] }),
     );

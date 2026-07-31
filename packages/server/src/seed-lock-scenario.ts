@@ -69,6 +69,7 @@ import { Redis as IORedis } from "ioredis";
 import { MongoClient } from "mongodb";
 import type { WebSocket } from "ws";
 import {
+  LeaderboardTracker,
   MinimapGridTracker,
   WORLD_TILE_SIZE,
   mulberry32,
@@ -260,6 +261,11 @@ async function main(): Promise<void> {
 
     const playZone = playZoneForManifest(manifest, config.generationSeed);
     const minimapGrid = new MinimapGridTracker(meta.gridCols, meta.pieceSize, playZone);
+    // Fresh, like every other in-process index here: this script only ever
+    // targets a fresh, unplayed puzzle (see the top-of-file comment), and the
+    // leaderboard broadcast applyMerge triggers is a no-op anyway (no real
+    // clients on this script's Hub).
+    const leaderboardTracker = new LeaderboardTracker(meta.totalPieces);
     const solvedDensity = Math.round((cellSize / meta.pieceSize) ** 2);
     const tilePieceCap =
       config.tilePieceCapAbsolute > 0
@@ -280,6 +286,7 @@ async function main(): Promise<void> {
       groupIndex,
       lockedPieces,
       minimapGrid,
+      leaderboardTracker,
       tilePieceCap,
       clusterPieceCap: config.clusterPieceCap,
       broadcastMaxCells: config.broadcastMaxCells,

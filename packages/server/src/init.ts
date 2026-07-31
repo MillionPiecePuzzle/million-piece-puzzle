@@ -5,6 +5,7 @@ import {
   seedFromString,
   subseed,
   type ImageManifest,
+  type LeaderboardTracker,
   type MinimapGridTracker,
   type PlayZone,
 } from "@mpp/shared";
@@ -12,6 +13,7 @@ import type { RedisState, PuzzleMeta } from "./state.js";
 import type { GroupIndex } from "./groupIndex.js";
 import type { LockedPieceIndex } from "./lockedPieces.js";
 import type { CellCompositeIndex } from "./cellComposite.js";
+import type { MongoLogger } from "./mongo.js";
 import { localAabbForPieces } from "./worldGrid.js";
 
 const SCATTER_DOMAIN = 2;
@@ -207,6 +209,21 @@ export async function rebuildMinimapGrid(
     state.readAllGroups(totalPieces),
   ]);
   grid.rebuildFromBoard(pieces, groups);
+}
+
+// Rebuild the in-process leaderboard tracker from the full merge log: the one
+// O(log) scan the incremental tracker ever pays outside the per-merge hot
+// path (see DECISIONS: leaderboard scoring). Used at boot, after a reset or
+// force-complete (alongside the other rebuilds above), and by the slow
+// periodic resync. Mongo-sourced rather than Redis-sourced like the rebuilds
+// above: the standings are derived from the merge log, not live board state.
+export async function rebuildLeaderboardTracker(
+  tracker: LeaderboardTracker,
+  mongo: MongoLogger,
+  puzzleId: string,
+): Promise<void> {
+  const rows = await mongo.leaderboardScoreRows(puzzleId);
+  tracker.rebuildFromLog(rows);
 }
 
 // Rebuild the in-process cell-composite version index from Redis (see ROADMAP
