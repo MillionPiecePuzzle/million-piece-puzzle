@@ -4,11 +4,22 @@
 // position) instead of writing `locked` flags into Redis directly. Every
 // lock this script produces goes through the same handleGrab/handleDrop/
 // applyMerge code a real client's drop does: real Redis reads/writes, real
-// minimap and group-index maintenance, a real cluster_merges log entry per
-// lock, and a real CellCompositor.markDirty call that composites the cell
-// exactly the way live play does. This waits on the compositor's own drain
-// queue before exiting, and reports any touched cell that still has no
-// composite when it does.
+// minimap and group-index maintenance, and a real cluster_merges log entry
+// per lock.
+//
+// Compositing is deliberately NOT wired in during the locking loop (unlike
+// live play, where each lock fires its own markDirty): CellCompositor.drain
+// processes dirty cells strictly one at a time with no coalescing once a
+// cell finishes baking (see cellCompositor.ts), so firing markDirty per lock
+// at bulk-seed scale rebakes the same ~1,296 cells from scratch many times
+// over instead of once. Instead, the compositor is attached only after every
+// piece has locked, then every touched cell is marked dirty in one pass and
+// drained once, with a small bounded retry (re-mark whatever still has no
+// composite) to cover a transient fetch/upload failure that would otherwise
+// have self-healed off a later lock event landing in the same cell (see
+// processCell's own catch in cellCompositor.ts). This only changes when
+// compositing happens, not the lock events themselves, which stay 100% real;
+// it is a property of this bulk-seeding script, not of live play.
 //
 // Each chosen piece is its own singleton group (a fresh, unplayed puzzle), so
 // dropping it at internal origin (0, 0) is exactly handleDrop's frameAnchor
@@ -85,6 +96,10 @@ import { handleGrab, handleDrop, type Context } from "./handlers.js";
 const LOCK_SCENARIO_DOMAIN = 3;
 const DEFAULT_LOCKED_COUNT = 10000;
 const DEFAULT_CONCURRENCY = 16;
+// Bounded retry for the single end-of-run compositing pass: a cell that still
+// has no composite after a markDirty+whenIdle round is re-marked and drained
+// again, standing in for the later-lock self-heal live play gets for free.
+const COMPOSITE_RETRY_ATTEMPTS = 3;
 
 type Args = {
   redisUrl: string;
@@ -273,8 +288,13 @@ async function main(): Promise<void> {
       regionStreamPaceThresholdBytes: config.regionStreamPaceThresholdBytes,
       regionStreamPollIntervalMs: config.regionStreamPollIntervalMs,
     };
-    ctx.cellComposites = cellComposites;
-    if (cellCompositor) ctx.cellCompositor = cellCompositor;
+    // ctx.cellComposites/cellCompositor are intentionally left unset here:
+    // handleDrop's markDirty call is guarded by `if (ctx.cellCompositor)`
+    // (see handlers.ts), so leaving it unattached during the locking loop
+    // below is a no-op there, the same as a deployment with no R2 write
+    // credentials configured. Compositing is driven directly off the local
+    // `cellCompositor` variable in one pass after the loop instead (see the
+    // top-of-file comment for why).
 
     const chosenIds = pickLockedIds(meta.totalPieces, args.lockedCount, meta.generationSeed);
     console.log(
@@ -324,15 +344,26 @@ async function main(): Promise<void> {
     });
 
     if (cellCompositor) {
-      console.log("[seed-lock-scenario] waiting for the composites to finish baking...");
-      await cellCompositor.whenIdle();
       const touchedCells = new Set(
         chosenIds.map((id) => cellKeyForGridId(id, meta.gridCols, meta.pieceSize, cellSize)),
       );
-      const missing = [...touchedCells].filter((key) => cellComposites.get(key) === undefined);
-      if (missing.length > 0) {
+      console.log(
+        `[seed-lock-scenario] compositing ${touchedCells.size} touched cell(s) in one pass...`,
+      );
+      let pending = touchedCells;
+      for (let attempt = 1; attempt <= COMPOSITE_RETRY_ATTEMPTS && pending.size > 0; attempt++) {
+        cellCompositor.markDirty(pending);
+        await cellCompositor.whenIdle();
+        pending = new Set([...pending].filter((key) => cellComposites.get(key) === undefined));
+        if (pending.size > 0 && attempt < COMPOSITE_RETRY_ATTEMPTS) {
+          console.warn(
+            `[seed-lock-scenario] attempt ${attempt}: ${pending.size}/${touchedCells.size} cell(s) still missing a composite, retrying...`,
+          );
+        }
+      }
+      if (pending.size > 0) {
         console.error(
-          `[seed-lock-scenario] ${missing.length}/${touchedCells.size} touched cell(s) have no composite: ${missing.join(",")}`,
+          `[seed-lock-scenario] ${pending.size}/${touchedCells.size} touched cell(s) have no composite after ${COMPOSITE_RETRY_ATTEMPTS} attempts: ${[...pending].join(",")}`,
         );
       } else {
         console.log(`[seed-lock-scenario] all ${touchedCells.size} touched cells composited`);
