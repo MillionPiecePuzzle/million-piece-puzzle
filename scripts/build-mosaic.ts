@@ -14,12 +14,12 @@
  *
  * Algorithm: compute each tile's average CIE Lab color (cached alongside the
  * tiles), sample `--main` at one RGB value per piece and average that over
- * each region's footprint, then for each region pick the nearest-color tile
- * among the `--candidates` closest, preferring whichever clears
- * `--min-reuse-distance` (Chebyshev distance between region centers, in
- * piece units) from its own last placement so the same photo doesn't
- * cluster, falling back to the single best match otherwise (never blocks).
- * Each stamp is tinted toward its region's target color (sharp's `.tint()`,
+ * each region's footprint, then assign each region the nearest-color tile
+ * that hasn't already been used elsewhere in the mosaic: no tile photo ever
+ * repeats, anywhere. This requires at least as many tiles as regions; the
+ * script fails fast up front (before any expensive color decode) if short,
+ * naming exactly how many more `fetch-tile-images.ts` needs to fetch. Each
+ * stamp is tinted toward its region's target color (sharp's `.tint()`,
  * which recolors in Lab space so the source photo's own luminance and
  * texture survive) and blended against the untouched original by `--blend`.
  *
@@ -48,7 +48,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { mulberry32, seedFromString, subseed } from "@mpp/shared";
+import { mulberry32, seedFromString } from "@mpp/shared";
 
 type Rgb = { r: number; g: number; b: number };
 
@@ -63,8 +63,6 @@ type Args = {
   maxBlock: number;
   border: number;
   borderColor: Rgb;
-  candidates: number;
-  minReuseDistance: number;
   blend: number;
   seed: string;
   chunk: number;
@@ -125,8 +123,6 @@ function parseArgs(argv: string[]): Args {
     maxBlock: Number(flag(argv, "max-block") ?? 6),
     border: Number(flag(argv, "border") ?? 1),
     borderColor: parseHexColor(flag(argv, "border-color") ?? "#161616"),
-    candidates: Number(flag(argv, "candidates") ?? 16),
-    minReuseDistance: Number(flag(argv, "min-reuse-distance") ?? 6),
     blend: Number(flag(argv, "blend") ?? 0.7),
     seed: flag(argv, "seed") ?? "mosaic",
     chunk: Number(flag(argv, "chunk") ?? 8192),
@@ -326,37 +322,29 @@ function computeRegionColors(
   return { rgb, lab };
 }
 
-// For each region, picks the tile among the `candidates` nearest by Lab
-// distance that clears `minReuseDistance` (Chebyshev, between region
-// centers in piece units) from its own last placement, preferring whichever
-// cleared it by the widest margin; ties (and the case where nothing clears
-// it) fall back deterministically.
+// Assigns each region a distinct tile, never repeated anywhere else in the
+// mosaic: for each region (in order), walks tiles in ascending Lab distance
+// and takes the first not yet claimed by an earlier region. Requires
+// regions.length <= tileCount; the caller checks that before this runs, so
+// a not-yet-used tile always exists (fewer regions processed so far than
+// total tiles).
 function selectTiles(
   regions: Region[],
   tileLab: Float64Array,
   tileCount: number,
   regionLab: Float64Array,
-  candidates: number,
-  minReuseDistance: number,
-  seedStr: string,
-): { assignment: Int32Array; avgDeltaE: number; reuseFloorViolations: number } {
-  const seedBase = seedFromString(seedStr);
+): { assignment: Int32Array; avgDeltaE: number } {
   const assignment = new Int32Array(regions.length);
-  const lastCenterRow = new Float64Array(tileCount).fill(-Infinity);
-  const lastCenterCol = new Float64Array(tileCount).fill(-Infinity);
+  const used = new Uint8Array(tileCount);
 
   const distScratch = new Float64Array(tileCount);
   const order = new Int32Array(tileCount);
   const identity = new Int32Array(tileCount);
   for (let i = 0; i < tileCount; i++) identity[i] = i;
 
-  const k = Math.min(candidates, tileCount);
   let deltaESum = 0;
-  let reuseFloorViolations = 0;
 
   for (const region of regions) {
-    const centerRow = region.row + region.h / 2;
-    const centerCol = region.col + region.w / 2;
     const to = region.id * 3;
     for (let i = 0; i < tileCount; i++) {
       const o = i * 3;
@@ -368,41 +356,21 @@ function selectTiles(
     order.set(identity);
     order.sort((a, b) => distScratch[a]! - distScratch[b]!);
 
-    let bestReuseDist = -1;
-    let tiedBest: number[] = [];
-    for (let ci = 0; ci < k; ci++) {
+    let chosen = -1;
+    for (let ci = 0; ci < tileCount; ci++) {
       const idx = order[ci]!;
-      const reuseDist = Math.max(
-        Math.abs(centerRow - lastCenterRow[idx]!),
-        Math.abs(centerCol - lastCenterCol[idx]!),
-      );
-      if (reuseDist < minReuseDistance) continue;
-      if (reuseDist > bestReuseDist) {
-        bestReuseDist = reuseDist;
-        tiedBest = [idx];
-      } else if (reuseDist === bestReuseDist) {
-        tiedBest.push(idx);
+      if (!used[idx]) {
+        chosen = idx;
+        break;
       }
     }
 
-    let chosen: number;
-    if (tiedBest.length === 0) {
-      chosen = order[0]!;
-      reuseFloorViolations++;
-    } else if (tiedBest.length === 1) {
-      chosen = tiedBest[0]!;
-    } else {
-      const rand = mulberry32(subseed(seedBase, region.row, region.col));
-      chosen = tiedBest[Math.floor(rand() * tiedBest.length)]!;
-    }
-
-    lastCenterRow[chosen] = centerRow;
-    lastCenterCol[chosen] = centerCol;
+    used[chosen] = 1;
     assignment[region.id] = chosen;
     deltaESum += Math.sqrt(distScratch[chosen]!);
   }
 
-  return { assignment, avgDeltaE: deltaESum / regions.length, reuseFloorViolations };
+  return { assignment, avgDeltaE: deltaESum / regions.length };
 }
 
 // Decodes and downscales each used tile once (`fit: "inside"`, so the whole
@@ -652,8 +620,6 @@ async function main(): Promise<void> {
   const tileFiles = await loadTiles(args.tiles);
   console.log(`[build-mosaic] ${tileFiles.length} tiles available`);
 
-  const tileLab = await computeTileColors(tileFiles, args.tiles);
-
   const rng = mulberry32(seedFromString(`${args.seed}:layout`));
   const bands = partitionBands(args.cols, args.rows, args.minBlock, args.maxBlock, rng);
   const regions = bands.flatMap((b) => b.regions);
@@ -663,23 +629,26 @@ async function main(): Promise<void> {
       `(largest side ${Math.min(...regionSizes)}-${Math.max(...regionSizes)} pieces)`,
   );
 
+  if (regions.length > tileFiles.length) {
+    const short = regions.length - tileFiles.length;
+    throw new Error(
+      `not enough tiles for a repeat-free mosaic: ${regions.length} regions each need a distinct ` +
+        `tile, only ${tileFiles.length} available (short by ${short}). Fetch more first, e.g. ` +
+        `npm run fetch:tiles -- --count ${tileFiles.length + short + 50}, or widen ` +
+        `--min-block/--max-block to produce fewer, larger regions.`,
+    );
+  }
+
+  const tileLab = await computeTileColors(tileFiles, args.tiles);
   const pieceRgb = await computeMainImagePieceRgb(args.main, args.cols, args.rows);
   const { rgb: targetRgb, lab: targetLab } = computeRegionColors(regions, args.cols, pieceRgb);
 
-  console.log(`[build-mosaic] selecting tiles for ${regions.length} regions...`);
+  console.log(`[build-mosaic] selecting tiles for ${regions.length} regions (no repeats)...`);
   const t0 = Date.now();
-  const { assignment, avgDeltaE, reuseFloorViolations } = selectTiles(
-    regions,
-    tileLab,
-    tileFiles.length,
-    targetLab,
-    args.candidates,
-    args.minReuseDistance,
-    args.seed,
-  );
+  const { assignment, avgDeltaE } = selectTiles(regions, tileLab, tileFiles.length, targetLab);
   console.log(
     `[build-mosaic] selection done in ${((Date.now() - t0) / 1000).toFixed(1)}s, ` +
-      `avg dE76 ${avgDeltaE.toFixed(2)}, reuse-floor violations ${reuseFloorViolations}/${regions.length}`,
+      `avg dE76 ${avgDeltaE.toFixed(2)}, ${tileFiles.length - regions.length} tiles left unused`,
   );
 
   if (args.dryRun) {
@@ -687,7 +656,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const usedIndices = Array.from(new Set(assignment));
+  const usedIndices = Array.from(assignment);
   const maxStampPx = args.maxBlock * args.pieceSize;
   console.log(
     `[build-mosaic] pre-caching ${usedIndices.length}/${tileFiles.length} used tiles (max ${maxStampPx}px)...`,
