@@ -36,6 +36,16 @@
  * `synthetic-source.ts` (CLAUDE.md's 80px/piece target already crashes
  * there).
  *
+ * Optional final correction: `--global-tint` (0-1, default 0 = off) blends
+ * every chunk's finished buffer against a same-region crop of `--main`
+ * itself, at that opacity. Unlike the per-region tint (one flat color per
+ * stamp), this is spatially varying: it nudges each pixel toward the real
+ * source photo's own local color, so a region whose only available tiles
+ * are a poor color match still reads closer to the source overall. `--main`
+ * is decoded once, at its own resolution, and every chunk's crop comes from
+ * that single cached buffer (cheap: a small extract + resize, not a re-read
+ * of the source file).
+ *
  * Usage:
  *   tsx scripts/build-mosaic.ts --main samples/source/blue-marble.tif \
  *     --tiles samples/tiles --out generated/mosaic.tif --rows 1000 --cols 1000
@@ -64,6 +74,7 @@ type Args = {
   border: number;
   borderColor: Rgb;
   blend: number;
+  globalTint: number;
   seed: string;
   chunk: number;
   concurrency: number;
@@ -124,6 +135,7 @@ function parseArgs(argv: string[]): Args {
     border: Number(flag(argv, "border") ?? 1),
     borderColor: parseHexColor(flag(argv, "border-color") ?? "#161616"),
     blend: Number(flag(argv, "blend") ?? 0.7),
+    globalTint: Number(flag(argv, "global-tint") ?? 0),
     seed: flag(argv, "seed") ?? "mosaic",
     chunk: Number(flag(argv, "chunk") ?? 8192),
     concurrency: concurrencyFlag ? Number(concurrencyFlag) : Math.max(2, os.cpus().length),
@@ -283,6 +295,49 @@ async function computeMainImagePieceRgb(
     .raw()
     .toBuffer({ resolveWithObject: true });
   return data;
+}
+
+type MainImageRgb = { buf: Buffer; width: number; height: number };
+
+// Decodes --main once, at its own resolution, for the optional global-tint
+// pass: every chunk crops from this single cached buffer instead of
+// re-reading the source file per chunk.
+async function loadMainImageRgb(mainPath: string): Promise<MainImageRgb> {
+  const { data, info } = await sharp(mainPath, { limitInputPixels: false })
+    .flatten({ background: { r: 0, g: 0, b: 0 } })
+    .toColourspace("srgb")
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return { buf: data, width: info.width, height: info.height };
+}
+
+// Crops the region of --main (proportionally, in its own resolution)
+// corresponding to one chunk's place in the full output, then resizes that
+// small crop up to the chunk's exact pixel size.
+async function cropMainImage(
+  main: MainImageRgb,
+  fullWidth: number,
+  fullHeight: number,
+  left: number,
+  top: number,
+  w: number,
+  h: number,
+): Promise<Buffer> {
+  const srcLeft = Math.floor((left / fullWidth) * main.width);
+  const srcTop = Math.floor((top / fullHeight) * main.height);
+  const srcRight = Math.ceil(((left + w) / fullWidth) * main.width);
+  const srcBottom = Math.ceil(((top + h) / fullHeight) * main.height);
+  const srcW = Math.max(1, Math.min(main.width - srcLeft, srcRight - srcLeft));
+  const srcH = Math.max(1, Math.min(main.height - srcTop, srcBottom - srcTop));
+
+  return sharp(main.buf, {
+    raw: { width: main.width, height: main.height, channels: 3 },
+    limitInputPixels: false,
+  })
+    .extract({ left: srcLeft, top: srcTop, width: srcW, height: srcH })
+    .resize(w, h, { fit: "fill" })
+    .raw()
+    .toBuffer();
 }
 
 // Averages the per-piece RGB samples over each region's own footprint.
@@ -512,6 +567,8 @@ async function renderMosaic(opts: {
   blend: number;
   border: number;
   borderColor: Rgb;
+  globalTint: number;
+  mainRgb?: MainImageRgb;
   chunk: number;
   concurrency: number;
   outPath: string;
@@ -527,6 +584,8 @@ async function renderMosaic(opts: {
     blend,
     border,
     borderColor,
+    globalTint,
+    mainRgb,
     concurrency,
     outPath,
   } = opts;
@@ -568,6 +627,22 @@ async function renderMosaic(opts: {
           blend,
           concurrency,
         );
+
+        if (globalTint > 0) {
+          const mainCrop = await cropMainImage(
+            mainRgb!,
+            width,
+            height,
+            chunkLeftPx,
+            bandTopPx,
+            chunkWidthPx,
+            bandHeightPx,
+          );
+          for (let k = 0; k < buf.length; k++) {
+            buf[k] = Math.round((1 - globalTint) * buf[k]! + globalTint * mainCrop[k]!);
+          }
+        }
+
         const file = path.join(tmpDir, `chunk-${bandIdx}-${chunkLeftPx}.tif`);
         await sharp(buf, {
           raw: { width: chunkWidthPx, height: bandHeightPx, channels: 3 },
@@ -670,6 +745,8 @@ async function main(): Promise<void> {
     args.concurrency,
   );
 
+  const mainRgb = args.globalTint > 0 ? await loadMainImageRgb(args.main) : undefined;
+
   const width = args.cols * args.pieceSize;
   const height = args.rows * args.pieceSize;
   console.log(`[build-mosaic] rendering ${width}x${height}px to ${args.out}...`);
@@ -685,6 +762,8 @@ async function main(): Promise<void> {
     blend: args.blend,
     border: args.border,
     borderColor: args.borderColor,
+    globalTint: args.globalTint,
+    mainRgb,
     chunk: args.chunk,
     concurrency: args.concurrency,
     outPath: args.out,
