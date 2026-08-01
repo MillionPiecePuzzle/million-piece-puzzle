@@ -68,6 +68,13 @@ export type CellCompositorDeps = {
 // piece tiles it replaces.
 const AVIF_QUALITY = 60;
 const AVIF_EFFORT = 4;
+// Cap on concurrent piece-tile fetches within one cell (see processCell). A
+// fully-locked cell owns on the order of 800 pieces; firing them all via a
+// single Promise.all overwhelms the CDN and this process's own outbound
+// connections under sustained load (confirmed: an admin resweep over the
+// whole grid dropped ~36% of cells to "fetch failed"/502 at unbounded
+// concurrency).
+const PIECE_FETCH_CONCURRENCY = 24;
 
 export class CellCompositor {
   private readonly dirty = new Set<number>();
@@ -153,17 +160,21 @@ export class CellCompositor {
     const canvasOriginX = cx * cellSize - margin;
     const canvasOriginY = cy * cellSize - margin;
 
-    const placements = await Promise.all(
-      lockedIds.map(async (gridId) => {
-        const col = gridId % gridCols;
-        const row = Math.floor(gridId / gridCols);
-        const tileLeft = col * pieceSize - margin - canvasOriginX;
-        const tileTop = row * pieceSize - margin - canvasOriginY;
-        const wireId = toWireId(this.deps.wire, gridId);
-        const bytes = await this.deps.fetchTile(this.deps.pieceFileByWireId(wireId));
-        return clipToCanvas(bytes, tileLeft, tileTop, tileSize, canvasSize);
-      }),
-    );
+    // Bounded, not Promise.all over every locked id at once: a fully-locked
+    // cell can own on the order of 800 pieces (WORLD_TILE_SIZE^2 / pieceSize^2),
+    // and firing that many concurrent fetches at the asset CDN from one
+    // process is what actually caused the fetch failures / 502s seen during
+    // the first admin resweep, not a lack of raw throughput (see DECISIONS:
+    // bounded per-cell piece-tile fetch concurrency).
+    const placements = await mapLimit(lockedIds, PIECE_FETCH_CONCURRENCY, async (gridId) => {
+      const col = gridId % gridCols;
+      const row = Math.floor(gridId / gridCols);
+      const tileLeft = col * pieceSize - margin - canvasOriginX;
+      const tileTop = row * pieceSize - margin - canvasOriginY;
+      const wireId = toWireId(this.deps.wire, gridId);
+      const bytes = await this.deps.fetchTile(this.deps.pieceFileByWireId(wireId));
+      return clipToCanvas(bytes, tileLeft, tileTop, tileSize, canvasSize);
+    });
     const composite = placements.filter((p): p is Placement => p !== null);
     if (composite.length === 0) return;
 
@@ -257,6 +268,27 @@ export class CellCompositor {
     const suffix = variant ? `-${variant}-${tier}` : "";
     return `${this.deps.puzzleId}/cells/${key}/${version}${suffix}.avif`;
   }
+}
+
+// Maps `fn` over `items` with at most `limit` running at once (order of
+// results matches input order, like Promise.all). No queueing library pulled
+// in for this: a handful of worker loops pulling from a shared cursor is
+// enough for the one bounded-fetch use above.
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i] as T);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 // Renders one SVG source at every configured mask/seam LOD tier, sharing the

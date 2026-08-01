@@ -643,6 +643,14 @@ function grantFromUpgrade(req: IncomingMessage): string | null {
   }
 }
 
+// A transient CDN blip (fetch failed / 502) under sustained compositor load
+// (e.g. an admin resweep over the whole grid) previously dropped the cell
+// outright with no retry; 2 short-backoff retries clears the vast majority
+// of those without meaningfully slowing down the common, already-succeeding
+// case.
+const PIECE_TILE_FETCH_RETRIES = 2;
+const PIECE_TILE_RETRY_DELAY_MS = 300;
+
 // Reads one piece tile for the cell compositor (see ROADMAP Phase 5 Stage 3):
 // a plain public HTTPS GET against the same CDN-fronted asset domain the
 // frontend already fetches every piece texture from, needing no credentials.
@@ -652,9 +660,16 @@ async function fetchPieceTile(
   relativePath: string,
 ): Promise<Buffer> {
   const url = `${assetsBaseUrl}/${puzzleId}/${relativePath}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`piece tile fetch ${url} returned HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`piece tile fetch ${url} returned HTTP ${res.status}`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (e) {
+      if (attempt >= PIECE_TILE_FETCH_RETRIES) throw e;
+      await new Promise((r) => setTimeout(r, PIECE_TILE_RETRY_DELAY_MS));
+    }
+  }
 }
 
 main().catch((e: unknown) => {
