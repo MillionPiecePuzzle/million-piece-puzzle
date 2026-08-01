@@ -12,7 +12,7 @@ import {
   seedFromString,
 } from "@mpp/shared";
 import { loadConfig, DEFAULT_REDIS_URL } from "./config.js";
-import { readAdminOverrides, UnknownPuzzleError } from "./admin.js";
+import { NoCompositorError, readAdminOverrides, UnknownPuzzleError } from "./admin.js";
 import { adminEventStart, adminPuzzleOverride } from "./redis/keys.js";
 import { Hub, type Client } from "./hub.js";
 import { buildWireContext } from "./wire.js";
@@ -33,7 +33,7 @@ import {
 } from "./init.js";
 import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
-import { CellCompositeIndex } from "./cellComposite.js";
+import { allCellKeysForGrid, CellCompositeIndex } from "./cellComposite.js";
 import { CellCompositor } from "./cellCompositor.js";
 import { createR2Client } from "./r2.js";
 import { unpackCellKey } from "./worldGrid.js";
@@ -330,6 +330,18 @@ async function main(): Promise<void> {
           await mongoClient.db(config.mongoDb).dropDatabase();
         },
         exit: () => process.exit(0),
+        resweepComposites: () => {
+          if (!ctx.cellCompositor) throw new NoCompositorError();
+          const allCells = allCellKeysForGrid(
+            ctx.meta.gridCols,
+            ctx.meta.gridRows,
+            ctx.meta.pieceSize,
+            ctx.worldTileSize,
+          );
+          ctx.cellCompositor.markDirty(allCells);
+          return allCells.length;
+        },
+        resweepPending: () => ctx.cellCompositor?.pendingCount() ?? 0,
       }
     : undefined;
 

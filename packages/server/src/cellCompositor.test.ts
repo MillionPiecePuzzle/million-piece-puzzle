@@ -298,6 +298,32 @@ describe("CellCompositor.markDirty", () => {
   });
 });
 
+describe("CellCompositor.pendingCount", () => {
+  it("reports the backlog size right after markDirty, before it drains to 0", () => {
+    const { deps, locked } = makeDeps();
+    locked.add(0); // cell (0,0)
+    locked.add(2); // cell (1,0)
+    locked.add(8); // cell (0,1)
+    const compositor = new CellCompositor(deps);
+    expect(compositor.pendingCount()).toBe(0);
+    compositor.markDirty([cellKey(0, 0), cellKey(1, 0), cellKey(0, 1)]);
+    // The drain loop synchronously pulls and starts the first cell before its
+    // first real await (the piece-tile fetch), so 2 of the 3 marked cells are
+    // still queued at this exact point, not yet 3 or already 0.
+    expect(compositor.pendingCount()).toBe(2);
+  });
+
+  it("returns to 0 once the whole backlog has drained", async () => {
+    const { deps, locked } = makeDeps();
+    locked.add(0);
+    locked.add(2);
+    const compositor = new CellCompositor(deps);
+    compositor.markDirty([cellKey(0, 0), cellKey(1, 0)]);
+    await compositor.whenIdle();
+    expect(compositor.pendingCount()).toBe(0);
+  });
+});
+
 describe("CellCompositor.clearAll", () => {
   it("bulk-deletes this puzzle's whole cell prefix, not a per-version key", async () => {
     const { deps, removedPrefixes } = makeDeps();

@@ -21,6 +21,15 @@ export class UnknownPuzzleError extends Error {
   }
 }
 
+// Thrown by resweepComposites when no CellCompositor is configured (no R2
+// write credentials), so the handler can answer 503 instead of a generic 500.
+export class NoCompositorError extends Error {
+  constructor() {
+    super("no compositor configured (R2 write credentials unset)");
+    this.name = "NoCompositorError";
+  }
+}
+
 export type AdminPuzzleOption = { id: string; label: string; current: boolean };
 
 export type AdminDeps = {
@@ -37,6 +46,18 @@ export type AdminDeps = {
   clearEverything: () => Promise<void>;
   // Injected so tests can assert a restart without killing the test process.
   exit: () => void;
+  // Enqueues every cell in the grid for a full recomposite (photo + every
+  // mask/seam tier), reusing the same allCellKeysForGrid the dev
+  // force-complete resweep already uses, without any of force-complete's
+  // puzzle-completion side effects (see lifecycle.ts). Fire-and-forget:
+  // CellCompositor drains its queue in the background (markDirty), so this
+  // returns the enqueued cell count immediately rather than waiting for the
+  // bake to finish. Throws NoCompositorError when R2 write credentials are
+  // not configured.
+  resweepComposites: () => number;
+  // Current backlog size (0 once idle), for polling a resweep's progress
+  // without holding a request open for however long the whole thing takes.
+  resweepPending: () => number;
 };
 
 // Read the boot-time overrides an earlier admin action persisted. Fail-soft: a
@@ -152,6 +173,30 @@ export function makeAdminSwitchHandler(deps: Pick<AdminDeps, "switchPuzzle" | "e
   };
 }
 
+export function makeAdminResweepHandler(deps: Pick<AdminDeps, "resweepComposites">) {
+  return (_req: Request, res: Response): void => {
+    let totalCells: number;
+    try {
+      totalCells = deps.resweepComposites();
+    } catch (e) {
+      if (e instanceof NoCompositorError) {
+        res.status(503).json({ error: "no_compositor" });
+        return;
+      }
+      console.error("[admin resweep]", (e as Error).message);
+      res.status(500).json({ error: "server" });
+      return;
+    }
+    res.status(200).json({ started: true, totalCells });
+  };
+}
+
+export function makeAdminResweepStatusHandler(deps: Pick<AdminDeps, "resweepPending">) {
+  return (_req: Request, res: Response): void => {
+    res.status(200).json({ pending: deps.resweepPending() });
+  };
+}
+
 export function makeAdminClearHandler(deps: Pick<AdminDeps, "clearEverything" | "exit">) {
   return async (req: Request, res: Response): Promise<void> => {
     const confirm = (req.body as { confirm?: unknown } | undefined)?.confirm;
@@ -243,6 +288,14 @@ function renderAdminPage(state: { puzzles: AdminPuzzleOption[]; eventStartsAt: n
   <div class="out" id="switchOut"></div>
 </section>
 
+<section>
+  <h2>Resweep composites</h2>
+  <p class="muted">Re-bakes every cell's photo composite and every mask/seam LOD tier from current lock state. Needed after a derived-asset scheme change (e.g. a new mask/seam tier): existing locked cells never recomposite on their own once every piece they can ever own is locked, since nothing dirties them again. Runs in the background; can take a while over the whole grid.</p>
+  <button id="resweep" type="button">Start resweep</button>
+  <button id="resweepStatus" class="secondary" type="button">Check progress</button>
+  <div class="out" id="resweepOut"></div>
+</section>
+
 <section class="danger">
   <h2>Clear everything</h2>
   <p class="muted">Wipes ALL Redis and Mongo data (pieces, merges, users, sessions) and restarts. Resets the puzzle and event start to their baseline. Irreversible.</p>
@@ -303,6 +356,23 @@ $("switch").addEventListener("click", async () => {
   $("switchOut").textContent = r.ok
     ? "Override saved. Server is restarting; reload in a few seconds."
     : ("Error: " + r.status + " " + JSON.stringify(r.data));
+});
+
+$("resweep").addEventListener("click", async () => {
+  if (!confirm("Re-bake every cell's composite and mask/seam tiers? This can take a while.")) return;
+  $("resweepOut").textContent = "Starting...";
+  const r = await post("/admin/resweep-composites", {});
+  $("resweepOut").textContent = r.ok
+    ? ("Started: " + r.data.totalCells + " cells enqueued. Use Check progress to watch the backlog drain.")
+    : ("Error: " + r.status + " " + JSON.stringify(r.data));
+});
+
+$("resweepStatus").addEventListener("click", async () => {
+  const res = await fetch("/admin/resweep-composites/status");
+  const data = await res.json();
+  $("resweepOut").textContent = res.ok
+    ? (data.pending === 0 ? "Idle: no cells pending." : (data.pending + " cells still pending."))
+    : ("Error: " + res.status);
 });
 
 $("clear").addEventListener("click", async () => {

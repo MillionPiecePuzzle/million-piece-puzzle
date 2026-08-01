@@ -28,6 +28,8 @@ import {
   makeAdminClearHandler,
   makeAdminEventStartHandler,
   makeAdminPageHandler,
+  makeAdminResweepHandler,
+  makeAdminResweepStatusHandler,
   makeAdminSwitchHandler,
   type AdminDeps,
 } from "./admin.js";
@@ -220,6 +222,17 @@ export function createApp(deps: CreateAppDeps): Express {
       makeAdminEventStartHandler(deps.admin),
     );
     app.post("/admin/switch-puzzle", adminAuth, express.json(), makeAdminSwitchHandler(deps.admin));
+    app.post(
+      "/admin/resweep-composites",
+      adminAuth,
+      express.json(),
+      makeAdminResweepHandler(deps.admin),
+    );
+    app.get(
+      "/admin/resweep-composites/status",
+      adminAuth,
+      makeAdminResweepStatusHandler(deps.admin),
+    );
     app.post("/admin/clear", adminAuth, express.json(), makeAdminClearHandler(deps.admin));
   }
 

@@ -89,6 +89,13 @@ export class CellCompositor {
     return this.drainPromise;
   }
 
+  // Backlog size, for polling a long-running bulk markDirty (e.g. an admin
+  // resweep) from outside without awaiting whenIdle, which would hold an HTTP
+  // request open for as long as the whole backlog takes to drain.
+  pendingCount(): number {
+    return this.dirty.size;
+  }
+
   // Bulk-deletes every composite object this puzzle's cells have ever had,
   // used by a board reset (see PuzzleLifecycle.resetCurrent). A per-key
   // delete of each cell's last-known version cannot do this job: the reset

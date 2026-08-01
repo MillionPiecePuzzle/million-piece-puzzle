@@ -107,6 +107,7 @@ export type Context = {
   cellCompositor?: {
     markDirty: (cellKeys: Iterable<number>) => void;
     clearAll: () => Promise<void>;
+    pendingCount: () => number;
   };
   // Optional during construction (Context is created before PuzzleLifecycle
   // to avoid a circular import). The runtime always wires it before any

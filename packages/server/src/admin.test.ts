@@ -5,7 +5,10 @@ import {
   makeAdminClearHandler,
   makeAdminEventStartHandler,
   makeAdminPageHandler,
+  makeAdminResweepHandler,
+  makeAdminResweepStatusHandler,
   makeAdminSwitchHandler,
+  NoCompositorError,
   readAdminOverrides,
   UnknownPuzzleError,
 } from "./admin.js";
@@ -171,6 +174,53 @@ describe("makeAdminSwitchHandler", () => {
     expect(exit).not.toHaveBeenCalled();
     (res as unknown as { finish: () => void }).finish();
     expect(exit).toHaveBeenCalled();
+  });
+});
+
+describe("makeAdminResweepHandler", () => {
+  it("200 and reports the enqueued cell count", async () => {
+    const resweepComposites = vi.fn(() => 1264);
+    const handler = makeAdminResweepHandler({ resweepComposites });
+    const res = fakeRes();
+    await handler({} as Request, res);
+    expect(resweepComposites).toHaveBeenCalled();
+    expect((res as unknown as { statusCode: number; body: unknown }).statusCode).toBe(200);
+    expect((res as unknown as { body: { started: boolean; totalCells: number } }).body).toEqual({
+      started: true,
+      totalCells: 1264,
+    });
+  });
+
+  it("503 when no compositor is configured", async () => {
+    const handler = makeAdminResweepHandler({
+      resweepComposites: () => {
+        throw new NoCompositorError();
+      },
+    });
+    const res = fakeRes();
+    await handler({} as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(503);
+  });
+
+  it("500 on an unexpected error", async () => {
+    const handler = makeAdminResweepHandler({
+      resweepComposites: () => {
+        throw new Error("boom");
+      },
+    });
+    const res = fakeRes();
+    await handler({} as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(500);
+  });
+});
+
+describe("makeAdminResweepStatusHandler", () => {
+  it("reports the current backlog size", async () => {
+    const handler = makeAdminResweepStatusHandler({ resweepPending: () => 42 });
+    const res = fakeRes();
+    await handler({} as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(200);
+    expect((res as unknown as { body: { pending: number } }).body).toEqual({ pending: 42 });
   });
 });
 
