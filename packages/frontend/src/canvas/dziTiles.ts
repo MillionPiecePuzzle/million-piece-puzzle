@@ -3,6 +3,7 @@
 // `sharp().tile({ layout: "dz", ... })`). Spike-only (see ROADMAP backlog: DZI
 // native in Pixi).
 
+import { CELL_MASK_TIER_FACTORS } from "@mpp/shared";
 import type { Aabb } from "./cull";
 
 export type DziInfo = {
@@ -55,6 +56,25 @@ export function levelForZoom(info: DziInfo, zoom: number): number {
 
 export function levelDimension(nativeSize: number, info: DziInfo, level: number): number {
   return Math.ceil(nativeSize / 2 ** (info.maxLevel - level));
+}
+
+// The coarsest per-cell mask/seam LOD tier (see cellCompositor.ts's
+// bakeTiers, same CELL_MASK_TIER_FACTORS) that still meets the current
+// zoom's resolution need, so a min-zoom overview never has to decode a
+// full-resolution silhouette for every resident cell (see DECISIONS: DZI
+// reveal mask/seam LOD tiers). "Need" is expressed as a downscale factor
+// from native (1 world unit = 1 native pixel, this codebase's zoom
+// convention): at zoom>=1 nothing is downscaled (tier 0), at zoom<1
+// progressively coarser tiers suffice. Picks the coarsest tier whose own
+// factor does not exceed what is needed, so the mask is never blurrier
+// than the zoom warrants.
+export function maskTierForZoom(zoom: number): number {
+  const neededDownscale = Math.max(1, 1 / zoom);
+  let tier = 0;
+  for (let i = 0; i < CELL_MASK_TIER_FACTORS.length; i++) {
+    if (CELL_MASK_TIER_FACTORS[i]! <= neededDownscale) tier = i;
+  }
+  return tier;
 }
 
 // Every native tile at a level intersecting a world rect, with each tile's

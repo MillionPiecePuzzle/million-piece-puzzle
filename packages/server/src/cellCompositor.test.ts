@@ -102,14 +102,19 @@ describe("CellCompositor.markDirty", () => {
     compositor.markDirty([cellKey(0, 0)]);
     await compositor.whenIdle();
 
-    // One bake now produces three sibling objects (photo, mask, seam), all at
-    // the same version, so the client can derive all three from the one
+    // One bake now produces the photo plus a mask+seam pair at every LOD tier
+    // (see DECISIONS: DZI reveal mask/seam LOD tiers), all at the same
+    // version, so the client can derive every URL from the one
     // {cellKey, version} pair region_state/cell_composite already carries.
-    expect(uploads).toHaveLength(3);
+    expect(uploads).toHaveLength(7);
     expect(uploads.map((u) => u.key)).toEqual([
       `test-puzzle/cells/${cellKey(0, 0)}/1.avif`,
-      `test-puzzle/cells/${cellKey(0, 0)}/1-mask.avif`,
-      `test-puzzle/cells/${cellKey(0, 0)}/1-seam.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-mask-0.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-seam-0.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-mask-1.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-seam-1.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-mask-2.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-seam-2.avif`,
     ]);
     expect(uploads.every((u) => u.contentType === "image/avif")).toBe(true);
     expect(index.get(cellKey(0, 0))).toBe(1);
@@ -136,13 +141,13 @@ describe("CellCompositor.markDirty", () => {
     // any await), so these three marks all land while it is already being
     // processed. They collapse into a single Set entry, so the drain loop
     // does exactly one necessary follow-up bake once the first finishes, not
-    // three: 2 bakes total (6 uploads: photo+mask+seam each), never 4 bakes.
+    // three: 2 bakes total (14 uploads: 7 each), never 4 bakes.
     compositor.markDirty([cellKey(0, 0)]);
     compositor.markDirty([cellKey(0, 0)]);
     compositor.markDirty([cellKey(0, 0)]);
     compositor.markDirty([cellKey(0, 0)]);
     await compositor.whenIdle();
-    expect(uploads).toHaveLength(6);
+    expect(uploads).toHaveLength(14);
   });
 
   it("bumps the version on a later rebake of the same cell", async () => {
@@ -154,18 +159,26 @@ describe("CellCompositor.markDirty", () => {
     locked.add(1);
     compositor.markDirty([cellKey(0, 0)]);
     await compositor.whenIdle();
-    expect(uploads).toHaveLength(6);
-    expect(uploads.slice(3).map((u) => u.key)).toEqual([
+    expect(uploads).toHaveLength(14);
+    expect(uploads.slice(7).map((u) => u.key)).toEqual([
       `test-puzzle/cells/${cellKey(0, 0)}/2.avif`,
-      `test-puzzle/cells/${cellKey(0, 0)}/2-mask.avif`,
-      `test-puzzle/cells/${cellKey(0, 0)}/2-seam.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/2-mask-0.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/2-seam-0.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/2-mask-1.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/2-seam-1.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/2-mask-2.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/2-seam-2.avif`,
     ]);
-    // The now-superseded v1 objects (all three variants) are cleaned up once
-    // v2 is fully live.
+    // The now-superseded v1 objects (photo + every mask/seam tier) are
+    // cleaned up once v2 is fully live.
     expect(removed).toEqual([
       `test-puzzle/cells/${cellKey(0, 0)}/1.avif`,
-      `test-puzzle/cells/${cellKey(0, 0)}/1-mask.avif`,
-      `test-puzzle/cells/${cellKey(0, 0)}/1-seam.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-mask-0.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-seam-0.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-mask-1.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-seam-1.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-mask-2.avif`,
+      `test-puzzle/cells/${cellKey(0, 0)}/1-seam-2.avif`,
     ]);
   });
 
@@ -183,8 +196,8 @@ describe("CellCompositor.markDirty", () => {
     await compositor.whenIdle();
 
     // The bake itself (upload, version, persist, broadcast) still succeeds
-    // even though cleaning up one of the old version's three objects failed.
-    expect(uploads).toHaveLength(6);
+    // even though cleaning up one of the old version's objects failed.
+    expect(uploads).toHaveLength(14);
     expect(persisted).toEqual([
       { cellKey: cellKey(0, 0), version: 1 },
       { cellKey: cellKey(0, 0), version: 2 },
@@ -198,11 +211,11 @@ describe("CellCompositor.markDirty", () => {
     let calls = 0;
     const uploads: { key: string; body: Buffer; contentType: string }[] = [];
     const { deps, locked } = makeDeps({
-      // Fails all three uploads of the first bake it sees (photo/mask/seam),
-      // succeeds from the second cell's bake onward.
+      // Fails all seven uploads of the first bake it sees (photo + mask/seam
+      // at every tier), succeeds from the second cell's bake onward.
       upload: vi.fn(async (key: string, body: Buffer, contentType: string) => {
         calls++;
-        if (calls <= 3) throw new Error("network blip");
+        if (calls <= 7) throw new Error("network blip");
         uploads.push({ key, body, contentType });
       }),
     });
@@ -213,8 +226,8 @@ describe("CellCompositor.markDirty", () => {
     compositor.markDirty([cellKey(0, 0), cellKey(1, 0)]);
     await compositor.whenIdle();
     // Cell (0,0)'s bake fully failed (0 uploads recorded); cell (1,0)'s bake
-    // still completed with all three of its own objects.
-    expect(uploads).toHaveLength(3);
+    // still completed with all seven of its own objects.
+    expect(uploads).toHaveLength(7);
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
   });
@@ -225,7 +238,9 @@ describe("CellCompositor.markDirty", () => {
     const compositor = new CellCompositor(deps);
     compositor.markDirty([cellKey(0, 0)]);
     await compositor.whenIdle();
-    const maskUpload = uploads.find((u) => u.key.endsWith("-mask.avif"))!;
+    // Tier 0 is the full-resolution bake (factor 1, no resize), so its pixel
+    // coordinates match the canvas exactly like the pre-tiering single bake.
+    const maskUpload = uploads.find((u) => u.key.endsWith("-mask-0.avif"))!;
     const { data, info } = await sharp(maskUpload.body)
       .ensureAlpha()
       .raw()
@@ -248,7 +263,7 @@ describe("CellCompositor.markDirty", () => {
     const compositor = new CellCompositor(deps);
     compositor.markDirty([cellKey(0, 0)]);
     await compositor.whenIdle();
-    const seamUpload = uploads.find((u) => u.key.endsWith("-seam.avif"))!;
+    const seamUpload = uploads.find((u) => u.key.endsWith("-seam-0.avif"))!;
     const { data, info } = await sharp(seamUpload.body)
       .ensureAlpha()
       .raw()

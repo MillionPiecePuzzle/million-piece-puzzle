@@ -9,6 +9,7 @@
 
 import sharp from "sharp";
 import {
+  CELL_MASK_TIER_FACTORS,
   generatePieceGeometry,
   pieceBorderSvg,
   pieceMaskSvg,
@@ -189,37 +190,35 @@ export class CellCompositor {
         row * pieceSize - canvasOriginY,
       );
     });
-    const [maskBuffer, seamBuffer] = await Promise.all([
-      sharp(pieceMaskSvg(pathDs, canvasSize, canvasSize))
-        .avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT })
-        .toBuffer(),
-      sharp(pieceBorderSvg(pathDs, canvasSize, canvasSize))
-        .avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT })
-        .toBuffer(),
+    const [maskTiers, seamTiers] = await Promise.all([
+      bakeTiers(pieceMaskSvg(pathDs, canvasSize, canvasSize), canvasSize),
+      bakeTiers(pieceBorderSvg(pathDs, canvasSize, canvasSize), canvasSize),
     ]);
 
-    await this.finishBake(key, photoBuffer, maskBuffer, seamBuffer);
+    await this.finishBake(key, photoBuffer, maskTiers, seamTiers);
   }
 
-  // Bump the version, upload all three variants, update the in-process index,
-  // persist to Redis, report completion (the caller broadcasts, see
-  // index.ts), then best-effort delete the now-superseded version. The three
-  // variants share one version number: the client derives all three URLs from
-  // the same {cellKey, version} pair already on the wire (see protocol.ts's
-  // CellComposite), so no wire shape change is needed for the new assets.
+  // Bump the version, upload the photo plus every mask/seam tier, update the
+  // in-process index, persist to Redis, report completion (the caller
+  // broadcasts, see index.ts), then best-effort delete the now-superseded
+  // version. Everything shares one version number: the client derives every
+  // URL from the same {cellKey, version} pair already on the wire (see
+  // protocol.ts's CellComposite) plus its own choice of tier (see DECISIONS:
+  // DZI reveal mask/seam LOD tiers), so no wire shape change is needed.
   private async finishBake(
     key: number,
     photo: Buffer,
-    mask: Buffer,
-    seam: Buffer,
+    maskTiers: Buffer[],
+    seamTiers: Buffer[],
   ): Promise<void> {
     const previousVersion = this.deps.index.get(key) ?? 0;
     const version = previousVersion + 1;
-    await Promise.all([
-      this.deps.upload(this.objectKey(key, version), photo, "image/avif"),
-      this.deps.upload(this.objectKey(key, version, "mask"), mask, "image/avif"),
-      this.deps.upload(this.objectKey(key, version, "seam"), seam, "image/avif"),
-    ]);
+    const uploads: Promise<void>[] = [this.deps.upload(this.objectKey(key, version), photo, "image/avif")];
+    for (let tier = 0; tier < CELL_MASK_TIER_FACTORS.length; tier++) {
+      uploads.push(this.deps.upload(this.objectKey(key, version, "mask", tier), maskTiers[tier]!, "image/avif"));
+      uploads.push(this.deps.upload(this.objectKey(key, version, "seam", tier), seamTiers[tier]!, "image/avif"));
+    }
+    await Promise.all(uploads);
     this.deps.index.set(key, version);
     await this.deps.persistVersion(key, version);
     this.deps.onComposited(key, version);
@@ -232,11 +231,12 @@ export class CellCompositor {
     // itself, which the next dirty mark on this cell re-attempts.
     if (previousVersion > 0) {
       try {
-        await Promise.all([
-          this.deps.remove(this.objectKey(key, previousVersion)),
-          this.deps.remove(this.objectKey(key, previousVersion, "mask")),
-          this.deps.remove(this.objectKey(key, previousVersion, "seam")),
-        ]);
+        const removals: Promise<void>[] = [this.deps.remove(this.objectKey(key, previousVersion))];
+        for (let tier = 0; tier < CELL_MASK_TIER_FACTORS.length; tier++) {
+          removals.push(this.deps.remove(this.objectKey(key, previousVersion, "mask", tier)));
+          removals.push(this.deps.remove(this.objectKey(key, previousVersion, "seam", tier)));
+        }
+        await Promise.all(removals);
       } catch (e) {
         console.error(
           `[cell-composite] cell ${key} failed to delete stale v${previousVersion}`,
@@ -246,10 +246,28 @@ export class CellCompositor {
     }
   }
 
-  private objectKey(key: number, version: number, variant?: "mask" | "seam"): string {
-    const suffix = variant ? `-${variant}` : "";
+  private objectKey(key: number, version: number, variant?: "mask" | "seam", tier?: number): string {
+    const suffix = variant ? `-${variant}-${tier}` : "";
     return `${this.deps.puzzleId}/cells/${key}/${version}${suffix}.avif`;
   }
+}
+
+// Renders one SVG source at every configured mask/seam LOD tier, sharing the
+// same decoded rasterization across tiers (sharp's clone() branches a
+// pipeline without re-parsing the source) rather than re-rendering the SVG
+// once per tier.
+async function bakeTiers(svg: Buffer, canvasSize: number): Promise<Buffer[]> {
+  const base = sharp(svg);
+  return Promise.all(
+    CELL_MASK_TIER_FACTORS.map((factor) => {
+      const pipeline = base.clone();
+      if (factor > 1) {
+        const size = Math.max(1, Math.round(canvasSize / factor));
+        pipeline.resize(size, size);
+      }
+      return pipeline.avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT }).toBuffer();
+    }),
+  );
 }
 
 type Placement = { input: Buffer; left: number; top: number };

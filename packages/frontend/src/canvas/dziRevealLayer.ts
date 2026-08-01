@@ -34,16 +34,31 @@ import { Container, Matrix, RenderTexture, Sprite, type Texture } from "pixi.js"
 import type { Aabb } from "./cull";
 import { neededCompositeTiles } from "./compositeTiles";
 import { LOD_TILE_WORLD, packCell, unpackWireCellKey, type CellKey } from "./groupGrid";
-import { dziTilesForRect, levelForZoom, type DziInfo } from "./dziTiles";
+import { dziTilesForRect, levelForZoom, maskTierForZoom, type DziInfo } from "./dziTiles";
 
 const DZI_VRAM_BUDGET_MB = 128;
 const DZI_MAX_INFLIGHT = 8;
-const CELL_ASSET_VRAM_BUDGET_MB = 64;
-const CELL_ASSET_MAX_INFLIGHT = 8;
+// Sized against LOD tiering (see dziTiles.ts's maskTierForZoom), not native
+// per-cell resolution: at native resolution a single cell's mask+seam pair
+// alone is already ~33.6MB decoded ((cellSize+2*margin)^2*4*2 at the real
+// 2048-unit cell/25px margin), so this budget only ever fits a couple of
+// cells at min zoom without tiering. With tiering, min zoom needs a coarser
+// tier per maskTierForZoom, cutting per-cell cost by roughly the tier's
+// downscale factor squared, so this now covers a meaningfully larger share
+// of a real board's keep ring instead of thrashing after 1-2 cells.
+const CELL_ASSET_VRAM_BUDGET_MB = 256;
+const CELL_ASSET_MAX_INFLIGHT = 16;
 // Safety cap on the combined mask's own texel dimensions: texelsPerWorldUnit
 // already shrinks with zoom (see updateCombinedMask), so this only guards
 // against a pathological hydrate ring, never fires in ordinary play.
 const MAX_MASK_TEXELS = 2048;
+// Floor on how often a generation-only change re-renders the combined mask
+// (see updateCombinedMask). A real ring move is never throttled by this: at
+// real board scale, many cells can still be hydrating individually seconds
+// after a pan lands, each bumping maskGeneration, and without this floor the
+// full (up to MAX_MASK_TEXELS^2) re-render would fire on nearly every frame
+// for that whole stretch instead of a real ring move.
+const MIN_REBAKE_INTERVAL_MS = 200;
 
 type DziTile = {
   key: string;
@@ -64,6 +79,10 @@ type CellAsset = {
   version: number;
   maskAppliedVersion: number;
   seamAppliedVersion: number;
+  // -1 (no real tier) so the very first hydrate always fires, regardless of
+  // which tier turns out to be needed first.
+  maskAppliedTier: number;
+  seamAppliedTier: number;
   maskSprite: Sprite | null;
   seamSprite: Sprite | null;
   maskHydrating: boolean;
@@ -80,8 +99,11 @@ export type DziRevealLayerDeps = {
   // needed to place a cell's mask/seam sprite at its true bleed-inclusive
   // bounds, exactly like CompositeTileLayer's own margin dep.
   margin: number;
-  maskUrlFor: (wireCellKey: number, version: number) => string;
-  seamUrlFor: (wireCellKey: number, version: number) => string;
+  // tier indexes CELL_MASK_TIER_FACTORS (see dziTiles.ts's maskTierForZoom):
+  // the client picks it from the current zoom, independently of anything
+  // the server sends, so no wire protocol change is needed for it.
+  maskUrlFor: (wireCellKey: number, version: number, tier: number) => string;
+  seamUrlFor: (wireCellKey: number, version: number, tier: number) => string;
   // Renders `source` into `target` using `transform`, the same trampoline
   // shape puzzleStage.ts already uses for LodTileLayer's own bakes
   // (app.renderer.render({ container, target, transform })), kept as an
@@ -124,6 +146,7 @@ export class DziRevealLayer {
   // when the ring-staleness check alone would not have caught it.
   private maskGeneration = 0;
   private lastBakedGeneration = -1;
+  private lastBakeAtMs = -Infinity;
 
   constructor(private readonly deps: DziRevealLayerDeps) {
     this.tileContainer = new Container();
@@ -159,6 +182,8 @@ export class DziRevealLayer {
       version,
       maskAppliedVersion: 0,
       seamAppliedVersion: 0,
+      maskAppliedTier: -1,
+      seamAppliedTier: -1,
       maskSprite: null,
       seamSprite: null,
       maskHydrating: false,
@@ -169,8 +194,9 @@ export class DziRevealLayer {
 
   reconcile(hydrateRing: Aabb, keepRing: Aabb, zoom: number): void {
     const level = levelForZoom(this.deps.dziInfo, zoom);
+    const tier = maskTierForZoom(zoom);
     this.reconcileDziTiles(hydrateRing, keepRing, level);
-    this.reconcileCellAssets(hydrateRing, keepRing);
+    this.reconcileCellAssets(hydrateRing, keepRing, tier);
     this.updateCombinedMask(hydrateRing, keepRing, level);
   }
 
@@ -251,7 +277,7 @@ export class DziRevealLayer {
     }
   }
 
-  private reconcileCellAssets(hydrateRing: Aabb, keepRing: Aabb): void {
+  private reconcileCellAssets(hydrateRing: Aabb, keepRing: Aabb, tier: number): void {
     const needed = neededCompositeTiles(hydrateRing);
     const kept = neededCompositeTiles(keepRing);
     const neededSet = new Set(needed.map((c) => packCell(c.cx, c.cy)));
@@ -262,18 +288,18 @@ export class DziRevealLayer {
       if (!tile) continue; // no reportVersion yet for this cell
       tile.lru = ++this.lruClock;
       if (
-        tile.version > tile.maskAppliedVersion &&
+        (tile.version > tile.maskAppliedVersion || tile.maskAppliedTier !== tier) &&
         !tile.maskHydrating &&
         this.maskInFlight < CELL_ASSET_MAX_INFLIGHT
       ) {
-        void this.hydrateMask(tile);
+        void this.hydrateMask(tile, tier);
       }
       if (
-        tile.version > tile.seamAppliedVersion &&
+        (tile.version > tile.seamAppliedVersion || tile.seamAppliedTier !== tier) &&
         !tile.seamHydrating &&
         this.seamInFlight < CELL_ASSET_MAX_INFLIGHT
       ) {
-        void this.hydrateSeam(tile);
+        void this.hydrateSeam(tile, tier);
       }
     }
 
@@ -284,11 +310,11 @@ export class DziRevealLayer {
     this.evictCellAssetsOverBudget(neededSet);
   }
 
-  private async hydrateMask(tile: CellAsset): Promise<void> {
+  private async hydrateMask(tile: CellAsset, tier: number): Promise<void> {
     tile.maskHydrating = true;
     this.maskInFlight++;
     const version = tile.version;
-    const url = this.deps.maskUrlFor(tile.wireCellKey, version);
+    const url = this.deps.maskUrlFor(tile.wireCellKey, version, tier);
     const texture = await this.deps.loadTexture(url);
     this.maskInFlight--;
     tile.maskHydrating = false;
@@ -303,6 +329,7 @@ export class DziRevealLayer {
     this.maskSourceContainer.addChild(sprite);
     tile.maskSprite = sprite;
     tile.maskAppliedVersion = version;
+    tile.maskAppliedTier = tier;
     tile.lru = ++this.lruClock;
     this.maskGeneration++;
     if (oldSprite) {
@@ -311,11 +338,11 @@ export class DziRevealLayer {
     }
   }
 
-  private async hydrateSeam(tile: CellAsset): Promise<void> {
+  private async hydrateSeam(tile: CellAsset, tier: number): Promise<void> {
     tile.seamHydrating = true;
     this.seamInFlight++;
     const version = tile.version;
-    const url = this.deps.seamUrlFor(tile.wireCellKey, version);
+    const url = this.deps.seamUrlFor(tile.wireCellKey, version, tier);
     const texture = await this.deps.loadTexture(url);
     this.seamInFlight--;
     tile.seamHydrating = false;
@@ -330,6 +357,7 @@ export class DziRevealLayer {
     this.seamContainer.addChild(sprite);
     tile.seamSprite = sprite;
     tile.seamAppliedVersion = version;
+    tile.seamAppliedTier = tier;
     tile.lru = ++this.lruClock;
     if (oldSprite) {
       this.seamContainer.removeChild(oldSprite);
@@ -343,6 +371,7 @@ export class DziRevealLayer {
       tile.maskSprite.destroy();
       tile.maskSprite = null;
       tile.maskAppliedVersion = 0;
+      tile.maskAppliedTier = -1;
       this.maskGeneration++;
     }
     if (tile.seamSprite) {
@@ -350,6 +379,7 @@ export class DziRevealLayer {
       tile.seamSprite.destroy();
       tile.seamSprite = null;
       tile.seamAppliedVersion = 0;
+      tile.seamAppliedTier = -1;
     }
   }
 
@@ -378,13 +408,20 @@ export class DziRevealLayer {
   // RenderTexture and assigns a single Sprite of it as tileContainer.mask:
   // the only way to get Pixi's real per-pixel AlphaMask instead of a coarse
   // per-sprite-quad StencilMask (see this file's own header comment).
-  // Rebuilt only when the last bake no longer covers the hydrate ring (a
-  // meaningful pan/zoom) or a mask sprite (re)hydrated since (maskGeneration),
-  // the same hysteresis idiom compositeTiles.ts's hydrate/keep rings use: a
-  // render-to-texture pass is not free enough to redo every frame.
+  // Rebuilt when the last bake no longer covers the hydrate ring (a
+  // meaningful pan/zoom, never throttled: the view needs fresh coverage now)
+  // or a mask sprite (re)hydrated since (maskGeneration, throttled to
+  // MIN_REBAKE_INTERVAL_MS: at real board scale a burst of cells can still be
+  // hydrating individually for seconds after a ring move, and re-rendering
+  // the full combined texture on every one of those completions would fire
+  // nearly every frame for that whole stretch).
   private updateCombinedMask(hydrateRing: Aabb, keepRing: Aabb, level: number): void {
     const ringStale = !this.maskCoveredRect || !rectContains(this.maskCoveredRect, hydrateRing);
-    if (!ringStale && this.maskGeneration === this.lastBakedGeneration) return;
+    const generationChanged = this.maskGeneration !== this.lastBakedGeneration;
+    if (!ringStale && !generationChanged) return;
+    const now = performance.now();
+    if (!ringStale && now - this.lastBakeAtMs < MIN_REBAKE_INTERVAL_MS) return;
+    this.lastBakeAtMs = now;
 
     const worldW = keepRing.maxX - keepRing.minX;
     const worldH = keepRing.maxY - keepRing.minY;

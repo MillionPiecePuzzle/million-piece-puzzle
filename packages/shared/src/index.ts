@@ -7,6 +7,7 @@ export * from "./country.js";
 export * from "./protocol.js";
 export * from "./playzone.js";
 export * from "./grid.js";
+export * from "./maskTiers.js";
 export * from "./minimap.js";
 export * from "./leaderboard.js";
 export * from "./manifest.js";

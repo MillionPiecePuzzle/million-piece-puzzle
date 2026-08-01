@@ -3139,8 +3139,8 @@ export class PuzzleStage {
         dziInfo: this.dziInfo,
         dziBaseUrl: this.dziBaseUrl,
         margin: this.manifest.margin,
-        maskUrlFor: (wireCellKey, version) => this.compositeMaskUrl(wireCellKey, version),
-        seamUrlFor: (wireCellKey, version) => this.compositeSeamUrl(wireCellKey, version),
+        maskUrlFor: (wireCellKey, version, tier) => this.compositeMaskUrl(wireCellKey, version, tier),
+        seamUrlFor: (wireCellKey, version, tier) => this.compositeSeamUrl(wireCellKey, version, tier),
         renderToTexture: (source, target, transform) => {
           if (!this.app) return;
           this.app.renderer.render({ container: source, target, transform, clear: true });
@@ -3165,15 +3165,17 @@ export class PuzzleStage {
   }
 
   // Sibling assets baked alongside the photo composite at the same version
-  // (see DECISIONS: DZI reveal mask/seam bake): same {cellKey, version} pair,
-  // same R2 key convention, just a `-mask`/`-seam` suffix, so no protocol
-  // change was needed to carry them.
-  private compositeMaskUrl(wireCellKey: number, version: number): string {
-    return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}-mask.avif`);
+  // (see DECISIONS: DZI reveal mask/seam LOD tiers): same {cellKey, version}
+  // pair, same R2 key convention, just a `-mask`/`-seam` suffix plus the
+  // tier index the client picked for the current zoom (see dziTiles.ts's
+  // maskTierForZoom), matching CellCompositor.objectKey exactly. No protocol
+  // change was needed to carry any of it.
+  private compositeMaskUrl(wireCellKey: number, version: number, tier: number): string {
+    return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}-mask-${tier}.avif`);
   }
 
-  private compositeSeamUrl(wireCellKey: number, version: number): string {
-    return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}-seam.avif`);
+  private compositeSeamUrl(wireCellKey: number, version: number, tier: number): string {
+    return joinUrl(this.textureBase, `cells/${wireCellKey}/${version}-seam-${tier}.avif`);
   }
 
   // Viewport cells (within the play zone) whose content should be visible but is not
