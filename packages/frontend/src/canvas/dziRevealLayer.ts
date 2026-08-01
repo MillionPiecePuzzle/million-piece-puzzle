@@ -396,8 +396,7 @@ export class DziRevealLayer {
     const texW = Math.min(MAX_MASK_TEXELS, Math.max(1, Math.ceil(worldW * texelsPerWorldUnit)));
     const texH = Math.min(MAX_MASK_TEXELS, Math.max(1, Math.ceil(worldH * texelsPerWorldUnit)));
 
-    if (!this.maskTexture || this.maskTexture.width !== texW || this.maskTexture.height !== texH) {
-      this.maskTexture?.destroy(true);
+    if (!this.maskTexture) {
       this.maskTexture = RenderTexture.create({
         width: texW,
         height: texH,
@@ -405,6 +404,17 @@ export class DziRevealLayer {
         antialias: true,
       });
       this.maskSprite = new Sprite(this.maskTexture);
+    } else if (this.maskTexture.width !== texW || this.maskTexture.height !== texH) {
+      // Resize in place instead of destroy+recreate. Destroying fires a
+      // TextureSource 'change' event with destroyed=true, which PixiJS's
+      // BindGroup.onResourceChange treats as fatal: it permanently nulls the
+      // whole bind group of any shader still holding this texture, including
+      // an unrelated pooled AlphaMaskEffect (see AlphaMaskPipe/BigPool) that
+      // masked with this exact sprite on a previous frame and never released
+      // it. The next mask push then reads a null resources map and crashes
+      // (RenderTargetSystem -> BindGroup.getResource). resize() emits
+      // 'change' without destroyed=true, so it never trips that path.
+      this.maskTexture.resize(texW, texH);
     }
     const sprite = this.maskSprite!;
     // Positioned in the same world-coordinate convention the old rectangular
