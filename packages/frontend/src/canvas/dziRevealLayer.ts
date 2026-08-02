@@ -36,7 +36,12 @@ import { neededCompositeTiles } from "./compositeTiles";
 import { LOD_TILE_WORLD, packCell, unpackWireCellKey, type CellKey } from "./groupGrid";
 import { dziTilesForRect, levelForZoom, maskTierForZoom, pickBaseLevel, type DziInfo } from "./dziTiles";
 
-const DZI_VRAM_BUDGET_MB = 128;
+// Each native DZI tile decodes to ~258KB (254px + 1px overlap, RGBA), so
+// 256MB is headroom for roughly 1000 resident tiles at once: comfortably
+// more than any single ring needs even at the finest reachable level (see
+// levelForZoom), leaving slack for the estimate to be wrong without
+// thrashing.
+const DZI_VRAM_BUDGET_MB = 256;
 const DZI_MAX_INFLIGHT = 8;
 // A small, fixed-size deep-zoom viewport (this puzzle's own reference-image
 // thumbnail) looks instant purely because a handful of coarse tiles already
@@ -50,15 +55,18 @@ const BASE_LEVEL_MAX_TILES = 64;
 // tiles are never evicted, so unlike every other budget in this file this
 // one is not an eviction threshold, just what residentBytes will include.
 const BASE_LAYER_VRAM_BUDGET_MB = 16;
-// Sized against LOD tiering (see dziTiles.ts's maskTierForZoom), not native
-// per-cell resolution: at native resolution a single cell's mask+seam pair
-// alone is already ~33.6MB decoded ((cellSize+2*margin)^2*4*2 at the real
-// 2048-unit cell/25px margin), so this budget only ever fits a couple of
-// cells at min zoom without tiering. With tiering, min zoom needs a coarser
-// tier per maskTierForZoom, cutting per-cell cost by roughly the tier's
-// downscale factor squared, so this now covers a meaningfully larger share
-// of a real board's keep ring instead of thrashing after 1-2 cells.
-const CELL_ASSET_VRAM_BUDGET_MB = 256;
+// Sized against LOD tiering (see dziTiles.ts's maskTierForZoom and its
+// TIER_ZOOM_BREAKPOINTS), not native per-cell resolution: at native
+// resolution a single cell's mask+seam pair alone is already ~33.6MB decoded
+// ((cellSize+2*margin)^2*4*2 at the real 2048-unit cell/25px margin). With
+// the breakpoints picking a coarser tier well before the ring gets big, the
+// worst case at each band's own low-zoom edge (see dziTiles.ts's own
+// comment) was already estimated to fit a 256MB budget, but only with ~12%
+// headroom at the native-tier edge (~225MB of 256MB) - too tight given those
+// ring-size numbers are estimates, not measured. Doubled for real slack: the
+// same worst case now sits at ~44% of budget, room for the estimate to be
+// off by roughly 2x before thrashing returns.
+const CELL_ASSET_VRAM_BUDGET_MB = 512;
 const CELL_ASSET_MAX_INFLIGHT = 16;
 // Safety cap on the combined mask's own texel dimensions: texelsPerWorldUnit
 // already shrinks with zoom (see updateCombinedMask), so this only guards
