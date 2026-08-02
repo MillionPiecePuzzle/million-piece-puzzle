@@ -58,23 +58,60 @@ export function levelDimension(nativeSize: number, info: DziInfo, level: number)
   return Math.ceil(nativeSize / 2 ** (info.maxLevel - level));
 }
 
-// The coarsest per-cell mask/seam LOD tier (see cellCompositor.ts's
-// bakeTiers, same CELL_MASK_TIER_FACTORS) that still meets the current
-// zoom's resolution need, so a min-zoom overview never has to decode a
-// full-resolution silhouette for every resident cell (see DECISIONS: DZI
-// reveal mask/seam LOD tiers). "Need" is expressed as a downscale factor
-// from native (1 world unit = 1 native pixel, this codebase's zoom
-// convention): at zoom>=1 nothing is downscaled (tier 0), at zoom<1
-// progressively coarser tiers suffice. Picks the coarsest tier whose own
-// factor does not exceed what is needed, so the mask is never blurrier
-// than the zoom warrants.
+// The per-cell mask/seam LOD tier (see cellCompositor.ts's bakeTiers, same
+// CELL_MASK_TIER_FACTORS) to fetch for the current zoom, chosen to keep a
+// full hydrate ring inside CELL_ASSET_VRAM_BUDGET_MB (see
+// dziRevealLayer.ts), not to preserve "1 native pixel ~= 1 screen pixel"
+// sharpness. An earlier version picked the coarsest tier whose downscale
+// factor did not exceed 1/zoom: that keeps the mask exactly as sharp as the
+// zoom warrants, but a hydrate ring's cell count scales with 1/zoom^2 (fixed
+// margin fractions of a screen-sized viewport), so sharpness-preserving
+// downscale grows far slower than the VRAM cost actually does. At
+// MIN_ZOOM (0.15, puzzleStage.ts) that formula needs 1/0.15 =~ 6.7x
+// downscale, so it never even reached CELL_MASK_TIER_FACTORS' own coarsest
+// entry (16x) - dead code - and it stayed on tier 0 (native, ~33.6MB per
+// cell decoded per DECISIONS) for any zoom above 0.25, i.e. almost the
+// entire practical zoom range, reproducing the pre-tiering VRAM-thrashing
+// bug it was built to fix.
+//
+// These breakpoints are chosen from the ring-cell-count math instead: at
+// zoom Z the ring covers on the order of (0.15 / Z)^2 * 300 cells (300+
+// cells measured at MIN_ZOOM=0.15, see DECISIONS). Each breakpoint is set so
+// the *worst case at the low-zoom edge of its own band* still fits the
+// 256MB budget: tier 2 (16x, ~0.13MB/cell) up to 0.3 zoom (~300 cells =~
+// 39MB), tier 1 (4x, ~2.1MB/cell) up to 1.0 zoom (~75 cells at the 0.3 edge
+// =~ 157MB), tier 0 (native) above that (~7 cells at the 1.0 edge =~
+// 225MB). Estimates, not yet empirically tuned against real usage (see
+// DECISIONS): retune if a real-scale pass still shows thrashing near a
+// breakpoint.
+const TIER_ZOOM_BREAKPOINTS = [0.3, 1.0];
+
 export function maskTierForZoom(zoom: number): number {
-  const neededDownscale = Math.max(1, 1 / zoom);
-  let tier = 0;
-  for (let i = 0; i < CELL_MASK_TIER_FACTORS.length; i++) {
-    if (CELL_MASK_TIER_FACTORS[i]! <= neededDownscale) tier = i;
+  for (let i = 0; i < TIER_ZOOM_BREAKPOINTS.length; i++) {
+    if (zoom < TIER_ZOOM_BREAKPOINTS[i]!) return CELL_MASK_TIER_FACTORS.length - 1 - i;
   }
-  return tier;
+  return 0;
+}
+
+// The highest-detail level whose tile grid still covers the WHOLE image in
+// at most maxTiles tiles - i.e. the level a small, fixed-size deep-zoom
+// viewport would land on for free (see this puzzle's own reference-image
+// thumbnail, which looks instant purely because it is physically small
+// enough that a handful of coarse tiles already covers it). The main canvas
+// has no such natural ceiling (it can be the whole browser window), so
+// DziRevealLayer picks this level explicitly and keeps its tiles resident
+// permanently as a base layer: something is visible everywhere from the
+// very first frame, the same way any real deep-zoom or map viewer never
+// shows a blank tile while a sharper one is still loading.
+export function pickBaseLevel(info: DziInfo, maxTiles: number): number {
+  let level = 0;
+  for (let l = 0; l <= info.maxLevel; l++) {
+    const cols = Math.ceil(levelDimension(info.width, info, l) / info.tileSize);
+    const rows = Math.ceil(levelDimension(info.height, info, l) / info.tileSize);
+    if (cols * rows > maxTiles) break;
+    level = l;
+  }
+  return level;
 }
 
 // Every native tile at a level intersecting a world rect, with each tile's

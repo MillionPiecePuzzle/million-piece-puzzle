@@ -34,10 +34,22 @@ import { Container, Matrix, RenderTexture, Sprite, type Texture } from "pixi.js"
 import type { Aabb } from "./cull";
 import { neededCompositeTiles } from "./compositeTiles";
 import { LOD_TILE_WORLD, packCell, unpackWireCellKey, type CellKey } from "./groupGrid";
-import { dziTilesForRect, levelForZoom, maskTierForZoom, type DziInfo } from "./dziTiles";
+import { dziTilesForRect, levelForZoom, maskTierForZoom, pickBaseLevel, type DziInfo } from "./dziTiles";
 
 const DZI_VRAM_BUDGET_MB = 128;
 const DZI_MAX_INFLIGHT = 8;
+// A small, fixed-size deep-zoom viewport (this puzzle's own reference-image
+// thumbnail) looks instant purely because a handful of coarse tiles already
+// covers it. The main canvas has no such natural ceiling, so this caps how
+// many tiles the base layer (see loadBaseLayer) is allowed to need to cover
+// the WHOLE image: picked once via pickBaseLevel, fetched once, and kept
+// resident for the rest of this layer's life. 64 tiles at ~254px each is a
+// one-time, low-hundreds-of-KB cost regardless of source image size.
+const BASE_LEVEL_MAX_TILES = 64;
+// Rough fixed overhead for reporting purposes only (see budgetBytes): base
+// tiles are never evicted, so unlike every other budget in this file this
+// one is not an eviction threshold, just what residentBytes will include.
+const BASE_LAYER_VRAM_BUDGET_MB = 16;
 // Sized against LOD tiering (see dziTiles.ts's maskTierForZoom), not native
 // per-cell resolution: at native resolution a single cell's mask+seam pair
 // alone is already ~33.6MB decoded ((cellSize+2*margin)^2*4*2 at the real
@@ -126,12 +138,21 @@ function rectsOverlap(a: Aabb, b: Aabb): boolean {
 
 export class DziRevealLayer {
   private readonly tileContainer: Container;
+  // Child of tileContainer, added first (so it always stays at the bottom:
+  // Pixi draws later-added children on top) and therefore covered by the
+  // same tileContainer.mask every dynamic tile already is, with no separate
+  // mask assignment needed. Holds the fixed base-level tiles loadBaseLayer
+  // fetches once and never evicts (see BASE_LEVEL_MAX_TILES): the whole
+  // point is that they are already there, on the very first frame, while
+  // reconcileDziTiles's zoom-appropriate tiles are still streaming in on top.
+  private readonly baseTileContainer: Container;
   private readonly seamContainer: Container;
   // Never added to deps.container: exists only as a render source for the
   // combined mask bake below, never drawn directly by the normal scene walk.
   private readonly maskSourceContainer: Container;
 
   private readonly dziTiles = new Map<string, DziTile>();
+  private readonly baseTiles: Sprite[] = [];
   private readonly cellAssets = new Map<CellKey, CellAsset>();
   private lruClock = 0;
   private dziInFlight = 0;
@@ -151,9 +172,40 @@ export class DziRevealLayer {
   constructor(private readonly deps: DziRevealLayerDeps) {
     this.tileContainer = new Container();
     this.deps.container.addChild(this.tileContainer);
+    this.baseTileContainer = new Container();
+    this.tileContainer.addChild(this.baseTileContainer);
     this.seamContainer = new Container();
     this.deps.container.addChild(this.seamContainer);
     this.maskSourceContainer = new Container();
+    void this.loadBaseLayer();
+  }
+
+  // Fetches the whole image once, at whatever level needs at most
+  // BASE_LEVEL_MAX_TILES tiles to cover it (see pickBaseLevel), and keeps
+  // every tile resident for this layer's entire life: never touched by
+  // reconcileDziTiles's ring-based hydrate/evict logic, since baseTiles is a
+  // separate array evictDziTilesOverBudget never iterates. One-shot,
+  // fire-and-forget from the constructor: nothing downstream awaits it,
+  // reconcile() just finds more sprites in baseTileContainer as each
+  // resolves, exactly like any other tile hydrate completing.
+  private async loadBaseLayer(): Promise<void> {
+    const { dziInfo, dziBaseUrl, loadTexture } = this.deps;
+    const level = pickBaseLevel(dziInfo, BASE_LEVEL_MAX_TILES);
+    const wholeImage: Aabb = { minX: 0, minY: 0, maxX: dziInfo.width, maxY: dziInfo.height };
+    const tiles = dziTilesForRect(dziInfo, level, wholeImage, dziBaseUrl);
+    await Promise.all(
+      tiles.map(async (t) => {
+        const texture = await loadTexture(t.url);
+        if (!texture) return;
+        const sprite = new Sprite(texture);
+        sprite.x = t.worldRect.minX;
+        sprite.y = t.worldRect.minY;
+        sprite.width = t.worldRect.maxX - t.worldRect.minX;
+        sprite.height = t.worldRect.maxY - t.worldRect.minY;
+        this.baseTileContainer.addChild(sprite);
+        this.baseTiles.push(sprite);
+      }),
+    );
   }
 
   // Records or bumps one cell's known mask/seam version, mirroring
@@ -409,18 +461,25 @@ export class DziRevealLayer {
   // the only way to get Pixi's real per-pixel AlphaMask instead of a coarse
   // per-sprite-quad StencilMask (see this file's own header comment).
   // Rebuilt when the last bake no longer covers the hydrate ring (a
-  // meaningful pan/zoom, never throttled: the view needs fresh coverage now)
-  // or a mask sprite (re)hydrated since (maskGeneration, throttled to
-  // MIN_REBAKE_INTERVAL_MS: at real board scale a burst of cells can still be
-  // hydrating individually for seconds after a ring move, and re-rendering
-  // the full combined texture on every one of those completions would fire
-  // nearly every frame for that whole stretch).
+  // meaningful pan/zoom) or a mask sprite (re)hydrated since (maskGeneration).
+  // Both cases share the same MIN_REBAKE_INTERVAL_MS throttle: an earlier
+  // version only throttled the generation-changed case and let a ring move
+  // rebake on every reconcile with no floor at all, on the theory that "the
+  // view needs fresh coverage now". reconcile() runs every ticker frame
+  // regardless of camera movement (see puzzleStage.ts), so a sustained pan
+  // keeps the ring stale on essentially every frame, turning that
+  // "un-throttled" path into a full up-to-MAX_MASK_TEXELS^2 GPU
+  // render-to-texture on every single frame for the whole gesture, the
+  // actual cause of reported pan lag. A stale mask sprite still gets
+  // repositioned every frame below regardless of this throttle (cheap, no
+  // render), so the coverage rect only ever trails the camera by at most
+  // MIN_REBAKE_INTERVAL_MS, imperceptible against the cost this avoids.
   private updateCombinedMask(hydrateRing: Aabb, keepRing: Aabb, level: number): void {
     const ringStale = !this.maskCoveredRect || !rectContains(this.maskCoveredRect, hydrateRing);
     const generationChanged = this.maskGeneration !== this.lastBakedGeneration;
     if (!ringStale && !generationChanged) return;
     const now = performance.now();
-    if (!ringStale && now - this.lastBakeAtMs < MIN_REBAKE_INTERVAL_MS) return;
+    if (now - this.lastBakeAtMs < MIN_REBAKE_INTERVAL_MS) return;
     this.lastBakeAtMs = now;
 
     const worldW = keepRing.maxX - keepRing.minX;
@@ -482,6 +541,9 @@ export class DziRevealLayer {
       const tex = tile.sprite.texture;
       total += tex.width * tex.height * 4;
     }
+    for (const sprite of this.baseTiles) {
+      total += sprite.texture.width * sprite.texture.height * 4;
+    }
     for (const tile of this.cellAssets.values()) {
       if (tile.maskSprite) total += tile.maskSprite.texture.width * tile.maskSprite.texture.height * 4;
       if (tile.seamSprite) total += tile.seamSprite.texture.width * tile.seamSprite.texture.height * 4;
@@ -491,11 +553,16 @@ export class DziRevealLayer {
   }
 
   budgetBytes(): number {
-    return (DZI_VRAM_BUDGET_MB + CELL_ASSET_VRAM_BUDGET_MB) * 1e6;
+    return (DZI_VRAM_BUDGET_MB + BASE_LAYER_VRAM_BUDGET_MB + CELL_ASSET_VRAM_BUDGET_MB) * 1e6;
   }
 
   clear(): void {
     for (const tile of this.dziTiles.values()) this.freeDziTile(tile);
+    for (const sprite of this.baseTiles) {
+      this.baseTileContainer.removeChild(sprite);
+      sprite.destroy();
+    }
+    this.baseTiles.length = 0;
     this.dziTiles.clear();
     for (const tile of this.cellAssets.values()) this.freeCellAsset(tile);
     this.cellAssets.clear();
