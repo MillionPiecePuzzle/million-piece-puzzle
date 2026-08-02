@@ -508,6 +508,18 @@ export class DziRevealLayer {
         antialias: true,
       });
       this.maskSprite = new Sprite(this.maskTexture);
+      // Pixi's mask filter maps the masked container's global bounds through
+      // the mask sprite's own worldTransform (FilterSystem.calculateSpriteMatrix),
+      // so the mask only lands correctly if it shares the same camera-transformed
+      // ancestor as tileContainer (a descendant of the pan/zoom-scaled world
+      // container, see puzzleStage.ts). A parentless sprite has no such
+      // ancestor: its worldTransform is its bare local transform, so its
+      // on-screen position never moved with the camera, only jumping to a new
+      // (still wrong) spot on the next rebake. renderable = false keeps it out
+      // of the normal draw pass (it must never paint its raw mask texture as
+      // visible content), while still being a real child for transform purposes.
+      this.maskSprite.renderable = false;
+      this.deps.container.addChild(this.maskSprite);
     } else if (this.maskTexture.width !== texW || this.maskTexture.height !== texH) {
       // Resize in place instead of destroy+recreate. Destroying fires a
       // TextureSource 'change' event with destroyed=true, which PixiJS's
@@ -521,12 +533,10 @@ export class DziRevealLayer {
       this.maskTexture.resize(texW, texH);
     }
     const sprite = this.maskSprite!;
-    // Positioned in the same world-coordinate convention the old rectangular
-    // Graphics mask used (no parent of its own, plain world-space x/y/width/
-    // height against the same tileContainer it masks): already verified
-    // aligned correctly at this layer's original prototyping, so the new
-    // Sprite-based mask follows the identical convention rather than
-    // re-deriving Pixi's transform resolution from scratch.
+    // Plain world-space x/y/width/height, same convention tileContainer's own
+    // children use: correct now that the sprite is a real child of the same
+    // camera-transformed ancestor (see its creation above), so this position
+    // composes with the camera exactly like the content it masks.
     sprite.x = keepRing.minX;
     sprite.y = keepRing.minY;
     sprite.width = worldW;
@@ -575,7 +585,10 @@ export class DziRevealLayer {
     for (const tile of this.cellAssets.values()) this.freeCellAsset(tile);
     this.cellAssets.clear();
     this.tileContainer.mask = null;
-    this.maskSprite?.destroy();
+    if (this.maskSprite) {
+      this.deps.container.removeChild(this.maskSprite);
+      this.maskSprite.destroy();
+    }
     this.maskSprite = null;
     this.maskTexture?.destroy(true);
     this.maskTexture = null;
