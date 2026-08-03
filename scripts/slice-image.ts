@@ -40,7 +40,9 @@
  *
  * `--name` is the human-readable puzzle name; it defaults to the output
  * directory basename when omitted. `--concurrency` bounds how many piece tiles
- * are encoded in parallel.
+ * are encoded in parallel. `--dzi-only` re-slices just the reference pyramid
+ * against an existing output directory (e.g. after a DZI-only quality change),
+ * leaving the already-cut pieces and manifest.json untouched.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -70,14 +72,21 @@ type Args = {
   margin?: number;
   quality: number;
   concurrency: number;
+  dziOnly: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
   const args: Record<string, string> = {};
+  let dziOnly = false;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (!flag.startsWith("--")) continue;
     const key = flag.slice(2);
+    // The one boolean switch; every other flag takes a value.
+    if (key === "dzi-only") {
+      dziOnly = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) {
       throw new Error(`missing value for --${key}`);
@@ -102,6 +111,7 @@ function parseArgs(argv: string[]): Args {
     concurrency: args["concurrency"]
       ? parseInt(args["concurrency"], 10)
       : Math.max(2, os.cpus().length),
+    dziOnly,
   };
 }
 
@@ -165,81 +175,83 @@ async function main() {
   const cropTop = Math.floor((sourceMeta.height - puzzleHeight) / 2);
 
   const puzzleId = path.basename(args.output);
-  const piecesDir = path.join(args.output, "pieces");
-  await mkdir(piecesDir, { recursive: true });
-
   const total = args.rows * args.cols;
-  const idWidth = Math.max(4, String(total - 1).length);
-  const base = seedFromString(args.seed);
-  // The same deterministic relabeling the server derives from the seed. Tiles and
-  // the manifest are keyed by wireId so the public asset paths carry no solved
-  // position; the tile content stays the grid-id image.
-  const { wireForGrid } = buildPermutation(args.seed, total);
-
-  // Pre-create the hundred-buckets once (concurrent workers would otherwise race
-  // mkdir for the same bucket).
-  const bucketCount = Math.floor((total - 1) / 100) + 1;
-  for (let b = 0; b < bucketCount; b++) {
-    await mkdir(path.join(piecesDir, pad(b, 4)), { recursive: true });
-  }
-
   const pieces: ImageManifest["pieces"] = new Array(total);
 
-  // One libvips thread per op; parallelism comes from the worker pool so the
-  // many small per-piece ops do not oversubscribe the cores.
-  sharp.concurrency(1);
-  await forEachPiece(total, args.concurrency, async (id) => {
-    const row = Math.floor(id / args.cols);
-    const col = id % args.cols;
+  if (!args.dziOnly) {
+    const piecesDir = path.join(args.output, "pieces");
+    await mkdir(piecesDir, { recursive: true });
 
-    // Tile window in source coordinates, clamped to the puzzle area; the margin
-    // overhang at the puzzle border is padded transparent (and masked away,
-    // since border edges are flat).
-    const tileLeft = cropLeft + col * pieceSize - margin;
-    const tileTop = cropTop + row * pieceSize - margin;
-    const left = Math.max(cropLeft, tileLeft);
-    const top = Math.max(cropTop, tileTop);
-    const right = Math.min(cropLeft + puzzleWidth, tileLeft + tileSize);
-    const bottom = Math.min(cropTop + puzzleHeight, tileTop + tileSize);
-    const extractWidth = right - left;
-    const extractHeight = bottom - top;
-    const padLeft = left - tileLeft;
-    const padTop = top - tileTop;
-    const padRight = tileSize - extractWidth - padLeft;
-    const padBottom = tileSize - extractHeight - padTop;
+    const idWidth = Math.max(4, String(total - 1).length);
+    const base = seedFromString(args.seed);
+    // The same deterministic relabeling the server derives from the seed. Tiles and
+    // the manifest are keyed by wireId so the public asset paths carry no solved
+    // position; the tile content stays the grid-id image.
+    const { wireForGrid } = buildPermutation(args.seed, total);
 
-    const geom = generatePieceGeometry(base, args.rows, args.cols, pieceSize, id);
-    const pathD = piecePathD(piecePath(geom, pieceSize), margin, margin);
-    const mask = pieceMaskSvg([pathD], tileSize, tileSize);
-    const border = pieceBorderSvg([pathD], tileSize, tileSize);
+    // Pre-create the hundred-buckets once (concurrent workers would otherwise race
+    // mkdir for the same bucket).
+    const bucketCount = Math.floor((total - 1) / 100) + 1;
+    for (let b = 0; b < bucketCount; b++) {
+      await mkdir(path.join(piecesDir, pad(b, 4)), { recursive: true });
+    }
 
-    // The tile content is generated from the grid id, but written under its wire
-    // id: a piece a client knows as `wireId` loads the grid-id image at that path.
-    const wireId = wireForGrid[id]!;
-    const idStr = pad(wireId, idWidth);
-    const bucket = pad(Math.floor(wireId / 100), 4);
-    const fileName = `${idStr}.avif`;
-    const outPath = path.join(piecesDir, bucket, fileName);
+    // One libvips thread per op; parallelism comes from the worker pool so the
+    // many small per-piece ops do not oversubscribe the cores.
+    sharp.concurrency(1);
+    await forEachPiece(total, args.concurrency, async (id) => {
+      const row = Math.floor(id / args.cols);
+      const col = id % args.cols;
 
-    await sharp(args.input, { limitInputPixels: false })
-      .extract({ left, top, width: extractWidth, height: extractHeight })
-      .ensureAlpha()
-      .extend({
-        top: padTop,
-        bottom: padBottom,
-        left: padLeft,
-        right: padRight,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      })
-      .composite([
-        { input: mask, blend: "dest-in" },
-        { input: border, blend: "over" },
-      ])
-      .avif({ quality: args.quality, effort: 4 })
-      .toFile(outPath);
+      // Tile window in source coordinates, clamped to the puzzle area; the margin
+      // overhang at the puzzle border is padded transparent (and masked away,
+      // since border edges are flat).
+      const tileLeft = cropLeft + col * pieceSize - margin;
+      const tileTop = cropTop + row * pieceSize - margin;
+      const left = Math.max(cropLeft, tileLeft);
+      const top = Math.max(cropTop, tileTop);
+      const right = Math.min(cropLeft + puzzleWidth, tileLeft + tileSize);
+      const bottom = Math.min(cropTop + puzzleHeight, tileTop + tileSize);
+      const extractWidth = right - left;
+      const extractHeight = bottom - top;
+      const padLeft = left - tileLeft;
+      const padTop = top - tileTop;
+      const padRight = tileSize - extractWidth - padLeft;
+      const padBottom = tileSize - extractHeight - padTop;
 
-    pieces[wireId] = { id: wireId, file: `pieces/${bucket}/${fileName}` };
-  });
+      const geom = generatePieceGeometry(base, args.rows, args.cols, pieceSize, id);
+      const pathD = piecePathD(piecePath(geom, pieceSize), margin, margin);
+      const mask = pieceMaskSvg([pathD], tileSize, tileSize);
+      const border = pieceBorderSvg([pathD], tileSize, tileSize);
+
+      // The tile content is generated from the grid id, but written under its wire
+      // id: a piece a client knows as `wireId` loads the grid-id image at that path.
+      const wireId = wireForGrid[id]!;
+      const idStr = pad(wireId, idWidth);
+      const bucket = pad(Math.floor(wireId / 100), 4);
+      const fileName = `${idStr}.avif`;
+      const outPath = path.join(piecesDir, bucket, fileName);
+
+      await sharp(args.input, { limitInputPixels: false })
+        .extract({ left, top, width: extractWidth, height: extractHeight })
+        .ensureAlpha()
+        .extend({
+          top: padTop,
+          bottom: padBottom,
+          left: padLeft,
+          right: padRight,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .composite([
+          { input: mask, blend: "dest-in" },
+          { input: border, blend: "over" },
+        ])
+        .avif({ quality: args.quality, effort: 4 })
+        .toFile(outPath);
+
+      pieces[wireId] = { id: wireId, file: `pieces/${bucket}/${fileName}` };
+    });
+  }
 
   // Deep Zoom pyramid of the cropped puzzle area, streamed from the source file
   // (no global buffer): the same random-access read path as the pieces. Uses
@@ -252,6 +264,15 @@ async function main() {
     .webp({ quality: DZI_QUALITY, effort: 4 })
     .tile({ layout: "dz", size: 254, overlap: 1, basename: "source" })
     .toFile(path.join(args.output, "source"));
+
+  if (args.dziOnly) {
+    // pieces is a placeholder array in this branch (the loop above never ran):
+    // manifest.json already has the real one from the original slice and is
+    // deliberately left untouched, since pieceSize/margin/tileSize/pieces are
+    // all unchanged by a quality-only re-encode of the reference pyramid.
+    console.log(`re-sliced only the ${puzzleWidth}x${puzzleHeight} reference pyramid to ${args.output}`);
+    return;
+  }
 
   const manifest: ImageManifest = {
     puzzleId,
