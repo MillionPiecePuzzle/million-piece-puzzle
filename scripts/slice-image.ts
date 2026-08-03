@@ -112,6 +112,14 @@ function pad(n: number, width: number): string {
 // Runs `fn(id)` for ids 0..total-1 with at most `limit` in flight, so a 1M-piece
 // run encodes across cores without materializing an id array or firing every
 // AVIF encode at once.
+// WebP is visibly softer than AVIF at the same numeric quality (a materially
+// less efficient codec at equivalent settings), so the DZI reference pyramid
+// reusing --quality as-is looked noticeably worse than the AVIF piece/composite
+// tiles at the same zoom despite sampling the same native-resolution source.
+// This is an eyeballed approximation of AVIF-60-equivalent fidelity, not a
+// measured match; retune by eye once the real photo replaces the synthetic one.
+const DZI_QUALITY = 85;
+
 async function forEachPiece(
   total: number,
   limit: number,
@@ -234,12 +242,14 @@ async function main() {
   });
 
   // Deep Zoom pyramid of the cropped puzzle area, streamed from the source file
-  // (no global buffer): the same random-access read path as the pieces.
+  // (no global buffer): the same random-access read path as the pieces. Uses
+  // DZI_QUALITY, not args.quality: see that constant's own comment for why the
+  // two can't share a number despite both nominally being "quality".
   sharp.concurrency(0);
   const dziName = "source.dzi";
   await sharp(args.input, { limitInputPixels: false })
     .extract({ left: cropLeft, top: cropTop, width: puzzleWidth, height: puzzleHeight })
-    .webp({ quality: args.quality, effort: 4 })
+    .webp({ quality: DZI_QUALITY, effort: 4 })
     .tile({ layout: "dz", size: 254, overlap: 1, basename: "source" })
     .toFile(path.join(args.output, "source"));
 
