@@ -330,16 +330,18 @@ async function main(): Promise<void> {
           await mongoClient.db(config.mongoDb).dropDatabase();
         },
         exit: () => process.exit(0),
-        resweepComposites: () => {
+        resweepComposites: (cellKeys?: number[]) => {
           if (!ctx.cellCompositor) throw new NoCompositorError();
-          const allCells = allCellKeysForGrid(
-            ctx.meta.gridCols,
-            ctx.meta.gridRows,
-            ctx.meta.pieceSize,
-            ctx.worldTileSize,
-          );
-          ctx.cellCompositor.markDirty(allCells);
-          return allCells.length;
+          const targets =
+            cellKeys ??
+            allCellKeysForGrid(
+              ctx.meta.gridCols,
+              ctx.meta.gridRows,
+              ctx.meta.pieceSize,
+              ctx.worldTileSize,
+            );
+          ctx.cellCompositor.markDirty(targets);
+          return targets.length;
         },
         resweepPending: () => ctx.cellCompositor?.pendingCount() ?? 0,
       }

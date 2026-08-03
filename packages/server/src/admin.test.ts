@@ -13,6 +13,7 @@ import {
   UnknownPuzzleError,
 } from "./admin.js";
 import type { Redis } from "ioredis";
+import { cellKey } from "./worldGrid.js";
 
 function fakeRes() {
   const finishHandlers: Array<() => void> = [];
@@ -211,6 +212,38 @@ describe("makeAdminResweepHandler", () => {
     const res = fakeRes();
     await handler({} as Request, res);
     expect((res as unknown as { statusCode: number }).statusCode).toBe(500);
+  });
+
+  it("forwards an explicit cellKeys list instead of sweeping the whole grid", async () => {
+    const resweepComposites = vi.fn(() => 2);
+    const handler = makeAdminResweepHandler({ resweepComposites });
+    const res = fakeRes();
+    const keys = [cellKey(0, 0), cellKey(3, 1)];
+    await handler({ body: { cellKeys: keys } } as Request, res);
+    expect(resweepComposites).toHaveBeenCalledWith(keys);
+    expect((res as unknown as { statusCode: number; body: unknown }).statusCode).toBe(200);
+    expect((res as unknown as { body: { started: boolean; totalCells: number } }).body).toEqual({
+      started: true,
+      totalCells: 2,
+    });
+  });
+
+  it("400 on a non-array cellKeys, without calling resweepComposites", async () => {
+    const resweepComposites = vi.fn(() => 1296);
+    const handler = makeAdminResweepHandler({ resweepComposites });
+    const res = fakeRes();
+    await handler({ body: { cellKeys: "all" } } as unknown as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(resweepComposites).not.toHaveBeenCalled();
+  });
+
+  it("400 on a cellKeys array containing a non-integer, without calling resweepComposites", async () => {
+    const resweepComposites = vi.fn(() => 1296);
+    const handler = makeAdminResweepHandler({ resweepComposites });
+    const res = fakeRes();
+    await handler({ body: { cellKeys: [1, 2.5, 3] } } as Request, res);
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(400);
+    expect(resweepComposites).not.toHaveBeenCalled();
   });
 });
 

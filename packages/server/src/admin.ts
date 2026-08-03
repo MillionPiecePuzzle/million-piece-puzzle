@@ -46,15 +46,19 @@ export type AdminDeps = {
   clearEverything: () => Promise<void>;
   // Injected so tests can assert a restart without killing the test process.
   exit: () => void;
-  // Enqueues every cell in the grid for a full recomposite (photo + every
-  // mask/seam tier), reusing the same allCellKeysForGrid the dev
-  // force-complete resweep already uses, without any of force-complete's
-  // puzzle-completion side effects (see lifecycle.ts). Fire-and-forget:
-  // CellCompositor drains its queue in the background (markDirty), so this
-  // returns the enqueued cell count immediately rather than waiting for the
-  // bake to finish. Throws NoCompositorError when R2 write credentials are
-  // not configured.
-  resweepComposites: () => number;
+  // Enqueues cells for a full recomposite (photo + every mask/seam tier).
+  // With no cellKeys, sweeps the whole grid (allCellKeysForGrid, the same set
+  // the dev force-complete resweep already uses), for a derived-asset scheme
+  // change; a rare, deliberately targeted resweep of specific straggler cells
+  // (e.g. the exact keys a Redis/R2 audit found still missing after a past
+  // incident) passes cellKeys instead, so an operator is not forced to pay a
+  // full-grid rebake's wall-clock and CDN/R2 cost just to fix a handful of
+  // cells. Neither carries any of force-complete's puzzle-completion side
+  // effects (see lifecycle.ts). Fire-and-forget: CellCompositor drains its
+  // queue in the background (markDirty), so this returns the enqueued cell
+  // count immediately rather than waiting for the bake to finish. Throws
+  // NoCompositorError when R2 write credentials are not configured.
+  resweepComposites: (cellKeys?: number[]) => number;
   // Current backlog size (0 once idle), for polling a resweep's progress
   // without holding a request open for however long the whole thing takes.
   resweepPending: () => number;
@@ -174,10 +178,19 @@ export function makeAdminSwitchHandler(deps: Pick<AdminDeps, "switchPuzzle" | "e
 }
 
 export function makeAdminResweepHandler(deps: Pick<AdminDeps, "resweepComposites">) {
-  return (_req: Request, res: Response): void => {
+  return (req: Request, res: Response): void => {
+    const cellKeys = (req.body as { cellKeys?: unknown } | undefined)?.cellKeys;
+    if (
+      cellKeys !== undefined &&
+      (!Array.isArray(cellKeys) ||
+        !cellKeys.every((k) => typeof k === "number" && Number.isInteger(k)))
+    ) {
+      res.status(400).json({ error: "invalid_cell_keys" });
+      return;
+    }
     let totalCells: number;
     try {
-      totalCells = deps.resweepComposites();
+      totalCells = deps.resweepComposites(cellKeys as number[] | undefined);
     } catch (e) {
       if (e instanceof NoCompositorError) {
         res.status(503).json({ error: "no_compositor" });
