@@ -501,11 +501,23 @@ export class DziRevealLayer {
     const texH = Math.min(MAX_MASK_TEXELS, Math.max(1, Math.ceil(worldH * texelsPerWorldUnit)));
 
     if (!this.maskTexture) {
+      // No antialias: true here. Pixi's GL backend allocates a multisampled
+      // renderbuffer (gl.renderbufferStorageMultisample) for an antialiased
+      // RenderTexture and reallocates it on every resize() (GlRenderTargetAdaptor
+      // _resizeColor), unlike a plain texture; on a real browser at real 1M
+      // scale, resized up to 5x/second while zooming (MIN_REBAKE_INTERVAL_MS),
+      // this produced GL_INVALID_OPERATION "Texture total allocation size is
+      // too large" and "Framebuffer is incomplete: Attachment has zero size"
+      // specifically past ~350% zoom, leaving tileContainer masked to nothing
+      // (blank photo, seam overlay still visible since it is a separate,
+      // unmasked container). The mask is a binary silhouette cutout, not
+      // detailed content, and the true piece border is already drawn crisp and
+      // unmasked by seamContainer, so losing MSAA costs a faint edge softness
+      // at most.
       this.maskTexture = RenderTexture.create({
         width: texW,
         height: texH,
         resolution: 1,
-        antialias: true,
       });
       this.maskSprite = new Sprite(this.maskTexture);
       // Pixi's mask filter maps the masked container's global bounds through
