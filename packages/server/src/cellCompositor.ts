@@ -75,9 +75,19 @@ const AVIF_EFFORT = 4;
 // whole grid dropped ~36% of cells to "fetch failed"/502 at unbounded
 // concurrency).
 const PIECE_FETCH_CONCURRENCY = 24;
+// Bound on whole-cell bake attempts (see drain's catch block below), separate
+// from and coarser than fetchPieceTile's own per-tile retry (index.ts): this
+// one also covers an R2 upload failure or a sharp exception, neither of which
+// the per-tile retry sees, and re-attempts the whole cell rather than one
+// tile. See DECISIONS: bounded per-cell piece-tile fetch concurrency.
+const CELL_BAKE_MAX_ATTEMPTS = 3;
 
 export class CellCompositor {
   private readonly dirty = new Set<number>();
+  // Attempt count for a cell currently mid-retry (see drain). Absent for a
+  // cell on its first attempt, and cleared again once it either succeeds or
+  // exhausts CELL_BAKE_MAX_ATTEMPTS.
+  private readonly bakeAttempts = new Map<number, number>();
   private draining = false;
   private drainPromise: Promise<void> = Promise.resolve();
 
@@ -98,7 +108,9 @@ export class CellCompositor {
 
   // Backlog size, for polling a long-running bulk markDirty (e.g. an admin
   // resweep) from outside without awaiting whenIdle, which would hold an HTTP
-  // request open for as long as the whole backlog takes to drain.
+  // request open for as long as the whole backlog takes to drain. Includes
+  // cells currently mid-retry (see drain), so polling this down to 0 means
+  // every cell got its full CELL_BAKE_MAX_ATTEMPTS budget, not just one pass.
   pendingCount(): number {
     return this.dirty.size;
   }
@@ -111,6 +123,7 @@ export class CellCompositor {
   // already orphaned. Deleting the whole <puzzleId>/cells/ prefix catches all
   // of them at once, regardless of how many past lives left one behind.
   async clearAll(): Promise<void> {
+    this.bakeAttempts.clear();
     await this.deps.removeByPrefix(`${this.deps.puzzleId}/cells/`);
   }
 
@@ -122,16 +135,38 @@ export class CellCompositor {
         this.dirty.delete(key);
         try {
           await this.processCell(key);
+          this.bakeAttempts.delete(key);
         } catch (e) {
-          // Logged and dropped, not retried: the next lock event that
-          // re-dirties this cell re-attempts the whole bake from scratch, so
-          // a transient fetch/upload failure self-heals as long as the cell
-          // is not yet at 100% locked. A failure on a cell's very last lock
-          // (nothing left to ever re-dirty it) leaves it one version stale
-          // (or with no composite at all), which force-complete or a future
-          // admin reset re-sweeps; accepted, not worth a retry queue for a
-          // rendering optimization the client already falls back from.
-          console.error(`[cell-composite] cell ${key} failed`, (e as Error).message);
+          const attempt = (this.bakeAttempts.get(key) ?? 0) + 1;
+          if (attempt < CELL_BAKE_MAX_ATTEMPTS) {
+            // Requeued, not dropped: re-adding to `dirty` lets this same
+            // drain loop retry it once every other currently-queued cell has
+            // had its own turn first, a natural backoff with no timer
+            // needed. A live lock event re-dirtying this cell independently
+            // still behaves the same as before (whenever the retry succeeds,
+            // the attempt counter clears), so this is only ever an extra
+            // ceiling on top of that, never a replacement for it.
+            this.bakeAttempts.set(key, attempt);
+            this.dirty.add(key);
+            console.warn(
+              `[cell-composite] cell ${key} failed (attempt ${attempt}/${CELL_BAKE_MAX_ATTEMPTS}), retrying`,
+              (e as Error).message,
+            );
+          } else {
+            // Logged and dropped for good, the genuine last resort: since
+            // CompositeTileLayer replaced the per-piece fallback (see
+            // DECISIONS), a cell that never gets a composite renders
+            // nothing, not degraded content, so this can no longer be
+            // accepted as a steady state the way it once was. A later lock
+            // event touching this cell still gets its own fresh
+            // CELL_BAKE_MAX_ATTEMPTS budget; a fully-locked cell with none
+            // left needs a force-complete or admin resweep to try again.
+            this.bakeAttempts.delete(key);
+            console.error(
+              `[cell-composite] cell ${key} failed after ${CELL_BAKE_MAX_ATTEMPTS} attempts, giving up`,
+              (e as Error).message,
+            );
+          }
         }
       }
     } finally {
@@ -231,10 +266,24 @@ export class CellCompositor {
   ): Promise<void> {
     const previousVersion = this.deps.index.get(key) ?? 0;
     const version = previousVersion + 1;
-    const uploads: Promise<void>[] = [this.deps.upload(this.objectKey(key, version), photo, "image/avif")];
+    const uploads: Promise<void>[] = [
+      this.deps.upload(this.objectKey(key, version), photo, "image/avif"),
+    ];
     for (let tier = 0; tier < CELL_MASK_TIER_FACTORS.length; tier++) {
-      uploads.push(this.deps.upload(this.objectKey(key, version, "mask", tier), maskTiers[tier]!, "image/avif"));
-      uploads.push(this.deps.upload(this.objectKey(key, version, "seam", tier), seamTiers[tier]!, "image/avif"));
+      uploads.push(
+        this.deps.upload(
+          this.objectKey(key, version, "mask", tier),
+          maskTiers[tier]!,
+          "image/avif",
+        ),
+      );
+      uploads.push(
+        this.deps.upload(
+          this.objectKey(key, version, "seam", tier),
+          seamTiers[tier]!,
+          "image/avif",
+        ),
+      );
     }
     await Promise.all(uploads);
     this.deps.index.set(key, version);
@@ -264,7 +313,12 @@ export class CellCompositor {
     }
   }
 
-  private objectKey(key: number, version: number, variant?: "mask" | "seam", tier?: number): string {
+  private objectKey(
+    key: number,
+    version: number,
+    variant?: "mask" | "seam",
+    tier?: number,
+  ): string {
     const suffix = variant ? `-${variant}-${tier}` : "";
     return `${this.deps.puzzleId}/cells/${key}/${version}${suffix}.avif`;
   }

@@ -211,8 +211,9 @@ describe("CellCompositor.markDirty", () => {
     let calls = 0;
     const uploads: { key: string; body: Buffer; contentType: string }[] = [];
     const { deps, locked } = makeDeps({
-      // Fails all seven uploads of the first bake it sees (photo + mask/seam
-      // at every tier), succeeds from the second cell's bake onward.
+      // Fails only the first seven upload calls (cell (0,0)'s own first
+      // attempt); every later call, including cell (0,0)'s own retry,
+      // succeeds.
       upload: vi.fn(async (key: string, body: Buffer, contentType: string) => {
         calls++;
         if (calls <= 7) throw new Error("network blip");
@@ -221,14 +222,71 @@ describe("CellCompositor.markDirty", () => {
     });
     locked.add(0); // cell (0,0)
     locked.add(2); // cell (1,0): ids 2,3,6,7 at CELL_SIZE=20/PIECE_SIZE=10
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const compositor = new CellCompositor(deps);
     compositor.markDirty([cellKey(0, 0), cellKey(1, 0)]);
     await compositor.whenIdle();
-    // Cell (0,0)'s bake fully failed (0 uploads recorded); cell (1,0)'s bake
-    // still completed with all seven of its own objects.
+    // Cell (0,0)'s first attempt fully failed (its 7 uploads are the ones
+    // that throw) but the queue moved on to cell (1,0) instead of stalling,
+    // and cell (0,0) itself got requeued behind it and succeeded on retry:
+    // both cells' 7 uploads each end up recorded, 14 total, not stuck at 7.
+    expect(uploads).toHaveLength(14);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("attempt 1/3"),
+      expect.any(String),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("gives up on a cell after CELL_BAKE_MAX_ATTEMPTS attempts, instead of retrying forever", async () => {
+    const { deps, uploads, locked } = makeDeps({
+      upload: vi.fn().mockRejectedValue(new Error("permanent failure")),
+    });
+    locked.add(0);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const compositor = new CellCompositor(deps);
+    compositor.markDirty([cellKey(0, 0)]);
+    await compositor.whenIdle();
+    // Never succeeds, but does not hang or retry indefinitely either: exactly
+    // 3 attempts (CELL_BAKE_MAX_ATTEMPTS), then dropped, queue left idle.
+    expect(uploads).toEqual([]);
+    expect(deps.fetchTile).toHaveBeenCalledTimes(3);
+    expect(compositor.pendingCount()).toBe(0);
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("after 3 attempts, giving up"),
+      expect.any(String),
+    );
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("gives a retried cell its own fresh attempt budget on a later, independent markDirty", async () => {
+    let shouldFail = true;
+    const { deps, uploads, locked } = makeDeps({
+      upload: vi.fn(async (key: string, body: Buffer, contentType: string) => {
+        if (shouldFail) throw new Error("network blip");
+        uploads.push({ key, body, contentType });
+      }),
+    });
+    locked.add(0);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const compositor = new CellCompositor(deps);
+    // Exhausts all 3 attempts while every upload fails.
+    compositor.markDirty([cellKey(0, 0)]);
+    await compositor.whenIdle();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("giving up"), expect.any(String));
+    errorSpy.mockClear();
+    // A later, independent dirty mark (e.g. a real lock event touching this
+    // cell again) is not penalized by the earlier exhausted budget.
+    shouldFail = false;
+    compositor.markDirty([cellKey(0, 0)]);
+    await compositor.whenIdle();
     expect(uploads).toHaveLength(7);
-    expect(errorSpy).toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
     errorSpy.mockRestore();
   });
 
