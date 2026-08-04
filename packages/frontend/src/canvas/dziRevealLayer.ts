@@ -179,26 +179,38 @@ export class DziRevealLayer {
 
   constructor(private readonly deps: DziRevealLayerDeps) {
     this.tileContainer = new Container();
-    // Overrides Pixi's own recursive bounds walk (getFastGlobalBoundsMixin):
-    // without it, assigning tileContainer.mask routes through MaskFilter,
-    // which hardcodes clipToViewport: false (FilterSystem's own bounds clip
-    // is skipped), so the intermediate texture Pixi allocates for the mask
-    // pass is sized to tileContainer's full recursive global bounds - which
-    // include baseTileContainer's tiles, permanently resident and spanning
-    // the WHOLE image regardless of camera position (see loadBaseLayer). At
-    // low zoom that whole-image footprint is small on screen, but it scales
-    // linearly with zoom like any other world-space content, so past a few
-    // hundred percent it exceeds GL_MAX_TEXTURE_SIZE: the "texImage2D: width
-    // or height out of range" / "Framebuffer is incomplete: Attachment has
-    // zero size" crash reported at 500% zoom, a different failure mode than
-    // the antialias/MSAA crashes already fixed at this same zoom range (see
-    // DECISIONS), but the same underlying unbounded-mask-target root cause.
-    // Kept in sync with keepRing every reconcile() (see below): nothing
-    // outside keepRing is ever meant to be on screen, so clipping the mask's
-    // render target to it costs no visible content.
-    this.tileContainer.boundsArea = new Rectangle();
     this.deps.container.addChild(this.tileContainer);
     this.baseTileContainer = new Container();
+    // Bounds this child's contribution to tileContainer's own recursive
+    // global bounds (see getFastGlobalBoundsMixin.mjs's _getGlobalBoundsRecursive)
+    // to keepRing instead of the whole image baseTileContainer's tiles
+    // actually span (see loadBaseLayer: fetched once, kept resident forever,
+    // regardless of camera position). boundsArea deliberately lives here, on
+    // baseTileContainer, and NOT on tileContainer itself (an earlier version
+    // of this fix set it on tileContainer and shipped a regression - see
+    // DECISIONS): a container's boundsArea is only read directly into the
+    // caller's bounds accumulator when that container has no effects of its
+    // own (read directly off getFastGlobalBoundsMixin.mjs and the real
+    // effect class, AlphaMask.mjs). tileContainer carries the mask effect
+    // (mask = sprite below), which makes _getGlobalBoundsRecursive reassign
+    // its own local accumulator to a fresh, still-empty pooled Bounds before
+    // reading boundsArea, then run AlphaMask.addBounds (an intersection, via
+    // addMaskBounds/addBoundsMask) against that same still-empty accumulator
+    // afterward, whether or not boundsArea populated anything: putting
+    // boundsArea on tileContainer itself skips the one code path
+    // (children-recursion) that would otherwise have seeded that
+    // accumulator with real content first, for reasons that trace through
+    // several layers of Pixi's own bounds-pooling and don't reduce to one
+    // simple statement. baseTileContainer has no effects of its own, so its
+    // boundsArea is read directly into tileContainer's real accumulator
+    // (populated by normal children-recursion) with none of that machinery
+    // involved. Kept in sync with keepRing every reconcile() (see below):
+    // nothing outside keepRing is ever meant to be on screen, so clipping
+    // this contribution to it costs no visible content, and unlike the
+    // async tile hydrates below, this is set synchronously so
+    // tileContainer's own accumulator is never contributor-less even on the
+    // very first reconcile(), before any texture has loaded.
+    this.baseTileContainer.boundsArea = new Rectangle();
     this.tileContainer.addChild(this.baseTileContainer);
     this.seamContainer = new Container();
     this.deps.container.addChild(this.seamContainer);
@@ -273,7 +285,7 @@ export class DziRevealLayer {
   reconcile(hydrateRing: Aabb, keepRing: Aabb, zoom: number): void {
     const level = levelForZoom(this.deps.dziInfo, zoom);
     const tier = maskTierForZoom(zoom);
-    const boundsArea = this.tileContainer.boundsArea;
+    const boundsArea = this.baseTileContainer.boundsArea;
     boundsArea.x = keepRing.minX;
     boundsArea.y = keepRing.minY;
     boundsArea.width = keepRing.maxX - keepRing.minX;
