@@ -30,7 +30,7 @@
 //   strokes a border where a piece is actually locked, so it never paints
 //   outside a valid reveal region on its own.
 
-import { Container, Matrix, RenderTexture, Sprite, type Texture } from "pixi.js";
+import { Container, Matrix, Rectangle, RenderTexture, Sprite, type Texture } from "pixi.js";
 import type { Aabb } from "./cull";
 import { neededCompositeTiles } from "./compositeTiles";
 import { LOD_TILE_WORLD, packCell, unpackWireCellKey, type CellKey } from "./groupGrid";
@@ -179,6 +179,24 @@ export class DziRevealLayer {
 
   constructor(private readonly deps: DziRevealLayerDeps) {
     this.tileContainer = new Container();
+    // Overrides Pixi's own recursive bounds walk (getFastGlobalBoundsMixin):
+    // without it, assigning tileContainer.mask routes through MaskFilter,
+    // which hardcodes clipToViewport: false (FilterSystem's own bounds clip
+    // is skipped), so the intermediate texture Pixi allocates for the mask
+    // pass is sized to tileContainer's full recursive global bounds - which
+    // include baseTileContainer's tiles, permanently resident and spanning
+    // the WHOLE image regardless of camera position (see loadBaseLayer). At
+    // low zoom that whole-image footprint is small on screen, but it scales
+    // linearly with zoom like any other world-space content, so past a few
+    // hundred percent it exceeds GL_MAX_TEXTURE_SIZE: the "texImage2D: width
+    // or height out of range" / "Framebuffer is incomplete: Attachment has
+    // zero size" crash reported at 500% zoom, a different failure mode than
+    // the antialias/MSAA crashes already fixed at this same zoom range (see
+    // DECISIONS), but the same underlying unbounded-mask-target root cause.
+    // Kept in sync with keepRing every reconcile() (see below): nothing
+    // outside keepRing is ever meant to be on screen, so clipping the mask's
+    // render target to it costs no visible content.
+    this.tileContainer.boundsArea = new Rectangle();
     this.deps.container.addChild(this.tileContainer);
     this.baseTileContainer = new Container();
     this.tileContainer.addChild(this.baseTileContainer);
@@ -255,6 +273,11 @@ export class DziRevealLayer {
   reconcile(hydrateRing: Aabb, keepRing: Aabb, zoom: number): void {
     const level = levelForZoom(this.deps.dziInfo, zoom);
     const tier = maskTierForZoom(zoom);
+    const boundsArea = this.tileContainer.boundsArea;
+    boundsArea.x = keepRing.minX;
+    boundsArea.y = keepRing.minY;
+    boundsArea.width = keepRing.maxX - keepRing.minX;
+    boundsArea.height = keepRing.maxY - keepRing.minY;
     this.reconcileDziTiles(hydrateRing, keepRing, level);
     this.reconcileCellAssets(hydrateRing, keepRing, tier);
     this.updateCombinedMask(hydrateRing, keepRing, level);
