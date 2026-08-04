@@ -207,11 +207,19 @@ export class LodTileLayer {
     const originY = cy * LOD_TILE_WORLD;
     // dpr is folded into the texel count at resolution 1, so the bake matches the
     // existing render-to-texture path exactly regardless of target resolution.
+    // No antialias: true here. Same failure mode as the DZI reveal mask texture
+    // (see dziRevealLayer.ts): Pixi's GL backend backs an antialiased RenderTexture
+    // with a multisampled renderbuffer, memory LOD_VRAM_CEILING_MB's plain-RGBA8
+    // byte math (bytesFor) never accounts for. There this hit via one texture
+    // resized up to 5x/second; here it's dozens of tiles resident at once (up to
+    // maxResident), so the unaccounted MSAA cost compounds across the whole
+    // resident set instead. These are already density-degraded baked-down tiles
+    // (see LOD_TILE_DENSITY), not detailed content, so losing MSAA costs a faint
+    // edge softness at most.
     const texture = RenderTexture.create({
       width: this.texels,
       height: this.texels,
       resolution: 1,
-      antialias: true,
     });
     const sprite = new Sprite(texture);
     sprite.eventMode = "none";
