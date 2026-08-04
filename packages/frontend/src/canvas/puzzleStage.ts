@@ -599,10 +599,23 @@ export class PuzzleStage {
 
   async mount(host: HTMLElement): Promise<void> {
     const app = new Application();
+    // No antialias: true here. Pixi's mask/filter system (AlphaMaskPipe,
+    // FilterSystem) inherits antialias from this root canvas for any filter that
+    // doesn't set its own (Pixi's built-in MaskFilter, used whenever a container
+    // gets a Sprite mask, defaults to "inherit"), sizing its intermediate render
+    // texture to the masked container's on-screen bounds. dziRevealLayer.ts masks
+    // tileContainer with a Sprite, so at high zoom that inherited-antialias
+    // texture grows with it and hits the same multisampled-renderbuffer ceiling
+    // the DZI mask and LOD tile textures already hit at their own allocation
+    // points, this time with no local texture option to drop it from: the
+    // allocation Pixi is failing on is this root flag, not anything in
+    // dziRevealLayer.ts itself. Pieces render from pre-baked bitmap tiles (their
+    // borders already crisp with no WebGL-time smoothing needed either way), so
+    // the only cost is slightly softer edges on the small vector-drawn UI accents
+    // (peer cursor glyphs, the snap-flash glow, the sticky-carry outline).
     await app.init({
       resizeTo: host,
       backgroundAlpha: 0,
-      antialias: true,
       autoDensity: true,
       resolution: window.devicePixelRatio,
     });
