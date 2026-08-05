@@ -78,15 +78,14 @@ function triggerCompletion(playSpectacle: boolean): void {
 }
 
 // The staged-load phases shown to the player. Session states collapse onto
-// these: connect (idle/connecting), manifest (loading-manifest/syncing, i.e.
-// fetching the manifest and the initial piece state), build (the chunked board
+// these: connect (idle/connecting, loading-manifest, syncing, i.e. fetching
+// the manifest and the initial piece state), build (the chunked board
 // construction inside build()), textures (the async texture stream inside
 // build()), ready (board on screen).
-type LoadPhase = "connect" | "manifest" | "build" | "textures" | "ready";
+type LoadPhase = "connect" | "build" | "textures" | "ready";
 
 const LOAD_PHASES: { key: LoadPhase; labelKey: string }[] = [
   { key: "connect", labelKey: "loading.stepConnect" },
-  { key: "manifest", labelKey: "loading.stepManifest" },
   { key: "build", labelKey: "loading.stepBuild" },
   { key: "textures", labelKey: "loading.stepTextures" },
   { key: "ready", labelKey: "loading.stepReady" },
@@ -94,7 +93,6 @@ const LOAD_PHASES: { key: LoadPhase; labelKey: string }[] = [
 
 const PHASE_HEADING_KEYS: Record<LoadPhase, string> = {
   connect: "loading.headConnect",
-  manifest: "loading.headManifest",
   build: "loading.headBuild",
   textures: "loading.headTextures",
   ready: "loading.headReady",
@@ -103,7 +101,6 @@ const PHASE_HEADING_KEYS: Record<LoadPhase, string> = {
 const loadPhase = computed<LoadPhase>(() => {
   const k = state.value.kind;
   if (k === "ready") return building.value ? buildPhaseKind.value : "ready";
-  if (k === "loading-manifest" || k === "syncing") return "manifest";
   return "connect";
 });
 
