@@ -186,14 +186,14 @@ const de: MessageSchema = {
   privacyPage: {
     title: "Datenschutzerklärung",
     intro:
-      "Million Piece Puzzle ist ein kollaboratives, nicht kommerzielles Projekt eines unabhängigen Teams. Diese Seite erklärt, welche Daten erfasst werden, warum, und wie du deine Rechte ausüben kannst.",
+      "Million Piece Puzzle ist ein kollaboratives, nicht kommerzielles Projekt eines unabhängigen Entwicklers. Diese Seite erklärt, welche Daten erfasst werden, warum, und wie du deine Rechte ausüben kannst.",
     controllerHead: "Verantwortlicher",
     controllerBody:
-      "Der Dienst wird von einem unabhängigen Team betrieben, erreichbar über unseren {discord}.",
+      "Der Dienst wird von einem unabhängigen Entwickler betrieben, erreichbar über unseren {discord}.",
     discord: "Discord-Server",
     collectedHead: "Erfasste Daten",
     collectedBody:
-      "Der Eintritt in die Leinwand legt ein Gastkonto an: eine eindeutige Benutzerkennung, das von dir gewählte Pseudonym und das beim Onboarding ausgewählte Land, ohne dass eine E-Mail-Adresse erforderlich ist. Wenn du dich mit Google anmeldest, um deine Beiträge unter einer einzigen Identität zu behalten, werden auch deine E-Mail-Adresse und dein Name von Google gespeichert. Deine Beiträge (welche Teile du platziert hast und wann) werden erfasst und für den Aktivitäts-Feed und die Rangliste öffentlich angezeigt. Technische Protokolle (IP-Adresse, Browser) werden vom Hoster aus Gründen der Sicherheit und Zuverlässigkeit verarbeitet.",
+      "Der Eintritt ins Spielfeld legt ein Gastkonto an: eine eindeutige Benutzerkennung, das von dir gewählte Pseudonym und das beim Onboarding ausgewählte Land, ohne dass eine E-Mail-Adresse erforderlich ist. Wenn du dich mit Google anmeldest, um deine Beiträge unter einer einzigen Identität zu behalten, werden auch deine E-Mail-Adresse und dein Name von Google gespeichert. Deine Beiträge (welche Teile du platziert hast und wann) werden erfasst und für den Aktivitäts-Feed und die Rangliste öffentlich angezeigt. Technische Protokolle (IP-Adresse, Browser) werden vom Hoster aus Gründen der Sicherheit und Zuverlässigkeit verarbeitet.",
     purposesHead: "Zwecke",
     purposesBody:
       "Die Daten werden ausschließlich zum Betrieb des Spiels verwendet: um dich zu authentifizieren, deinen Fortschritt zu speichern, platzierte Teile zuzuordnen und die Rangliste anzuzeigen. Es werden keine Daten verkauft oder für Werbung verwendet.",
@@ -211,7 +211,7 @@ const de: MessageSchema = {
     title: "Impressum",
     publisherHead: "Herausgeber",
     publisherBody:
-      "Diese Website ist ein kollaboratives Projekt eines unabhängigen Teams. Kontakt: unser {discord}.",
+      "Diese Website ist ein kollaboratives Projekt eines unabhängigen Entwicklers. Kontakt: unser {discord}.",
     discord: "Discord-Server",
     hostHead: "Hosting",
     hostBody:

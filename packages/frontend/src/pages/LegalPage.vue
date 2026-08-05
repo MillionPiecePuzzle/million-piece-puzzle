@@ -4,7 +4,7 @@ import LegalDocument from "../components/LegalDocument.vue";
 
 const { t } = useI18n();
 const UPDATED_AT = Date.UTC(2026, 5, 7);
-const DISCORD_URL = "https://discord.gg/VhtfHqTfS";
+const DISCORD_URL = "https://discord.gg/mB2juw55R3";
 const REPO_URL = "https://github.com/MillionPiecePuzzle/million-piece-puzzle";
 </script>
 

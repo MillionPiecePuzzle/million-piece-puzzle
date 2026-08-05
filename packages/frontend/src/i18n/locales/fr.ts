@@ -185,14 +185,14 @@ const fr: MessageSchema = {
   privacyPage: {
     title: "Politique de confidentialité",
     intro:
-      "Million Piece Puzzle est un projet collaboratif et non commercial lancé par une équipe indépendante. Cette page explique quelles données sont collectées, pourquoi, et comment exercer vos droits.",
+      "Million Piece Puzzle est un projet collaboratif et non commercial lancé par un développeur indépendant. Cette page explique quelles données sont collectées, pourquoi, et comment exercer vos droits.",
     controllerHead: "Responsable du traitement",
     controllerBody:
-      "Le service est exploité par une équipe indépendante, joignable sur notre {discord}.",
+      "Le service est exploité par un développeur indépendant, joignable sur notre {discord}.",
     discord: "serveur Discord",
     collectedHead: "Données collectées",
     collectedBody:
-      "Entrer sur le canevas crée un compte invité : un identifiant utilisateur unique, le pseudo que vous choisissez et le pays que vous sélectionnez lors de l'inscription, sans adresse e-mail requise. Si vous vous connectez avec Google pour conserver vos contributions sous une seule identité, votre adresse e-mail et votre nom Google sont également enregistrés. Vos contributions (les pièces que vous avez placées et à quel moment) sont enregistrées et affichées publiquement dans le fil d'activité et le classement. Les journaux techniques (adresse IP, navigateur) sont traités par l'hébergeur à des fins de sécurité et de fiabilité.",
+      "Rejoindre le plateau crée un compte invité : un identifiant utilisateur unique, le pseudo que vous choisissez et le pays que vous sélectionnez lors de l'inscription, sans adresse e-mail requise. Si vous vous connectez avec Google pour conserver vos contributions sous une seule identité, votre adresse e-mail et votre nom Google sont également enregistrés. Vos contributions (les pièces que vous avez placées et à quel moment) sont enregistrées et affichées publiquement dans le fil d'activité et le classement. Les journaux techniques (adresse IP, navigateur) sont traités par l'hébergeur à des fins de sécurité et de fiabilité.",
     purposesHead: "Finalités",
     purposesBody:
       "Les données ne servent qu'à faire fonctionner le jeu : vous authentifier, sauvegarder votre progression, attribuer les pièces placées et afficher le classement. Aucune donnée n'est vendue ni utilisée à des fins publicitaires.",
@@ -210,7 +210,7 @@ const fr: MessageSchema = {
     title: "Mentions légales",
     publisherHead: "Éditeur",
     publisherBody:
-      "Ce site est un projet collaboratif lancé par une équipe indépendante. Contact : notre {discord}.",
+      "Ce site est un projet collaboratif lancé par un développeur indépendant. Contact : notre {discord}.",
     discord: "serveur Discord",
     hostHead: "Hébergeur",
     hostBody:

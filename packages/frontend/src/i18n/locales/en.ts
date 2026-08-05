@@ -179,13 +179,13 @@ const en = {
   privacyPage: {
     title: "Privacy Policy",
     intro:
-      "Million Piece Puzzle is a collaborative, non-commercial project initiated by an independent team. This page explains what data is collected, why, and how to exercise your rights.",
+      "Million Piece Puzzle is a collaborative, non-commercial project initiated by an independent developer. This page explains what data is collected, why, and how to exercise your rights.",
     controllerHead: "Data controller",
-    controllerBody: "The service is operated by an independent team, reachable on our {discord}.",
+    controllerBody: "The service is operated by an independent developer, reachable on our {discord}.",
     discord: "Discord server",
     collectedHead: "Data collected",
     collectedBody:
-      "Entering the canvas creates a guest account: a unique user identifier, the pseudo you choose, and the country you select during onboarding, no email required. If you sign in with Google to keep your contributions under one identity, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the leaderboard. Technical logs (IP address, browser) are processed by the host for security and reliability.",
+      "Joining the board creates a guest account: a unique user identifier, the pseudo you choose, and the country you select during onboarding, no email required. If you sign in with Google to keep your contributions under one identity, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the leaderboard. Technical logs (IP address, browser) are processed by the host for security and reliability.",
     purposesHead: "Purposes",
     purposesBody:
       "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the leaderboard. No data is sold or used for advertising.",
@@ -203,7 +203,7 @@ const en = {
     title: "Legal Notice",
     publisherHead: "Publisher",
     publisherBody:
-      "This site is a collaborative project initiated by an independent team. Contact: our {discord}.",
+      "This site is a collaborative project initiated by an independent developer. Contact: our {discord}.",
     discord: "Discord server",
     hostHead: "Host",
     hostBody:
