@@ -18,7 +18,6 @@ import {
 } from "@mpp/shared";
 import { haloGridIdsForCell, type CellCompositeIndex } from "./cellComposite.js";
 import { unpackCellKey } from "./worldGrid.js";
-import { toWireId, type WireContext } from "./wire.js";
 
 export type CellCompositorDeps = {
   gridCols: number;
@@ -33,15 +32,7 @@ export type CellCompositorDeps = {
   // the mask/seam bake below, the same way the offline slicer derives it, with
   // nothing new exposed: the seed itself never leaves this process.
   generationSeed: number;
-  wire: WireContext;
-  // manifest.pieces[wireId].file, injected so this module does not need the
-  // manifest shape itself.
-  pieceFileByWireId: (wireId: number) => string;
   isLocked: (gridId: number) => boolean;
-  // Public HTTPS read (the CDN-fronted asset domain), no credentials: reads
-  // are exactly as public as the per-piece tiles the frontend already fetches.
-  // Takes a manifest-relative piece path (see pieceFileByWireId).
-  fetchTile: (relativePath: string) => Promise<Buffer>;
   // The one live write path to R2 this server has (see r2.ts); everything
   // else the server does with R2 is a plain public read.
   upload: (key: string, body: Buffer, contentType: string) => Promise<void>;
@@ -68,18 +59,9 @@ export type CellCompositorDeps = {
 // piece tiles it replaces.
 const AVIF_QUALITY = 60;
 const AVIF_EFFORT = 4;
-// Cap on concurrent piece-tile fetches within one cell (see processCell). A
-// fully-locked cell owns on the order of 800 pieces; firing them all via a
-// single Promise.all overwhelms the CDN and this process's own outbound
-// connections under sustained load (confirmed: an admin resweep over the
-// whole grid dropped ~36% of cells to "fetch failed"/502 at unbounded
-// concurrency).
-const PIECE_FETCH_CONCURRENCY = 24;
-// Bound on whole-cell bake attempts (see drain's catch block below), separate
-// from and coarser than fetchPieceTile's own per-tile retry (index.ts): this
-// one also covers an R2 upload failure or a sharp exception, neither of which
-// the per-tile retry sees, and re-attempts the whole cell rather than one
-// tile. See DECISIONS: bounded per-cell piece-tile fetch concurrency.
+// Bound on whole-cell bake attempts (see drain's catch block below): an R2
+// upload failure or a sharp exception fails the whole cell, so a failed bake
+// is retried a bounded number of times before being logged and dropped.
 const CELL_BAKE_MAX_ATTEMPTS = 3;
 
 export class CellCompositor {
@@ -174,12 +156,12 @@ export class CellCompositor {
     }
   }
 
-  // Composites a cell's currently-locked piece tiles, plus a silhouette mask
-  // and a seam (border-only) texture rasterized straight from geometry (see
-  // ROADMAP backlog: DZI-native reveal). The three always bake and version
-  // together: a mask/seam pair only ever means something alongside the photo
-  // bake it was computed from (same lockedIds, same canvas), so there is no
-  // case where one would need rebaking without the others.
+  // Composites a cell's silhouette mask and seam (border-only) texture,
+  // rasterized straight from the currently-locked pieces' own geometry (see
+  // DECISIONS: DZI reveal mask and seam baked server-side). The two always
+  // bake and version together: a mask/seam pair only ever means something
+  // for the same lockedIds and canvas, so there is no case where one would
+  // need rebaking without the other.
   private async processCell(key: number): Promise<void> {
     const { gridCols, gridRows, pieceSize, margin, cellSize, generationSeed } = this.deps;
     const { cx, cy } = unpackCellKey(key);
@@ -190,49 +172,17 @@ export class CellCompositor {
     // The canvas is widened by margin on every side, exactly like an
     // individual piece tile is, so adjacent cell composites overlap the same
     // way individual piece tiles already do (see cellComposite.ts).
-    const tileSize = pieceSize + 2 * margin;
     const canvasSize = cellSize + 2 * margin;
     const canvasOriginX = cx * cellSize - margin;
     const canvasOriginY = cy * cellSize - margin;
 
-    // Bounded, not Promise.all over every locked id at once: a fully-locked
-    // cell can own on the order of 800 pieces (WORLD_TILE_SIZE^2 / pieceSize^2),
-    // and firing that many concurrent fetches at the asset CDN from one
-    // process is what actually caused the fetch failures / 502s seen during
-    // the first admin resweep, not a lack of raw throughput (see DECISIONS:
-    // bounded per-cell piece-tile fetch concurrency).
-    const placements = await mapLimit(lockedIds, PIECE_FETCH_CONCURRENCY, async (gridId) => {
-      const col = gridId % gridCols;
-      const row = Math.floor(gridId / gridCols);
-      const tileLeft = col * pieceSize - margin - canvasOriginX;
-      const tileTop = row * pieceSize - margin - canvasOriginY;
-      const wireId = toWireId(this.deps.wire, gridId);
-      const bytes = await this.deps.fetchTile(this.deps.pieceFileByWireId(wireId));
-      return clipToCanvas(bytes, tileLeft, tileTop, tileSize, canvasSize);
-    });
-    const composite = placements.filter((p): p is Placement => p !== null);
-    if (composite.length === 0) return;
-
-    const photoBuffer = await sharp({
-      create: {
-        width: canvasSize,
-        height: canvasSize,
-        channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      },
-    })
-      .composite(composite)
-      .avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT })
-      .toBuffer();
-
     // Pure geometry, no fetch: a locked piece's silhouette is a function of
-    // (generationSeed, gridId) alone, already held in-process, so this needs
-    // no piece tile bytes at all, unlike the photo composite above. Each
-    // piece's own path is placed at its true canvas-local position with no
-    // extra margin term (unlike the raster tile placement above): the path's
-    // coordinates already carry a tab's true overflow past the piece's
-    // nominal [0, pieceSize] box, so no separate bleed accounting is needed
-    // the way a fixed-size raster tile requires (see DECISIONS: tile margin).
+    // (generationSeed, gridId) alone, already held in-process. Each piece's
+    // own path is placed at its true canvas-local position with no extra
+    // margin term: the path's coordinates already carry a tab's true
+    // overflow past the piece's nominal [0, pieceSize] box, so no separate
+    // bleed accounting is needed the way a fixed-size raster tile would
+    // require (see DECISIONS: tile margin).
     const pathDs = lockedIds.map((gridId) => {
       const col = gridId % gridCols;
       const row = Math.floor(gridId / gridCols);
@@ -248,27 +198,20 @@ export class CellCompositor {
       bakeTiers(pieceBorderSvg(pathDs, canvasSize, canvasSize), canvasSize),
     ]);
 
-    await this.finishBake(key, photoBuffer, maskTiers, seamTiers);
+    await this.finishBake(key, maskTiers, seamTiers);
   }
 
-  // Bump the version, upload the photo plus every mask/seam tier, update the
-  // in-process index, persist to Redis, report completion (the caller
-  // broadcasts, see index.ts), then best-effort delete the now-superseded
-  // version. Everything shares one version number: the client derives every
-  // URL from the same {cellKey, version} pair already on the wire (see
-  // protocol.ts's CellComposite) plus its own choice of tier (see DECISIONS:
-  // DZI reveal mask/seam LOD tiers), so no wire shape change is needed.
-  private async finishBake(
-    key: number,
-    photo: Buffer,
-    maskTiers: Buffer[],
-    seamTiers: Buffer[],
-  ): Promise<void> {
+  // Bump the version, upload every mask/seam tier, update the in-process
+  // index, persist to Redis, report completion (the caller broadcasts, see
+  // index.ts), then best-effort delete the now-superseded version. Every
+  // tier shares one version number: the client derives every URL from the
+  // same {cellKey, version} pair already on the wire (see protocol.ts's
+  // CellComposite) plus its own choice of variant/tier (see DECISIONS: DZI
+  // reveal mask/seam LOD tiers), so no wire shape change is needed.
+  private async finishBake(key: number, maskTiers: Buffer[], seamTiers: Buffer[]): Promise<void> {
     const previousVersion = this.deps.index.get(key) ?? 0;
     const version = previousVersion + 1;
-    const uploads: Promise<void>[] = [
-      this.deps.upload(this.objectKey(key, version), photo, "image/avif"),
-    ];
+    const uploads: Promise<void>[] = [];
     for (let tier = 0; tier < CELL_MASK_TIER_FACTORS.length; tier++) {
       uploads.push(
         this.deps.upload(
@@ -290,15 +233,16 @@ export class CellCompositor {
     await this.deps.persistVersion(key, version);
     this.deps.onComposited(key, version);
 
-    // The old versions are now dead weight, not a fallback anyone still reads:
-    // every reader that could learn of this cell (index, Redis, the broadcast
-    // above) already points at the new version. Best-effort: a failure here
-    // is logged and leaves that object orphaned permanently, since nothing
-    // revisits a specific past version's cleanup again, unlike a failed bake
-    // itself, which the next dirty mark on this cell re-attempts.
+    // The old version's tiers are now dead weight, not a fallback anyone
+    // still reads: every reader that could learn of this cell (index, Redis,
+    // the broadcast above) already points at the new version. Best-effort: a
+    // failure here is logged and leaves that object orphaned permanently,
+    // since nothing revisits a specific past version's cleanup again, unlike
+    // a failed bake itself, which the next dirty mark on this cell
+    // re-attempts.
     if (previousVersion > 0) {
       try {
-        const removals: Promise<void>[] = [this.deps.remove(this.objectKey(key, previousVersion))];
+        const removals: Promise<void>[] = [];
         for (let tier = 0; tier < CELL_MASK_TIER_FACTORS.length; tier++) {
           removals.push(this.deps.remove(this.objectKey(key, previousVersion, "mask", tier)));
           removals.push(this.deps.remove(this.objectKey(key, previousVersion, "seam", tier)));
@@ -313,36 +257,9 @@ export class CellCompositor {
     }
   }
 
-  private objectKey(
-    key: number,
-    version: number,
-    variant?: "mask" | "seam",
-    tier?: number,
-  ): string {
-    const suffix = variant ? `-${variant}-${tier}` : "";
-    return `${this.deps.puzzleId}/cells/${key}/${version}${suffix}.avif`;
+  private objectKey(key: number, version: number, variant: "mask" | "seam", tier: number): string {
+    return `${this.deps.puzzleId}/cells/${key}/${version}-${variant}-${tier}.avif`;
   }
-}
-
-// Maps `fn` over `items` with at most `limit` running at once (order of
-// results matches input order, like Promise.all). No queueing library pulled
-// in for this: a handful of worker loops pulling from a shared cursor is
-// enough for the one bounded-fetch use above.
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  async function worker(): Promise<void> {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i] as T);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
 }
 
 // Renders one SVG source at every configured mask/seam LOD tier, sharing the
@@ -361,38 +278,4 @@ async function bakeTiers(svg: Buffer, canvasSize: number): Promise<Buffer[]> {
       return pipeline.avif({ quality: AVIF_QUALITY, effort: AVIF_EFFORT }).toBuffer();
     }),
   );
-}
-
-type Placement = { input: Buffer; left: number; top: number };
-
-// sharp's composite() requires an input no larger than the base canvas and
-// placed fully inside it (an offscreen tile throws rather than clipping), so a
-// halo piece whose tile bleeds past the canvas edge has to be cropped to its
-// own visible sliver first, the same clamped-extract shape the slicer already
-// uses when a piece's own tile window overhangs the source image (see
-// scripts/slice-image.ts). Returns null when the tile does not actually reach
-// the canvas at all (haloGridIdsForCell over-includes by up to one piece, see
-// its own comment).
-async function clipToCanvas(
-  tileBuf: Buffer,
-  tileLeft: number,
-  tileTop: number,
-  tileSize: number,
-  canvasSize: number,
-): Promise<Placement | null> {
-  const visibleLeft = Math.max(0, tileLeft);
-  const visibleTop = Math.max(0, tileTop);
-  const visibleRight = Math.min(canvasSize, tileLeft + tileSize);
-  const visibleBottom = Math.min(canvasSize, tileTop + tileSize);
-  if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return null;
-
-  const cropLeft = visibleLeft - tileLeft;
-  const cropTop = visibleTop - tileTop;
-  const width = visibleRight - visibleLeft;
-  const height = visibleBottom - visibleTop;
-  const fullyInside = cropLeft === 0 && cropTop === 0 && width === tileSize && height === tileSize;
-  const input = fullyInside
-    ? tileBuf
-    : await sharp(tileBuf).extract({ left: cropLeft, top: cropTop, width, height }).toBuffer();
-  return { input, left: visibleLeft, top: visibleTop };
 }

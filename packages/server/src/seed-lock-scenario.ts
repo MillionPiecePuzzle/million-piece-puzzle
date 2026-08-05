@@ -243,11 +243,7 @@ async function main(): Promise<void> {
         margin: manifest.margin,
         cellSize,
         generationSeed: seedFromString(config.generationSeed),
-        wire,
-        pieceFileByWireId: (wireId) => manifest.pieces[wireId]!.file,
         isLocked: (id) => lockedPieces.isLocked(id),
-        fetchTile: (relativePath) =>
-          fetchPieceTile(config.assetsBaseUrl, manifest.puzzleId, relativePath),
         upload: r2.upload,
         remove: r2.remove,
         removeByPrefix: r2.removeByPrefix,
@@ -382,19 +378,6 @@ async function main(): Promise<void> {
     redis.disconnect();
     await mongoClient.close();
   }
-}
-
-// Same public-HTTPS read the live server's own fetchPieceTile uses (see
-// index.ts): no credentials, reading exactly what the frontend already fetches.
-async function fetchPieceTile(
-  assetsBaseUrl: string,
-  puzzleId: string,
-  relativePath: string,
-): Promise<Buffer> {
-  const url = `${assetsBaseUrl}/${puzzleId}/${relativePath}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`piece tile fetch ${url} returned HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
 }
 
 main().catch((e: unknown) => {

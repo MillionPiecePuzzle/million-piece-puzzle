@@ -46,7 +46,7 @@ export type AdminDeps = {
   clearEverything: () => Promise<void>;
   // Injected so tests can assert a restart without killing the test process.
   exit: () => void;
-  // Enqueues cells for a full recomposite (photo + every mask/seam tier).
+  // Enqueues cells for a full recomposite (every mask/seam tier).
   // With no cellKeys, sweeps the whole grid (allCellKeysForGrid, the same set
   // the dev force-complete resweep already uses), for a derived-asset scheme
   // change; a rare, deliberately targeted resweep of specific straggler cells
@@ -303,7 +303,7 @@ function renderAdminPage(state: { puzzles: AdminPuzzleOption[]; eventStartsAt: n
 
 <section>
   <h2>Resweep composites</h2>
-  <p class="muted">Re-bakes every cell's photo composite and every mask/seam LOD tier from current lock state. Needed after a derived-asset scheme change (e.g. a new mask/seam tier): existing locked cells never recomposite on their own once every piece they can ever own is locked, since nothing dirties them again. Runs in the background; can take a while over the whole grid.</p>
+  <p class="muted">Re-bakes every cell's mask/seam LOD tiers from current lock state. Needed after a derived-asset scheme change (e.g. a new mask/seam tier): existing locked cells never recomposite on their own once every piece they can ever own is locked, since nothing dirties them again. Runs in the background; can take a while over the whole grid.</p>
   <button id="resweep" type="button">Start resweep</button>
   <button id="resweepStatus" class="secondary" type="button">Check progress</button>
   <div class="out" id="resweepOut"></div>
