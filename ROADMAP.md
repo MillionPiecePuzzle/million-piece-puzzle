@@ -192,7 +192,7 @@ Delivered in 4 stages, each independently shippable and separately testable, sin
 - [x] `DziRevealLayer` promoted to the only locked-piece rendering path, no `?dziReveal=1` flag: the reference DZI pyramid revealed through a server-baked per-piece silhouette mask (reusing CellCompositor) plus a seam overlay, replacing the flat-rectangle `CompositeTileLayer`. See DECISIONS.
 
 ### `backend-realtime`
-- [~] Retire the server-side full-photo composite tier: `CellCompositor` stops fetching piece tiles and baking/uploading the photo AVIF alongside the mask/seam tiers, since `DziRevealLayer` never fetches it; existing photo objects on R2 are purged. See DECISIONS.
+- [x] Retire the server-side full-photo composite tier: `CellCompositor` stops fetching piece tiles and baking/uploading the photo AVIF alongside the mask/seam tiers, since `DziRevealLayer` never fetches it; existing photo objects on R2 are purged. See DECISIONS.
 
 ---
 
