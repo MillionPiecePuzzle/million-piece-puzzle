@@ -37,75 +37,55 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 **Exit criterion (met)**: the puzzle is open to the public, with 1 000 000 pieces on a single shared canvas, full auth, monitoring sufficient to operate, and legal documents in place.
 
 ### `shared-protocol`
-- [x] Protocol frozen at v6 before public launch (bumped 4->5->6 for activity-feed sizes and the spectator drop); breaking changes go through a version bump asserted at the `hello` handshake. See DECISIONS
-- [x] `eventStartsAt` (unix ms) in `welcome` drives the landing countdown and the `/play` entry gate (`MPP_EVENT_STARTS_AT`, default 0 = no scheduled start)
-- [x] Anti-programmatic-solving: seed-permuted wire ids, anchor-relative member offsets, server-only seed. See DECISIONS
+- [x] Protocol frozen at v6, breaking changes bump the version asserted at the `hello` handshake
+- [x] `eventStartsAt` drives the landing countdown and the `/play` entry gate
+- [x] Anti-programmatic-solving: seed-permuted wire ids, anchor-relative offsets, server-only seed
 
 ### `piece-generation`
-- [x] Generation validates 1 000 000 unique pieces (`npm run validate:generation`): ids, offsets, edge params, neighbour agreement, per-seed edge uniqueness. See DECISIONS
+- [x] 1 000 000 unique pieces validated (`npm run validate:generation`)
 
 ### `image-pipeline`
-- [x] Piece border baked into the tile at slice time; frontend drops its render-time stroke. See DECISIONS
-- [x] Gigapixel pipeline (Deep Zoom + per-piece alpha-cut AVIF) runs end to end on R2 via libvips random access; `npm run materialize` builds a synthetic BigTIFF stand-in for dev. Uploading the final asset is the deploy step. See DECISIONS
+- [x] Piece borders baked into tiles at slice time
+- [x] Gigapixel pipeline (Deep Zoom + per-piece AVIF) running end to end on R2
 
 ### `frontend-shell`
-- [x] Landing: final copy, single CTA gated on event start ("I'm interested" until launch, "Join the board" after); closed-alpha passcode removed
-- [x] Countdown timer on landing (DD:HH:MM:SS, `useCountdown` off `GET /landing`), placeholder when unscheduled
-- [x] Auth modal: single "Continue with Google" action, return flow forces pseudo then nationality. Google-only by design
-- [x] `/play` sealed before a scheduled event: `beforeEnter` guard reads `eventStartsAt`, fail-open on an unset date or a transient fetch failure. See DECISIONS
-- [x] Site localized EN/FR/ES/DE (vue-i18n): every user-facing string and both legal pages, flag dropdown on the landing, browser language auto-detected and persisted
-- [x] Dev-only Place/Reset/Complete controls off in prod: `MPP_DEV_ENABLED=0` (server Dockerfile), `VITE_DEV_BUTTONS=0` (frontend `.env.production`); local dev keeps both via `docker-compose.override.yml`. See DECISIONS
+- [x] Landing, countdown, single Google auth modal, `/play` entry gate
+- [x] Localized EN/FR/ES/DE
+- [x] Dev-only Place/Reset/Complete controls off in prod (`MPP_DEV_ENABLED=0`, `VITE_DEV_BUTTONS=0`)
 
 ### `frontend-canvas`
-- [x] Zoom-out LOD scales to 1M via a client-baked tile cache, cull and bake bounded by the visible window through a spatial index
-- [x] Viewport-driven texture streaming: per-piece textures and nodes hydrate on demand within a viewport ring, freed past a keep ring. See DECISIONS
-- [x] Chunked, time-budgeted board build behind a `build` loading phase, per-piece geometry lazy; no frozen gap. See DECISIONS
-- [x] Smooth at 1M: fixed z-order layers (no `sortableChildren`), evicted geometry cache, deep zoom-out VRAM bounded by freeing covered idle clusters. See DECISIONS
-- [x] Per-tile piece cap: a non-merging drop onto a cell at 8x solved density is rejected with a `rollback` + "tile_full" toast; merges and anchors exempt. See DECISIONS
-- [x] Single per-frame `reconcile()` is the sole authority for cull, LOD visibility, residency, dirty-flush and loading cells; pure decisions extracted and unit-tested. See DECISIONS
-- [x] Zoom in/out stops reloading the window: covered-cold nodes freed lazily under an LRU budget, so a zoom cycle re-uses resident nodes with no re-fetch even at a 1M deep zoom-out. See DECISIONS
+- [x] Zoom-out LOD, viewport-driven texture streaming, chunked board build
+- [x] Fixed z-order layers, evicted geometry cache, VRAM-bounded zoom-out
+- [x] Per-tile piece cap on non-merging drops (8x solved density)
+- [x] Single per-frame `reconcile()` as sole authority for cull/LOD/residency
+- [x] Zoom in/out reuses resident nodes with no re-fetch at 1M
 
 ### `backend-realtime`
-- [x] Viewport sharding for broadcasts: spatial broadcast index + cluster-AABB scoping. See DECISIONS
-- [x] Group index + partial-state resync on pan: `handleViewport` resyncs newly entered cells via `region_state`. See DECISIONS
-- [x] Viewport-scoped initial state on join: `welcome` carries no board (protocol v3); groups stream in per viewport, minimap from a server-computed density grid. See DECISIONS
-- [x] Paced `region_state` resync: a large viewport jump on a fragmented board chunks its newly entered cells into several paced batches instead of one send, avoiding the WS backpressure close (code 1013) a 2026-07-05 soak logged 25 times; a later `viewport` on the same connection supersedes an in-flight stream. Re-soak confirmed clean. See DECISIONS
+- [x] Viewport-sharded broadcasts (spatial index + cluster-AABB scoping)
+- [x] Group index + partial-state resync on pan
+- [x] Viewport-scoped initial state on join, no full board in `welcome`
+- [x] Paced `region_state` resync, avoids the WS backpressure close
 
 ### `auth-and-accounts`
-- [x] Auth.js wired with the Google provider
-- [x] Login anti-abuse: per-IP rate limit on auth routes + per-IP account-creation cap
-- [x] User profiles stored in Mongo, pseudo shown for snap attribution
-- [x] 24h cooldown on pseudo and country changes, initial onboarding choice exempt. See DECISIONS
+- [x] Auth.js with Google, per-IP login anti-abuse, Mongo profiles
+- [x] 24h cooldown on pseudo/country changes
 
 ### `infra-deploy`
-- [x] Production hardening: backup sidecar to a private R2 bucket every 6h keep-3, secrets in the Coolify env, `ws.*` Cloudflare-proxied with an Origin CA cert + 30s WS heartbeat. Firewalling the origin to Cloudflare ranges stays the open DDoS gap (backlog). See DECISIONS
-- [x] Frontend dropped from the Coolify deploy: prod `app.*` is Cloudflare Pages. Manual follow-up: remove the unused `VITE_WS_URL`/`VITE_AUTH_BASE_URL`/`MPP_ALLOWED_HOSTS` from the Coolify service env, then redeploy.
-- [x] Admin ops page: direct-URL Basic-auth `GET /admin` to wipe Redis+Mongo, set the event start, switch the active puzzle. Manual follow-up: set `MPP_ADMIN_PASSWORD` and `MPP_ADMIN_PUZZLES` in the Coolify env, then redeploy. See DECISIONS
+- [x] Production hardening: R2 backup sidecar, Cloudflare-proxied WS with heartbeat. Firewalling the origin to Cloudflare ranges stays the open DDoS gap (backlog)
+- [x] Frontend moved to Cloudflare Pages, dropped from Coolify. Manual follow-up still outstanding: remove the unused `VITE_WS_URL`/`VITE_AUTH_BASE_URL`/`MPP_ALLOWED_HOSTS` from the old Coolify service env
+- [x] Admin ops page (wipe, set event start, switch puzzle); confirmed live behind Basic auth
 
 ### `qa-and-load`
-- [x] Load-test bots authenticate past the WS session gate via a seeded Mongo user + DB session; verified at 10 000 (anonymous rejected, ~160 drag/s sustained, clean teardown). See DECISIONS
-- [x] Soak test at target scale passes with no state corruption: `validate-state` asserts partition/locked/held invariants against a Mongo-replay-equals-Redis check; harness `--spoof-ip-base` drives >cap bots from one host. Verified on the OVH VPS-3 (12 GB): 50 bots, 15 min, clean state (all ten checks pass, including no group held at rest). See DECISIONS
+- [x] Load-test bots authenticated past the WS session gate, verified at 10 000
+- [x] Soak test at target scale passes with no state corruption
 
 ### `legal`
-- [x] Privacy policy published: public `/privacy` page, linked from the landing footer
-- [x] GDPR notes folded into `/privacy` (data collected, retention, access/erasure/portability, Discord contact); `/legal` notice page ships alongside
-- [x] License attributions: open-source licenses section on `/legal`. Terms of use intentionally dropped (non-commercial, no chat, permanent pieces)
+- [x] Privacy policy, GDPR notes, license attributions published
 
 ### `complementary`
-- [x] Landing interested counter: opt-in button registers the visitor and shows the public count, deduped per IP via a hashed-IP Redis set. See DECISIONS
-- [x] Contributor nationality: required onboarding step after the pseudo; leaderboard avatar is the round country flag
-- [x] International opt-out in the nationality picker: a pinned, i18n-labeled choice using the existing `un` globe flag asset, no real country required. See DECISIONS
-- [x] Edge-pan navigation: during a press-drag the camera scrolls toward a canvas edge when the pointer rests in an edge band (RTS-style)
-- [x] Sticky carry mode: double-click sticks a cluster to the cursor, double-click drops, Escape returns it, 30s idle timeout. See DECISIONS
-- [x] Sticky-carry cursor offset: a carried cluster floats clear of the pointer at any zoom; pan and zoom work mid-carry
-- [x] Global timer on the play page
-- [x] More info in the activity panel: snap (loose merge) vs place (anchored), each as a single piece or an N-piece cluster. See DECISIONS
-- [x] Landing reflects the event lifecycle: countdown before the start, live progress plus activity + leaderboard during, completed recap after
-- [x] Snap particle burst: a small spark burst radiates from each piece the instant it locks, capped per snap event
-- [x] Brand mark as favicon and Discord icon, generated from the BrandMark glyph via `npm run icons`
-- [x] Minimap navigation: a press recenters the camera, a hold-drag sweeps it continuously, clamped to the play zone
-- [x] Topbar presence indicator: the "connected" label is folded into a tooltip on the status dot
-- [x] Countdown unit labels: each digit group gets a Days/Hours/Minutes/Seconds label, localized across all four locales
+- [x] Interested counter, nationality onboarding with an international opt-out
+- [x] Edge-pan navigation, sticky carry mode, minimap navigation
+- [x] Activity feed, snap particle burst, brand icons, countdown labels
 
 ---
 
@@ -113,27 +93,27 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 
 **Exit criterion (met)**: a first-time visitor reaches the canvas and places a piece without an OAuth redirect (instant guest identity, in-site pseudo + country modals); signing in with Google claims and keeps the guest's contributions under one identity; a single real-time path serves everyone, gated by an admission queue under load; the spectator read-path is retired.
 
-Migration order under the single prod, no staging: A is pure addition (the spectator still cohabits), B puts the admission safety valve in place before C removes the CDN read-path. Each shipped on its own and left the app working.
+Shipped in 3 independent chantiers under the single prod, no staging: A added guests without touching anything else, B put the admission safety valve in place before C removed the CDN read-path. Confirmed 2026-08-05: the retired `snapshot.*` hostname now resolves to nothing.
 
 ### `auth-and-accounts`
-- [x] Guest players (Chantier A): `POST /guest` mints a real User (`guest:true`, chosen unique pseudo + country, no email) plus a DB session, rate-limited per IP; the WS session gate is unchanged. See DECISIONS
-- [x] Claim on sign-in (Chantier A): `POST /guest/claim` reattributes the guest's `cluster_merges` to the Google user, carries over pseudo/country, deletes the guest doc. See DECISIONS
+- [x] Guest players: `POST /guest` mints a real User, rate-limited per IP
+- [x] Claim on sign-in: `POST /guest/claim` reattributes guest contributions to the Google user
 
 ### `frontend-shell`
-- [x] Single "Play" entry (Chantier A): the landing CTA goes straight to `/play`; a guest is minted in-site or an existing session is reused. No spectator/contributor mode toggle remains in the UI
-- [x] Options menu (Chantier A): a gear icon opens a modal (sync account, sign out, change pseudo, change country), replacing the "become a contributor" card. See DECISIONS
+- [x] Single "Play" entry point, no spectator/contributor mode toggle
+- [x] Options menu (sync account, sign out, change pseudo/country)
 
 ### `backend-realtime`
-- [x] Admission queue (Chantier B): a global cap (`MPP_MAX_ACTIVE_CONNECTIONS`) on connections, a ticket queue (`POST /queue/ticket`, `GET /queue/status`) issuing TTL'd grants, the WS upgrade admitting `?grant=`. See DECISIONS
-- [x] Retire the spectator read-path (Chantier C): `GET /keyframe` + `GET /events` and the `EventLog` are gone, the rate limiter repurposed as the public-landing guard, `KeyframePublisher` now holds a slim `BoardSnapshot`. Manual follow-up: rename `MPP_SPECTATOR_RATE_MAX`/`MPP_SPECTATOR_RATE_WINDOW_SEC` in the Coolify env if set (defaults unchanged). See DECISIONS
-- [x] Fix the grab/disconnect hold-leak race, add a stale-hold sweep: a grabbed group id is reserved synchronously at dispatch, so a disconnect racing an in-flight grab always releases it; a periodic sweep force-releases any hold whose owner is gone for any other reason (crash, restart). See DECISIONS
-- [x] Stop the keyframe cadence from scanning the whole board: `KeyframePublisher`'s 5-minute tick read every piece and group via two full-board Redis pipelines, starving concurrent gameplay and blocking the WS dispatch loop for its duration. The minimap density grid is now maintained incrementally (`MinimapGridTracker`, updated on every drop/merge), with a full recompute only at boot/reset/force-complete and a slow defense-in-depth resync. Verified with a 300-step randomized differential test against a from-scratch recompute. See DECISIONS
+- [x] Admission queue: global connection cap, ticket + poll, TTL'd grants
+- [x] Spectator read-path retired (`GET /keyframe`/`GET /events`/`EventLog` gone)
+- [x] Grab/disconnect hold-leak race fixed, stale-hold sweep added
+- [x] Keyframe cadence moved off full-board scans onto an incrementally-maintained minimap grid
 
 ### `frontend-canvas`
-- [x] Remove the spectator transport (Chantier C): the canvas is WS-only; `landing`/`interested` moved onto the WS host. Manual follow-up: remove `VITE_SPECTATOR_BASE_URL` from the Cloudflare Pages env and retire the `snapshot.*` proxied hostname and its Cache Rule now that the backend stream is gone
+- [x] Spectator transport removed, canvas is WS-only
 
 ### `shared-protocol`
-- [x] Drop the spectator wire types (Chantier C): spectator-only types are gone, the minimap grid stays, `PROTOCOL_VERSION` bumped to 6 (asserted at the `hello` handshake)
+- [x] Spectator wire types dropped, `PROTOCOL_VERSION` bumped to 6
 
 ---
 
@@ -150,32 +130,25 @@ Migration order under the single prod, no staging: A is pure addition (the spect
 
 **Exit criterion (met)**: a board with ~995 000 locked pieces (no single cluster larger than the hard cap) stays fluid: locked pieces render from server-composited per-cell tiles instead of per-piece fetches, with piece borders preserved; resident client memory stays within the existing budget; no unlocked cluster exceeds `MPP_CLUSTER_PIECE_CAP`.
 
-A locked piece has no gameplay reason to keep a `groupId` once anchored (it can never be dragged again and always renders at the frame origin plus its solved-cell offset), but today's merge logic keeps folding newly-anchored clusters into one ever-growing locked group. Near completion this produces a single cluster of hundreds of thousands of members, and the client's hydration path fetches a whole group's member textures in one unbounded batch: an unbounded-load, likely-crash risk this phase closes before it is ever hit live.
-
-Delivered in 4 stages, each independently shippable and separately testable, since this touches the merge/anchor path (permanent, no undo) and the wire protocol. Stage 1 is backend-only and already closes the crash risk; Stage 2 makes the ~995 000-locked scenario actually testable end to end; Stage 3 is the "see it all at once" rendering polish, at native zoom: composited per-cell tiles replace per-piece fetches wherever a cell has one; Stage 4 exposes it over the wire and wires the frontend onto it, retiring the per-piece fallback entirely. Each stage is meant to be picked up in its own fresh session.
+A locked piece has no gameplay reason to keep a `groupId` once anchored, but the old merge logic kept folding newly-anchored clusters into one ever-growing locked group. Near completion this produced a single cluster of hundreds of thousands of members, and the client's hydration path fetched a whole group's member textures in one unbounded batch: an unbounded-load, likely-crash risk this phase closed before it was ever hit live. Delivered in 4 independently shippable, separately testable stages, since this touches the merge/anchor path (permanent, no undo) and the wire protocol.
 
 ### Stage 1 (backend only): locked pieces stop being a group
-
-- [x] `shared-protocol` / `backend-realtime`: `locked` moves from the group hash to the piece hash (`piece:<id>.locked`); on anchor, the anchored cluster's group is deleted rather than merged into a growing locked group. No live group is ever locked going forward; remove `locked` from `GroupRuntime` and group storage.
-- [x] `backend-realtime`: `detectSnap` checks each grid-neighbor's piece-level `locked` flag directly (a locked neighbor is an automatic aligned-at-origin candidate, no tolerance check needed) instead of resolving through `piece.groupId -> group.locked`, which no longer resolves for a locked neighbor.
-- [x] `backend-realtime`: hard cap `MPP_CLUSTER_PIECE_CAP` (default 20 000) on merges between two unlocked clusters (skip the merge, both stay separate); merging into a locked neighbor is exempt, since it dissolves a group rather than growing one.
-- [x] `backend-realtime` / `qa-and-load`: rewrite `stateInvariants.ts`'s locked check from a union-find component match to a direct comparison of Mongo-replayed locked piece ids against Redis piece-locked flags; update `snap.test.ts`, `handlers.test.ts`, `stateInvariants.test.ts`, `hub.test.ts`, `groupIndex.test.ts` for the new model.
+- [x] `locked` moves from the group hash to the piece hash; an anchored cluster's group is deleted rather than merged into a growing locked group
+- [x] `detectSnap` checks piece-level `locked` directly instead of resolving through `piece.groupId -> group.locked`
+- [x] Hard cap `MPP_CLUSTER_PIECE_CAP` (default 20 000) on unlocked-unlocked merges; merging into a locked neighbor is exempt
+- [x] `stateInvariants.ts`'s locked check rewritten as a direct Mongo-replay-vs-Redis piece-flag comparison
 
 ### Stage 2: locked pieces reach the client, decoupled from GroupNode
-
-- [x] `shared-protocol`: `SSnap` carries locked piece ids (grid-unit offset from the frame origin) only when `anchored`; `region_state` streams locked-piece-ids per newly covered cell alongside unlocked groups; `RegionGroup.locked` removed (a `RegionGroup` is always unlocked now); `PROTOCOL_VERSION` bump.
-- [x] `frontend-canvas`: locked pieces render from the new flat per-cell delivery, never via `GroupNode` / `hydrateGroup` / `lockedLayer`; still one AVIF fetch per piece at this stage, just outside the cluster machinery and so no longer bounded by cluster size.
-- [x] `qa-and-load`: rewrite `seed-lock-scenario.ts` for the new model (mark ~995 000 pieces locked directly, no cluster merging) and verify the crash risk is closed at that scale.
+- [x] `SSnap`/`region_state` carry locked piece ids per cell, decoupled from `GroupNode`/`hydrateGroup`
+- [x] `seed-lock-scenario.ts` rewritten for the new model; crash risk verified closed at ~995 000-piece scale
 
 ### Stage 3: server-composited locked tiles ("see it all at once")
-
-- [x] `backend-realtime`: incremental per-cell tile compositing (sharp): a debounced dirty-cell queue rebakes a cell from its currently-locked, bordered piece tiles whenever a lock event touches it, cached and versioned in R2 (`PROTOCOL_VERSION` bump for `SRegionState.cellComposites` and the `cell_composite` broadcast). Superseded versions are deleted once the new one is live, so storage stays bounded by cell count. See DECISIONS. `MPP_R2_ENDPOINT`/`MPP_R2_ACCESS_KEY_ID`/`MPP_R2_SECRET_ACCESS_KEY` are set in the Coolify env; compositing is live in prod.
-- [x] `frontend-canvas`: consumes the server-composited per-cell tile when available, falls back to Stage 2's per-piece rendering otherwise. See DECISIONS.
+- [x] Incremental per-cell tile compositing (sharp) on a debounced dirty-cell queue, cached and versioned in R2; compositing live in prod
+- [x] Frontend consumes the server-composited tile when available, falls back to Stage 2's per-piece rendering otherwise
 
 ### Stage 4: expose composites over the wire, retire per-piece locked hydration
-
-- [x] `shared-protocol` / `backend-realtime`: `region_state` reports every already-baked composite covering its batch's cells (`collectRegionCellComposites`), and a live rebake pushes `cell_composite` to every client whose broadcast-scoped cells overlap it.
-- [x] `frontend-canvas`: a new `CompositeTileLayer` (sibling to `LodTileLayer`, not a merge into it: baking a live scene and fetching a server AVIF are different enough lifecycles) fetches and displays every composite tile covering the current viewport as a `Sprite`, added directly to the existing `lockedPiecesLayer`. `hydrateLockedPiece`/`lockedHydrateQueue`/`lockedResident` and the per-piece fallback they existed for are removed rather than kept as a second path: a locked piece never gets its own fetch again. The only bridge between a piece anchoring and its cell's composite catching up is reusing the texture already resident from the local client's own drag (`salvageLockedPiece`, zero fetch), freed once `CompositeTileLayer` confirms coverage or the piece leaves the keep ring, exempt from budget eviction (no re-fetch exists to recover it if freed early). The composite pool's own eviction is byte-weighted (real decoded size), replacing the earlier "1 unit like a single piece" approximation, unsafe once composites became the only rendering path. See DECISIONS.
+- [x] `region_state`/`cell_composite` report and push live composites over the wire
+- [x] `CompositeTileLayer` renders every covering composite tile with a byte-weighted eviction budget; the per-piece locked fallback (`hydrateLockedPiece`/`lockedHydrateQueue`/`lockedResident`) is removed entirely, superseded in Phase 6 by `DziRevealLayer`
 
 ---
 
