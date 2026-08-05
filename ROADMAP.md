@@ -49,7 +49,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 - [x] Gigapixel pipeline (Deep Zoom + per-piece alpha-cut AVIF) runs end to end on R2 via libvips random access; `npm run materialize` builds a synthetic BigTIFF stand-in for dev. Uploading the final asset is the deploy step. See DECISIONS
 
 ### `frontend-shell`
-- [x] Landing: final copy, single CTA gated on event start ("I'm interested" until launch, "Enter the canvas" after); closed-alpha passcode removed
+- [x] Landing: final copy, single CTA gated on event start ("I'm interested" until launch, "Join the board" after); closed-alpha passcode removed
 - [x] Countdown timer on landing (DD:HH:MM:SS, `useCountdown` off `GET /landing`), placeholder when unscheduled
 - [x] Auth modal: single "Continue with Google" action, return flow forces pseudo then nationality. Google-only by design
 - [x] `/play` sealed before a scheduled event: `beforeEnter` guard reads `eventStartsAt`, fail-open on an unset date or a transient fetch failure. See DECISIONS

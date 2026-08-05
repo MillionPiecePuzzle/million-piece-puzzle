@@ -22,10 +22,9 @@ const es: MessageSchema = {
   units: { d: "d", h: "h", m: "min" },
   langSwitcher: { label: "Elegir idioma" },
   landing: {
-    tagline: "Un millón de piezas en un único lienzo compartido.",
-    enterCanvas: "Entrar al lienzo",
+    tagline: "Un millón de piezas en un único tablero compartido.",
+    enterBoard: "Unirse al tablero",
     interested: "Me interesa",
-    onTheList: "Estás en la lista",
     beFirst: "Sé el primero en seguir la aventura",
     interestCount: "{n} persona interesada | {n} personas interesadas",
     piecesLockedSuffix: "/ {n} piezas fijadas",

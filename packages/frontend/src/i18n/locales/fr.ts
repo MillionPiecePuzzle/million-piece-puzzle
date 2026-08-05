@@ -22,10 +22,9 @@ const fr: MessageSchema = {
   units: { d: "j", h: "h", m: "min" },
   langSwitcher: { label: "Choisir la langue" },
   landing: {
-    tagline: "Un million de pièces sur un seul canevas partagé.",
-    enterCanvas: "Entrer sur le canevas",
+    tagline: "Un million de pièces sur un seul plateau partagé.",
+    enterBoard: "Rejoindre le plateau",
     interested: "Ça m'intéresse",
-    onTheList: "Vous êtes inscrit",
     beFirst: "Soyez le premier à suivre l'aventure",
     interestCount: "{n} personne intéressée | {n} personnes intéressées",
     piecesLockedSuffix: "/ {n} pièces verrouillées",

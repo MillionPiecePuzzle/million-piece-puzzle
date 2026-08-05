@@ -20,10 +20,9 @@ const en = {
   units: { d: "d", h: "h", m: "m" },
   langSwitcher: { label: "Choose language" },
   landing: {
-    tagline: "One million pieces on a single shared canvas.",
-    enterCanvas: "Enter the canvas",
+    tagline: "One million pieces on a single shared board.",
+    enterBoard: "Join the board",
     interested: "I'm interested",
-    onTheList: "You're on the list",
     beFirst: "Be the first to follow along",
     interestCount: "{n} person interested | {n} people interested",
     piecesLockedSuffix: "/ {n} pieces locked",

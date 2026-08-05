@@ -95,7 +95,7 @@ function rememberInterested(): void {
   }
 }
 
-function enterCanvas(): void {
+function enterBoard(): void {
   // Guest-first: the canvas mints a guest on arrival (or reuses an existing
   // session), so the landing CTA just navigates straight to /play.
   void router.push("/play");
@@ -192,9 +192,9 @@ onMounted(async () => {
             v-if="phase !== 'scheduled'"
             type="button"
             class="cta primary"
-            @click="enterCanvas"
+            @click="enterBoard"
           >
-            {{ t("landing.enterCanvas") }}
+            {{ t("landing.enterBoard") }}
           </button>
           <button
             v-else-if="!interested"
@@ -205,10 +205,9 @@ onMounted(async () => {
           >
             {{ t("landing.interested") }}
           </button>
-          <span v-else class="interested-badge">{{ t("landing.onTheList") }}</span>
         </div>
 
-        <p v-if="phase === 'scheduled' && count !== null" class="interest-count">
+        <p v-if="phase === 'scheduled' && interested && count !== null" class="interest-count">
           {{ interestLabel() }}
         </p>
       </div>
@@ -435,15 +434,6 @@ h1 {
 .cta:disabled {
   opacity: 0.6;
   cursor: default;
-}
-.interested-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 12px 22px;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
 }
 .interest-count {
   margin: 16px 0 0;
