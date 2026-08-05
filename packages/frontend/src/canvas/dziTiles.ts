@@ -1,7 +1,6 @@
 // Deep Zoom Image (DZI) tile math for the reference photo pyramid (see
 // packages/shared/src/manifest.ts's doc comment and scripts/slice-image.ts's
-// `sharp().tile({ layout: "dz", ... })`). Spike-only (see ROADMAP backlog: DZI
-// native in Pixi).
+// `sharp().tile({ layout: "dz", ... })`).
 
 import { CELL_MASK_TIER_FACTORS } from "@mpp/shared";
 import type { Aabb } from "./cull";

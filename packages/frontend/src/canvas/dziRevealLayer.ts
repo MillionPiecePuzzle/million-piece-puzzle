@@ -1,11 +1,13 @@
-// Spike-only (see ROADMAP backlog: DZI native in Pixi). Used instead of
-// CompositeTileLayer when ?dziReveal=1 is set: no server-baked full-photo
-// AVIF, no per-cell cellCompositor RGB compositing. The server still bakes
-// (and this layer still fetches) two small per-cell textures derived straight
-// from geometry: a silhouette mask and a seam (border-only) overlay (see
-// DECISIONS: DZI reveal mask/seam bake) - both far cheaper than the photo
-// composite CompositeTileLayer fetches, since neither needs a single piece
-// tile byte, only the server's already-in-process generationSeed.
+// The only rendering path for locked content (see ROADMAP Phase 5 Stage 5):
+// reveals the reference DZI pyramid through each locked piece's own
+// server-baked silhouette, with a seam overlay drawn on top. This layer
+// never fetches a full-photo AVIF or does per-cell RGB compositing itself;
+// the server still bakes (and this layer still fetches) two small per-cell
+// textures derived straight from geometry: a silhouette mask and a seam
+// (border-only) overlay (see DECISIONS: DZI reveal mask/seam bake) - both
+// far cheaper than the server's full per-cell photo composite (see
+// cellCompositor.ts), since neither needs a single piece tile byte, only the
+// server's already-in-process generationSeed.
 //
 // Three independent concerns, deliberately not tied to the same lifecycle:
 // - The DZI background is a standard deep-zoom tile layer (own native grid,
@@ -13,8 +15,9 @@
 //   levelForZoom), fetching only whatever the viewport needs at whatever
 //   detail the current zoom warrants, exactly like any map/deep-zoom viewer.
 // - The reveal mask is real per-piece silhouette geometry, but rasterized
-//   server-side per cell (same LOD_TILE_WORLD grid CompositeTileLayer already
-//   uses): a piece's tab can bulge past its own nominal box, so masking by a
+//   server-side per cell (the same LOD_TILE_WORLD grid every other per-cell
+//   index in this codebase uses, see groupGrid.ts): a piece's tab can bulge
+//   past its own nominal box, so masking by a
 //   piece's rectangular bounds (an earlier version of this file did exactly
 //   that) still shows a straight edge at a partially-locked cell's frontier,
 //   the same "flat rectangle" symptom this bake exists to remove. Since Pixi
@@ -32,7 +35,6 @@
 
 import { Container, Matrix, Rectangle, RenderTexture, Sprite, type Texture } from "pixi.js";
 import type { Aabb } from "./cull";
-import { neededCompositeTiles } from "./compositeTiles";
 import { LOD_TILE_WORLD, packCell, unpackWireCellKey, type CellKey } from "./groupGrid";
 import { dziTilesForRect, levelForZoom, maskTierForZoom, pickBaseLevel, type DziInfo } from "./dziTiles";
 
@@ -89,8 +91,8 @@ type DziTile = {
   lru: number;
 };
 
-// One cell's mask + seam assets, on the same LOD_TILE_WORLD grid and the same
-// {cellKey, version} facts CompositeTileLayer tracks (see reportVersion).
+// One cell's mask + seam assets, on the LOD_TILE_WORLD grid and the same
+// {cellKey, version} facts the wire CellComposite carries (see reportVersion).
 type CellAsset = {
   cx: number;
   cy: number;
@@ -117,7 +119,7 @@ export type DziRevealLayerDeps = {
   dziBaseUrl: string;
   // Same cell canvas widening the server bakes with (see cellCompositor.ts),
   // needed to place a cell's mask/seam sprite at its true bleed-inclusive
-  // bounds, exactly like CompositeTileLayer's own margin dep.
+  // bounds.
   margin: number;
   // tier indexes CELL_MASK_TIER_FACTORS (see dziTiles.ts's maskTierForZoom):
   // the client picks it from the current zoom, independently of anything
@@ -130,6 +132,22 @@ export type DziRevealLayerDeps = {
   // injected callback so this layer never needs the renderer itself.
   renderToTexture: (source: Container, target: RenderTexture, transform: Matrix) => void;
 };
+
+export type CellCoord = { cx: number; cy: number };
+
+// Every cell a box spans, at the fixed LOD_TILE_WORLD pitch every per-cell
+// mask/seam asset is baked at.
+export function neededCellAssets(box: Aabb): CellCoord[] {
+  const out: CellCoord[] = [];
+  const cx0 = Math.floor(box.minX / LOD_TILE_WORLD);
+  const cx1 = Math.floor(box.maxX / LOD_TILE_WORLD);
+  const cy0 = Math.floor(box.minY / LOD_TILE_WORLD);
+  const cy1 = Math.floor(box.maxY / LOD_TILE_WORLD);
+  for (let cy = cy0; cy <= cy1; cy++) {
+    for (let cx = cx0; cx <= cx1; cx++) out.push({ cx, cy });
+  }
+  return out;
+}
 
 function rectContains(outer: Aabb, inner: Aabb): boolean {
   return (
@@ -246,9 +264,9 @@ export class DziRevealLayer {
     );
   }
 
-  // Records or bumps one cell's known mask/seam version, mirroring
-  // CompositeTileLayer.reportVersion exactly (same wire facts, same
-  // upsert-a-fact-let-reconcile-decide shape).
+  // Records or bumps one cell's known mask/seam version: an upsert-a-fact,
+  // let-reconcile-decide-when-to-fetch shape, shared by the region_state
+  // batch and the live cell_composite push.
   reportVersion(wireCellKey: number, version: number): void {
     const { cx, cy } = unpackWireCellKey(wireCellKey);
     const key = packCell(cx, cy);
@@ -373,8 +391,8 @@ export class DziRevealLayer {
   }
 
   private reconcileCellAssets(hydrateRing: Aabb, keepRing: Aabb, tier: number): void {
-    const needed = neededCompositeTiles(hydrateRing);
-    const kept = neededCompositeTiles(keepRing);
+    const needed = neededCellAssets(hydrateRing);
+    const kept = neededCellAssets(keepRing);
     const neededSet = new Set(needed.map((c) => packCell(c.cx, c.cy)));
     const keptSet = new Set(kept.map((c) => packCell(c.cx, c.cy)));
 

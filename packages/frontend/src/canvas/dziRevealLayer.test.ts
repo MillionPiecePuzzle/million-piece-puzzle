@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { neededCompositeTiles } from "./compositeTiles";
+import { neededCellAssets } from "./dziRevealLayer";
 import { LOD_TILE_WORLD } from "./groupGrid";
 import type { Aabb } from "./cull";
 
@@ -10,15 +10,15 @@ const box = (minX: number, minY: number, maxX: number, maxY: number): Aabb => ({
   maxY,
 });
 
-describe("neededCompositeTiles", () => {
+describe("neededCellAssets", () => {
   it("returns the single cell covering a box within it", () => {
     const b = box(0, 0, LOD_TILE_WORLD - 1, LOD_TILE_WORLD - 1);
-    expect(neededCompositeTiles(b)).toEqual([{ cx: 0, cy: 0 }]);
+    expect(neededCellAssets(b)).toEqual([{ cx: 0, cy: 0 }]);
   });
 
   it("covers every cell a box spans, not just its origin cell", () => {
     const b = box(0, 0, LOD_TILE_WORLD * 2 - 1, LOD_TILE_WORLD - 1);
-    const out = neededCompositeTiles(b);
+    const out = neededCellAssets(b);
     expect(out.sort((a, b2) => a.cx - b2.cx)).toEqual([
       { cx: 0, cy: 0 },
       { cx: 1, cy: 0 },
@@ -32,7 +32,7 @@ describe("neededCompositeTiles", () => {
       LOD_TILE_WORLD + 1,
       LOD_TILE_WORLD + 1,
     );
-    const out = neededCompositeTiles(b);
+    const out = neededCellAssets(b);
     const sortByCoord = (a: { cx: number; cy: number }, c: { cx: number; cy: number }): number =>
       a.cx - c.cx || a.cy - c.cy;
     expect(out.sort(sortByCoord)).toEqual(
