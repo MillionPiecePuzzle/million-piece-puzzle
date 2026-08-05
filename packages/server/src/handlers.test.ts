@@ -421,8 +421,8 @@ class FakeState {
     return Promise.resolve();
   }
 
-  setPieceGroup(pieceId: number, groupId: number): Promise<void> {
-    this.pieceToGroup.set(pieceId, groupId);
+  setPieceGroups(pieceIds: number[], groupId: number): Promise<void> {
+    for (const p of pieceIds) this.pieceToGroup.set(p, groupId);
     return Promise.resolve();
   }
 

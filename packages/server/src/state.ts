@@ -116,8 +116,13 @@ export class RedisState {
     };
   }
 
-  async setPieceGroup(id: number, groupId: number): Promise<void> {
-    await this.r.hset(keys.piece(this.puzzleId, id), "groupId", groupId);
+  // Reassign every given piece to a new group, pipelined: one round trip
+  // regardless of count (mirrors lockPieces below).
+  async setPieceGroups(pieceIds: readonly number[], groupId: number): Promise<void> {
+    if (pieceIds.length === 0) return;
+    const pipe = this.r.pipeline();
+    for (const id of pieceIds) pipe.hset(keys.piece(this.puzzleId, id), "groupId", groupId);
+    await pipe.exec();
   }
 
   // groupId and locked together, one read: detectSnap needs both per grid

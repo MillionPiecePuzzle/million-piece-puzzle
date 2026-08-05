@@ -624,11 +624,12 @@ async function applyMerge(
       ctx.groupIndex.remove(id);
     }
   } else {
+    // addedPieceIds is exactly the set of pieces losing their old group here
+    // (every piece of every group other than newId), so one pipelined call
+    // reassigns them all in a single round trip regardless of merge size.
+    await ctx.state.setPieceGroups(addedPieceIds, newId);
     for (const oldId of allIds) {
       if (oldId === newId) continue;
-      for (const p of piecesByGroup.get(oldId) ?? []) {
-        await ctx.state.setPieceGroup(p, newId);
-      }
       await ctx.state.deleteGroup(oldId);
       // The merged-away group no longer exists, so drop it from the group index.
       ctx.groupIndex.remove(oldId);
