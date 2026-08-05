@@ -13,6 +13,8 @@ const { show: showPseudo } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
 const { user, signOut } = useAuth();
 
+const DISCORD_URL = "https://discord.gg/mB2juw55R3";
+
 // Sync hands off to the (confirmation) auth modal; the profile edits reuse the
 // existing pseudo/country modals in their dismissible edit mode.
 function sync() {
@@ -54,6 +56,9 @@ function changeCountry() {
           <button type="button" class="action" @click="changeCountry">
             <span class="label">{{ t("options.changeCountry") }}</span>
           </button>
+          <a class="action" :href="DISCORD_URL" target="_blank" rel="noopener">
+            <span class="label">{{ t("options.discord") }}</span>
+          </a>
         </div>
 
         <button type="button" class="signout" @click="signOut">{{ t("options.signOut") }}</button>
