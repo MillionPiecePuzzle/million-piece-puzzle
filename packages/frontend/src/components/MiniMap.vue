@@ -217,7 +217,7 @@ useRafLoop(draw);
 <style scoped>
 .minimap {
   position: static;
-  width: 248px;
+  width: min(248px, calc(50vw - 24px));
   padding: 10px 10px 12px;
 }
 .minimap-head {

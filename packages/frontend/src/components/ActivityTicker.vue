@@ -68,7 +68,7 @@ function lineRest(entry: ActivityEntry): string {
 .ticker {
   bottom: 16px;
   left: 16px;
-  width: 340px;
+  width: min(340px, calc(50vw - 24px));
   padding: 12px 14px;
 }
 .ticker h3 {

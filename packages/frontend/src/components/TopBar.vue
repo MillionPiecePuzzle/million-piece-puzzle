@@ -104,8 +104,9 @@ const playTime = computed(() => {
   height: 52px;
   z-index: 40;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
+  gap: 8px;
   padding: 0 16px;
   background: rgba(244, 241, 234, 0.85);
   backdrop-filter: blur(10px);
@@ -115,12 +116,17 @@ const playTime = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 .brand-name {
   font-family: var(--serif);
   font-weight: 500;
   font-size: 18px;
   letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .brand-name em {
   font-style: italic;
@@ -133,6 +139,7 @@ const playTime = computed(() => {
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--ink-4);
+  flex: none;
 }
 .progress-pill {
   display: flex;
@@ -142,9 +149,11 @@ const playTime = computed(() => {
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   background: var(--paper);
+  min-width: 0;
 }
 .progress-pill .bar {
-  width: 140px;
+  width: clamp(48px, 16vw, 140px);
+  flex: none;
   height: 5px;
   border-radius: 99px;
   background: var(--ground-2);
@@ -161,6 +170,7 @@ const playTime = computed(() => {
   font-size: 12px;
   letter-spacing: -0.01em;
   white-space: nowrap;
+  flex: none;
 }
 .progress-pill .num span {
   color: var(--ink-3);
@@ -170,6 +180,7 @@ const playTime = computed(() => {
   justify-content: flex-end;
   align-items: center;
   gap: 14px;
+  min-width: 0;
 }
 .presence {
   display: inline-flex;
@@ -179,11 +190,13 @@ const playTime = computed(() => {
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   background: var(--paper);
+  min-width: 0;
 }
 .presence .flag {
   display: inline-flex;
   border-radius: 50%;
   line-height: 0;
+  flex: none;
 }
 .presence .flag img {
   border-radius: 50%;
@@ -193,6 +206,11 @@ const playTime = computed(() => {
   font-size: 13px;
   letter-spacing: -0.005em;
   color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 22vw;
 }
 .presence .gear {
   display: inline-flex;
@@ -200,6 +218,7 @@ const playTime = computed(() => {
   justify-content: center;
   width: 24px;
   height: 24px;
+  flex: none;
   margin: -4px -6px -4px 0;
   border-radius: var(--radius-pill);
   color: var(--ink-3);
@@ -211,5 +230,35 @@ const playTime = computed(() => {
 .presence .gear:hover {
   background: var(--ground-2);
   color: var(--ink);
+}
+
+@media (max-width: 560px) {
+  .brand-caption {
+    display: none;
+  }
+}
+@media (max-width: 420px) {
+  .brand-name {
+    display: none;
+  }
+  .presence .flag,
+  .presence .pseudo {
+    display: none;
+  }
+  .presence {
+    padding: 6px 8px;
+    gap: 0;
+  }
+  .topbar {
+    padding: 0 10px;
+    gap: 4px;
+  }
+  .progress-pill {
+    padding: 5px 8px;
+    gap: 6px;
+  }
+  .progress-pill .bar {
+    width: clamp(28px, 12vw, 140px);
+  }
 }
 </style>

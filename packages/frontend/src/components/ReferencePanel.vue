@@ -100,7 +100,7 @@ onBeforeUnmount(() => {
 .reference {
   top: 16px;
   left: 16px;
-  width: 280px;
+  width: min(280px, calc(50vw - 24px));
   padding: 12px 14px;
 }
 .reference h3 {

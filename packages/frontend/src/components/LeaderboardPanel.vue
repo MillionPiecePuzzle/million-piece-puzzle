@@ -46,7 +46,7 @@ const panelRows = computed(() => {
 .leaderboard {
   top: 16px;
   right: 16px;
-  width: 288px;
+  width: min(288px, calc(50vw - 24px));
   padding: 14px 14px 10px;
 }
 .lb-head {
