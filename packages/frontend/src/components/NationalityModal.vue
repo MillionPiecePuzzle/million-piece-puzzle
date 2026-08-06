@@ -6,6 +6,7 @@ import { useNationalityModal } from "../composables/useNationalityModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useAuth } from "../composables/useAuth";
 import { useMode } from "../composables/useMode";
+import { useFocusTrap } from "../composables/useFocusTrap";
 import { LOCALE_TAGS, type AppLocale } from "../i18n";
 import { flagUrl } from "../data/flags";
 
@@ -36,10 +37,21 @@ const draft = ref("");
 const error = ref<string | null>(null);
 const saving = ref(false);
 const selectEl = ref<HTMLSelectElement | null>(null);
+const shellEl = ref<HTMLElement | null>(null);
 
 const valid = computed(() => draft.value !== "");
 const dismissible = computed(() => mode.value === "edit");
 const cooldownHours = PROFILE_COOLDOWN_MS / 3_600_000;
+
+// Escape must respect dismissible too: mandatory onboarding cannot be
+// skipped, matching the backdrop-click guard in onBackdrop below.
+const trap = useFocusTrap(shellEl, {
+  onEscape: () => {
+    if (dismissible.value) hide();
+  },
+  autoFocus: false,
+});
+watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 
 // Whole hours remaining until retryAt, never below 1 while still on cooldown.
 function retryHours(retryAt: number): number {
@@ -105,7 +117,13 @@ function onBackdrop() {
 <template>
   <Teleport to="body">
     <div v-if="open" class="modal-backdrop nat-backdrop" @click.self="onBackdrop">
-      <div class="modal-shell nat-modal" role="dialog" aria-modal="true" aria-labelledby="nat-title">
+      <div
+        ref="shellEl"
+        class="modal-shell nat-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nat-title"
+      >
         <header class="modal-header">
           <h2 id="nat-title" class="modal-title">{{ title }}</h2>
           <button

@@ -10,6 +10,7 @@ import {
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
+import { useFocusTrap } from "../composables/useFocusTrap";
 
 const { t } = useI18n();
 const { open, mode, initialError, hide } = usePseudoModal();
@@ -20,11 +21,22 @@ const draft = ref("");
 const error = ref<string | null>(null);
 const saving = ref(false);
 const inputEl = ref<HTMLInputElement | null>(null);
+const shellEl = ref<HTMLElement | null>(null);
 
 const normalized = computed(() => normalizePseudo(draft.value));
 const valid = computed(() => normalized.value !== null);
 const dismissible = computed(() => mode.value === "edit");
 const cooldownHours = PROFILE_COOLDOWN_MS / 3_600_000;
+
+// Escape must respect dismissible too: mandatory onboarding cannot be
+// skipped, matching the backdrop-click guard in onBackdrop below.
+const trap = useFocusTrap(shellEl, {
+  onEscape: () => {
+    if (dismissible.value) hide();
+  },
+  autoFocus: false,
+});
+watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 
 const title = computed(() =>
   mode.value === "edit" ? t("pseudo.titleEdit") : t("pseudo.titleNew"),
@@ -80,6 +92,7 @@ function onBackdrop() {
   <Teleport to="body">
     <div v-if="open" class="modal-backdrop pseudo-backdrop" @click.self="onBackdrop">
       <div
+        ref="shellEl"
         class="modal-shell pseudo-modal"
         role="dialog"
         aria-modal="true"

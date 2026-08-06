@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { toCountryRows, toLeaderboardRows } from "../data/leaderboard";
+import { useFocusTrap } from "../composables/useFocusTrap";
 import LeaderboardRow from "./LeaderboardRow.vue";
 
 const { t } = useI18n();
 const emit = defineEmits<{ close: [] }>();
 
 const { leaderboard, userId } = usePuzzleSession();
+const shellEl = ref<HTMLElement | null>(null);
+const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
 
 type Mode = "people" | "countries";
 const mode = ref<Mode>("people");
@@ -37,17 +40,14 @@ function prev(): void {
 function next(): void {
   if (page.value < pageCount.value - 1) page.value++;
 }
-function onKey(e: KeyboardEvent): void {
-  if (e.key === "Escape") emit("close");
-}
 
-onMounted(() => window.addEventListener("keydown", onKey));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+onMounted(trap.activate);
 </script>
 
 <template>
   <div class="backdrop" @click.self="emit('close')">
     <div
+      ref="shellEl"
       class="panel modal"
       role="dialog"
       aria-modal="true"

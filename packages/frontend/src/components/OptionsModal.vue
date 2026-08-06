@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useOptionsModal } from "../composables/useOptionsModal";
 import { useAuthModal } from "../composables/useAuthModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
+import { useFocusTrap } from "../composables/useFocusTrap";
 
 const { t } = useI18n();
 const { open, hide } = useOptionsModal();
@@ -14,6 +16,10 @@ const { show: showNationality } = useNationalityModal();
 const { user, signOut } = useAuth();
 
 const DISCORD_URL = "https://discord.gg/mB2juw55R3";
+
+const shellEl = ref<HTMLElement | null>(null);
+const trap = useFocusTrap(shellEl, { onEscape: hide });
+watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 
 // Sync hands off to the (confirmation) auth modal; the profile edits reuse the
 // existing pseudo/country modals in their dismissible edit mode.
@@ -35,6 +41,7 @@ function changeCountry() {
   <Teleport to="body">
     <div v-if="open" class="modal-backdrop options-backdrop" @click.self="hide">
       <div
+        ref="shellEl"
         class="modal-shell options-modal"
         role="dialog"
         aria-modal="true"

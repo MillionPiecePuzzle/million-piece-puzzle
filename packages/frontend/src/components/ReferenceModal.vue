@@ -4,12 +4,15 @@ import OpenSeadragon from "openseadragon";
 import { useI18n } from "vue-i18n";
 import type { ImageManifest } from "@mpp/shared";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
+import { useFocusTrap } from "../composables/useFocusTrap";
 
 const { t } = useI18n();
 const props = defineProps<{ manifest: ImageManifest }>();
 const emit = defineEmits<{ close: [] }>();
 
 const host = ref<HTMLDivElement | null>(null);
+const shellEl = ref<HTMLElement | null>(null);
+const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
 let viewer: OpenSeadragon.Viewer | null = null;
 
 const aspectRatio = computed(() => `${props.manifest.source.width / props.manifest.source.height}`);
@@ -32,10 +35,6 @@ function fit(immediate = false): void {
   if (!vp) return;
   vp.goHome(true);
   vp.zoomTo(vp.getMinZoom(), undefined, immediate);
-}
-
-function onKey(e: KeyboardEvent): void {
-  if (e.key === "Escape") emit("close");
 }
 
 onMounted(() => {
@@ -62,11 +61,10 @@ onMounted(() => {
   });
   viewer.addHandler("open", () => fit(true));
   viewer.open(dziUrlFor(props.manifest) as unknown as OpenSeadragon.TileSourceSpecifier);
-  window.addEventListener("keydown", onKey);
+  trap.activate();
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onKey);
   viewer?.destroy();
   viewer = null;
 });
@@ -75,6 +73,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="backdrop" @click.self="emit('close')">
     <div
+      ref="shellEl"
       class="shell"
       role="dialog"
       aria-modal="true"

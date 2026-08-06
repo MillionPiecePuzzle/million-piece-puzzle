@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { TileState } from "../canvas/reconcile";
 import { useMinimap } from "../composables/useMinimap";
 import { useRafLoop } from "../composables/useRafLoop";
+import { useFocusTrap } from "../composables/useFocusTrap";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
@@ -12,8 +13,10 @@ const emit = defineEmits<{ close: [] }>();
 const { source, detailSource } = useMinimap();
 
 const canvasEl = ref<HTMLCanvasElement | null>(null);
+const shellEl = ref<HTMLElement | null>(null);
 const memoryLabel = ref("");
 const tilesLabel = ref("");
+const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
 
 // Same clamp MiniMap.vue applies to the same play zone, so a strongly non-square
 // zone cannot make this grid absurdly wide or tall either.
@@ -123,24 +126,15 @@ function draw(): void {
   });
 }
 
-function onKey(e: KeyboardEvent): void {
-  if (e.key === "Escape") emit("close");
-}
-
 useRafLoop(draw, POLL_EVERY_N_FRAMES);
 
-onMounted(() => {
-  window.addEventListener("keydown", onKey);
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onKey);
-});
+onMounted(trap.activate);
 </script>
 
 <template>
   <div class="backdrop" @click.self="emit('close')">
     <div
+      ref="shellEl"
       class="shell"
       role="dialog"
       aria-modal="true"
