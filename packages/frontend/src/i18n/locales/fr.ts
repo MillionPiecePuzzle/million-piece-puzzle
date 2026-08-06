@@ -151,7 +151,7 @@ const fr: MessageSchema = {
     headBuild: "Construction du plateau",
     headTextures: "Chargement des textures",
     headReady: "Prêt",
-    tip: "Astuce : double-cliquez sur une pièce pour la coller à votre curseur, puis double-cliquez à nouveau pour la déposer.",
+    tip: "Astuce : double-cliquez ou tapez deux fois sur une pièce pour la coller à votre curseur, puis recommencez pour la déposer.",
   },
   queue: {
     kicker: "Bientôt à vous",
@@ -172,7 +172,7 @@ const fr: MessageSchema = {
     tileFull: "Trop de pièces sur cette case.",
   },
   carry: {
-    hint: "Pièce en main. Double-cliquez pour la déposer, Échap pour la remettre.",
+    hint: "Pièce en main. Double-cliquez ou tapez deux fois pour la déposer, Échap pour la remettre.",
   },
   row: {
     pcs: "pcs",

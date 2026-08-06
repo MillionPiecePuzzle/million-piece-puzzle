@@ -145,7 +145,7 @@ const en = {
     headBuild: "Building the board",
     headTextures: "Loading textures",
     headReady: "Ready",
-    tip: "Tip: double-click a piece to stick it to your cursor, then double-click again to drop it.",
+    tip: "Tip: double-click or double-tap a piece to stick it to your cursor, then do it again to drop it.",
   },
   queue: {
     kicker: "Almost in",
@@ -166,7 +166,7 @@ const en = {
     tileFull: "Too many pieces on this tile.",
   },
   carry: {
-    hint: "Holding a piece. Double-click to drop it, Esc to put it back.",
+    hint: "Holding a piece. Double-click or double-tap to drop it, Esc to put it back.",
   },
   row: {
     pcs: "pcs",
@@ -182,7 +182,8 @@ const en = {
     intro:
       "Million Piece Puzzle is a collaborative, non-commercial project initiated by an independent developer. This page explains what data is collected, why, and how to exercise your rights.",
     controllerHead: "Data controller",
-    controllerBody: "The service is operated by an independent developer, reachable on our {discord}.",
+    controllerBody:
+      "The service is operated by an independent developer, reachable on our {discord}.",
     discord: "Discord server",
     collectedHead: "Data collected",
     collectedBody:

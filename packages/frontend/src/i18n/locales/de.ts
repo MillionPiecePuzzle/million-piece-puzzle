@@ -152,7 +152,7 @@ const de: MessageSchema = {
     headBuild: "Spielfeld wird aufgebaut",
     headTextures: "Texturen werden geladen",
     headReady: "Bereit",
-    tip: "Tipp: Doppelklicke auf ein Teil, um es an den Cursor zu heften, und doppelklicke erneut, um es abzulegen.",
+    tip: "Tipp: Doppelklicke oder tippe zweimal auf ein Teil, um es an den Cursor zu heften, und wiederhole das, um es abzulegen.",
   },
   queue: {
     kicker: "Gleich geht's",
@@ -173,7 +173,7 @@ const de: MessageSchema = {
     tileFull: "Zu viele Teile auf diesem Feld.",
   },
   carry: {
-    hint: "Teil in der Hand. Doppelklicke zum Ablegen, Esc zum Zurücklegen.",
+    hint: "Teil in der Hand. Doppelklicke oder tippe zweimal zum Ablegen, Esc zum Zurücklegen.",
   },
   row: {
     pcs: "Tle",

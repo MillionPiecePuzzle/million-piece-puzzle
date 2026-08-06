@@ -153,10 +153,10 @@ type HeldState = {
   originX: number;
   originY: number;
   confirmed: boolean;
-  // Sticky "carry" mode (double-click a piece to attach its cluster to the
-  // cursor). The cluster follows the pointer with no button held, and a button
-  // release no longer drops it. Cleared on the drop double-click, Escape, or the
-  // idle timeout.
+  // Sticky "carry" mode (double-click or double-tap a piece to attach its
+  // cluster to the cursor). The cluster follows the pointer with no button
+  // held, and a button release no longer drops it. Cleared on the drop
+  // double-press, Escape, or the idle timeout.
   carry: boolean;
 };
 
@@ -184,11 +184,21 @@ const GRAB_HIT_ALPHA = 16;
 // cursor.
 const HELD_CARRY_GAP = 40;
 
-// Sticky carry mode (double-click a piece to stick its cluster to the cursor). A
-// highlighted outline marks the carried cluster, and an idle timeout drops it so
-// a player cannot park a cluster with its server-side lock held indefinitely.
+// Sticky carry mode (double-click or double-tap a piece to stick its cluster to
+// the cursor). A highlighted outline marks the carried cluster, and an idle
+// timeout drops it so a player cannot park a cluster with its server-side lock
+// held indefinitely.
 const CARRY_HIGHLIGHT_COLOR = 0xffce47;
 const CARRY_IDLE_TIMEOUT_MS = 30000;
+
+// Manual double-press detection (mouse dblclick and touch double-tap alike),
+// matching a browser's own dblclick heuristic: two pointerdowns this close in
+// time and screen distance. Driven off the same pointerdown that already
+// starts a press-drag grab (see consumeDoubleTap) instead of the native
+// `dblclick` DOM event, which is mouse-semantics and fires unreliably off a
+// touch double-tap.
+const DOUBLE_TAP_MAX_MS = 350;
+const DOUBLE_TAP_MAX_DIST = 32;
 
 // Edge-pan: when the pointer rests within this many screen pixels of a canvas
 // edge, the camera scrolls toward that edge. Speed ramps quadratically from 0 at
@@ -407,10 +417,11 @@ export class PuzzleStage {
   private alphaProbe: CanvasRenderingContext2D | null = null;
 
   private held: HeldState | null = null;
-  // The group under the last pointerdown (null when it hit empty stage), so the
-  // DOM double-click can resolve which cluster to pick up for sticky carry: the
-  // DOM event carries no Pixi target.
-  private lastPointerDownGroupId: number | null = null;
+  // Screen position and timestamp of the last unconsumed pointerdown, for
+  // double-press detection (see consumeDoubleTap): mouse dblclick and touch
+  // double-tap alike, driven off this class's own pointerdown handling rather
+  // than the native `dblclick` DOM event.
+  private lastTapScreen: { x: number; y: number; at: number } | null = null;
   // Outline over the cluster currently carried, and the idle timer that drops it.
   // Only one cluster is ever carried at a time.
   private carryHighlight: Graphics | null = null;
@@ -458,6 +469,20 @@ export class PuzzleStage {
   // canvas. Drives edge-pan, which reads it from the ticker so a pointer resting
   // in the edge band keeps scrolling without further move events.
   private pointerScreen: { x: number; y: number } | null = null;
+  // Active touch-only pointers (id -> last known canvas-relative position),
+  // tracked independently of the single-pointer held/pan model above (neither
+  // is aware of pointer identity) so a second finger touching down can be
+  // recognised as a pinch instead of stealing the first finger's held cluster
+  // via the ordinary per-group grab. See attachPinchZoom for why this is
+  // driven off native, document-level events rather than Pixi's federated ones.
+  private touchPoints = new Map<number, { x: number; y: number }>();
+  // The two pointer ids driving the current 2-finger gesture, and their
+  // distance/midpoint as of the last processed move (screen space). Null
+  // outside a pinch. Updated every move so the zoom factor and the pan are
+  // always relative to the previous frame rather than the gesture's start,
+  // which is what lets a pinch and a 2-finger pan compose in one gesture.
+  private pinch: { ids: [number, number]; distance: number; midX: number; midY: number } | null =
+    null;
   private readonly tickEdgePan = (ticker: { deltaMS: number }): void => {
     this.tickEdgePanFrame(ticker.deltaMS);
   };
@@ -651,10 +676,10 @@ export class PuzzleStage {
     app.ticker.add(this.tickDragFlush);
     app.ticker.add(this.tickEdgePan);
     app.ticker.add(this.tickLod);
-    app.canvas.addEventListener("dblclick", (ev) => this.onCanvasDoubleClick(ev));
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("blur", this.onWindowBlur);
     this.attachWheelZoom(app.canvas);
+    this.attachPinchZoom();
   }
 
   private refreshStageHitArea(app: Application): void {
@@ -981,6 +1006,7 @@ export class PuzzleStage {
     this.clearCarryIdle();
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("blur", this.onWindowBlur);
+    this.detachPinchZoom();
     this.tweener?.destroy();
     this.tweener = null;
     this.app?.ticker.remove(this.tickPeerCursors);
@@ -1022,7 +1048,9 @@ export class PuzzleStage {
     this.minimapGrid = null;
     this.held = null;
     this.carryHighlight = null;
-    this.lastPointerDownGroupId = null;
+    this.lastTapScreen = null;
+    this.touchPoints.clear();
+    this.pinch = null;
     this.pendingDrag = null;
     this.pointerScreen = null;
     this.pendingDrops.clear();
@@ -1102,7 +1130,7 @@ export class PuzzleStage {
     // freed with the world above, so just clear the carry state and hide the hint.
     this.clearCarryIdle();
     this.carryHighlight = null;
-    this.lastPointerDownGroupId = null;
+    this.lastTapScreen = null;
     this.onCarryChange?.(false);
     this.held = null;
     this.pendingDrag = null;
@@ -1732,7 +1760,8 @@ export class PuzzleStage {
   }
 
   private onGroupPointerDown(node: GroupNode, ev: FederatedPointerEvent): void {
-    if (!this.callbacks) return;
+    if (this.pinch || !this.callbacks) return;
+    this.pointerScreen = { x: ev.global.x, y: ev.global.y };
     const world = this.screenToWorld(ev.global.x, ev.global.y);
     // Strict hit-test with fall-through: Pixi delivers the press to the cluster
     // whose rectangular tile bounds are topmost, but those bounds include the
@@ -1744,8 +1773,12 @@ export class PuzzleStage {
     const target = this.grabTargetAt(world.x, world.y, node);
     if (!target) return;
     ev.stopPropagation();
-    this.lastPointerDownGroupId = target.id;
-    // While a cluster is carried, presses are reserved for the drop double-click;
+    if (this.consumeDoubleTap(ev.global.x, ev.global.y)) {
+      if (this.held?.carry) this.dropCarried();
+      else if (!this.held) this.beginCarry(target);
+      return;
+    }
+    // While a cluster is carried, presses are reserved for the drop double-press;
     // do not start a competing press-drag grab on it.
     if (this.held?.carry) return;
     // Re-grabbing supersedes any in-flight drop of the same group; the held-skip
@@ -1843,7 +1876,19 @@ export class PuzzleStage {
   }
 
   private onStagePointerDown(ev: FederatedPointerEvent): void {
-    this.lastPointerDownGroupId = null;
+    if (this.pinch) return;
+    this.pointerScreen = { x: ev.global.x, y: ev.global.y };
+    // Double-press bookkeeping runs regardless of carry state (a begin-carry or
+    // drop-carry pair can straddle a piece and empty stage, e.g. the first tap
+    // lands on the gap between pieces), so it must see every contributor-mode
+    // pointerdown to pair correctly; only the resulting action is carry-gated.
+    if (this.mode === "contributor") {
+      const doubleTap = this.consumeDoubleTap(ev.global.x, ev.global.y);
+      if (doubleTap && this.held?.carry) {
+        this.dropCarried();
+        return;
+      }
+    }
     // A press-drag owns the button, so a background pan must not compete with it.
     // Sticky carry holds no button, so it behaves like an empty hand: pressing
     // empty stage starts a pan (the carried cluster stays glued to the cursor as
@@ -1986,7 +2031,7 @@ export class PuzzleStage {
 
   private onPointerUp(ev: FederatedPointerEvent): void {
     // Sticky carry ignores the button release: the cluster stays in hand until a
-    // double-click drops it, Escape returns it, or it times out.
+    // double-press drops it, Escape returns it, or it times out.
     if (this.held?.carry) {
       this.pan.active = false;
       return;
@@ -2016,25 +2061,27 @@ export class PuzzleStage {
     this.releaseGroupHeld(node.id);
   }
 
-  // ----- sticky carry (double-click to stick a cluster to the cursor) -----
+  // ----- sticky carry (double-click or double-tap to stick a cluster to the cursor) -----
 
-  // A DOM double-click toggles carry. With a cluster carried it drops it;
-  // otherwise it picks up the cluster under the last pointerdown and sticks it to
-  // the cursor. Resolved off lastPointerDownGroupId (set by the federated pointer
-  // handlers) since the DOM event carries no Pixi target.
-  private onCanvasDoubleClick(ev: MouseEvent): void {
-    ev.preventDefault();
-    if (this.mode !== "contributor") return;
-    if (this.held?.carry) {
-      this.dropCarried();
-      return;
-    }
-    // A press-drag is in flight (button held): ignore, the release will drop it.
-    if (this.held) return;
-    if (this.lastPointerDownGroupId === null) return;
-    const node = this.groups.get(this.lastPointerDownGroupId);
-    if (!node) return;
-    this.beginCarry(node);
+  // True on the second of two pointerdowns within DOUBLE_TAP_MAX_MS and
+  // DOUBLE_TAP_MAX_DIST screen px of each other, mirroring a browser's own
+  // dblclick spatial/temporal heuristic but driven off the pointerdown stream
+  // that already starts a press-drag grab (onStagePointerDown and
+  // onGroupPointerDown, which also resolve which piece, if any, the second tap
+  // landed on). Works identically for mouse, touch and pen, replacing the
+  // native `dblclick` DOM event, which is mouse-semantics and fires unreliably
+  // off a touch double-tap. A consumed pair resets the reference, so a third
+  // rapid press starts a fresh pair rather than chaining into a triple-tap.
+  private consumeDoubleTap(screenX: number, screenY: number): boolean {
+    const now = performance.now();
+    const prev = this.lastTapScreen;
+    this.lastTapScreen = { x: screenX, y: screenY, at: now };
+    if (!prev) return false;
+    const withinTime = now - prev.at <= DOUBLE_TAP_MAX_MS;
+    const withinDist = Math.hypot(screenX - prev.x, screenY - prev.y) <= DOUBLE_TAP_MAX_DIST;
+    if (!withinTime || !withinDist) return false;
+    this.lastTapScreen = null;
+    return true;
   }
 
   // Pick a cluster up into sticky carry: grab it (acquiring the server lock), keep
@@ -2064,7 +2111,7 @@ export class PuzzleStage {
     this.armCarryIdle();
   }
 
-  // Put the carried cluster down centered on the cursor (the drop double-click or
+  // Put the carried cluster down centered on the cursor (the drop double-press or
   // the idle timeout), committing the move and releasing the server lock. It lands
   // centered on the pointer rather than by its grab point: the carry floats it off
   // the cursor, so the grab point is irrelevant on drop. Falls back to its current
@@ -2459,14 +2506,33 @@ export class PuzzleStage {
   private zoomBy(factor: number): void {
     if (!this.app) return;
     const screen = this.app.renderer.screen;
-    const px = screen.width * 0.5;
-    const py = screen.height * 0.5;
+    this.zoomAtScreenPoint(screen.width * 0.5, screen.height * 0.5, factor);
+  }
+
+  // Zooms by `factor` anchored at (anchorX, anchorY) in screen space (the world
+  // point under the anchor stays fixed), then pans by the anchor's own movement
+  // from (anchorX, anchorY) to (toX, toY). A plain zoom (wheel, the +/- buttons,
+  // zoomBy) passes the same point for both, making the pan term zero; a pinch
+  // passes the midpoint's previous and current position, so the camera follows
+  // a 2-finger pan performed mid-pinch too instead of only reacting to the
+  // change in finger spacing.
+  private zoomAndPanBy(
+    anchorX: number,
+    anchorY: number,
+    toX: number,
+    toY: number,
+    factor: number,
+  ): void {
     const next = clamp(this.camera.zoom * factor, MIN_ZOOM, MAX_ZOOM);
     const k = next / this.camera.zoom;
-    this.camera.x = px - (px - this.camera.x) * k;
-    this.camera.y = py - (py - this.camera.y) * k;
+    this.camera.x = anchorX - (anchorX - this.camera.x) * k + (toX - anchorX);
+    this.camera.y = anchorY - (anchorY - this.camera.y) * k + (toY - anchorY);
     this.camera.zoom = next;
     this.applyCamera();
+  }
+
+  private zoomAtScreenPoint(px: number, py: number, factor: number): void {
+    this.zoomAndPanBy(px, py, px, py, factor);
   }
 
   // Keeps the camera within the play zone expanded by one padding ring. When
@@ -3535,12 +3601,7 @@ export class PuzzleStage {
         const px = ev.clientX - rect.left;
         const py = ev.clientY - rect.top;
         const factor = Math.exp(-ev.deltaY * 0.0015);
-        const next = clamp(this.camera.zoom * factor, MIN_ZOOM, MAX_ZOOM);
-        const k = next / this.camera.zoom;
-        this.camera.x = px - (px - this.camera.x) * k;
-        this.camera.y = py - (py - this.camera.y) * k;
-        this.camera.zoom = next;
-        this.applyCamera();
+        this.zoomAtScreenPoint(px, py, factor);
         // A carried cluster is offset from the cursor in screen space, so a zoom
         // shifts it off the pointer; re-glue it. A press-drag piece sits under
         // the cursor and zoom-to-cursor already holds it there, so skip it.
@@ -3548,6 +3609,99 @@ export class PuzzleStage {
       },
       { passive: false },
     );
+  }
+
+  // Two-finger pinch to zoom, plus the same-gesture 2-finger pan. Bound at
+  // document level in the capture phase (like Pixi's own EventSystem binds
+  // pointerup to the window rather than the canvas) so this bookkeeping always
+  // resolves before Pixi's canvas-level listener dispatches the same native
+  // event to a piece or the stage: capture proceeds top-down through
+  // ancestors, so a listener on an ancestor of the canvas cannot be preempted
+  // by one registered directly on the canvas, whatever the registration order.
+  // Without this, a second finger landing on a piece mid-pinch would steal the
+  // first finger's held cluster via the ordinary per-group pointerdown grab
+  // before this class ever found out a pinch had started (see the `this.pinch`
+  // guards at the top of onStagePointerDown and onGroupPointerDown).
+  private attachPinchZoom(): void {
+    document.addEventListener("pointerdown", this.onTouchPointerDown, { capture: true });
+    document.addEventListener("pointermove", this.onTouchPointerMove, { capture: true });
+    document.addEventListener("pointerup", this.onTouchPointerUp, { capture: true });
+    document.addEventListener("pointercancel", this.onTouchPointerUp, { capture: true });
+  }
+
+  private detachPinchZoom(): void {
+    document.removeEventListener("pointerdown", this.onTouchPointerDown, { capture: true });
+    document.removeEventListener("pointermove", this.onTouchPointerMove, { capture: true });
+    document.removeEventListener("pointerup", this.onTouchPointerUp, { capture: true });
+    document.removeEventListener("pointercancel", this.onTouchPointerUp, { capture: true });
+  }
+
+  private readonly onTouchPointerDown = (ev: PointerEvent): void => {
+    if (ev.pointerType !== "touch" || !this.app) return;
+    this.touchPoints.set(ev.pointerId, canvasPoint(this.app.canvas, ev.clientX, ev.clientY));
+    if (this.touchPoints.size === 2) this.beginPinch();
+  };
+
+  private readonly onTouchPointerMove = (ev: PointerEvent): void => {
+    if (ev.pointerType !== "touch" || !this.app || !this.touchPoints.has(ev.pointerId)) return;
+    this.touchPoints.set(ev.pointerId, canvasPoint(this.app.canvas, ev.clientX, ev.clientY));
+    if (this.pinch) this.updatePinch();
+  };
+
+  private readonly onTouchPointerUp = (ev: PointerEvent): void => {
+    if (ev.pointerType !== "touch") return;
+    this.touchPoints.delete(ev.pointerId);
+    if (this.pinch && (ev.pointerId === this.pinch.ids[0] || ev.pointerId === this.pinch.ids[1])) {
+      this.pinch = null;
+    }
+  };
+
+  // Starts a pinch once a second finger lands: cancels any single-pointer
+  // press-drag already in flight from the first finger (a sticky carry is left
+  // alone; it holds no button and re-glues to the pinch midpoint on every step
+  // in updatePinch) so that the second finger's own pointerdown, which Pixi
+  // still dispatches to whatever group or the stage is under it, finds
+  // `this.pinch` set and bails out instead of grabbing a second cluster.
+  private beginPinch(): void {
+    const ids = [...this.touchPoints.keys()] as [number, number];
+    const a = this.touchPoints.get(ids[0])!;
+    const b = this.touchPoints.get(ids[1])!;
+    if (this.held && !this.held.carry) this.cancelPressDrag();
+    this.pan.active = false;
+    this.pinch = {
+      ids,
+      distance: Math.hypot(b.x - a.x, b.y - a.y),
+      midX: (a.x + b.x) / 2,
+      midY: (a.y + b.y) / 2,
+    };
+  }
+
+  // Applies one step of the active pinch: the finger-spacing ratio since the
+  // last processed move zooms the camera anchored at the previous midpoint,
+  // and the midpoint's own movement pans it (see zoomAndPanBy).
+  private updatePinch(): void {
+    if (!this.pinch) return;
+    const a = this.touchPoints.get(this.pinch.ids[0]);
+    const b = this.touchPoints.get(this.pinch.ids[1]);
+    if (!a || !b) return;
+    const distance = Math.hypot(b.x - a.x, b.y - a.y);
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
+    if (this.pinch.distance > 0) {
+      this.zoomAndPanBy(
+        this.pinch.midX,
+        this.pinch.midY,
+        midX,
+        midY,
+        distance / this.pinch.distance,
+      );
+    }
+    this.pinch.distance = distance;
+    this.pinch.midX = midX;
+    this.pinch.midY = midY;
+    // A carried cluster is offset from the cursor in screen space; re-glue it
+    // to the new midpoint, same as the wheel handler does for a carry re-zoom.
+    if (this.held?.carry) this.dragHeldTo(midX, midY);
   }
 }
 
@@ -3617,6 +3771,19 @@ function joinUrl(base: string, rel: string): string {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+// Client (page) coordinates converted to canvas-relative screen coordinates,
+// matching Pixi's ev.global convention. Used by the pinch handlers, which
+// listen at the document level via native PointerEvents (clientX/clientY)
+// rather than through Pixi's federated ones.
+function canvasPoint(
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  return { x: clientX - rect.left, y: clientY - rect.top };
 }
 
 // Edge-pan velocity component for one axis: 0 outside the band, ramping

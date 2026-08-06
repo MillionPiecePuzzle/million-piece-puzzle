@@ -295,11 +295,17 @@ Choice: ids are seed-permuted (`wireId = P(gridId)`, deterministic Fisher-Yates,
 Why: `id % gridCols` gave any script every piece's solved cell, and a public seed let it regenerate silhouettes to match tabs; either leak alone is enough to script-solve the puzzle, so both had to close together.
 Revisit when: `MPP_PUZZLE_ID` is still `synthetic-1m` in the Dockerfile; the real photo's R2 tile set has not yet been sliced and uploaded under wire-id paths with the matching `MPP_GENERATION_SEED`. Image-based (CV) solving stays explicitly out of scope.
 
-### 2026-06-12, frontend-canvas, sticky carry mode (double-click to stick a cluster to the cursor)
+### 2026-06-12, frontend-canvas, sticky carry mode (double-click or double-tap to stick a cluster to the cursor)
 
-Choice: a double-click sticks a cluster to the cursor with no button held; double-click again drops it, Escape returns it to pickup. It reuses the existing grab/drag/drop wire path; a 30s idle timeout (reset on real pointer moves) auto-drops it so a lock can't be parked indefinitely.
-Why: press-and-hold drag is tiring for long hauls and fights panning; the browser's own drag-vs-dblclick disambiguation avoids a hand-rolled tap timer, and reusing grab/drop keeps the server oblivious.
-Revisit when: never expected at this project's scale; the 30s lock-hold and the mouse-only trigger (no touch support) are accepted standing limits, not tuning targets.
+Choice: a double-press (double-click or double-tap) sticks a cluster to the cursor with no button held; a second double-press drops it, Escape returns it to pickup. It reuses the existing grab/drag/drop wire path; a 30s idle timeout (reset on real pointer moves) auto-drops it so a lock can't be parked indefinitely. The trigger is a hand-rolled detector (`consumeDoubleTap`: two pointerdowns within 350ms and 32 screen px of each other) driven off the same pointerdown that starts a press-drag, not the native `dblclick` DOM event.
+Why: press-and-hold drag is tiring for long hauls and fights panning. The browser's own drag-vs-dblclick disambiguation was tried first to avoid a hand-rolled tap timer, but that made the gesture mouse-only in practice: `dblclick` fires unreliably off a touch double-tap. A manual detector on the pointerdown stream works identically for mouse, touch and pen and needed no new wire message, so it replaced the native event outright rather than adding a parallel touch-only path.
+Revisit when: never expected at this project's scale; the 30s lock-hold stays an accepted standing limit, and the 350ms/32px thresholds are eyeballed, not measured against real touch use.
+
+### 2026-08-06, frontend-canvas, pinch-to-zoom via document-level capture-phase listeners
+
+Choice: two-finger pinch-to-zoom (and the same-gesture 2-finger pan) is driven by raw `PointerEvent`s bound on `document` with `capture: true`, entirely outside Pixi's own federated pointer events, rather than tracking `pointerId`/`pointerType` inside the existing `onStagePointerDown`/`onGroupPointerDown` handlers. A `this.pinch` guard at the top of both those handlers makes them no-ops while a pinch is active.
+Why: Pixi's `EventSystem` binds its own native pointerdown listener directly on the canvas with `capture: true` (internal behavior, not part of its public API). A second listener added later on that same canvas element cannot run before it, whatever its own capture flag, since same-target listeners fire in registration order; only a listener on an ancestor (`document`, in the real capture phase) is guaranteed to resolve first. That ordering is what lets this class notice a second finger landing on a piece and set `this.pinch` before Pixi's own dispatch would otherwise route that event to the ordinary per-group grab and steal the first finger's held cluster.
+Revisit when: a Pixi major version changes how `EventSystem` binds its native listeners (verified against pixi.js 8.18.1); re-check this ordering assumption on any Pixi upgrade.
 
 ### 2026-06-12, complementary, activity feed event types (snap vs place, piece vs cluster)
 

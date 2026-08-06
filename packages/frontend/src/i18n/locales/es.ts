@@ -149,7 +149,7 @@ const es: MessageSchema = {
     headBuild: "Construyendo el tablero",
     headTextures: "Cargando texturas",
     headReady: "Listo",
-    tip: "Consejo: haz doble clic en una pieza para pegarla al cursor y haz doble clic de nuevo para soltarla.",
+    tip: "Consejo: haz doble clic o doble toque en una pieza para pegarla al cursor y repite para soltarla.",
   },
   queue: {
     kicker: "Casi dentro",
@@ -170,7 +170,7 @@ const es: MessageSchema = {
     tileFull: "Demasiadas piezas en esta casilla.",
   },
   carry: {
-    hint: "Pieza en mano. Haz doble clic para soltarla, Esc para devolverla.",
+    hint: "Pieza en mano. Haz doble clic o doble toque para soltarla, Esc para devolverla.",
   },
   row: {
     pcs: "pzs",
