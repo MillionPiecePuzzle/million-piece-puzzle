@@ -17,7 +17,7 @@ import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
 import { CellCompositeIndex } from "./cellComposite.js";
 import { cellKey } from "./worldGrid.js";
-import type { WireContext } from "./wire.js";
+import { buildWireContext, toWireId, anchorWorldX, anchorWorldY, type WireContext } from "./wire.js";
 
 // A no-op wire boundary for the handler tests: identity permutation and
 // pieceSize 0, so wire ids equal grid ids and anchor positions equal origins.
@@ -704,6 +704,102 @@ describe("handleDrop", () => {
     state.lock([1]);
     state.place(dropped(4, 3, -4), [4]);
     await expect(handleDrop(ctx, client, 4, 3, -4)).resolves.not.toThrow();
+  });
+
+  // Every other locked-neighbour test above calls handleDrop directly with a
+  // hand-picked internal origin already known to satisfy the tolerance check,
+  // and transparentWire uses pieceSize 0 (see its own comment), so
+  // anchorWorldX/originXFromAnchor's anchor-offset term is always multiplied
+  // by zero there: none of them touch the anchor-offset arithmetic a real
+  // client's message has to round-trip through. This test dispatches a real
+  // wire message through a real (non-zero pieceSize, permuted) WireContext
+  // instead, the same path dispatch() decodes a live client's drop through.
+  it("anchors via a real client message decoded through a real (non-transparent) wire context", async () => {
+    const { ctx, state } = makeDropCtx();
+    const wire = buildWireContext(
+      "diagnostic-seed",
+      dropMeta.totalPieces,
+      dropMeta.gridCols,
+      dropMeta.pieceSize,
+    );
+    ctx.wire = wire;
+    state.lock([1]);
+    // Piece 4's own canonical position (col 1, row 1 on this 3x3 grid) is what
+    // a client precisely dropping it in place would compute and send: the
+    // true absolute anchor world position, not the internal origin.
+    state.place(dropped(4, 9999, 9999), [4]);
+    const wireGroupId = toWireId(wire, 4);
+    const worldX = anchorWorldX(wire, 4, 0);
+    const worldY = anchorWorldY(wire, 4, 0);
+    await dispatch(
+      ctx,
+      client,
+      JSON.stringify({ t: "drop", groupId: wireGroupId, worldX, worldY }),
+    );
+    expect(state.lockedPieces.has(4)).toBe(true);
+  });
+
+  // Same as above but at prod's real synthetic-1m scale/geometry (1000x1000
+  // grid, pieceSize 72, snapTolerance 14.4), for a piece far from grid id 0
+  // in both grid position and wire id: the tiny 3x3 fixture above shares
+  // dropMeta with the rest of this file and cannot rule out a scale-dependent
+  // gap on its own.
+  it("anchors at real prod scale (1000x1000, pieceSize 72) for a piece far from the origin", async () => {
+    const bigMeta: PuzzleMeta = {
+      totalPieces: 1_000_000,
+      gridRows: 1000,
+      gridCols: 1000,
+      pieceSize: 72,
+      snapTolerance: 14.4,
+      generationSeed: "test",
+      status: "active",
+      startedAt: 0,
+    };
+    const send = vi.fn();
+    const broadcast = vi.fn();
+    const broadcastOverlapping = vi.fn();
+    const logMerge = vi.fn();
+    const attachProfiles = vi.fn().mockResolvedValue([]);
+    const state = new FakeState();
+    const wire = buildWireContext("diagnostic-seed", bigMeta.totalPieces, bigMeta.gridCols, bigMeta.pieceSize);
+    const ctx = {
+      hub: { send, broadcast, broadcastOverlapping },
+      state,
+      meta: bigMeta,
+      puzzleId: "test",
+      mongo: { logMerge, attachProfiles },
+      queue: new GroupQueue(),
+      wire,
+      groupIndex: new GroupIndex(WORLD_TILE_SIZE),
+      lockedPieces: new LockedPieceIndex(
+        bigMeta.gridCols,
+        bigMeta.gridRows,
+        bigMeta.pieceSize,
+        WORLD_TILE_SIZE,
+        bigMeta.totalPieces,
+      ),
+      minimapGrid: testMinimapGrid(bigMeta.gridCols, bigMeta.pieceSize),
+      leaderboardTracker: new LeaderboardTracker(bigMeta.totalPieces),
+      tilePieceCap: 2048,
+      clusterPieceCap: 20000,
+    } as unknown as Context;
+
+    // Grid id 500500: row 500, col 500, deep in the middle of the board, far
+    // from grid id 0 in every sense (grid position, wire id after permutation).
+    const targetGridId = 500 * bigMeta.gridCols + 500;
+    const lockedNeighborGridId = targetGridId - 1; // row 500, col 499
+    state.lock([lockedNeighborGridId]);
+    state.place(dropped(targetGridId, 999_999, 999_999), [targetGridId]);
+
+    const wireGroupId = toWireId(wire, targetGridId);
+    const worldX = anchorWorldX(wire, targetGridId, 0);
+    const worldY = anchorWorldY(wire, targetGridId, 0);
+    await dispatch(
+      ctx,
+      client,
+      JSON.stringify({ t: "drop", groupId: wireGroupId, worldX, worldY }),
+    );
+    expect(state.lockedPieces.has(targetGridId)).toBe(true);
   });
 
   it("skips a loose-loose merge over the cluster piece cap, leaving both clusters separate", async () => {
