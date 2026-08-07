@@ -154,11 +154,12 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ## Phase 6, Real Photo
 
-**Exit criterion**: a real gigapixel source image exists (NASA Blue Marble main image, CC0/public-domain Wikimedia Commons nature and animal tile photos, assembled as a photo mosaic), producible end to end by two dev scripts, and verified to slice cleanly through the existing, unchanged `slice-image.ts` at both a small test scale and the real production scale (grid dimensions matching the source image's own aspect ratio; the puzzle grid does not have to be square). Uploading the asset and switching prod to serve it stays a separate follow-up, as Phase 2's own `image-pipeline` track already treated that step.
+**Exit criterion**: a real gigapixel source image exists (NASA Blue Marble main image, a combined library of CC0/public-domain Wikimedia Commons and manually-downloaded Unsplash nature and animal tile photos, assembled as a photo mosaic), producible end to end by three dev scripts, and verified to slice cleanly through the existing, unchanged `slice-image.ts` at both a small test scale and the real production scale (grid dimensions matching the source image's own aspect ratio; the puzzle grid does not have to be square). Uploading the asset and switching prod to serve it stays a separate follow-up, as Phase 2's own `image-pipeline` track already treated that step.
 
 ### `image-pipeline`
 - [x] `fetch-tile-images.ts`: downloads a local library of a few hundred to ~1000 CC0/public-domain nature and animal photos from Wikimedia Commons, with a provenance manifest and idempotent resume. See DECISIONS.
-- [x] `build-mosaic.ts`: assembles the NASA Blue Marble image and the tile library into one gigapixel BigTIFF photo mosaic, using the same banded chunk/strip streaming strategy as `synthetic-source.ts`. See DECISIONS.
+- [x] `ingest-unsplash-tiles.ts`: folds manually-downloaded Unsplash photos into the same tile manifest, since Unsplash's own API guidelines expect a human choosing each download rather than an automated fetch. See DECISIONS.
+- [x] `build-mosaic.ts`: assembles the main image and the combined tile library into one gigapixel BigTIFF photo mosaic, using the same banded chunk/strip streaming strategy as `synthetic-source.ts`. See DECISIONS.
 - [ ] Full-scale run verified: the real mosaic slices cleanly through the unchanged `slice-image.ts` at the validated safe operating point (`--piece-size 72`). See DECISIONS.
 
 ### `frontend-canvas`

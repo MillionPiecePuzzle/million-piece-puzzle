@@ -24,6 +24,7 @@
     "slice": "tsx scripts/slice-image.ts",
     "upload": "tsx scripts/upload-puzzle.ts",
     "fetch:tiles": "tsx scripts/fetch-tile-images.ts",
+    "ingest:tiles": "tsx scripts/ingest-unsplash-tiles.ts",
     "mosaic": "tsx scripts/build-mosaic.ts",
     "test": "vitest run",
     "lint": "eslint .",
