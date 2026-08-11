@@ -28,13 +28,21 @@
  * raster: each band is rendered as its own strip (a band's regions never
  * span more than one strip since a band's own split created them), and
  * within a band, column slices are grouped into chunks bounded by `--chunk`,
- * cut only at slice boundaries so no stamp ever straddles a chunk. Each used
- * tile is decoded and downscaled once (`fit: "inside"`, no premature crop)
- * and cached in memory; only that cached buffer is re-resized per region.
- * `--piece-size` defaults to 72, this pipeline's validated safe point below
- * the ~6 gigapixel single-image write ceiling documented in
- * `synthetic-source.ts` (CLAUDE.md's 80px/piece target already crashes
- * there).
+ * cut only at slice boundaries so no stamp ever straddles a chunk. Each
+ * region's tile is decoded straight from disk to that region's exact pixel
+ * size (`fit: "cover"`): `selectTiles` never assigns one tile to two regions,
+ * so there is no reuse to cache and pre-decoding the whole used set ahead of
+ * rendering only holds gigabytes of redundant buffers in RAM for no benefit.
+ *
+ * `--piece-size` defaults to 72. This Windows libvips build's actual
+ * single-image write ceiling sits far below the "~6 gigapixel" figure
+ * documented in `synthetic-source.ts` (that number predates a libvips
+ * upgrade) and is not even reliably a pure pixel-count ceiling: a plain
+ * blank write starts segfaulting somewhere around 71000x71000px
+ * (~5.0 gigapixels), and a many-file composite can throw a different error
+ * below that same size. A real production run at a meaningful `--piece-size`
+ * should run under Linux (e.g. this repo's Docker), where the identical
+ * sharp/libvips version writes 14+ gigapixel images cleanly. See DECISIONS.
  *
  * Optional final correction: `--global-tint` (0-1, default 0 = off) blends
  * every chunk's finished buffer against a same-region crop of `--main`
@@ -96,8 +104,6 @@ type ColorCache = Record<string, ColorCacheEntry>;
 // per-region array (assignment, colors) is indexed by it.
 type Region = { id: number; col: number; row: number; w: number; h: number };
 type Band = { row: number; h: number; regions: Region[] };
-
-type CachedStamp = { buf: Buffer; width: number; height: number };
 
 function flag(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(`--${name}`);
@@ -428,32 +434,6 @@ function selectTiles(
   return { assignment, avgDeltaE: deltaESum / regions.length };
 }
 
-// Decodes and downscales each used tile once (`fit: "inside"`, so the whole
-// photo is kept, nothing pre-cropped), cached in memory for the whole render
-// pass at whatever aspect ratio the source has. Each region later resizes
-// from this cached buffer (cheap, no re-decode) to its own exact size.
-async function buildStampCache(
-  usedIndices: number[],
-  tileFiles: string[],
-  tilesDir: string,
-  maxStampPx: number,
-  concurrency: number,
-): Promise<Map<number, CachedStamp>> {
-  const cache = new Map<number, CachedStamp>();
-  await forEachIndex(usedIndices.length, concurrency, async (i) => {
-    const idx = usedIndices[i]!;
-    const file = tileFiles[idx]!;
-    const { data, info } = await sharp(path.join(tilesDir, file), { limitInputPixels: false })
-      .flatten({ background: { r: 255, g: 255, b: 255 } })
-      .toColourspace("srgb")
-      .resize(maxStampPx, maxStampPx, { fit: "inside" })
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    cache.set(idx, { buf: data, width: info.width, height: info.height });
-  });
-  return cache;
-}
-
 // Groups consecutive lengths (already in pixels) into chunks whose running
 // total doesn't exceed `target`, so a chunk boundary always falls between
 // two regions, never inside one.
@@ -475,6 +455,64 @@ function groupIntoChunks(lengthsPx: number[], target: number): number[][] {
   return groups;
 }
 
+type PositionedFile = { file: string; top: number; height: number };
+
+// Merges vertically-stacked strip files into one output, bounding how many
+// real inputs any single libvips composite call handles at once: compositing
+// every strip in one call peaks far past what a modest machine has free once
+// there are dozens of large real (not blank) tiled inputs, so groups of at
+// most `branch` are merged into intermediate files first, recursively, until
+// only `branch`-or-fewer remain for the final composite. Each input file is
+// removed once consumed by its merge, so temp usage never holds more than
+// roughly one level's worth of intermediates at a time.
+async function mergeStrips(
+  items: PositionedFile[],
+  width: number,
+  borderColor: Rgb,
+  tiled: { tile: true; tileWidth: number; tileHeight: number },
+  outPath: string,
+  tmpDir: string,
+  branch: number,
+  level: number,
+): Promise<void> {
+  if (items.length <= branch) {
+    const height = items.reduce((max, it) => Math.max(max, it.top + it.height), 0);
+    await sharp({
+      create: { width, height, channels: 3, background: borderColor },
+      limitInputPixels: false,
+    })
+      .composite(items.map((it) => ({ input: it.file, left: 0, top: it.top, limitInputPixels: false })))
+      .tiff({ ...tiled, bigtiff: true, compression: "deflate" })
+      .toFile(outPath);
+    for (const it of items) await rm(it.file, { force: true }).catch(() => {});
+    return;
+  }
+
+  const nextLevel: PositionedFile[] = [];
+  for (let i = 0; i < items.length; i += branch) {
+    const group = items.slice(i, i + branch);
+    const groupTop = group[0]!.top;
+    const groupHeight = group.reduce((s, it) => s + it.height, 0);
+    const mergedFile = path.join(tmpDir, `merge-${level}-${groupTop}.tif`);
+    await sharp({
+      create: { width, height: groupHeight, channels: 3, background: borderColor },
+      limitInputPixels: false,
+    })
+      .composite(
+        group.map((it) => ({ input: it.file, left: 0, top: it.top - groupTop, limitInputPixels: false })),
+      )
+      // bigtiff even for an intermediate: later merge levels keep stacking
+      // these, and classic TIFF's 4GB file-size ceiling is easy to cross
+      // well before the final output does.
+      .tiff({ ...tiled, bigtiff: true, compression: "deflate" })
+      .toFile(mergedFile);
+    for (const it of group) await rm(it.file, { force: true }).catch(() => {});
+    nextLevel.push({ file: mergedFile, top: groupTop, height: groupHeight });
+  }
+  console.log(`[build-mosaic] merge level ${level}: ${items.length} -> ${nextLevel.length} files`);
+  await mergeStrips(nextLevel, width, borderColor, tiled, outPath, tmpDir, branch, level + 1);
+}
+
 // Renders one band's column-chunk: every region in it shares the band's
 // full height, so each only varies in horizontal position and width. Each
 // region draws a `border`-px seam inset from its own edges before the
@@ -489,7 +527,8 @@ async function renderBandChunk(
   borderColor: Rgb,
   assignment: Int32Array,
   targetRgb: Float64Array,
-  stampCache: Map<number, CachedStamp>,
+  tileFiles: string[],
+  tilesDir: string,
   blend: number,
   concurrency: number,
 ): Promise<Buffer> {
@@ -511,13 +550,16 @@ async function renderBandChunk(
     const innerHPx = regionHPx - 2 * b;
 
     const tileIdx = assignment[region.id]!;
-    const stamp = stampCache.get(tileIdx)!;
     const to = region.id * 3;
 
-    const resizedOriginal = await sharp(stamp.buf, {
-      raw: { width: stamp.width, height: stamp.height, channels: 3 },
+    // Each tile index is assigned to exactly one region (selectTiles never
+    // repeats one), so there is nothing to gain from caching a decode across
+    // calls: decode straight to this region's exact size.
+    const resizedOriginal = await sharp(path.join(tilesDir, tileFiles[tileIdx]!), {
       limitInputPixels: false,
     })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .toColourspace("srgb")
       .resize(innerWPx, innerHPx, { fit: "cover" })
       .raw()
       .toBuffer();
@@ -563,7 +605,8 @@ async function renderMosaic(opts: {
   bands: Band[];
   assignment: Int32Array;
   targetRgb: Float64Array;
-  stampCache: Map<number, CachedStamp>;
+  tileFiles: string[];
+  tilesDir: string;
   blend: number;
   border: number;
   borderColor: Rgb;
@@ -580,7 +623,8 @@ async function renderMosaic(opts: {
     bands,
     assignment,
     targetRgb,
-    stampCache,
+    tileFiles,
+    tilesDir,
     blend,
     border,
     borderColor,
@@ -599,7 +643,7 @@ async function renderMosaic(opts: {
   await mkdir(path.dirname(outPath), { recursive: true });
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "mpp-mosaic-"));
   try {
-    const strips: sharp.OverlayOptions[] = [];
+    const strips: PositionedFile[] = [];
     for (let bandIdx = 0; bandIdx < bands.length; bandIdx++) {
       const band = bands[bandIdx]!;
       const bandTopPx = band.row * pieceSize;
@@ -623,7 +667,8 @@ async function renderMosaic(opts: {
           borderColor,
           assignment,
           targetRgb,
-          stampCache,
+          tileFiles,
+          tilesDir,
           blend,
           concurrency,
         );
@@ -662,17 +707,12 @@ async function renderMosaic(opts: {
         .tiff({ ...tiled, compression: "deflate" })
         .toFile(stripFile);
       for (const c of chunkFiles) await rm(c.input as string, { force: true }).catch(() => {});
-      strips.push({ input: stripFile, left: 0, top: bandTopPx, limitInputPixels: false });
+      strips.push({ file: stripFile, top: bandTopPx, height: bandHeightPx });
       console.log(`[build-mosaic] assembled band ${bandIdx + 1}/${bands.length}`);
     }
 
-    await sharp({
-      create: { width, height, channels: 3, background: borderColor },
-      limitInputPixels: false,
-    })
-      .composite(strips)
-      .tiff({ ...tiled, bigtiff: true, compression: "deflate" })
-      .toFile(outPath);
+    console.log(`[build-mosaic] merging ${strips.length} strips into ${outPath}...`);
+    await mergeStrips(strips, width, borderColor, tiled, outPath, tmpDir, 4, 0);
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch((err: unknown) => {
       console.warn(
@@ -731,20 +771,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const usedIndices = Array.from(assignment);
-  const maxStampPx = args.maxBlock * args.pieceSize;
-  console.log(
-    `[build-mosaic] pre-caching ${usedIndices.length}/${tileFiles.length} used tiles (max ${maxStampPx}px)...`,
-  );
   sharp.concurrency(1);
-  const stampCache = await buildStampCache(
-    usedIndices,
-    tileFiles,
-    args.tiles,
-    maxStampPx,
-    args.concurrency,
-  );
-
   const mainRgb = args.globalTint > 0 ? await loadMainImageRgb(args.main) : undefined;
 
   const width = args.cols * args.pieceSize;
@@ -758,7 +785,8 @@ async function main(): Promise<void> {
     bands,
     assignment,
     targetRgb,
-    stampCache,
+    tileFiles,
+    tilesDir: args.tiles,
     blend: args.blend,
     border: args.border,
     borderColor: args.borderColor,
