@@ -23,6 +23,16 @@
  * which recolors in Lab space so the source photo's own luminance and
  * texture survive) and blended against the untouched original by `--blend`.
  *
+ * Tile selection also carries a "flatness" penalty derived from each tile's
+ * cached near-black pixel fraction: a photo that's mostly empty black space
+ * around one small bright subject (a planet or the Moon against the sky)
+ * reads as flat once stamped down at region size, tint or no tint. Such a
+ * tile is only chosen when it is clearly the best color match for a region
+ * (deep-space-black regions of `--main` still need one), and a second,
+ * stronger penalty discourages a region from picking one when an
+ * already-decided neighboring region did too, so flat tiles that do get used
+ * end up scattered rather than clumped.
+ *
  * Rendering mirrors `synthetic-source.ts`'s banded chunk/strip/BigTIFF
  * assembly so peak RAM stays bounded by one chunk rather than the whole
  * raster: each band is rendered as its own strip (a band's regions never
@@ -96,6 +106,7 @@ type ColorCacheEntry = {
   size: number;
   rgb: [number, number, number];
   lab: [number, number, number];
+  blackFrac: number;
 };
 type ColorCache = Record<string, ColorCacheEntry>;
 
@@ -197,22 +208,72 @@ async function loadTiles(tilesDir: string): Promise<string[]> {
   return files;
 }
 
-// Average Lab color per tile, cached in <tiles>/.color-cache.json keyed by
-// filename and invalidated by mtime/size.
-async function computeTileColors(tileFiles: string[], tilesDir: string): Promise<Float64Array> {
+const FLAT_SAMPLE = 32;
+const FLAT_BLACK_LUMA_THRESHOLD = 25;
+
+// Fraction of near-black pixels in a small downsample of the tile. High for
+// a photo that's mostly empty black space around one small bright subject
+// (a planet or the Moon against the sky), the flat look that tinting can't
+// fix; low for a normally-lit, textured photo even if its overall tone is
+// dark. A separate decode from the color average below, deliberately: this
+// keeps the existing, already-tuned color-match numbers from shifting as a
+// side effect of adding this signal.
+async function computeBlackFraction(filePath: string): Promise<number> {
+  const { data, info } = await sharp(filePath, { limitInputPixels: false })
+    .resize(FLAT_SAMPLE, FLAT_SAMPLE, { fit: "fill" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const channels = info.channels;
+  const total = info.width * info.height;
+  let dark = 0;
+  for (let i = 0; i < total; i++) {
+    const o = i * channels;
+    const luma = 0.2126 * data[o]! + 0.7152 * data[o + 1]! + 0.0722 * data[o + 2]!;
+    if (luma < FLAT_BLACK_LUMA_THRESHOLD) dark++;
+  }
+  return dark / total;
+}
+
+const CACHE_FLUSH_INTERVAL = 500;
+const PROGRESS_LOG_INTERVAL = 500;
+
+// Average Lab color and black-pixel fraction per tile, cached in
+// <tiles>/.color-cache.json keyed by filename and invalidated by mtime/size
+// (or by a cache entry predating the blackFrac field). Decodes run
+// `concurrency`-wide, same as the tile rendering pass below: sequential
+// decoding of a 10k+-tile library is the slow path, easily minutes long on a
+// cold cache. Progress logs and periodic cache flushes make a long first-time
+// run observable and mean an interruption doesn't lose everything already
+// decoded.
+async function computeTileColors(
+  tileFiles: string[],
+  tilesDir: string,
+  concurrency: number,
+): Promise<{ lab: Float64Array; blackFrac: Float64Array }> {
   const cachePath = path.join(tilesDir, ".color-cache.json");
   let cache: ColorCache = {};
   if (existsSync(cachePath)) cache = JSON.parse(await readFile(cachePath, "utf-8")) as ColorCache;
 
   const lab = new Float64Array(tileFiles.length * 3);
+  const blackFrac = new Float64Array(tileFiles.length);
   let dirty = false;
-  for (let i = 0; i < tileFiles.length; i++) {
+  let computed = 0;
+  let done = 0;
+  const t0 = Date.now();
+
+  await forEachIndex(tileFiles.length, concurrency, async (i) => {
     const file = tileFiles[i]!;
     const filePath = path.join(tilesDir, file);
     const st = await stat(filePath);
     const cached = cache[file];
     let entry: ColorCacheEntry;
-    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+    if (
+      cached &&
+      cached.mtimeMs === st.mtimeMs &&
+      cached.size === st.size &&
+      cached.blackFrac !== undefined
+    ) {
       entry = cached;
     } else {
       const { data } = await sharp(filePath, { limitInputPixels: false })
@@ -222,16 +283,35 @@ async function computeTileColors(tileFiles: string[], tilesDir: string): Promise
         .raw()
         .toBuffer({ resolveWithObject: true });
       const rgb: [number, number, number] = [data[0]!, data[1]!, data[2]!];
-      entry = { mtimeMs: st.mtimeMs, size: st.size, rgb, lab: srgbToLab(...rgb) };
+      entry = {
+        mtimeMs: st.mtimeMs,
+        size: st.size,
+        rgb,
+        lab: srgbToLab(...rgb),
+        blackFrac: await computeBlackFraction(filePath),
+      };
       cache[file] = entry;
       dirty = true;
+      computed++;
+      if (computed % CACHE_FLUSH_INTERVAL === 0) await writeFile(cachePath, JSON.stringify(cache));
     }
     lab[i * 3] = entry.lab[0];
     lab[i * 3 + 1] = entry.lab[1];
     lab[i * 3 + 2] = entry.lab[2];
-  }
+    blackFrac[i] = entry.blackFrac;
+
+    done++;
+    if (done % PROGRESS_LOG_INTERVAL === 0 || done === tileFiles.length) {
+      const elapsed = (Date.now() - t0) / 1000;
+      console.log(
+        `[build-mosaic] tile analysis: ${done}/${tileFiles.length} ` +
+          `(${computed} newly decoded) in ${elapsed.toFixed(0)}s`,
+      );
+    }
+  });
+
   if (dirty) await writeFile(cachePath, JSON.stringify(cache));
-  return lab;
+  return { lab, blackFrac };
 }
 
 // Splits `total` into a sequence of positive integer lengths, each in
@@ -285,6 +365,48 @@ function partitionBands(
     row += h;
   }
   return bands;
+}
+
+// Which regions border which, exact despite the irregular running-bond
+// partition: paints each region's id into a per-piece grid, then for every
+// region reads the ring of grid cells just outside its own rectangle.
+function computeRegionNeighbors(bands: Band[], cols: number, rows: number): number[][] {
+  const grid = new Int32Array(cols * rows).fill(-1);
+  for (const band of bands) {
+    for (const region of band.regions) {
+      for (let dy = 0; dy < region.h; dy++) {
+        const rowBase = (region.row + dy) * cols;
+        for (let dx = 0; dx < region.w; dx++) grid[rowBase + region.col + dx] = region.id;
+      }
+    }
+  }
+
+  const neighbors: number[][] = bands.flatMap((b) => b.regions).map(() => []);
+  for (const band of bands) {
+    for (const region of band.regions) {
+      const seen = new Set<number>();
+      const top = region.row - 1;
+      const bottom = region.row + region.h;
+      const left = region.col - 1;
+      const right = region.col + region.w;
+      for (const r of [top, bottom]) {
+        if (r < 0 || r >= rows) continue;
+        for (let c = Math.max(0, left + 1); c < Math.min(cols, right); c++) {
+          const id = grid[r * cols + c]!;
+          if (id >= 0 && id !== region.id) seen.add(id);
+        }
+      }
+      for (const c of [left, right]) {
+        if (c < 0 || c >= cols) continue;
+        for (let r = Math.max(0, top + 1); r < Math.min(rows, bottom); r++) {
+          const id = grid[r * cols + c]!;
+          if (id >= 0 && id !== region.id) seen.add(id);
+        }
+      }
+      neighbors[region.id] = [...seen];
+    }
+  }
+  return neighbors;
 }
 
 // One RGB sample per piece, stretching the whole main image onto the whole
@@ -383,39 +505,68 @@ function computeRegionColors(
   return { rgb, lab };
 }
 
+// A tile this flat (mostly empty black space, see computeBlackFraction)
+// counts as a "flat tile" for the selection penalties below.
+const FLAT_BLACK_FRACTION_THRESHOLD = 0.5;
+// Added to a flat tile's squared-Lab score: ~15 dE76, eyeballed so it loses
+// to a reasonably close non-flat alternative but still wins where nothing
+// else is a good match (a genuinely near-black region).
+const FLAT_PENALTY = 225;
+// Extra penalty stacked on top when an already-decided neighboring region
+// also landed on a flat tile (~34.6 dE76 extra): strong enough that two flat
+// tiles end up adjacent only when the library has no reasonable alternative
+// for either spot.
+const FLAT_ADJACENT_PENALTY = 1200;
+
 // Assigns each region a distinct tile, never repeated anywhere else in the
-// mosaic: for each region (in order), walks tiles in ascending Lab distance
-// and takes the first not yet claimed by an earlier region. Requires
-// regions.length <= tileCount; the caller checks that before this runs, so
-// a not-yet-used tile always exists (fewer regions processed so far than
-// total tiles).
+// mosaic: for each region (in order), walks tiles by a score (Lab distance,
+// plus the flatness penalties above) and takes the first unclaimed one that
+// minimizes it. Requires regions.length <= tileCount; the caller checks that
+// before this runs, so a not-yet-used tile always exists (fewer regions
+// processed so far than total tiles). Regions are processed band-by-band,
+// left-to-right, so by the time a region is decided every neighbor that
+// precedes it in that order is already decided, and `regionNeighbors` lets
+// each region see whether one of those already picked a flat tile.
 function selectTiles(
   regions: Region[],
   tileLab: Float64Array,
+  tileBlackFrac: Float64Array,
   tileCount: number,
   regionLab: Float64Array,
-): { assignment: Int32Array; avgDeltaE: number } {
+  regionNeighbors: number[][],
+): { assignment: Int32Array; avgDeltaE: number; flatUsed: number } {
   const assignment = new Int32Array(regions.length);
   const used = new Uint8Array(tileCount);
+  const isFlatTile = new Uint8Array(tileCount);
+  for (let i = 0; i < tileCount; i++) {
+    isFlatTile[i] = tileBlackFrac[i]! > FLAT_BLACK_FRACTION_THRESHOLD ? 1 : 0;
+  }
+  const regionIsFlat = new Uint8Array(regions.length);
 
   const distScratch = new Float64Array(tileCount);
+  const scoreScratch = new Float64Array(tileCount);
   const order = new Int32Array(tileCount);
   const identity = new Int32Array(tileCount);
   for (let i = 0; i < tileCount; i++) identity[i] = i;
 
   let deltaESum = 0;
+  let flatUsed = 0;
 
   for (const region of regions) {
     const to = region.id * 3;
+    const neighborHasFlat = regionNeighbors[region.id]!.some((nid) => regionIsFlat[nid]);
     for (let i = 0; i < tileCount; i++) {
       const o = i * 3;
       const dl = regionLab[to]! - tileLab[o]!;
       const da = regionLab[to + 1]! - tileLab[o + 1]!;
       const db = regionLab[to + 2]! - tileLab[o + 2]!;
-      distScratch[i] = dl * dl + da * da + db * db;
+      const dist = dl * dl + da * da + db * db;
+      distScratch[i] = dist;
+      scoreScratch[i] =
+        dist + (isFlatTile[i] ? FLAT_PENALTY + (neighborHasFlat ? FLAT_ADJACENT_PENALTY : 0) : 0);
     }
     order.set(identity);
-    order.sort((a, b) => distScratch[a]! - distScratch[b]!);
+    order.sort((a, b) => scoreScratch[a]! - scoreScratch[b]!);
 
     let chosen = -1;
     for (let ci = 0; ci < tileCount; ci++) {
@@ -428,10 +579,12 @@ function selectTiles(
 
     used[chosen] = 1;
     assignment[region.id] = chosen;
+    regionIsFlat[region.id] = isFlatTile[chosen]!;
+    if (isFlatTile[chosen]) flatUsed++;
     deltaESum += Math.sqrt(distScratch[chosen]!);
   }
 
-  return { assignment, avgDeltaE: deltaESum / regions.length };
+  return { assignment, avgDeltaE: deltaESum / regions.length, flatUsed };
 }
 
 // Groups consecutive lengths (already in pixels) into chunks whose running
@@ -754,16 +907,29 @@ async function main(): Promise<void> {
     );
   }
 
-  const tileLab = await computeTileColors(tileFiles, args.tiles);
+  const { lab: tileLab, blackFrac: tileBlackFrac } = await computeTileColors(
+    tileFiles,
+    args.tiles,
+    args.concurrency,
+  );
   const pieceRgb = await computeMainImagePieceRgb(args.main, args.cols, args.rows);
   const { rgb: targetRgb, lab: targetLab } = computeRegionColors(regions, args.cols, pieceRgb);
+  const regionNeighbors = computeRegionNeighbors(bands, args.cols, args.rows);
 
   console.log(`[build-mosaic] selecting tiles for ${regions.length} regions (no repeats)...`);
   const t0 = Date.now();
-  const { assignment, avgDeltaE } = selectTiles(regions, tileLab, tileFiles.length, targetLab);
+  const { assignment, avgDeltaE, flatUsed } = selectTiles(
+    regions,
+    tileLab,
+    tileBlackFrac,
+    tileFiles.length,
+    targetLab,
+    regionNeighbors,
+  );
   console.log(
     `[build-mosaic] selection done in ${((Date.now() - t0) / 1000).toFixed(1)}s, ` +
-      `avg dE76 ${avgDeltaE.toFixed(2)}, ${tileFiles.length - regions.length} tiles left unused`,
+      `avg dE76 ${avgDeltaE.toFixed(2)}, ${flatUsed} flat/space tiles used, ` +
+      `${tileFiles.length - regions.length} tiles left unused`,
   );
 
   if (args.dryRun) {
