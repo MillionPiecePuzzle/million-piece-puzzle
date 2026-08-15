@@ -152,16 +152,16 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ---
 
-## Phase 6, Real Photo
+## Phase 6, Real Photo, CLOSED
 
-**Exit criterion**: a real gigapixel source image exists (NASA Blue Marble main image, a combined library of CC0/public-domain Wikimedia Commons and manually-downloaded Unsplash nature and animal tile photos, assembled as a photo mosaic), producible end to end by three dev scripts, and verified to slice cleanly through the existing, unchanged `slice-image.ts` at both a small test scale and the real production scale (grid dimensions matching the source image's own aspect ratio; the puzzle grid does not have to be square). Uploading the asset and switching prod to serve it stays a separate follow-up, as Phase 2's own `image-pipeline` track already treated that step.
+**Exit criterion (met)**: a real gigapixel source image exists (NASA Blue Marble main image, a combined library of CC0/public-domain Wikimedia Commons and manually-downloaded Unsplash nature and animal tile photos, assembled as a photo mosaic), producible end to end by three dev scripts, and verified to slice cleanly through the existing, unchanged `slice-image.ts` at both a small test scale and the real production scale (grid dimensions matching the source image's own aspect ratio; the puzzle grid does not have to be square). Switching prod to serve it stays a separate follow-up.
 
 ### `image-pipeline`
 - [x] `fetch-tile-images.ts`: downloads a local library of a few hundred to ~1000 CC0/public-domain nature and animal photos from Wikimedia Commons, with a provenance manifest and idempotent resume. See DECISIONS.
 - [x] `ingest-unsplash-tiles.ts`: folds manually-downloaded Unsplash photos into the same tile manifest, since Unsplash's own API guidelines expect a human choosing each download rather than an automated fetch. See DECISIONS.
 - [x] `build-mosaic.ts`: assembles the main image and the combined tile library into one gigapixel BigTIFF photo mosaic, using the same banded chunk/strip streaming strategy as `synthetic-source.ts`. See DECISIONS.
 - [x] Real production mosaic generated: full Blue Marble main image and the ~10 750-photo combined tile library, 1000x1000 grid at 120px/piece (14.4 GP), via Docker (Windows libvips segfaults past ~5 GP regardless of content; see DECISIONS).
-- [ ] Full-scale run verified: the real mosaic slices cleanly through the unchanged `slice-image.ts`. See DECISIONS.
+- [x] Full-scale run verified: the real mosaic slices cleanly through the unchanged `slice-image.ts` at 1000x1000, 120px/piece; the resulting `earth-mosaic` puzzle assets are uploaded to R2. See DECISIONS.
 
 ### `frontend-canvas`
 - [x] `DziRevealLayer` promoted to the only locked-piece rendering path, no `?dziReveal=1` flag: the reference DZI pyramid revealed through a server-baked per-piece silhouette mask (reusing CellCompositor) plus a seam overlay, replacing the flat-rectangle `CompositeTileLayer`. See DECISIONS.
