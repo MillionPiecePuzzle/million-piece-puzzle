@@ -302,6 +302,7 @@ async function main(): Promise<void> {
   const adminDeps = config.adminPassword
     ? {
         password: config.adminPassword,
+        appOrigin: config.appOrigin,
         puzzles: () =>
           [...adminPuzzleSeeds.keys()].map((id) => ({
             id,

@@ -174,6 +174,23 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ---
 
+## Phase 7, Self-Hosted Analytics
+
+**Exit criterion**: Umami, self-hosted alongside the other backend services, tracks unique visitors, average visit duration, country, referrer, and new-vs-returning for the canvas; `/play` is tracked as a page distinct from `/`; the privacy policy discloses it.
+
+### `infra-deploy`
+- [x] Umami + Postgres deployed (Docker Compose, Traefik labels mirroring the existing app, joined to the shared `coolify` network). See DECISIONS.
+- [ ] DNS record for the analytics host, verified live and a real pageview confirmed end to end
+
+### `frontend-shell`
+- [x] Tracking script loads from `VITE_UMAMI_URL`/`VITE_UMAMI_WEBSITE_ID`, unset (and therefore inert) outside prod; Umami's own automatic SPA route tracking distinguishes `/play` from `/` with no extra code
+- [x] Operator self-exclusion link on the admin page
+
+### `legal`
+- [x] Privacy policy discloses the self-hosted analytics and its hashing mechanism, EN source translated to FR/ES/DE
+
+---
+
 ## Backlog
 
 Ideas worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.

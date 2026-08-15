@@ -197,13 +197,13 @@ const es: MessageSchema = {
       "Los datos se usan únicamente para que el juego funcione: autenticarte, guardar tu progreso, atribuir las piezas colocadas y mostrar la clasificación. Ningún dato se vende ni se usa con fines publicitarios.",
     processorsHead: "Encargados del tratamiento",
     processorsBody:
-      "El servicio se apoya en Google (inicio de sesión), Cloudflare (alojamiento del frontend, almacenamiento y entrega de recursos, y analítica web respetuosa con la privacidad y sin cookies) y OVH (el servidor que aloja el backend del juego). Estos proveedores pueden tratar datos fuera de la Unión Europea, bajo sus propios marcos de protección. No se utiliza ningún otro servicio externo de seguimiento o analítica.",
+      "El servicio se apoya en Google (inicio de sesión), Cloudflare (alojamiento del frontend, almacenamiento y entrega de recursos) y OVH (el servidor que aloja el backend del juego, incluida su analítica autoalojada). Estos proveedores pueden tratar datos fuera de la Unión Europea, bajo sus propios marcos de protección. No se utiliza ningún servicio externo de seguimiento o analítica.",
     retentionHead: "Conservación y tus derechos",
     retentionBody:
       "Tus datos se conservan mientras exista tu cuenta. En virtud del RGPD, tienes derecho de acceso, rectificación, supresión y portabilidad de tus datos, así como derecho de oposición. Para ejercerlos, o para solicitar la eliminación en cualquier momento, contacta con el operador mediante los datos indicados arriba.",
-    cookiesHead: "Cookies",
+    cookiesHead: "Cookies y analítica",
     cookiesBody:
-      "El sitio solo usa las cookies y el almacenamiento local necesarios para el inicio de sesión y tus preferencias. No se instalan cookies publicitarias ni de medición de audiencia; la analítica web utilizada es sin cookies.",
+      "El sitio solo usa las cookies y el almacenamiento local necesarios para el inicio de sesión y tus preferencias; no se instalan cookies publicitarias ni de medición de audiencia. El tráfico en el tablero del puzle se mide con Umami, una herramienta de analítica autoalojada en nuestro propio servidor: no instala cookies y nunca almacena tu dirección IP, identificando una visita solo mediante un hash de tu IP, tu navegador y este sitio, que se renueva cada mes para que no pueda asociarse contigo ni usarse para rastrearte en otros sitios.",
   },
   legalPage: {
     title: "Aviso legal",

@@ -199,13 +199,13 @@ const fr: MessageSchema = {
       "Les données ne servent qu'à faire fonctionner le jeu : vous authentifier, sauvegarder votre progression, attribuer les pièces placées et afficher le classement. Aucune donnée n'est vendue ni utilisée à des fins publicitaires.",
     processorsHead: "Sous-traitants",
     processorsBody:
-      "Le service s'appuie sur Google (connexion), Cloudflare (hébergement du frontend, stockage et diffusion des ressources, et statistiques web respectueuses de la vie privée et sans cookie) et OVH (le serveur hébergeant le backend du jeu). Ces prestataires peuvent traiter des données en dehors de l'Union européenne, dans le cadre de leurs propres dispositifs de protection. Aucun autre service tiers de suivi ou d'analyse n'est utilisé.",
+      "Le service s'appuie sur Google (connexion), Cloudflare (hébergement du frontend, stockage et diffusion des ressources) et OVH (le serveur hébergeant le backend du jeu, y compris ses statistiques auto-hébergées). Ces prestataires peuvent traiter des données en dehors de l'Union européenne, dans le cadre de leurs propres dispositifs de protection. Aucun service tiers de suivi ou d'analyse n'est utilisé.",
     retentionHead: "Conservation et vos droits",
     retentionBody:
       "Vos données sont conservées tant que votre compte existe. En vertu du RGPD, vous disposez d'un droit d'accès, de rectification, d'effacement et de portabilité de vos données, ainsi que d'un droit d'opposition. Pour les exercer, ou pour demander la suppression à tout moment, contactez l'exploitant aux coordonnées ci-dessus.",
-    cookiesHead: "Cookies",
+    cookiesHead: "Cookies et statistiques",
     cookiesBody:
-      "Le site n'utilise que les cookies et le stockage local nécessaires à la connexion et à vos préférences. Aucun cookie publicitaire ou de mesure d'audience n'est déposé ; les statistiques web utilisées sont sans cookie.",
+      "Le site n'utilise que les cookies et le stockage local nécessaires à la connexion et à vos préférences ; aucun cookie publicitaire ou de mesure d'audience n'est déposé. Le trafic sur le plateau du puzzle est mesuré avec Umami, un outil de statistiques auto-hébergé sur notre propre serveur : il ne dépose aucun cookie et ne conserve jamais votre adresse IP, identifiant une visite uniquement par un hachage de votre adresse IP, de votre navigateur et de ce site, dont le sel cryptographique est renouvelé chaque mois afin qu'il ne puisse ni vous être associé ni servir à vous suivre sur d'autres sites.",
   },
   legalPage: {
     title: "Mentions légales",

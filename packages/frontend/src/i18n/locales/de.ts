@@ -200,13 +200,13 @@ const de: MessageSchema = {
       "Die Daten werden ausschließlich zum Betrieb des Spiels verwendet: um dich zu authentifizieren, deinen Fortschritt zu speichern, platzierte Teile zuzuordnen und die Rangliste anzuzeigen. Es werden keine Daten verkauft oder für Werbung verwendet.",
     processorsHead: "Auftragsverarbeiter",
     processorsBody:
-      "Der Dienst nutzt Google (Anmeldung), Cloudflare (Frontend-Hosting, Speicherung und Auslieferung der Assets sowie cookielose, datenschutzfreundliche Web-Analyse) und OVH (den Server, der das Spiel-Backend hostet). Diese Anbieter können Daten außerhalb der Europäischen Union im Rahmen ihrer eigenen Schutzmechanismen verarbeiten. Es wird kein weiterer Drittanbieter-Dienst für Tracking oder Analyse eingesetzt.",
+      "Der Dienst nutzt Google (Anmeldung), Cloudflare (Frontend-Hosting, Speicherung und Auslieferung der Assets) und OVH (den Server, der das Spiel-Backend hostet, einschließlich seiner selbst gehosteten Analyse). Diese Anbieter können Daten außerhalb der Europäischen Union im Rahmen ihrer eigenen Schutzmechanismen verarbeiten. Es wird kein Drittanbieter-Dienst für Tracking oder Analyse eingesetzt.",
     retentionHead: "Speicherung und deine Rechte",
     retentionBody:
       "Deine Daten werden so lange gespeichert, wie dein Konto besteht. Nach der DSGVO hast du ein Recht auf Auskunft, Berichtigung, Löschung und Übertragbarkeit deiner Daten sowie ein Widerspruchsrecht. Um sie auszuüben oder jederzeit eine Löschung zu verlangen, kontaktiere den Betreiber über die oben genannten Angaben.",
-    cookiesHead: "Cookies",
+    cookiesHead: "Cookies und Analyse",
     cookiesBody:
-      "Die Website verwendet nur die für die Anmeldung und deine Einstellungen notwendigen Cookies und den lokalen Speicher. Es werden keine Werbe- oder Reichweitenmessungs-Cookies gesetzt; die verwendete Web-Analyse ist cookielos.",
+      "Die Website verwendet nur die für die Anmeldung und deine Einstellungen notwendigen Cookies und den lokalen Speicher; es werden keine Werbe- oder Reichweitenmessungs-Cookies gesetzt. Der Traffic auf dem Puzzle-Spielfeld wird mit Umami gemessen, einem selbst gehosteten Analysetool auf unserem eigenen Server: Es setzt keine Cookies und speichert nie deine IP-Adresse, sondern erkennt einen Besuch nur anhand eines Hashes aus deiner IP-Adresse, deinem Browser und dieser Website, dessen Salt monatlich erneuert wird, sodass er weder dir zugeordnet noch zur seitenübergreifenden Verfolgung genutzt werden kann.",
   },
   legalPage: {
     title: "Impressum",

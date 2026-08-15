@@ -34,6 +34,10 @@ export type AdminPuzzleOption = { id: string; label: string; current: boolean };
 
 export type AdminDeps = {
   password: string;
+  // The frontend's own origin, reused to build the analytics self-exclusion
+  // link (see DECISIONS: self-hosted analytics via Umami). Same value as
+  // MPP_APP_ORIGIN elsewhere.
+  appOrigin: string;
   // The puzzles the dropdown offers, recomputed per request so the current marker
   // tracks a live switch. Never carries seeds.
   puzzles: () => AdminPuzzleOption[];
@@ -127,13 +131,21 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
-export function makeAdminPageHandler(deps: Pick<AdminDeps, "puzzles" | "getEventStartsAt">) {
+export function makeAdminPageHandler(
+  deps: Pick<AdminDeps, "puzzles" | "getEventStartsAt" | "appOrigin">,
+) {
   return (_req: Request, res: Response): void => {
     res
       .status(200)
       .set("Cache-Control", "no-store")
       .type("text/html; charset=utf-8")
-      .send(renderAdminPage({ puzzles: deps.puzzles(), eventStartsAt: deps.getEventStartsAt() }));
+      .send(
+        renderAdminPage({
+          puzzles: deps.puzzles(),
+          eventStartsAt: deps.getEventStartsAt(),
+          appOrigin: deps.appOrigin,
+        }),
+      );
   };
 }
 
@@ -243,7 +255,11 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function renderAdminPage(state: { puzzles: AdminPuzzleOption[]; eventStartsAt: number }): string {
+function renderAdminPage(state: {
+  puzzles: AdminPuzzleOption[];
+  eventStartsAt: number;
+  appOrigin: string;
+}): string {
   const options = state.puzzles
     .map(
       (p) =>
@@ -307,6 +323,12 @@ function renderAdminPage(state: { puzzles: AdminPuzzleOption[]; eventStartsAt: n
   <button id="resweep" type="button">Start resweep</button>
   <button id="resweepStatus" class="secondary" type="button">Check progress</button>
   <div class="out" id="resweepOut"></div>
+</section>
+
+<section>
+  <h2>Analytics opt-out</h2>
+  <p class="muted">Excludes one browser from Umami analytics on the live site. Per-browser and per-device: open the link again on any other browser or device you also want excluded.</p>
+  <a href="${escapeHtml(state.appOrigin)}/?umamiOptOut=1">Open ${escapeHtml(state.appOrigin)} and opt out</a>
 </section>
 
 <section class="danger">

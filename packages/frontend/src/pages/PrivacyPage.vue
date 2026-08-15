@@ -3,7 +3,7 @@ import { useI18n } from "vue-i18n";
 import LegalDocument from "../components/LegalDocument.vue";
 
 const { t } = useI18n();
-const UPDATED_AT = Date.UTC(2026, 5, 7);
+const UPDATED_AT = Date.UTC(2026, 7, 16);
 const DISCORD_URL = "https://discord.gg/mB2juw55R3";
 </script>
 

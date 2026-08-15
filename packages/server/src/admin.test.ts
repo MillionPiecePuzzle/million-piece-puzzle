@@ -96,6 +96,7 @@ describe("makeAdminPageHandler", () => {
         { id: "b", label: "Puzzle B", current: false },
       ],
       getEventStartsAt: () => 1700000000000,
+      appOrigin: "https://app.millionpiecepuzzle.com",
     });
     const res = fakeRes();
     handler({} as Request, res);
@@ -104,6 +105,9 @@ describe("makeAdminPageHandler", () => {
     expect(r.body).toContain('value="a"');
     expect(r.body).toContain("Puzzle B");
     expect(r.body).toContain("1700000000000");
+    expect(r.body).toContain(
+      'href="https://app.millionpiecepuzzle.com/?umamiOptOut=1"',
+    );
   });
 });
 

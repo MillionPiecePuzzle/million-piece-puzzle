@@ -92,13 +92,13 @@ Locked pieces are permanent (no undo, no griefing).
 - **Redis**: live state of all pieces (~0.5 GB in memory for the 1M board)
 - **MongoDB**: snap events log, user profiles
 - **Auth.js** (`@auth/express`): Google OAuth, self-hosted in the Node server, Mongo adapter, database sessions. Login anti-abuse is internal per-IP rate limiting (Redis), not a third-party challenge.
+- **Umami**: self-hosted, cookieless web analytics (Node + Postgres), running alongside the other backend services. No client-side self-exclusion for regular visitors; operator-only via the admin page.
 - All orchestrated by **Coolify** on an **OVH VPS**
 
 ### CDN & Storage
 - **Cloudflare Pages**: frontend hosting
 - **Cloudflare R2**: image tile pyramid + per-piece textures
 - **Cloudflare CDN**: fronts the R2 asset domain and the WS host for SSL/DDoS
-- **Cloudflare Web Analytics**: privacy-friendly traffic stats
 
 ### Packaging
 - **Docker** for the backend services

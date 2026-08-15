@@ -193,13 +193,13 @@ const en = {
       "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the leaderboard. No data is sold or used for advertising.",
     processorsHead: "Sub-processors",
     processorsBody:
-      "The service relies on Google (sign-in), Cloudflare (frontend hosting, asset storage and delivery, and cookieless, privacy-friendly web analytics) and OVH (the server hosting the game backend). These providers may process data outside the European Union under their own protection frameworks. No other third-party tracking or analytics service is used.",
+      "The service relies on Google (sign-in), Cloudflare (frontend hosting, asset storage and delivery) and OVH (the server hosting the game backend, including its self-hosted analytics). These providers may process data outside the European Union under their own protection frameworks. No third-party tracking or analytics service is used.",
     retentionHead: "Retention and your rights",
     retentionBody:
       "Your data is kept for as long as your account exists. Under the GDPR you have a right of access, rectification, erasure and portability of your data, as well as a right to object. To exercise them, or to request deletion at any time, contact the operator using the details above.",
-    cookiesHead: "Cookies",
+    cookiesHead: "Cookies and analytics",
     cookiesBody:
-      "The site only uses the cookies and local storage necessary for sign-in and for your preferences. No advertising or audience-measurement cookies are set; the web analytics used is cookieless.",
+      "The site only uses the cookies and local storage necessary for sign-in and for your preferences; no advertising or audience-measurement cookies are set. Traffic on the puzzle canvas is measured with Umami, a self-hosted analytics tool running on our own server: it sets no cookies and never stores your IP address, identifying a visit only through a hash of your IP, browser, and this site that is re-salted every month so it cannot be linked back to you or tracked across other sites.",
   },
   legalPage: {
     title: "Legal Notice",
