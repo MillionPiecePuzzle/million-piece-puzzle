@@ -154,7 +154,7 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ## Phase 6, Real Photo, CLOSED
 
-**Exit criterion (met)**: a real gigapixel source image exists (NASA Blue Marble main image, a combined library of CC0/public-domain Wikimedia Commons and manually-downloaded Unsplash nature and animal tile photos, assembled as a photo mosaic), producible end to end by three dev scripts, and verified to slice cleanly through the existing, unchanged `slice-image.ts` at both a small test scale and the real production scale (grid dimensions matching the source image's own aspect ratio; the puzzle grid does not have to be square). Switching prod to serve it stays a separate follow-up.
+**Exit criterion (met)**: a real gigapixel source image exists (NASA Blue Marble main image, a combined library of CC0/public-domain Wikimedia Commons and manually-downloaded Unsplash nature and animal tile photos, assembled as a photo mosaic), producible end to end by three dev scripts, and verified to slice cleanly through the existing, unchanged `slice-image.ts` at both a small test scale and the real production scale (grid dimensions matching the source image's own aspect ratio; the puzzle grid does not have to be square).
 
 ### `image-pipeline`
 - [x] `fetch-tile-images.ts`: downloads a local library of a few hundred to ~1000 CC0/public-domain nature and animal photos from Wikimedia Commons, with a provenance manifest and idempotent resume. See DECISIONS.
@@ -168,6 +168,9 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ### `backend-realtime`
 - [x] Retire the server-side full-photo composite tier: `CellCompositor` stops fetching piece tiles and baking/uploading the photo AVIF alongside the mask/seam tiers, since `DziRevealLayer` never fetches it; existing photo objects on R2 are purged. See DECISIONS.
+
+### `infra-deploy`
+- [x] Prod switched to serve `earth-mosaic`: seed added to `MPP_ADMIN_PUZZLES` in the Coolify env, cut over via the admin ops page (full wipe, then switch-puzzle). See DECISIONS.
 
 ---
 
