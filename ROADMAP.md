@@ -180,7 +180,8 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ### `infra-deploy`
 - [x] Umami + Postgres deployed (Docker Compose, Traefik labels mirroring the existing app, joined to the shared `coolify` network). See DECISIONS.
-- [ ] DNS record for the analytics host, verified live and a real pageview confirmed end to end
+- [x] DNS for the analytics host live, TLS and the dashboard verified reachable end to end
+- [ ] Merged to `main` and deployed; a real pageview confirmed in the dashboard
 
 ### `frontend-shell`
 - [x] Tracking script loads from `VITE_UMAMI_URL`/`VITE_UMAMI_WEBSITE_ID`, unset (and therefore inert) outside prod; Umami's own automatic SPA route tracking distinguishes `/play` from `/` with no extra code
