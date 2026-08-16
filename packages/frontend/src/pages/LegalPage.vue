@@ -6,6 +6,8 @@ const { t } = useI18n();
 const UPDATED_AT = Date.UTC(2026, 5, 7);
 const DISCORD_URL = "https://discord.gg/mB2juw55R3";
 const REPO_URL = "https://github.com/MillionPiecePuzzle/million-piece-puzzle";
+const UNSPLASH_URL = "https://unsplash.com";
+const PHOTOMOSAIC_URL = "https://github.com/danielballan/photomosaic";
 </script>
 
 <template>
@@ -27,6 +29,18 @@ const REPO_URL = "https://github.com/MillionPiecePuzzle/million-piece-puzzle";
     <i18n-t keypath="legalPage.ipBody" tag="p" scope="global">
       <template #repo>
         <a :href="REPO_URL" target="_blank" rel="noopener">{{ t("legalPage.repo") }}</a>
+      </template>
+    </i18n-t>
+
+    <h2 id="credits">{{ t("legalPage.creditsHead") }}</h2>
+    <i18n-t keypath="legalPage.creditsBody" tag="p" scope="global">
+      <template #unsplash>
+        <a :href="UNSPLASH_URL" target="_blank" rel="noopener">{{ t("legalPage.unsplash") }}</a>
+      </template>
+      <template #photomosaic>
+        <a :href="PHOTOMOSAIC_URL" target="_blank" rel="noopener">{{
+          t("legalPage.photomosaic")
+        }}</a>
       </template>
     </i18n-t>
 

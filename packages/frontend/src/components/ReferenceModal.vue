@@ -111,7 +111,9 @@ onBeforeUnmount(() => {
           </svg>
         </button>
       </div>
-      <p class="caption">{{ manifest.name }}</p>
+      <RouterLink to="/legal#credits" class="caption" :title="t('reference.credits')">
+        {{ manifest.name }}
+      </RouterLink>
     </div>
   </div>
 </template>
@@ -165,10 +167,16 @@ onBeforeUnmount(() => {
   font-size: 14px;
   line-height: 1.2;
   color: var(--ground);
+  text-decoration: none;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+}
+.caption:hover,
+.caption:focus-visible {
+  text-decoration: underline;
 }
 .close {
   position: absolute;

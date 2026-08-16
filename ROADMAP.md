@@ -189,6 +189,7 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ### `legal`
 - [x] Privacy policy discloses the self-hosted analytics and its hashing mechanism, EN source translated to FR/ES/DE
+- [x] Image credits (Unsplash source, mosaic-algorithm inspiration) added to the Legal page, linked from the reference image caption, EN source translated to FR/ES/DE
 
 ---
 

@@ -70,6 +70,7 @@ const fr: MessageSchema = {
     openEnlarged: "Ouvrir la référence agrandie",
     image: "Image de référence",
     fitToView: "Ajuster à la vue",
+    credits: "Voir les crédits de l'image",
   },
   minimap: {
     overview: "Aperçu",
@@ -223,6 +224,11 @@ const fr: MessageSchema = {
     ipBody:
       "Million Piece Puzzle est open source. Le code source est publié sous licence MIT et disponible sur le {repo}. Les illustrations du puzzle et les autres visuels appartiennent à leurs auteurs respectifs et sont crédités le cas échéant.",
     repo: "dépôt du projet",
+    creditsHead: "Crédits image",
+    creditsBody:
+      "Les photos utilisées proviennent toutes d'{unsplash}, des photographies non générées par IA. L'algorithme de la mosaïque est inspiré du projet open source {photomosaic}.",
+    unsplash: "Unsplash",
+    photomosaic: "photomosaic",
     liabilityHead: "Responsabilité",
     liabilityBody:
       "Million Piece Puzzle est fourni « tel quel », sans aucune garantie. L'éditeur ne saurait être tenu responsable des interruptions de service, des pertes de données ou de tout dommage résultant de l'utilisation du site.",

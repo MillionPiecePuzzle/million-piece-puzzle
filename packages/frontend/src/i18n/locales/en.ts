@@ -68,6 +68,7 @@ const en = {
     openEnlarged: "Open enlarged reference",
     image: "Reference image",
     fitToView: "Fit to view",
+    credits: "View image credits",
   },
   minimap: {
     overview: "Overview",
@@ -217,6 +218,11 @@ const en = {
     ipBody:
       "Million Piece Puzzle is open source. The source code is published under the MIT license and available on the {repo}. The puzzle artwork and other visuals belong to their respective authors and are credited where applicable.",
     repo: "project repository",
+    creditsHead: "Image credits",
+    creditsBody:
+      "Every photo comes from {unsplash}, photography, not AI-generated. The mosaic algorithm is inspired by the open-source {photomosaic} project.",
+    unsplash: "Unsplash",
+    photomosaic: "photomosaic",
     liabilityHead: "Liability",
     liabilityBody:
       'Million Piece Puzzle is provided "as is", without any warranty. The publisher cannot be held responsible for service interruptions, data loss or any damage resulting from use of the site.',
