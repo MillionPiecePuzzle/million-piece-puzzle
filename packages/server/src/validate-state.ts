@@ -88,6 +88,8 @@ async function readSnapshot(redis: IORedis, puzzleId: string): Promise<StateSnap
     id: g.id,
     size: g.size,
     heldBy: g.heldBy,
+    worldX: g.worldX,
+    worldY: g.worldY,
   }));
   const pieces = await state.readAllPieces(total);
   const pieceGroup = new Map<number, number>();

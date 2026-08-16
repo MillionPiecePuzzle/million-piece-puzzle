@@ -12,8 +12,8 @@ import {
 // {0,1} locked (no group), loose group 2 = {2}, loose group 3 = {3}.
 function healthyBoard(): { snap: StateSnapshot; merges: MergeRecord[] } {
   const groups: GroupState[] = [
-    { id: 2, size: 1, heldBy: null },
-    { id: 3, size: 1, heldBy: null },
+    { id: 2, size: 1, heldBy: null, worldX: 500, worldY: 300 },
+    { id: 3, size: 1, heldBy: null, worldX: 800, worldY: 300 },
   ];
   const groupPieces = new Map<number, Set<number>>([
     [2, new Set([2])],
@@ -108,6 +108,14 @@ describe("runInvariants", () => {
     snap.groups.find((g) => g.id === 2)!.heldBy = "user-x";
     const checks = runInvariants(snap, merges);
     expect(checks.find((c) => c.name === "no group held at rest")!.ok).toBe(false);
+  });
+
+  it("flags a loose group resting at the anchor origin", () => {
+    const { snap, merges } = healthyBoard();
+    snap.groups.find((g) => g.id === 2)!.worldX = 0;
+    snap.groups.find((g) => g.id === 2)!.worldY = 0;
+    const checks = runInvariants(snap, merges);
+    expect(checks.find((c) => c.name.startsWith("no loose group rests"))!.ok).toBe(false);
   });
 
   it("flags a locked piece still lingering in a group set", () => {

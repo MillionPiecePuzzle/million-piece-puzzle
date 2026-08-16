@@ -19,6 +19,8 @@ export type GroupState = {
   id: number;
   size: number;
   heldBy: string | null;
+  worldX: number;
+  worldY: number;
 };
 
 export type MergeRecord = {
@@ -235,6 +237,33 @@ export function checkNoHeld(snap: StateSnapshot): Check[] {
   ];
 }
 
+// No loose group rests at internal origin (0, 0): a drop landing there is
+// always the frameAnchor path (or a match against a locked neighbor, whose
+// implicit target is also (0, 0); see DECISIONS: snap by origin equality), so
+// handleDrop always anchors it. The only way a live group ends up parked
+// there is applyMerge failing partway between handleDrop's setGroupPosition
+// (persisted unconditionally) and applyMerge's own lockPieces/deleteGroup
+// (persisted later, not atomically with the position write): the piece then
+// renders at its exact solved position from its own baked texture, visually
+// indistinguishable from a locked neighbor, while remaining an ordinary loose
+// group forever. Every other check in this file still passes on that state
+// (it is internally consistent, just incomplete), and a stuck heldBy from the
+// same failure self-heals within one stale-hold sweep with no other trace, so
+// this is the only check that catches it.
+export function checkNoGhostAnchors(snap: StateSnapshot): Check[] {
+  const ghosts = snap.groups.filter((g) => g.worldX === 0 && g.worldY === 0);
+  return [
+    {
+      name: "no loose group rests at the anchor origin",
+      ok: ghosts.length === 0,
+      detail:
+        ghosts.length === 0
+          ? "no group sits at (0, 0)"
+          : `stuck=${ghosts.length} (e.g. group ${ghosts[0]!.id})`,
+    },
+  ];
+}
+
 // No locked piece still lingers in a group-pieces set (a leftover from a group
 // that should have been deleted on anchor), and the set of piece ids Redis has
 // flagged locked exactly matches the set the Mongo replay says was ever locked.
@@ -351,6 +380,7 @@ export function runInvariants(snap: StateSnapshot, merges: MergeRecord[]): Check
     ...checkGroupSizes(snap),
     ...checkLockedCount(snap),
     ...checkNoHeld(snap),
+    ...checkNoGhostAnchors(snap),
     ...checkLockedPieces(snap, replay.lockedPieceIds),
     ...checkReplayMatchesRedis(snap, replay),
   ];
