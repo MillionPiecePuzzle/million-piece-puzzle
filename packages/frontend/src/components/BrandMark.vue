@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-// Matches public/brand-mark.png (1219x1001), the source composited onto every
+// Matches public/brand-mark.png (1294x949), the source composited onto every
 // icon by scripts/generate-icons.ts. Keep in sync if that asset is replaced.
-const ASPECT_RATIO = 1219 / 1001;
+const ASPECT_RATIO = 1294 / 949;
 
 const props = defineProps<{ size?: number }>();
 const height = computed(() => props.size ?? 22);
