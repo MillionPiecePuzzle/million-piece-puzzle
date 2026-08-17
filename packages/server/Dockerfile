@@ -22,7 +22,7 @@ ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
 # regenerate silhouettes, defeating the whole opaque-wire design. It is passed
 # through from the Coolify service env (docker-compose.yml), exactly like
 # AUTH_SECRET, and must match the slicer's --seed for this puzzle's R2 assets.
-ENV MPP_DEV_ENABLED=0
+ENV MPP_DEV_ENABLED=1
 
 # Board snapshot cadence: the in-memory snapshot (locked count, leaderboard,
 # activity, current minimap grid) is regenerated at most every 300s while the
