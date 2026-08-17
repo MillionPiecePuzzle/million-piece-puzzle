@@ -1,19 +1,22 @@
 <script setup lang="ts">
-defineProps<{ size?: number }>();
+import { computed } from "vue";
+
+// Matches public/brand-mark.png (1219x1001), the source composited onto every
+// icon by scripts/generate-icons.ts. Keep in sync if that asset is replaced.
+const ASPECT_RATIO = 1219 / 1001;
+
+const props = defineProps<{ size?: number }>();
+const height = computed(() => props.size ?? 22);
+const width = computed(() => Math.round(height.value * ASPECT_RATIO));
 </script>
 
 <template>
-  <svg
+  <img
     class="brand-mark"
-    :width="size ?? 22"
-    :height="size ?? 22"
-    viewBox="0 0 22 22"
-    fill="none"
+    src="/brand-mark.png"
+    :width="width"
+    :height="height"
+    alt=""
     aria-hidden="true"
-  >
-    <path
-      d="M3.9,4 L15.1,4 A1.4,1.4 0 0 1 16.5,5.4 L16.5,8 A3,3 0 0 1 16.5,14 L16.5,16.6 A1.4,1.4 0 0 1 15.1,18 L10.6,18 A2.6,2.6 0 0 0 5.4,18 L3.9,18 A1.4,1.4 0 0 1 2.5,16.6 L2.5,5.4 A1.4,1.4 0 0 1 3.9,4 Z"
-      fill="#15140f"
-    />
-  </svg>
+  />
 </template>
