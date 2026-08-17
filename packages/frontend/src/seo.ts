@@ -6,7 +6,7 @@ interface RouteMeta {
   robots: "index, follow" | "noindex, follow";
 }
 
-const SITE_URL = "https://millionpiecepuzzle.com";
+const SITE_URL = "https://app.millionpiecepuzzle.com";
 
 // index.html's static tags already carry the landing page's content, the
 // correct default for the first paint any non-JS crawler or social unfurler

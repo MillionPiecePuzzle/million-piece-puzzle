@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://millionpiecepuzzle.com/sitemap.xml
+Sitemap: https://app.millionpiecepuzzle.com/sitemap.xml
