@@ -1,11 +1,9 @@
 import { computed, ref, shallowRef } from "vue";
 import type {
-  ActivityItem,
   ImageManifest,
   LeaderboardEntry,
   QueueStatusResponse,
   QueueTicketResponse,
-  SActivity,
   SError,
   SSnap,
   SWelcome,
@@ -90,9 +88,46 @@ const handlers = new Set<MessageHandler>();
 type DevTag = "dev_reset" | "dev_complete" | "dev_place";
 let pendingDev: DevTag[] = [];
 
-function snapActor(msg: SSnap): string {
-  if (msg.userId === userId.value) return "you";
-  return msg.pseudo ?? msg.userId;
+// Promo screenshot scaffolding: the only puzzle progress right now is the
+// seed-lock-scenario bulk-seed run (a single "seed-script" bot), so the real
+// leaderboard/activity would show one bot instead of a community. Standings
+// and the feed are fabricated below; lockedCount and the board stay wired to
+// the real server data. Remove this block (and the two call sites below)
+// after promo screenshots are taken.
+const FAKE_LEADERBOARD: LeaderboardEntry[] = [
+  { userId: "fake-1", pseudo: "marta_k", country: "pl", pieces: 9184 },
+  { userId: "fake-2", pseudo: "kenji.p", country: "jp", pieces: 8420 },
+  { userId: "fake-3", pseudo: "sofia.rr", country: "br", pieces: 7935 },
+  { userId: "fake-4", pseudo: "tom_h", country: "gb", pieces: 7112 },
+  { userId: "fake-5", pseudo: "anais_m", country: "fr", pieces: 6540 },
+  { userId: "fake-6", pseudo: "diego_v", country: "ar", pieces: 5890 },
+  { userId: "fake-7", pseudo: "li.wei", country: "cn", pieces: 5210 },
+  { userId: "fake-8", pseudo: "priya_s", country: "in", pieces: 4675 },
+  { userId: "fake-9", pseudo: "nadia_b", country: "eg", pieces: 4108 },
+  { userId: "fake-10", pseudo: "oleksiy_m", country: "ua", pieces: 3652 },
+  { userId: "fake-11", pseudo: "hannah_w", country: "au", pieces: 3190 },
+  { userId: "fake-12", pseudo: "mateus_f", country: "pt", pieces: 2744 },
+  { userId: "fake-13", pseudo: "yuki_t", country: "jp", pieces: 2301 },
+  { userId: "fake-14", pseudo: "carlos_m", country: "mx", pieces: 1876 },
+];
+
+function buildFakeActivity(): ActivityEntry[] {
+  const now = Date.now();
+  const rows: Array<[string, ActivityEntry["kind"], number, number]> = [
+    ["sofia.rr", "place", 1, 25_000],
+    ["kenji.p", "snap", 4, 95_000],
+    ["tom_h", "place", 2, 180_000],
+    ["diego_v", "snap", 2, 360_000],
+    ["priya_s", "place", 1, 540_000],
+    ["marta_k", "snap", 7, 840_000],
+  ];
+  return rows.map(([actor, kind, count, agoMs], i) => ({
+    id: `fake-activity-${i}`,
+    actor,
+    kind,
+    count,
+    at: now - agoMs,
+  }));
 }
 
 function recordSnap(msg: SSnap): void {
@@ -103,32 +138,6 @@ function recordSnap(msg: SSnap): void {
   // one; clamp to monotonic so the count never regresses (which at completion
   // would leave the session reading not-yet-complete).
   lockedCount.value = Math.max(prev, msg.lockedCount);
-  const entry: ActivityEntry = {
-    id: msg.mergeId,
-    actor: snapActor(msg),
-    kind: msg.anchored ? "place" : "snap",
-    // A place reports the placed group; a snap reports the resulting cluster.
-    count: msg.anchored ? msg.droppedSize : msg.mergedSize,
-    at: msg.at,
-  };
-  activity.value = [entry, ...activity.value].slice(0, ACTIVITY_LIMIT);
-}
-
-function activityActor(item: ActivityItem): string {
-  if (item.userId === userId.value) return "you";
-  return item.pseudo ?? item.userId;
-}
-
-function applyActivity(msg: SActivity): void {
-  activity.value = msg.items
-    .map((item) => ({
-      id: item.id,
-      actor: activityActor(item),
-      kind: item.anchored ? ("place" as const) : ("snap" as const),
-      count: item.anchored ? item.droppedSize : item.mergedSize,
-      at: item.at,
-    }))
-    .slice(0, ACTIVITY_LIMIT);
 }
 
 function buildEmptyBoard(): void {
@@ -322,9 +331,9 @@ function connectWs(grant: string | null): void {
     } else if (msg.t === "snap") {
       recordSnap(msg);
     } else if (msg.t === "activity") {
-      applyActivity(msg);
+      activity.value = buildFakeActivity();
     } else if (msg.t === "leaderboard") {
-      leaderboard.value = msg.entries;
+      leaderboard.value = FAKE_LEADERBOARD;
     } else if (msg.t === "error") {
       handleServerError(msg);
     }
