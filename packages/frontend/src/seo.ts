@@ -23,7 +23,7 @@ const LANDING_META: RouteMeta = {
 const ROUTE_META: Record<string, RouteMeta> = {
   landing: LANDING_META,
   play: {
-    title: "Play — Million Piece Puzzle",
+    title: "Million Piece Puzzle",
     description: "Join the shared canvas and start placing pieces on the 1,000,000-piece puzzle.",
     robots: "noindex, follow",
   },
