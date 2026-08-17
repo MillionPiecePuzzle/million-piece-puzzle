@@ -38,7 +38,13 @@ const completion = ref<{ at: number; startedAt: number } | null>(null);
 const { launched, scheduled, parts } = useCountdown(eventStartsAt);
 const phase = computed<"scheduled" | "live" | "completed">(() => {
   if (status.value === "completed") return "completed";
-  return launched.value ? "live" : "scheduled";
+  // Promo screenshot scaffolding: eventStartsAt is unset (0), which useCountdown
+  // deliberately treats as neither scheduled nor launched (see its own test),
+  // so the real condition below would still show the countdown placeholder.
+  // Force the live view so the fake standings/activity above are visible.
+  // Restore `return launched.value ? "live" : "scheduled";` after promo
+  // screenshots are taken.
+  return "live";
 });
 
 const progressPct = computed(() => {
