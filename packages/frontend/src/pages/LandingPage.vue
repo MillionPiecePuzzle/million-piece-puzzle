@@ -12,7 +12,6 @@ import { useRelativeTime } from "../composables/useRelativeTime";
 import { useLocaleFormat } from "../i18n/format";
 import { interestedUrl, loadLanding, type InterestState } from "../data/landing";
 import { toLeaderboardRows } from "../data/leaderboard";
-import { FAKE_LEADERBOARD, buildFakeActivityItems } from "../data/fakePromoData";
 
 const router = useRouter();
 const { t } = useI18n();
@@ -38,13 +37,7 @@ const completion = ref<{ at: number; startedAt: number } | null>(null);
 const { launched, scheduled, parts } = useCountdown(eventStartsAt);
 const phase = computed<"scheduled" | "live" | "completed">(() => {
   if (status.value === "completed") return "completed";
-  // Promo screenshot scaffolding: eventStartsAt is unset (0), which useCountdown
-  // deliberately treats as neither scheduled nor launched (see its own test),
-  // so the real condition below would still show the countdown placeholder.
-  // Force the live view so the fake standings/activity above are visible.
-  // Restore `return launched.value ? "live" : "scheduled";` after promo
-  // screenshots are taken.
-  return "live";
+  return launched.value ? "live" : "scheduled";
 });
 
 const progressPct = computed(() => {
@@ -143,11 +136,8 @@ onMounted(async () => {
   if (data.interested.me) rememberInterested();
   status.value = data.status;
   progress.value = data.progress;
-  // Promo screenshot scaffolding: fake standings/activity, shared with
-  // usePuzzleSession.ts. progress (real locked count) stays wired to the
-  // server. Remove this substitution after promo screenshots are taken.
-  leaderboard.value = FAKE_LEADERBOARD;
-  activity.value = buildFakeActivityItems();
+  leaderboard.value = data.leaderboard;
+  activity.value = data.activity;
   completion.value = data.completion ?? null;
 });
 </script>

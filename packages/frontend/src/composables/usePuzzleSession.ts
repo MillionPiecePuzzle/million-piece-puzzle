@@ -1,9 +1,11 @@
 import { computed, ref, shallowRef } from "vue";
 import type {
+  ActivityItem,
   ImageManifest,
   LeaderboardEntry,
   QueueStatusResponse,
   QueueTicketResponse,
+  SActivity,
   SError,
   SSnap,
   SWelcome,
@@ -13,7 +15,6 @@ import type { InitialGroupSpec } from "../canvas/puzzleStage";
 import { PuzzleWsClient } from "../canvas/wsClient";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { queueStatusUrl, queueTicketUrl } from "../data/queueUrl";
-import { FAKE_LEADERBOARD, buildFakeActivityItems } from "../data/fakePromoData";
 import { useMode } from "./useMode";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/";
@@ -89,18 +90,9 @@ const handlers = new Set<MessageHandler>();
 type DevTag = "dev_reset" | "dev_complete" | "dev_place";
 let pendingDev: DevTag[] = [];
 
-// Promo screenshot scaffolding: FAKE_LEADERBOARD/buildFakeActivityItems live in
-// data/fakePromoData.ts, shared with the landing page. Mapped here into
-// ActivityEntry the same way the real applyActivity(SActivity) used to.
-// Remove this block (and its two call sites below) after promo screenshots.
-function buildFakeActivity(): ActivityEntry[] {
-  return buildFakeActivityItems().map((item) => ({
-    id: item.id,
-    actor: item.pseudo ?? item.userId,
-    kind: item.anchored ? "place" : "snap",
-    count: item.anchored ? item.droppedSize : item.mergedSize,
-    at: item.at,
-  }));
+function snapActor(msg: SSnap): string {
+  if (msg.userId === userId.value) return "you";
+  return msg.pseudo ?? msg.userId;
 }
 
 function recordSnap(msg: SSnap): void {
@@ -111,6 +103,32 @@ function recordSnap(msg: SSnap): void {
   // one; clamp to monotonic so the count never regresses (which at completion
   // would leave the session reading not-yet-complete).
   lockedCount.value = Math.max(prev, msg.lockedCount);
+  const entry: ActivityEntry = {
+    id: msg.mergeId,
+    actor: snapActor(msg),
+    kind: msg.anchored ? "place" : "snap",
+    // A place reports the placed group; a snap reports the resulting cluster.
+    count: msg.anchored ? msg.droppedSize : msg.mergedSize,
+    at: msg.at,
+  };
+  activity.value = [entry, ...activity.value].slice(0, ACTIVITY_LIMIT);
+}
+
+function activityActor(item: ActivityItem): string {
+  if (item.userId === userId.value) return "you";
+  return item.pseudo ?? item.userId;
+}
+
+function applyActivity(msg: SActivity): void {
+  activity.value = msg.items
+    .map((item) => ({
+      id: item.id,
+      actor: activityActor(item),
+      kind: item.anchored ? ("place" as const) : ("snap" as const),
+      count: item.anchored ? item.droppedSize : item.mergedSize,
+      at: item.at,
+    }))
+    .slice(0, ACTIVITY_LIMIT);
 }
 
 function buildEmptyBoard(): void {
@@ -304,9 +322,9 @@ function connectWs(grant: string | null): void {
     } else if (msg.t === "snap") {
       recordSnap(msg);
     } else if (msg.t === "activity") {
-      activity.value = buildFakeActivity();
+      applyActivity(msg);
     } else if (msg.t === "leaderboard") {
-      leaderboard.value = FAKE_LEADERBOARD;
+      leaderboard.value = msg.entries;
     } else if (msg.t === "error") {
       handleServerError(msg);
     }
