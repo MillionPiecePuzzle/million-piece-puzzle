@@ -3,11 +3,13 @@ import App from "./App.vue";
 import { router } from "./router";
 import { i18n, activeLocale } from "./i18n";
 import { consumeAnalyticsOptOut, initAnalytics } from "./analytics";
+import { installSeoMeta } from "./seo";
 import "./styles/tokens.css";
 import "./styles/base.css";
 
 document.documentElement.lang = activeLocale();
 initAnalytics();
+installSeoMeta(router);
 
 createApp(App).use(i18n).use(router).mount("#app");
 

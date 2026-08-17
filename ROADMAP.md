@@ -193,10 +193,22 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ---
 
+## Phase 8, Search Discoverability, CLOSED
+
+**Exit criterion (met)**: the production site is crawlable and indexable with accurate metadata; `robots.txt` and `sitemap.xml` are live; every route corrects its own title, description, and canonical instead of inheriting the landing page's.
+
+### `frontend-shell`
+- [x] `robots.txt` + `sitemap.xml` covering the public routes (`/`, `/privacy`, `/legal`)
+- [x] `index.html`: keyword-rich title/description, canonical, Open Graph, Twitter Card, `WebApplication` JSON-LD structured data
+- [x] Per-route title/description/canonical/robots correction (`src/seo.ts`), since a single static canonical would otherwise mark `/privacy` and `/legal` as duplicates of `/`
+
+---
+
 ## Backlog
 
 Ideas worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.
 
+- **Locale-prefixed URLs for search.** Phase 8's SEO metadata is English-only because locale is chosen client-side (`localStorage`/browser language) with no URL segmentation, so a search engine can only index one language version of `/`. Ranking for non-English queries (e.g. French "puzzle le plus grand") needs its own crawlable URL per locale (`/fr/`, `/es/`, `/de/`), native-language meta strings, hreflang alternates, and rewiring every internal link (language switcher, router pushes) to a locale-aware path: a router restructuring, not a metadata tweak. See [DECISIONS](DECISIONS.md#2026-08-17-frontend-shell-seo-metadata-is-english-only-corrected-per-route-in-js-rather-than-per-locale).
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out early and relax it as pieces are placed, to bound the visible piece count. A fixed 15% zoom floor already exists (see [play-zone hard limits](DECISIONS.md#2026-05-21-frontend-canvas-play-zone-hard-limits)); the progress-relative version is the open idea.
 - **Coordinate HUD overlay.** Small overlay showing viewport position (XY, sector, zoom). Needs a "sector" concept first. Revisit at 1M when orientation becomes a real problem.
 - **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
