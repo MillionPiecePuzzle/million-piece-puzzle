@@ -268,4 +268,11 @@ useRafLoop(draw);
   height: 13px;
   display: block;
 }
+
+@media (max-width: 680px) {
+  .minimap {
+    width: min(152px, calc(50vw - 20px));
+    padding: 8px 8px 9px;
+  }
+}
 </style>

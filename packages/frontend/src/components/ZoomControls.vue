@@ -135,4 +135,10 @@ const { controls, zoomPercent } = useStageControls();
   height: 16px;
   display: block;
 }
+
+@media (max-width: 680px) {
+  .zoom {
+    left: 10px;
+  }
+}
 </style>

@@ -20,7 +20,7 @@ const { formatNumber } = useLocaleFormat();
   <li
     class="lb-row"
     :class="{ you: props.row.you }"
-    :style="{ gridTemplateColumns: `${props.rankWidth} 22px 1fr auto` }"
+    :style="{ gridTemplateColumns: `${props.rankWidth} var(--av-w, 22px) 1fr auto` }"
   >
     <span class="rk" :class="{ top: props.row.rank <= 3 }">{{ props.row.rank }}</span>
     <img
@@ -34,7 +34,7 @@ const { formatNumber } = useLocaleFormat();
     />
     <span v-else class="av" :style="{ background: props.row.color }">{{ props.row.initials }}</span>
     <span class="nm">
-      {{ props.row.name }}
+      <span class="nm-text">{{ props.row.name }}</span>
       <span v-if="props.row.you && props.showYouTag" class="you-tag">{{ t("row.you") }}</span>
       <span v-else-if="props.row.online" class="live-dot" :title="t('row.online')"></span>
     </span>
@@ -111,5 +111,24 @@ const { formatNumber } = useLocaleFormat();
 }
 .pc small {
   color: var(--ink-4);
+}
+
+@media (max-width: 680px) {
+  .lb-row {
+    --av-w: 18px;
+    gap: 6px;
+    padding: 6px 5px;
+  }
+  .av {
+    width: 18px;
+    height: 18px;
+    font-size: 9px;
+  }
+  .nm-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
 }
 </style>

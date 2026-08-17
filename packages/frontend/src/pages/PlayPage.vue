@@ -87,4 +87,11 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   display: flex;
   justify-content: flex-end;
 }
+
+@media (max-width: 680px) {
+  .minimap-corner {
+    right: 10px;
+    bottom: 10px;
+  }
+}
 </style>
