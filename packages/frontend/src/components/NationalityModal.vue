@@ -7,6 +7,7 @@ import { usePseudoModal } from "../composables/usePseudoModal";
 import { useAuth } from "../composables/useAuth";
 import { useMode } from "../composables/useMode";
 import { useFocusTrap } from "../composables/useFocusTrap";
+import { useBackdropClick } from "../composables/useBackdropClick";
 import { LOCALE_TAGS, type AppLocale } from "../i18n";
 import { flagUrl } from "../data/flags";
 
@@ -112,11 +113,18 @@ async function save() {
 function onBackdrop() {
   if (dismissible.value) hide();
 }
+
+const { onMousedown, onClick } = useBackdropClick(onBackdrop);
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="modal-backdrop nat-backdrop" @click.self="onBackdrop">
+    <div
+      v-if="open"
+      class="modal-backdrop nat-backdrop"
+      @mousedown="onMousedown"
+      @click="onClick"
+    >
       <div
         ref="shellEl"
         class="modal-shell nat-modal"

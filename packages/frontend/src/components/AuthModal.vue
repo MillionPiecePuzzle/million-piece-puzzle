@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { useAuthModal } from "../composables/useAuthModal";
 import { useAuth } from "../composables/useAuth";
 import { useFocusTrap } from "../composables/useFocusTrap";
+import { useBackdropClick } from "../composables/useBackdropClick";
 
 const { t } = useI18n();
 const { open, hide } = useAuthModal();
@@ -11,6 +12,7 @@ const { signIn } = useAuth();
 
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: hide });
+const { onMousedown, onClick } = useBackdropClick(hide);
 watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 
 function continueWithGoogle() {
@@ -23,7 +25,12 @@ function continueWithGoogle() {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="modal-backdrop auth-backdrop" @click.self="hide">
+    <div
+      v-if="open"
+      class="modal-backdrop auth-backdrop"
+      @mousedown="onMousedown"
+      @click="onClick"
+    >
       <div
         ref="shellEl"
         class="modal-shell auth-modal"
