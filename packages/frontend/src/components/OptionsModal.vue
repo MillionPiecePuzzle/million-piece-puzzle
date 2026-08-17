@@ -7,6 +7,7 @@ import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
 import { useFocusTrap } from "../composables/useFocusTrap";
+import { useBackdropClick } from "../composables/useBackdropClick";
 
 const { t } = useI18n();
 const { open, hide } = useOptionsModal();
@@ -19,6 +20,7 @@ const DISCORD_URL = "https://discord.gg/mB2juw55R3";
 
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: hide });
+const { onMousedown, onClick } = useBackdropClick(hide);
 watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 
 // Sync hands off to the (confirmation) auth modal; the profile edits reuse the
@@ -39,7 +41,12 @@ function changeCountry() {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="modal-backdrop options-backdrop" @click.self="hide">
+    <div
+      v-if="open"
+      class="modal-backdrop options-backdrop"
+      @mousedown="onMousedown"
+      @click="onClick"
+    >
       <div
         ref="shellEl"
         class="modal-shell options-modal"

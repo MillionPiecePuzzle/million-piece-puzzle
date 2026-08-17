@@ -5,6 +5,7 @@ import { useI18n } from "vue-i18n";
 import type { ImageManifest } from "@mpp/shared";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { useFocusTrap } from "../composables/useFocusTrap";
+import { useBackdropClick } from "../composables/useBackdropClick";
 
 const { t } = useI18n();
 const props = defineProps<{ manifest: ImageManifest }>();
@@ -13,6 +14,7 @@ const emit = defineEmits<{ close: [] }>();
 const host = ref<HTMLDivElement | null>(null);
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
+const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
 let viewer: OpenSeadragon.Viewer | null = null;
 
 const aspectRatio = computed(() => `${props.manifest.source.width / props.manifest.source.height}`);
@@ -71,7 +73,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="backdrop" @click.self="emit('close')">
+  <div class="backdrop" @mousedown="onMousedown" @click="onClick">
     <div
       ref="shellEl"
       class="shell"
@@ -111,7 +113,13 @@ onBeforeUnmount(() => {
           </svg>
         </button>
       </div>
-      <RouterLink to="/legal#credits" class="caption" :title="t('reference.credits')">
+      <RouterLink
+        to="/legal#credits"
+        class="caption"
+        :title="t('reference.credits')"
+        target="_blank"
+        rel="noopener"
+      >
         {{ manifest.name }}
       </RouterLink>
     </div>

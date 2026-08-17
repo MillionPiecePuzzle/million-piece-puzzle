@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { toCountryRows, toLeaderboardRows } from "../data/leaderboard";
 import { useFocusTrap } from "../composables/useFocusTrap";
+import { useBackdropClick } from "../composables/useBackdropClick";
 import LeaderboardRow from "./LeaderboardRow.vue";
 
 const { t } = useI18n();
@@ -12,6 +13,7 @@ const emit = defineEmits<{ close: [] }>();
 const { leaderboard, userId } = usePuzzleSession();
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
+const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
 
 type Mode = "people" | "countries";
 const mode = ref<Mode>("people");
@@ -45,7 +47,7 @@ onMounted(trap.activate);
 </script>
 
 <template>
-  <div class="backdrop" @click.self="emit('close')">
+  <div class="backdrop" @mousedown="onMousedown" @click="onClick">
     <div
       ref="shellEl"
       class="panel modal"

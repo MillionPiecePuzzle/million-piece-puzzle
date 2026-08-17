@@ -5,6 +5,7 @@ import type { TileState } from "../canvas/reconcile";
 import { useMinimap } from "../composables/useMinimap";
 import { useRafLoop } from "../composables/useRafLoop";
 import { useFocusTrap } from "../composables/useFocusTrap";
+import { useBackdropClick } from "../composables/useBackdropClick";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
@@ -17,6 +18,7 @@ const shellEl = ref<HTMLElement | null>(null);
 const memoryLabel = ref("");
 const tilesLabel = ref("");
 const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
+const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
 
 // Same clamp MiniMap.vue applies to the same play zone, so a strongly non-square
 // zone cannot make this grid absurdly wide or tall either.
@@ -132,7 +134,7 @@ onMounted(trap.activate);
 </script>
 
 <template>
-  <div class="backdrop" @click.self="emit('close')">
+  <div class="backdrop" @mousedown="onMousedown" @click="onClick">
     <div
       ref="shellEl"
       class="shell"

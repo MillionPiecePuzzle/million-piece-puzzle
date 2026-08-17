@@ -11,6 +11,7 @@ import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
 import { useFocusTrap } from "../composables/useFocusTrap";
+import { useBackdropClick } from "../composables/useBackdropClick";
 
 const { t } = useI18n();
 const { open, mode, initialError, hide } = usePseudoModal();
@@ -86,11 +87,18 @@ async function save() {
 function onBackdrop() {
   if (dismissible.value) hide();
 }
+
+const { onMousedown, onClick } = useBackdropClick(onBackdrop);
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="modal-backdrop pseudo-backdrop" @click.self="onBackdrop">
+    <div
+      v-if="open"
+      class="modal-backdrop pseudo-backdrop"
+      @mousedown="onMousedown"
+      @click="onClick"
+    >
       <div
         ref="shellEl"
         class="modal-shell pseudo-modal"
