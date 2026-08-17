@@ -13,6 +13,7 @@ import type { InitialGroupSpec } from "../canvas/puzzleStage";
 import { PuzzleWsClient } from "../canvas/wsClient";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { queueStatusUrl, queueTicketUrl } from "../data/queueUrl";
+import { FAKE_LEADERBOARD, buildFakeActivityItems } from "../data/fakePromoData";
 import { useMode } from "./useMode";
 
 const DEFAULT_WS_URL = "ws://localhost:8080/";
@@ -88,45 +89,17 @@ const handlers = new Set<MessageHandler>();
 type DevTag = "dev_reset" | "dev_complete" | "dev_place";
 let pendingDev: DevTag[] = [];
 
-// Promo screenshot scaffolding: the only puzzle progress right now is the
-// seed-lock-scenario bulk-seed run (a single "seed-script" bot), so the real
-// leaderboard/activity would show one bot instead of a community. Standings
-// and the feed are fabricated below; lockedCount and the board stay wired to
-// the real server data. Remove this block (and the two call sites below)
-// after promo screenshots are taken.
-const FAKE_LEADERBOARD: LeaderboardEntry[] = [
-  { userId: "fake-1", pseudo: "marta_k", country: "pl", pieces: 9184 },
-  { userId: "fake-2", pseudo: "kenji.p", country: "jp", pieces: 8420 },
-  { userId: "fake-3", pseudo: "sofia.rr", country: "br", pieces: 7935 },
-  { userId: "fake-4", pseudo: "tom_h", country: "gb", pieces: 7112 },
-  { userId: "fake-5", pseudo: "anais_m", country: "fr", pieces: 6540 },
-  { userId: "fake-6", pseudo: "diego_v", country: "ar", pieces: 5890 },
-  { userId: "fake-7", pseudo: "li.wei", country: "cn", pieces: 5210 },
-  { userId: "fake-8", pseudo: "priya_s", country: "in", pieces: 4675 },
-  { userId: "fake-9", pseudo: "nadia_b", country: "eg", pieces: 4108 },
-  { userId: "fake-10", pseudo: "oleksiy_m", country: "ua", pieces: 3652 },
-  { userId: "fake-11", pseudo: "hannah_w", country: "au", pieces: 3190 },
-  { userId: "fake-12", pseudo: "mateus_f", country: "pt", pieces: 2744 },
-  { userId: "fake-13", pseudo: "yuki_t", country: "jp", pieces: 2301 },
-  { userId: "fake-14", pseudo: "carlos_m", country: "mx", pieces: 1876 },
-];
-
+// Promo screenshot scaffolding: FAKE_LEADERBOARD/buildFakeActivityItems live in
+// data/fakePromoData.ts, shared with the landing page. Mapped here into
+// ActivityEntry the same way the real applyActivity(SActivity) used to.
+// Remove this block (and its two call sites below) after promo screenshots.
 function buildFakeActivity(): ActivityEntry[] {
-  const now = Date.now();
-  const rows: Array<[string, ActivityEntry["kind"], number, number]> = [
-    ["sofia.rr", "place", 1, 25_000],
-    ["kenji.p", "snap", 4, 95_000],
-    ["tom_h", "place", 2, 180_000],
-    ["diego_v", "snap", 2, 360_000],
-    ["priya_s", "place", 1, 540_000],
-    ["marta_k", "snap", 7, 840_000],
-  ];
-  return rows.map(([actor, kind, count, agoMs], i) => ({
-    id: `fake-activity-${i}`,
-    actor,
-    kind,
-    count,
-    at: now - agoMs,
+  return buildFakeActivityItems().map((item) => ({
+    id: item.id,
+    actor: item.pseudo ?? item.userId,
+    kind: item.anchored ? "place" : "snap",
+    count: item.anchored ? item.droppedSize : item.mergedSize,
+    at: item.at,
   }));
 }
 

@@ -12,6 +12,7 @@ import { useRelativeTime } from "../composables/useRelativeTime";
 import { useLocaleFormat } from "../i18n/format";
 import { interestedUrl, loadLanding, type InterestState } from "../data/landing";
 import { toLeaderboardRows } from "../data/leaderboard";
+import { FAKE_LEADERBOARD, buildFakeActivityItems } from "../data/fakePromoData";
 
 const router = useRouter();
 const { t } = useI18n();
@@ -136,8 +137,11 @@ onMounted(async () => {
   if (data.interested.me) rememberInterested();
   status.value = data.status;
   progress.value = data.progress;
-  leaderboard.value = data.leaderboard;
-  activity.value = data.activity;
+  // Promo screenshot scaffolding: fake standings/activity, shared with
+  // usePuzzleSession.ts. progress (real locked count) stays wired to the
+  // server. Remove this substitution after promo screenshots are taken.
+  leaderboard.value = FAKE_LEADERBOARD;
+  activity.value = buildFakeActivityItems();
   completion.value = data.completion ?? null;
 });
 </script>
