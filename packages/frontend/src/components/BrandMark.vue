@@ -6,7 +6,7 @@ import { computed } from "vue";
 const ASPECT_RATIO = 1294 / 949;
 
 const props = defineProps<{ size?: number }>();
-const height = computed(() => props.size ?? 22);
+const height = computed(() => props.size ?? 18);
 const width = computed(() => Math.round(height.value * ASPECT_RATIO));
 </script>
 
@@ -20,3 +20,13 @@ const width = computed(() => Math.round(height.value * ASPECT_RATIO));
     aria-hidden="true"
   />
 </template>
+
+<style scoped>
+.brand-mark {
+  /* The glyph fills its box edge to edge, but the adjoining wordmark's ink
+     sits high in its line box (no descenders in "Million Piece Puzzle"), so
+     centering both boxes on their geometry leaves the icon looking low.
+     Nudge it up to match the text's optical center. */
+  transform: translateY(-2.4px);
+}
+</style>
