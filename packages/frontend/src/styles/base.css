@@ -33,9 +33,12 @@ a {
   text-decoration: none;
 }
 
+/* Positioned by a HUD rail wrapper (see PlayPage.vue), not self-positioned:
+   a flex/grid item still honours z-index without position:absolute, so
+   dropping absolute here lets the rail's space-between control placement. */
 .panel {
-  position: absolute;
   z-index: 10;
+  pointer-events: auto;
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(10px);
   border: 1px solid var(--line);

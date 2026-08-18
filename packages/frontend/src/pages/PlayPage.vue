@@ -33,14 +33,24 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
     <main class="stage" :aria-label="t('play.stage')" :style="backdropVars">
       <PuzzleCanvas />
       <template v-if="ready">
-        <ZoomControls />
-        <ActivityTicker />
-        <LeaderboardPanel />
-        <ReferencePanel />
-        <div class="minimap-corner">
-          <MiniMap />
+        <!-- Two independent flex columns, each spanning the stage height with
+             justify-content:space-between: panels can never overlap each
+             other regardless of their own content-driven size (a portrait
+             reference image, a long activity list, a full leaderboard, ...)
+             or the viewport's height, unlike the corner-anchored absolute
+             positioning this replaced. See DECISIONS. -->
+        <div class="hud-rail hud-rail-left">
+          <ReferencePanel />
+          <ZoomControls />
+          <ActivityTicker />
         </div>
-        <DevControls v-if="devButtonsEnabled" />
+        <div class="hud-rail hud-rail-right">
+          <LeaderboardPanel />
+          <div class="hud-bottom-right">
+            <DevControls v-if="devButtonsEnabled" />
+            <MiniMap />
+          </div>
+        </div>
       </template>
     </main>
   </div>
@@ -78,20 +88,61 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   background-position: var(--grid-x, 0) var(--grid-y, 0);
 }
 
-/* Anchors the minimap to the bottom-right corner of the stage. */
-.minimap-corner {
+/* Left/right HUD columns spanning the stage height. justify-content:
+   space-between pins the first child to the top and the last to the bottom;
+   with 3 children (reference/zoom/ticker) it also centers the middle one in
+   whatever room is actually left between the other two, so a taller or
+   shorter sibling on either side never has to be predicted or hardcoded.
+   pointer-events:none lets drags reach the canvas in the gaps; each panel
+   (.panel, .zoom, .dev-controls) re-enables it on itself. */
+.hud-rail {
   position: absolute;
-  right: 16px;
+  top: 16px;
   bottom: 16px;
-  z-index: 30;
   display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.hud-rail-left {
+  left: 16px;
+  align-items: flex-start;
+}
+.hud-rail-right {
+  right: 16px;
+  align-items: flex-end;
+}
+/* max-width mirrors every panel's own min(fixedCap, 50vw-24px) sizing: as
+   long as every element on both rails is bounded the same way, no left-rail
+   item plus right-rail item can ever together exceed the viewport width. Without
+   it this group (dev-only controls pill + minimap) has no cap of its own and
+   can run wide enough to reach into the activity ticker on the other rail.
+   flex-wrap lets it reflow instead of overflowing once capped: DevControls is
+   first in DOM/first flex line, so it is what drops to its own row above; the
+   minimap, second/last, always stays the bottom-most line and keeps its
+   corner position. */
+.hud-bottom-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: flex-end;
+  gap: 16px;
+  max-width: calc(50vw - 24px);
 }
 
 @media (max-width: 680px) {
-  .minimap-corner {
-    right: 10px;
+  .hud-rail {
+    top: 10px;
     bottom: 10px;
+  }
+  .hud-rail-left {
+    left: 10px;
+  }
+  .hud-rail-right {
+    right: 10px;
+  }
+  .hud-bottom-right {
+    gap: 10px;
   }
 }
 </style>

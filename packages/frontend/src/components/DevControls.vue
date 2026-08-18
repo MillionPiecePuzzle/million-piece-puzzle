@@ -28,11 +28,11 @@ function onPlacePiece(): void {
 </template>
 
 <style scoped>
+/* Positioned by the .hud-bottom-right flex row in PlayPage.vue, which puts
+   it left of the minimap in DOM order; no offset needs to track the
+   minimap's own width anymore. */
 .dev-controls {
-  position: absolute;
-  /* Sits left of the minimap panel (right: 16px, width: 248px). */
-  right: 280px;
-  bottom: 20px;
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -42,7 +42,6 @@ function onPlacePiece(): void {
   border-radius: var(--radius-pill);
   backdrop-filter: blur(8px);
   box-shadow: var(--shadow-panel);
-  z-index: 3;
 }
 .kicker {
   font-family: var(--mono);

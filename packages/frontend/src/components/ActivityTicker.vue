@@ -66,8 +66,6 @@ function lineRest(entry: ActivityEntry): string {
 
 <style scoped>
 .ticker {
-  bottom: 16px;
-  left: 16px;
   width: min(340px, calc(50vw - 24px));
   padding: 12px 14px;
 }
@@ -109,8 +107,6 @@ function lineRest(entry: ActivityEntry): string {
 
 @media (max-width: 680px) {
   .ticker {
-    bottom: 10px;
-    left: 10px;
     width: min(200px, calc(50vw - 20px));
     padding: 8px 9px;
   }

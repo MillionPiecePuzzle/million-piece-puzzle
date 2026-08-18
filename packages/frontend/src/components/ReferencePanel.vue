@@ -98,8 +98,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .reference {
-  top: 16px;
-  left: 16px;
   width: min(280px, calc(50vw - 24px));
   padding: 12px 14px;
 }
@@ -158,8 +156,6 @@ onBeforeUnmount(() => {
 
 @media (max-width: 680px) {
   .reference {
-    top: 10px;
-    left: 10px;
     width: min(152px, calc(50vw - 20px));
     padding: 8px 9px;
   }

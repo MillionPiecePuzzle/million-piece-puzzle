@@ -68,12 +68,11 @@ const { controls, zoomPercent } = useStageControls();
 </template>
 
 <style scoped>
+/* Vertically centered in whatever room the rail's space-between leaves
+   between the reference panel above and the activity ticker below (see
+   PlayPage.vue .hud-rail-left), not the stage's own true center. */
 .zoom {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 10;
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
   background: rgba(255, 255, 255, 0.92);
@@ -134,11 +133,5 @@ const { controls, zoomPercent } = useStageControls();
   width: 16px;
   height: 16px;
   display: block;
-}
-
-@media (max-width: 680px) {
-  .zoom {
-    left: 10px;
-  }
 }
 </style>
