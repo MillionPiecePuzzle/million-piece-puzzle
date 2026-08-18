@@ -146,6 +146,47 @@ describe("Hub.broadcastOverlapping cluster body scoping", () => {
   });
 });
 
+// A hold's clearing broadcast (drop, rollback) passes both the grab-time and the
+// drop-time AABB, so a client that only overlaps one of the two (the group moved
+// out of its view, or into it, between the two events) still receives it: see
+// handleGrab/handleDrop, which keep grab_ok and its eventual clear symmetric.
+describe("Hub.broadcastOverlapping with multiple AABBs", () => {
+  it("reaches a client overlapping only the first AABB", () => {
+    const hub = newHub();
+    const { ws } = join(hub, { worldX: 0, worldY: 0, worldW: 100, worldH: 100 });
+    hub.broadcastOverlapping(drag, [point(50, 50), point(5000, 5000)]);
+    expect(ws.sent).toHaveLength(1);
+  });
+
+  it("reaches a client overlapping only the second AABB", () => {
+    const hub = newHub();
+    const { ws } = join(hub, { worldX: 5000, worldY: 5000, worldW: 100, worldH: 100 });
+    hub.broadcastOverlapping(drag, [point(50, 50), point(5050, 5050)]);
+    expect(ws.sent).toHaveLength(1);
+  });
+
+  it("sends once to a client overlapping both AABBs", () => {
+    const hub = newHub();
+    const { ws } = join(hub, { worldX: 0, worldY: 0, worldW: 100, worldH: 100 });
+    hub.broadcastOverlapping(drag, [point(10, 10), point(50, 50)]);
+    expect(ws.sent).toHaveLength(1);
+  });
+
+  it("skips a client overlapping neither AABB", () => {
+    const hub = newHub();
+    const { ws } = join(hub, { worldX: 0, worldY: 0, worldW: 100, worldH: 100 });
+    hub.broadcastOverlapping(drag, [point(5000, 5000), point(6000, 6000)]);
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  it("falls back to a global broadcast when any one AABB exceeds the cell cap", () => {
+    const hub = newHub(4);
+    const { ws } = join(hub, { worldX: 50000, worldY: 50000, worldW: 100, worldH: 100 });
+    hub.broadcastOverlapping(drag, [point(50, 50), { minX: 0, minY: 0, maxX: 100000, maxY: 100000 }]);
+    expect(ws.sent).toHaveLength(1);
+  });
+});
+
 describe("Hub.broadcast", () => {
   it("reaches a client regardless of its viewport, so snap stays global", () => {
     const hub = newHub();

@@ -237,11 +237,17 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
 export async function handleGrab(ctx: Context, client: Client, groupId: number): Promise<void> {
   const owner = await ctx.state.tryAcquireGroup(groupId, client.userId);
   if (owner === null) {
-    ctx.hub.broadcast({
-      t: "grab_ok",
-      groupId: toWireId(ctx.wire, groupId),
-      userId: client.userId,
-    });
+    // Just acquired, so the group is guaranteed to still exist. Scope the
+    // broadcast to its resting position rather than sending it to everyone: this
+    // is the same position handleDrop reads back as prevX/prevY, so the
+    // eventual clearing broadcast (drop/rollback) can cover it too and no
+    // observer is left with a peer cursor stuck showing held (see
+    // Hub.broadcastOverlapping).
+    const g = (await ctx.state.readGroup(groupId))!;
+    ctx.hub.broadcastOverlapping(
+      { t: "grab_ok", groupId: toWireId(ctx.wire, groupId), userId: client.userId },
+      worldAabbFor(g.localAabb, g.worldX, g.worldY),
+    );
     return;
   }
   if (owner !== client.userId) client.held.delete(groupId);
@@ -427,6 +433,10 @@ export async function handleDrop(
   // Redis still holds it), kept as the rollback target if the drop is rejected.
   const prevX = g.worldX;
   const prevY = g.worldY;
+  // The AABB handleGrab scoped grab_ok to. Folded into both of this drop's
+  // clearing broadcasts (below) so a client that saw the grab always also sees
+  // it end, even when the cluster travelled out of that client's view first.
+  const grabAabb = worldAabbFor(g.localAabb, prevX, prevY);
 
   // Detection only: origin is set in memory so detectSnap sees the drop point,
   // but nothing is persisted until we know all involved groups are locked.
@@ -491,7 +501,7 @@ export async function handleDrop(
       });
       ctx.hub.broadcastOverlapping(
         { t: "rollback", groupId: wireId, worldX: bounceX, worldY: bounceY, userId: client.userId },
-        rest,
+        [grabAabb, rest],
         client,
       );
       return;
@@ -526,7 +536,7 @@ export async function handleDrop(
         worldY: anchorWorldY(ctx.wire, groupId, originY),
         userId: client.userId,
       },
-      rest,
+      [grabAabb, rest],
     );
     return;
   }

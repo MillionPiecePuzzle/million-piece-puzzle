@@ -259,12 +259,21 @@ describe("handleGrab", () => {
     );
   });
 
-  it("broadcasts grab_ok when acquisition succeeds", async () => {
-    const { ctx, broadcast, tryAcquireGroup } = makeCtx();
+  it("broadcasts grab_ok scoped to the group's resting position when acquisition succeeds", async () => {
+    const { ctx, broadcastOverlapping, tryAcquireGroup, readGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue(null);
+    readGroup.mockResolvedValue({
+      id: 5,
+      worldX: 500,
+      worldY: 500,
+      size: 1,
+      heldBy: "u1",
+      localAabb: null,
+    });
     await handleGrab(ctx, client, 5);
-    expect(broadcast).toHaveBeenCalledWith(
+    expect(broadcastOverlapping).toHaveBeenCalledWith(
       expect.objectContaining({ t: "grab_ok", groupId: 5, userId: "u1" }),
+      { minX: 500, minY: 500, maxX: 500, maxY: 500 },
     );
   });
 
@@ -290,8 +299,16 @@ describe("handleGrab", () => {
   // below), so these tests seed `held` themselves to match that contract.
 
   it("keeps the reservation on a winning grab", async () => {
-    const { ctx, tryAcquireGroup } = makeCtx();
+    const { ctx, tryAcquireGroup, readGroup } = makeCtx();
     tryAcquireGroup.mockResolvedValue(null);
+    readGroup.mockResolvedValue({
+      id: 7,
+      worldX: 0,
+      worldY: 0,
+      size: 1,
+      heldBy: "u1",
+      localAabb: null,
+    });
     const c = { userId: "u1", held: new Set<number>([7]) } as unknown as Client;
     await handleGrab(ctx, c, 7);
     expect([...c.held]).toEqual([7]);
@@ -328,9 +345,17 @@ describe("handleGrab", () => {
 
 describe("dispatch grab reservation", () => {
   it("adds the group id to client.held synchronously, before the acquire resolves", async () => {
-    const { ctx, tryAcquireGroup } = makeCtx();
+    const { ctx, tryAcquireGroup, readGroup } = makeCtx();
     const gate = deferred();
     tryAcquireGroup.mockReturnValue(gate.promise.then(() => null));
+    readGroup.mockResolvedValue({
+      id: 7,
+      worldX: 0,
+      worldY: 0,
+      size: 1,
+      heldBy: "u1",
+      localAabb: null,
+    });
     const c = { userId: "u1", held: new Set<number>() } as unknown as Client;
     const pending = dispatch(ctx, c, JSON.stringify({ t: "grab", groupId: 7 }));
     // A disconnect racing this in-flight grab (see index.ts releaseHeldGroups)
@@ -522,11 +547,16 @@ describe("handleDrop", () => {
     state.place(dropped(4, 500, 500), [4]);
     await handleDrop(ctx, client, 4, 500, 500);
     expect(state.groups.get(4)?.heldBy).toBeNull();
-    // FakeState groups carry no stored AABB, so scoping falls back to the drop
-    // point (a zero-size rect): the broadcast still goes out scoped, not global.
+    // FakeState groups carry no stored AABB, so scoping falls back to zero-size
+    // rects at the grab and drop points (here the same point, since the group
+    // never moved): the broadcast still goes out scoped, not global, and covers
+    // both so a viewer of either point clears the held cursor.
     expect(broadcastOverlapping).toHaveBeenCalledWith(
       expect.objectContaining({ t: "drop", groupId: 4 }),
-      { minX: 500, minY: 500, maxX: 500, maxY: 500 },
+      [
+        { minX: 500, minY: 500, maxX: 500, maxY: 500 },
+        { minX: 500, minY: 500, maxX: 500, maxY: 500 },
+      ],
     );
   });
 
@@ -559,7 +589,10 @@ describe("handleDrop", () => {
     });
     expect(broadcastOverlapping).toHaveBeenCalledWith(
       { t: "rollback", groupId: 4, worldX: 5000, worldY: 5000, userId: "u1" },
-      { minX: 500, minY: 500, maxX: 500, maxY: 500 },
+      [
+        { minX: 5000, minY: 5000, maxX: 5000, maxY: 5000 },
+        { minX: 500, minY: 500, maxX: 500, maxY: 500 },
+      ],
       client,
     );
     // The rejected position is never persisted and the hold is released.

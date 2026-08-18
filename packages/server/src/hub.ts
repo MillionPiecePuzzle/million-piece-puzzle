@@ -146,18 +146,28 @@ export class Hub {
     }
   }
 
-  // Scoped broadcast for drag, drop and cursor: reaches the global subscribers
-  // plus the clients subscribed to any cell the event AABB overlaps. Scoping is by
-  // the dragged cluster's world AABB (a cursor passes a zero-size rect), so a peer
-  // whose viewport excludes the cluster origin but overlaps its body still
-  // receives it. A cluster larger than the cell cap fans out to every client (the
-  // same fail-open bound a far-zoomed viewport gets). Snap stays a global
+  // Scoped broadcast for drag, drop, cursor and grab: reaches the global
+  // subscribers plus the clients subscribed to any cell the event's AABB(s)
+  // overlap. Scoping is by the dragged cluster's world AABB (a cursor passes a
+  // zero-size rect), so a peer whose viewport excludes the cluster origin but
+  // overlaps its body still receives it. Takes more than one AABB so a hold's
+  // clearing broadcast (drop, rollback) can also cover the position it was
+  // grabbed from: grab_ok is scoped the same way, and without this a client that
+  // saw the grab but whose viewport never overlapped the eventual drop (cluster
+  // dragged out of view before release) would keep that peer's cursor stuck
+  // showing held. A cluster larger than the cell cap fans out to every client
+  // (the same fail-open bound a far-zoomed viewport gets). Snap stays a global
   // broadcast.
-  broadcastOverlapping(msg: ServerMessage, aabb: Aabb, except?: Client): void {
-    const cells = cellsForRect(aabb, this.cellSize, this.maxCells);
-    if (cells === null) {
-      this.broadcast(msg, except);
-      return;
+  broadcastOverlapping(msg: ServerMessage, aabb: Aabb | Aabb[], except?: Client): void {
+    const boxes = Array.isArray(aabb) ? aabb : [aabb];
+    const cellSets: number[][] = [];
+    for (const box of boxes) {
+      const cells = cellsForRect(box, this.cellSize, this.maxCells);
+      if (cells === null) {
+        this.broadcast(msg, except);
+        return;
+      }
+      cellSets.push(cells);
     }
     const payload = JSON.stringify(msg);
     const seen = new Set<Client>();
@@ -166,13 +176,15 @@ export class Hub {
       seen.add(c);
       this.write(c, payload);
     }
-    for (const cell of cells) {
-      const set = this.cellSubscribers.get(cell);
-      if (!set) continue;
-      for (const c of set) {
-        if (c === except || seen.has(c)) continue;
-        seen.add(c);
-        this.write(c, payload);
+    for (const cells of cellSets) {
+      for (const cell of cells) {
+        const set = this.cellSubscribers.get(cell);
+        if (!set) continue;
+        for (const c of set) {
+          if (c === except || seen.has(c)) continue;
+          seen.add(c);
+          this.write(c, payload);
+        }
       }
     }
   }
