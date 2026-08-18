@@ -54,9 +54,9 @@ Revisit when: any further breaking wire change; bump the version again.
 
 ### 2026-05-20, shared-protocol, presence messages
 
-Choice: presence is 4 message types. Client to server: `viewport` (visible rect, for broadcast scoping) and `cursor` (pointer). Server to client: `join`, `leave`, and a `cursor` relayed to viewport-neighbor peers. There is no server `viewport` relay.
-Why: viewport and cursor change on independent triggers (pan/zoom vs pointermove) at different cadences, so a combined message would resend unchanged fields; viewport has no client-facing consumer yet, so relaying it would be speculative.
-Revisit when: a minimap wants to draw peer viewports (add a server relay), or "pointer left canvas" needs to be distinguished from "peer idle".
+Choice: presence is 4 message types. Client to server: `viewport` (visible rect, for broadcast scoping) and `cursor` (pointer). Server to client: `join`, `leave`, and a `cursor` relayed to viewport-neighbor peers; `join`/`leave`/`welcome` also carry `count`, the total connected clients, piggybacked on broadcasts the server already sends (`Hub.clientCount()`, no new message, no added fan-out). There is no server `viewport` relay.
+Why: viewport and cursor change on independent triggers (pan/zoom vs pointermove) at different cadences, so a combined message would resend unchanged fields; viewport has no client-facing consumer yet, so relaying it would be speculative. Peer-viewport relay for minimap dots was evaluated and rejected: at a coarse-grid, periodic-snapshot resolution cheap enough to broadcast, positions would read stale within seconds next to the exact, real-time peer cursors already shown to viewport-neighbors, so a laggy dot would read as broken tracking rather than a feature; the count alone (exact, free) covers the "people are here" signal without that trade-off.
+Revisit when: "pointer left canvas" needs to be distinguished from "peer idle".
 
 ### 2026-05-12, piece-generation, canonical sign convention
 

@@ -74,6 +74,7 @@ const es: MessageSchema = {
   },
   minimap: {
     overview: "Vista general",
+    online: "{n} en línea",
     label: "Minimapa",
     openDetail: "Abrir la vista detallada de las casillas",
     detailTitle: "Detalle de carga de las casillas",

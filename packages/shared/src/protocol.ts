@@ -102,6 +102,8 @@ export type SWelcome = {
   protocolVersion: number;
   puzzleId: string;
   lockedCount: number;
+  // Total currently-connected clients, the same value `join`/`leave` report.
+  count: number;
   // World-space bounds of the puzzle, computed once by the server and identical
   // for every client regardless of join time: camera limits, the held-piece
   // clamp, and the minimap extent all derive from it.
@@ -245,19 +247,23 @@ export type SRollback = {
 // Presence, server to client. join is sent to a connecting client once per peer
 // already present, and to existing peers when a new peer connects. The pseudo
 // is the peer's authenticated profile pseudo, fixed for the connection. leave
-// is sent when a peer disconnects. cursor relays a peer's pointer to its
-// viewport-neighbor peers. There is no server viewport relay: viewport is a
-// server-side broadcast-scoping input only.
+// is sent when a peer disconnects. Both carry count, the total connected
+// clients after the change, so the minimap's online indicator needs no
+// separate message. cursor relays a peer's pointer to its viewport-neighbor
+// peers. There is no server viewport relay: viewport is a server-side
+// broadcast-scoping input only.
 
 export type SJoin = {
   t: "join";
   userId: string;
   pseudo: string | null;
+  count: number;
 };
 
 export type SLeave = {
   t: "leave";
   userId: string;
+  count: number;
 };
 
 export type SCursor = {

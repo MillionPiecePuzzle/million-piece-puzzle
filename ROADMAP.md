@@ -204,6 +204,12 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ---
 
+## Presence Indicator
+
+- [x] Minimap header shows a live connected-player count next to a flat (non-animated) status dot, sourced from the existing join/leave broadcast: `SJoin`/`SLeave`/`SWelcome` carry `count`, `Hub.clientCount()` feeds it, `frontend-canvas` renders it next to "Overview". No new WS message, no added broadcast fan-out. Peer positions on the minimap were evaluated and dropped: see DECISIONS.
+
+---
+
 ## Backlog
 
 Ideas worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.

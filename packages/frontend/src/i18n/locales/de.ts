@@ -74,6 +74,7 @@ const de: MessageSchema = {
   },
   minimap: {
     overview: "Übersicht",
+    online: "{n} online",
     label: "Minikarte",
     openDetail: "Detailansicht der Felder öffnen",
     detailTitle: "Ladedetails der Felder",
