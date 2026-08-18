@@ -14,7 +14,7 @@ RUN npm run build -w @mpp/shared \
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-ENV MPP_PUZZLE_ID=synthetic-1m
+ENV MPP_PUZZLE_ID=earth-mosaic
 ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
 # MPP_GENERATION_SEED is intentionally NOT set here. It drives geometry, the
 # scatter, and the wire id permutation, so it is the anti-programmatic-solving
