@@ -79,37 +79,17 @@ describe("cellContentPending", () => {
       expect(facts({ lodActive: true, hasGroups: true, tileReady: true })).toBe(false);
     });
 
-    it("does not pend a known, empty cell (bakes blank instantly)", () => {
-      expect(
-        facts({ lodActive: true, hasGroups: false, tileReady: false, coverageSeen: true, known: true }),
-      ).toBe(false);
+    it("does not pend an empty cell (bakes blank instantly)", () => {
+      expect(facts({ lodActive: true, hasGroups: false, tileReady: false })).toBe(false);
     });
 
-    it("does not pend an empty cell for a global subscriber (never coverageSeen)", () => {
-      expect(
-        facts({ lodActive: true, hasGroups: false, tileReady: false, coverageSeen: false, known: false }),
-      ).toBe(false);
-    });
-
-    it("pends a not-yet-known cell even while active, so it is not baked on a guess", () => {
+    it("ignores the streaming and hydration facts while active", () => {
       expect(
         facts({
           lodActive: true,
           hasGroups: false,
           coverageSeen: true,
           known: false,
-          hasUnhydratedInRingGroup: true,
-        }),
-      ).toBe(true);
-    });
-
-    it("ignores the hydration fact once known", () => {
-      expect(
-        facts({
-          lodActive: true,
-          hasGroups: false,
-          coverageSeen: true,
-          known: true,
           hasUnhydratedInRingGroup: true,
         }),
       ).toBe(false);
