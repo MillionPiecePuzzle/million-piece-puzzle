@@ -602,15 +602,18 @@ async function main(): Promise<void> {
   // at the root; this is the periodic safety net for whatever they do not
   // cover, the same dual-layer shape as the stale-hold sweep above. Guarded
   // against overlap the same way KeyframePublisher guards its own regenerate.
+  // Sequenced like boot, not concurrent: the heap budget is sized on boot's peak,
+  // and this one lands on a warm process with players connected.
+  const resyncBoardIndexes = async (): Promise<void> => {
+    await rebuildLockedPieceIndex(lockedPieces, state, ctx.meta.totalPieces);
+    await rebuildMinimapGrid(minimapGrid, state, ctx.meta.totalPieces);
+    await rebuildLeaderboardTracker(leaderboardTracker, mongo, ctx.puzzleId);
+  };
   let boardIndexResyncing = false;
   const boardIndexResyncTimer = setInterval(() => {
     if (boardIndexResyncing) return;
     boardIndexResyncing = true;
-    void Promise.all([
-      rebuildMinimapGrid(minimapGrid, state, ctx.meta.totalPieces),
-      rebuildLockedPieceIndex(lockedPieces, state, ctx.meta.totalPieces),
-      rebuildLeaderboardTracker(leaderboardTracker, mongo, ctx.puzzleId),
-    ])
+    void resyncBoardIndexes()
       .catch((e: unknown) => {
         console.error("[board-index-resync]", (e as Error).message);
       })
