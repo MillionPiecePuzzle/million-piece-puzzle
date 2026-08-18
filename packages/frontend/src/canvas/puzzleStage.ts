@@ -233,6 +233,16 @@ const LOD_EXIT_ZOOM = 0.35;
 const LOD_WARM_ZOOM = 0.5;
 const LOD_BAKE_PER_FRAME = 2;
 
+// Placeholder tint baked into a tile in place of a cell that has never streamed
+// (see bakeTile): a warm, low-alpha wash rather than the out-of-zone backdrop's
+// darker checker, so it reads as "not explored yet" inside the play zone rather
+// than as an error or as out-of-bounds. Flat, static, no animation: the removed
+// per-cell loading badge (see DECISIONS.md) was dropped for firing on every
+// ordinary hydration wait and looking unpleasant doing it; this is deliberately
+// quieter and fires only for the narrower, rarer "never streamed" case.
+const LOD_UNKNOWN_TINT_COLOR = 0x6b6455;
+const LOD_UNKNOWN_TINT_ALPHA = 0.07;
+
 // A tile cell is "hot" for this long after its last real change (a drop, snap,
 // rollback, grab, or a snapshot diff). A non-held cluster all of whose tiles are
 // baked and cold ("covered-cold") renders entirely from its baked tiles, so its
@@ -372,6 +382,11 @@ export class PuzzleStage {
   private frame: Graphics | null = null;
   // World-space dark fill covering everything outside the play zone.
   private backdrop: Graphics | null = null;
+  // Reusable scratch node for bakeTile's unknown-cell placeholder: normally an
+  // empty, invisible child of world, redrawn and shown only for the instant of a
+  // tile's render-to-texture pass (see bakeTile), same as frame/backdrop are
+  // hidden around that same pass.
+  private unknownTileMarker: Graphics | null = null;
   // Fixed z-order layers under world. Stacking is the child order of world
   // (locked-pieces < unlocked < lod < remote-held < local-held), so a node's
   // depth is which layer holds it, not a per-container zIndex. This keeps
@@ -728,6 +743,12 @@ export class PuzzleStage {
     frame.rect(0, 0, this.worldSize.w, this.worldSize.h).stroke({ color: 0x1a1a1a, pixelLine: true });
     world.addChild(frame);
     this.frame = frame;
+
+    const unknownTileMarker = new Graphics();
+    unknownTileMarker.eventMode = "none";
+    unknownTileMarker.visible = false;
+    world.addChild(unknownTileMarker);
+    this.unknownTileMarker = unknownTileMarker;
 
     this.lockedPiecesLayer = new Container();
     this.unlockedLayer = new Container();
@@ -1147,6 +1168,7 @@ export class PuzzleStage {
     this.playZone = null;
     this.frame = null;
     this.backdrop = null;
+    this.unknownTileMarker = null;
     this.lockedPiecesLayer = null;
     this.unlockedLayer = null;
     this.remoteHeldLayer = null;
@@ -3529,6 +3551,29 @@ export class PuzzleStage {
       worldH: r.maxY - r.minY,
     };
 
+    // A cell whose region_state has never arrived looks identical to a genuinely
+    // empty one by groupIds alone (both have none). Baking it fully transparent
+    // would freeze that guess as "ready", indistinguishable from confirmed-empty
+    // space, with nothing left to ever revisit it: a group only marks its cell
+    // dirty when applyRegionState actually constructs it there, which never
+    // happens while the viewport stays a global subscriber (see DECISIONS,
+    // global subscriber streams nothing). Paint the placeholder instead so it
+    // reads as "not explored" rather than "nothing here". The tile still ends up
+    // ready and cached exactly like any other: if this cell is later scoped
+    // narrowly enough to stream, the resulting construct's markDirty finds this
+    // same tile object and invalidates it, so the next bake replaces the
+    // placeholder with real content.
+    const unknown = this.coverageSeen && !this.knownCells.has(key);
+    if (this.unknownTileMarker) {
+      this.unknownTileMarker.visible = unknown;
+      if (unknown) {
+        this.unknownTileMarker
+          .clear()
+          .rect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY)
+          .fill({ color: LOD_UNKNOWN_TINT_COLOR, alpha: LOD_UNKNOWN_TINT_ALPHA });
+      }
+    }
+
     if (this.frame) this.frame.visible = false;
     if (this.backdrop) this.backdrop.visible = false;
     if (this.lockedPiecesLayer) this.lockedPiecesLayer.visible = false;
@@ -3584,6 +3629,7 @@ export class PuzzleStage {
     if (this.frame) this.frame.visible = true;
     if (this.backdrop) this.backdrop.visible = true;
     if (this.lockedPiecesLayer) this.lockedPiecesLayer.visible = true;
+    if (this.unknownTileMarker) this.unknownTileMarker.visible = false;
     this.lodLayer.setVisible(this.lodActive);
     this.lodLayer.markBaked(key);
     for (const node of liveHidden) node.container.visible = true;
