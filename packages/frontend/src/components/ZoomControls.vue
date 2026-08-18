@@ -72,6 +72,12 @@ const { controls, zoomPercent } = useStageControls();
    between the reference panel above and the activity ticker below (see
    PlayPage.vue .hud-rail-left), not the stage's own true center. */
 .zoom {
+  /* Matches the HUD z-index convention in base.css .panel: without it this
+     panel sits at the default stacking level (0), below both the puzzle
+     canvas (z-index 1) and the stage's grid/dot backdrop (last in DOM
+     order among the z-index:auto siblings), so the canvas texture painted
+     on top instead of behind it. */
+  z-index: 10;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
