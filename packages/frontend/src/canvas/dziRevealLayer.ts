@@ -36,7 +36,13 @@
 import { Container, Matrix, Rectangle, RenderTexture, Sprite, type Texture } from "pixi.js";
 import type { Aabb } from "./cull";
 import { LOD_TILE_WORLD, packCell, unpackWireCellKey, type CellKey } from "./groupGrid";
-import { dziTilesForRect, levelForZoom, maskTierForZoom, pickBaseLevel, type DziInfo } from "./dziTiles";
+import {
+  dziTilesForRect,
+  levelForZoom,
+  maskTierForZoom,
+  pickBaseLevel,
+  type DziInfo,
+} from "./dziTiles";
 
 // Each native DZI tile decodes to ~258KB (254px + 1px overlap, RGBA), so
 // 256MB is headroom for roughly 1000 resident tiles at once: comfortably
@@ -501,8 +507,10 @@ export class DziRevealLayer {
     const candidates: CellAsset[] = [];
     let total = 0;
     for (const tile of this.cellAssets.values()) {
-      if (tile.maskSprite) total += tile.maskSprite.texture.width * tile.maskSprite.texture.height * 4;
-      if (tile.seamSprite) total += tile.seamSprite.texture.width * tile.seamSprite.texture.height * 4;
+      if (tile.maskSprite)
+        total += tile.maskSprite.texture.width * tile.maskSprite.texture.height * 4;
+      if (tile.seamSprite)
+        total += tile.seamSprite.texture.width * tile.seamSprite.texture.height * 4;
       if ((tile.maskSprite || tile.seamSprite) && !neededSet.has(packCell(tile.cx, tile.cy))) {
         candidates.push(tile);
       }
@@ -511,8 +519,10 @@ export class DziRevealLayer {
     candidates.sort((a, b) => a.lru - b.lru);
     for (const tile of candidates) {
       if (total <= budget) break;
-      if (tile.maskSprite) total -= tile.maskSprite.texture.width * tile.maskSprite.texture.height * 4;
-      if (tile.seamSprite) total -= tile.seamSprite.texture.width * tile.seamSprite.texture.height * 4;
+      if (tile.maskSprite)
+        total -= tile.maskSprite.texture.width * tile.maskSprite.texture.height * 4;
+      if (tile.seamSprite)
+        total -= tile.seamSprite.texture.width * tile.seamSprite.texture.height * 4;
       this.freeCellAsset(tile);
     }
   }
@@ -628,8 +638,10 @@ export class DziRevealLayer {
       total += sprite.texture.width * sprite.texture.height * 4;
     }
     for (const tile of this.cellAssets.values()) {
-      if (tile.maskSprite) total += tile.maskSprite.texture.width * tile.maskSprite.texture.height * 4;
-      if (tile.seamSprite) total += tile.seamSprite.texture.width * tile.seamSprite.texture.height * 4;
+      if (tile.maskSprite)
+        total += tile.maskSprite.texture.width * tile.maskSprite.texture.height * 4;
+      if (tile.seamSprite)
+        total += tile.seamSprite.texture.width * tile.seamSprite.texture.height * 4;
     }
     if (this.maskTexture) total += this.maskTexture.width * this.maskTexture.height * 4;
     return total;

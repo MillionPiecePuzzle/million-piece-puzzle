@@ -529,7 +529,12 @@ async function main(): Promise<void> {
     // Presence: tell the newcomer about peers already present, then announce
     // the newcomer to them. join and leave bracket a connection.
     for (const peer of hub.allClients()) {
-      hub.send(client, { t: "join", userId: peer.userId, pseudo: peer.pseudo, count: hub.clientCount() });
+      hub.send(client, {
+        t: "join",
+        userId: peer.userId,
+        pseudo: peer.pseudo,
+        count: hub.clientCount(),
+      });
     }
     hub.add(client);
     hub.broadcast(

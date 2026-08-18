@@ -132,12 +132,7 @@ const { onMousedown, onClick } = useBackdropClick(onBackdrop);
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      class="modal-backdrop nat-backdrop"
-      @mousedown="onMousedown"
-      @click="onClick"
-    >
+    <div v-if="open" class="modal-backdrop nat-backdrop" @mousedown="onMousedown" @click="onClick">
       <div
         ref="shellEl"
         class="modal-shell nat-modal"

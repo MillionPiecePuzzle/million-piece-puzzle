@@ -26,12 +26,7 @@ describe("neededCellAssets", () => {
   });
 
   it("spans both axes when the box crosses a cell boundary on each", () => {
-    const b = box(
-      LOD_TILE_WORLD - 1,
-      LOD_TILE_WORLD - 1,
-      LOD_TILE_WORLD + 1,
-      LOD_TILE_WORLD + 1,
-    );
+    const b = box(LOD_TILE_WORLD - 1, LOD_TILE_WORLD - 1, LOD_TILE_WORLD + 1, LOD_TILE_WORLD + 1);
     const out = neededCellAssets(b);
     const sortByCoord = (a: { cx: number; cy: number }, c: { cx: number; cy: number }): number =>
       a.cx - c.cx || a.cy - c.cy;

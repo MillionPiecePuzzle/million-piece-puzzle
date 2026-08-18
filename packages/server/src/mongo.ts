@@ -168,7 +168,10 @@ export class MongoLogger {
   // cost the incremental tracker exists to avoid.
   async leaderboardScoreRows(puzzleId: string): Promise<LeaderboardScoreRow[]> {
     const rows = await this.merges
-      .aggregate<{ _id: number; userId: string }>([
+      .aggregate<{
+        _id: number;
+        userId: string;
+      }>([
         { $match: { puzzleId } },
         { $sort: { at: 1 } },
         { $unwind: "$droppedPieceIds" },

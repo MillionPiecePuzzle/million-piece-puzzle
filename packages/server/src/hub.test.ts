@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { Hub, type Client, type Viewport } from "./hub.js";
-import { localAabbForPieces, worldAabbFor, cellKey, unpackCellKey, type Aabb } from "./worldGrid.js";
+import {
+  localAabbForPieces,
+  worldAabbFor,
+  cellKey,
+  unpackCellKey,
+  type Aabb,
+} from "./worldGrid.js";
 import type { ServerMessage } from "@mpp/shared";
 
 class FakeWs {
@@ -182,7 +188,10 @@ describe("Hub.broadcastOverlapping with multiple AABBs", () => {
   it("falls back to a global broadcast when any one AABB exceeds the cell cap", () => {
     const hub = newHub(4);
     const { ws } = join(hub, { worldX: 50000, worldY: 50000, worldW: 100, worldH: 100 });
-    hub.broadcastOverlapping(drag, [point(50, 50), { minX: 0, minY: 0, maxX: 100000, maxY: 100000 }]);
+    hub.broadcastOverlapping(drag, [
+      point(50, 50),
+      { minX: 0, minY: 0, maxX: 100000, maxY: 100000 },
+    ]);
     expect(ws.sent).toHaveLength(1);
   });
 });

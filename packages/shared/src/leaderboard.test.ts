@@ -89,9 +89,7 @@ describe("LeaderboardTracker", () => {
     for (let step = 0; step < 300; step++) {
       const userId = pick(users);
       const dropCount = 1 + Math.floor(rng() * 5);
-      const pieceIds = Array.from({ length: dropCount }, () =>
-        Math.floor(rng() * totalPieces),
-      );
+      const pieceIds = Array.from({ length: dropCount }, () => Math.floor(rng() * totalPieces));
 
       tracker.recordDrop(userId, pieceIds);
       for (const id of pieceIds) {

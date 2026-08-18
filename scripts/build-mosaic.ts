@@ -634,7 +634,9 @@ async function mergeStrips(
       create: { width, height, channels: 3, background: borderColor },
       limitInputPixels: false,
     })
-      .composite(items.map((it) => ({ input: it.file, left: 0, top: it.top, limitInputPixels: false })))
+      .composite(
+        items.map((it) => ({ input: it.file, left: 0, top: it.top, limitInputPixels: false })),
+      )
       .tiff({ ...tiled, bigtiff: true, compression: "deflate" })
       .toFile(outPath);
     for (const it of items) await rm(it.file, { force: true }).catch(() => {});
@@ -652,7 +654,12 @@ async function mergeStrips(
       limitInputPixels: false,
     })
       .composite(
-        group.map((it) => ({ input: it.file, left: 0, top: it.top - groupTop, limitInputPixels: false })),
+        group.map((it) => ({
+          input: it.file,
+          left: 0,
+          top: it.top - groupTop,
+          limitInputPixels: false,
+        })),
       )
       // bigtiff even for an intermediate: later merge levels keep stacking
       // these, and classic TIFF's 4GB file-size ceiling is easy to cross

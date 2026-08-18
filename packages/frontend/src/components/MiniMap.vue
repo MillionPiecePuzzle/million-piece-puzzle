@@ -185,7 +185,11 @@ useRafLoop(draw);
     <div class="minimap-head">
       <h3>{{ t("minimap.overview") }}</h3>
       <div class="minimap-head-right">
-        <span v-if="onlineCount >= 2" class="online-count" :title="t('minimap.online', { n: onlineCount })">
+        <span
+          v-if="onlineCount >= 2"
+          class="online-count"
+          :title="t('minimap.online', { n: onlineCount })"
+        >
           <span class="online-dot" aria-hidden="true"></span>
           {{ onlineCount }}
         </span>

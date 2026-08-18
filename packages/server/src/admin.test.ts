@@ -105,9 +105,7 @@ describe("makeAdminPageHandler", () => {
     expect(r.body).toContain('value="a"');
     expect(r.body).toContain("Puzzle B");
     expect(r.body).toContain("1700000000000");
-    expect(r.body).toContain(
-      'href="https://app.millionpiecepuzzle.com/?umamiOptOut=1"',
-    );
+    expect(r.body).toContain('href="https://app.millionpiecepuzzle.com/?umamiOptOut=1"');
   });
 });
 

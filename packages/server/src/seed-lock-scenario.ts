@@ -217,7 +217,12 @@ async function main(): Promise<void> {
     const manifest = config.manifest;
     const meta = await forceInitPuzzle(state, manifest, config.generationSeed);
 
-    const wire = buildWireContext(config.generationSeed, meta.totalPieces, meta.gridCols, meta.pieceSize);
+    const wire = buildWireContext(
+      config.generationSeed,
+      meta.totalPieces,
+      meta.gridCols,
+      meta.pieceSize,
+    );
     const cellSize = WORLD_TILE_SIZE;
     // A Hub with no added clients: broadcast/send walk an empty client set, so
     // every hub call handleGrab/handleDrop/applyMerge might make is a no-op.

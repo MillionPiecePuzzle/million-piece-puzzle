@@ -41,7 +41,12 @@ export function createR2Client(cfg: R2WriteConfig): R2Client {
   return {
     upload: async (key, body, contentType) => {
       await client.send(
-        new PutObjectCommand({ Bucket: cfg.bucket, Key: key, Body: body, ContentType: contentType }),
+        new PutObjectCommand({
+          Bucket: cfg.bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+        }),
       );
     },
     remove: async (key) => {

@@ -17,7 +17,13 @@ import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
 import { CellCompositeIndex } from "./cellComposite.js";
 import { cellKey } from "./worldGrid.js";
-import { buildWireContext, toWireId, anchorWorldX, anchorWorldY, type WireContext } from "./wire.js";
+import {
+  buildWireContext,
+  toWireId,
+  anchorWorldX,
+  anchorWorldY,
+  type WireContext,
+} from "./wire.js";
 
 // A no-op wire boundary for the handler tests: identity permutation and
 // pieceSize 0, so wire ids equal grid ids and anchor positions equal origins.
@@ -795,7 +801,12 @@ describe("handleDrop", () => {
     const logMerge = vi.fn();
     const attachProfiles = vi.fn().mockResolvedValue([]);
     const state = new FakeState();
-    const wire = buildWireContext("diagnostic-seed", bigMeta.totalPieces, bigMeta.gridCols, bigMeta.pieceSize);
+    const wire = buildWireContext(
+      "diagnostic-seed",
+      bigMeta.totalPieces,
+      bigMeta.gridCols,
+      bigMeta.pieceSize,
+    );
     const ctx = {
       hub: { send, broadcast, broadcastOverlapping },
       state,
@@ -1268,7 +1279,9 @@ describe("handleViewport region_state construction", () => {
       worldW: 500,
       worldH: 500,
     });
-    expect(lastRegionStateMsg(ws)?.cellComposites).toEqual([{ cellKey: cellKey(0, 0), version: 3 }]);
+    expect(lastRegionStateMsg(ws)?.cellComposites).toEqual([
+      { cellKey: cellKey(0, 0), version: 3 },
+    ]);
   });
 
   it("sends an empty cellComposites array for a cell with no bake, and when no compositor is wired at all", async () => {

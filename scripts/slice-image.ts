@@ -270,7 +270,9 @@ async function main() {
     // manifest.json already has the real one from the original slice and is
     // deliberately left untouched, since pieceSize/margin/tileSize/pieces are
     // all unchanged by a quality-only re-encode of the reference pyramid.
-    console.log(`re-sliced only the ${puzzleWidth}x${puzzleHeight} reference pyramid to ${args.output}`);
+    console.log(
+      `re-sliced only the ${puzzleWidth}x${puzzleHeight} reference pyramid to ${args.output}`,
+    );
     return;
   }
 

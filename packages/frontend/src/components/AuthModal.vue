@@ -25,12 +25,7 @@ function continueWithGoogle() {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      class="modal-backdrop auth-backdrop"
-      @mousedown="onMousedown"
-      @click="onClick"
-    >
+    <div v-if="open" class="modal-backdrop auth-backdrop" @mousedown="onMousedown" @click="onClick">
       <div
         ref="shellEl"
         class="modal-shell auth-modal"

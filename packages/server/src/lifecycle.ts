@@ -106,7 +106,11 @@ export class PuzzleLifecycle {
       // must be reseeded from the fresh board (and now-empty merge log) too.
       await rebuildLockedPieceIndex(this.ctx.lockedPieces, this.ctx.state, meta.totalPieces);
       await rebuildMinimapGrid(this.ctx.minimapGrid, this.ctx.state, meta.totalPieces);
-      await rebuildLeaderboardTracker(this.ctx.leaderboardTracker, this.ctx.mongo, this.ctx.puzzleId);
+      await rebuildLeaderboardTracker(
+        this.ctx.leaderboardTracker,
+        this.ctx.mongo,
+        this.ctx.puzzleId,
+      );
       // Every previously-baked cell composite is now actively wrong, not just
       // stale (it would show a cell as locked that just went back to loose),
       // so this has to clear rather than let the next touch overwrite it
@@ -124,7 +128,10 @@ export class PuzzleLifecycle {
           try {
             await this.ctx.cellCompositor.clearAll();
           } catch (e) {
-            console.error("[cell-composite] reset failed to delete R2 objects", (e as Error).message);
+            console.error(
+              "[cell-composite] reset failed to delete R2 objects",
+              (e as Error).message,
+            );
           }
         }
         await this.ctx.state.clearCellCompositeVersions();

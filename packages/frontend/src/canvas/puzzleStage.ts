@@ -725,7 +725,9 @@ export class PuzzleStage {
     // level. A width in world units shrinks below 1px near MIN_ZOOM and flickers
     // in and out depending on subpixel alignment.
     const frame = new Graphics();
-    frame.rect(0, 0, this.worldSize.w, this.worldSize.h).stroke({ color: 0x1a1a1a, pixelLine: true });
+    frame
+      .rect(0, 0, this.worldSize.w, this.worldSize.h)
+      .stroke({ color: 0x1a1a1a, pixelLine: true });
     world.addChild(frame);
     this.frame = frame;
 
