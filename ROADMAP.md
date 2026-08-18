@@ -222,6 +222,12 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ---
 
+## Onboarding Skip
+
+- [x] Pseudo and country onboarding steps are independently skippable (a Skip control in place of the header close button, since neither step is otherwise dismissible during onboarding): skipping the pseudo step mints a unique "Guest #XXXX" pseudo (4 random alphanumeric characters); skipping the country step sets the international nationality. Menu-triggered edit modals are unchanged, already dismissible. See DECISIONS.
+
+---
+
 ## Backlog
 
 Ideas worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.

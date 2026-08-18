@@ -5,6 +5,7 @@ import {
   PROFILE_COOLDOWN_MS,
   PSEUDO_MAX_LENGTH,
   PSEUDO_MIN_LENGTH,
+  generateGuestPseudo,
   normalizePseudo,
 } from "@mpp/shared";
 import { usePseudoModal } from "../composables/usePseudoModal";
@@ -27,10 +28,15 @@ const shellEl = ref<HTMLElement | null>(null);
 const normalized = computed(() => normalizePseudo(draft.value));
 const valid = computed(() => normalized.value !== null);
 const dismissible = computed(() => mode.value === "edit");
+// Onboarding (guest or forced) has no existing pseudo to fall back on, so it
+// cannot be dismissed, but it can be skipped: skip() fills the draft with a
+// generated pseudo and runs the normal save path.
+const skippable = computed(() => mode.value !== "edit");
 const cooldownHours = PROFILE_COOLDOWN_MS / 3_600_000;
 
-// Escape must respect dismissible too: mandatory onboarding cannot be
-// skipped, matching the backdrop-click guard in onBackdrop below.
+// Escape must respect dismissible, not skippable: an accidental Esc or
+// backdrop click should never silently skip onboarding, only the explicit
+// Skip button does (see skip below).
 const trap = useFocusTrap(shellEl, {
   onEscape: () => {
     if (dismissible.value) hide();
@@ -84,6 +90,16 @@ async function save() {
   hide();
 }
 
+// Fills the draft with a generated pseudo and runs the same save path a typed
+// name would: guest chains into the country step, forced submits immediately
+// (a rare collision surfaces the ordinary taken-pseudo error, and Skip can
+// just be clicked again for a new tag).
+function skip() {
+  if (saving.value) return;
+  draft.value = generateGuestPseudo();
+  void save();
+}
+
 function onBackdrop() {
   if (dismissible.value) hide();
 }
@@ -115,6 +131,9 @@ const { onMousedown, onClick } = useBackdropClick(onBackdrop);
             @click="hide"
           >
             ×
+          </button>
+          <button v-else-if="skippable" class="modal-skip" :disabled="saving" @click="skip">
+            {{ t("common.skip") }}
           </button>
         </header>
 

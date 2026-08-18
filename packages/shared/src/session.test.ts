@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizePseudo, PSEUDO_MAX_LENGTH } from "./session.js";
+import { generateGuestPseudo, normalizePseudo, PSEUDO_MAX_LENGTH } from "./session.js";
 
 describe("normalizePseudo", () => {
   it("trims and collapses inner whitespace", () => {
@@ -12,6 +12,10 @@ describe("normalizePseudo", () => {
 
   it("accepts accented letters", () => {
     expect(normalizePseudo("Renée")).toBe("Renée");
+  });
+
+  it("accepts hash marks", () => {
+    expect(normalizePseudo("Guest #A3F9")).toBe("Guest #A3F9");
   });
 
   it("rejects a value shorter than the minimum", () => {
@@ -33,5 +37,13 @@ describe("normalizePseudo", () => {
     expect(normalizePseudo(42)).toBeNull();
     expect(normalizePseudo(null)).toBeNull();
     expect(normalizePseudo(undefined)).toBeNull();
+  });
+});
+
+describe("generateGuestPseudo", () => {
+  it("matches the Guest #XXXX format and normalizes unchanged", () => {
+    const pseudo = generateGuestPseudo();
+    expect(pseudo).toMatch(/^Guest #[A-Z0-9]{4}$/);
+    expect(normalizePseudo(pseudo)).toBe(pseudo);
   });
 });

@@ -5,6 +5,7 @@ const de: MessageSchema = {
     save: "Speichern",
     saving: "Speichern...",
     close: "Schließen",
+    skip: "Überspringen",
     leaderboard: "Rangliste",
     activity: "Aktivität",
     noActivity: "Noch keine Aktivität.",
@@ -106,7 +107,7 @@ const de: MessageSchema = {
       "Wähle ein Pseudonym, bevor du Teile platzierst. Es wird anderen Mitwirkenden angezeigt.",
     placeholder: "dein Pseudonym",
     fieldLabel: "Pseudonym",
-    hint: "{min} bis {max} Zeichen: Buchstaben, Ziffern, Leerzeichen, Bindestriche und Unterstriche.",
+    hint: "{min} bis {max} Zeichen: Buchstaben, Ziffern, Leerzeichen, Bindestriche, Unterstriche und #.",
     taken: "Dieses Pseudonym ist bereits vergeben.",
     cooldownHint: "Du kannst dein Pseudonym nur alle {hours} Stunden ändern.",
     cooldown:

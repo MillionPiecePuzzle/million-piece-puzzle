@@ -42,10 +42,15 @@ const shellEl = ref<HTMLElement | null>(null);
 
 const valid = computed(() => draft.value !== "");
 const dismissible = computed(() => mode.value === "edit");
+// Onboarding (guest or forced) has no existing country to fall back on, so it
+// cannot be dismissed, but it can be skipped: skip() fills the draft with the
+// international code and runs the normal save path.
+const skippable = computed(() => mode.value !== "edit");
 const cooldownHours = PROFILE_COOLDOWN_MS / 3_600_000;
 
-// Escape must respect dismissible too: mandatory onboarding cannot be
-// skipped, matching the backdrop-click guard in onBackdrop below.
+// Escape must respect dismissible, not skippable: an accidental Esc or
+// backdrop click should never silently skip onboarding, only the explicit
+// Skip button does (see skip below).
 const trap = useFocusTrap(shellEl, {
   onEscape: () => {
     if (dismissible.value) hide();
@@ -110,6 +115,14 @@ async function save() {
   hide();
 }
 
+// Fills the draft with the international code and runs the same save path a
+// chosen country would: guest mints the account, forced submits immediately.
+function skip() {
+  if (saving.value) return;
+  draft.value = INTERNATIONAL.code;
+  void save();
+}
+
 function onBackdrop() {
   if (dismissible.value) hide();
 }
@@ -141,6 +154,9 @@ const { onMousedown, onClick } = useBackdropClick(onBackdrop);
             @click="hide"
           >
             ×
+          </button>
+          <button v-else-if="skippable" class="modal-skip" :disabled="saving" @click="skip">
+            {{ t("common.skip") }}
           </button>
         </header>
 
