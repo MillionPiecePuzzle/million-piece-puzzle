@@ -25,6 +25,7 @@ type Args = {
   keepSessions: boolean;
   spoofIpBase: string;
   secureCookie: boolean;
+  clusterFraction: number;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -70,6 +71,11 @@ function parseArgs(argv: string[]): Args {
     // is https (so it only reads the __Secure- cookie). Otherwise the cookie name
     // follows the target scheme (wss -> secure).
     secureCookie: args["secure-cookie"] === true,
+    // Fraction of bots that bias their viewport toward the shared discovered
+    // hotspot instead of scattering fully independently. Default 0 keeps
+    // today's fully-independent behavior unless explicitly opted in.
+    clusterFraction:
+      typeof args["cluster-fraction"] === "string" ? parseFloat(args["cluster-fraction"]) : 0,
   };
 }
 
@@ -94,6 +100,7 @@ async function main(): Promise<void> {
     viewportFrac: args.viewportFrac,
     keepSessions: args.keepSessions,
     spoofIpBase: args.spoofIpBase,
+    clusterFraction: args.clusterFraction,
   });
   await runner.run();
 }

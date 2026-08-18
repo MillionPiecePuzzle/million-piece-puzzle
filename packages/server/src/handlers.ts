@@ -486,10 +486,11 @@ export async function handleDrop(
         groupId: wireId,
         worldX: bounceX,
         worldY: bounceY,
+        userId: client.userId,
         reason: "tile_full",
       });
       ctx.hub.broadcastOverlapping(
-        { t: "rollback", groupId: wireId, worldX: bounceX, worldY: bounceY },
+        { t: "rollback", groupId: wireId, worldX: bounceX, worldY: bounceY, userId: client.userId },
         rest,
         client,
       );

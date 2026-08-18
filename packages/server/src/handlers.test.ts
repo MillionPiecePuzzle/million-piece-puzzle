@@ -554,10 +554,11 @@ describe("handleDrop", () => {
       groupId: 4,
       worldX: 5000,
       worldY: 5000,
+      userId: "u1",
       reason: "tile_full",
     });
     expect(broadcastOverlapping).toHaveBeenCalledWith(
-      { t: "rollback", groupId: 4, worldX: 5000, worldY: 5000 },
+      { t: "rollback", groupId: 4, worldX: 5000, worldY: 5000, userId: "u1" },
       { minX: 500, minY: 500, maxX: 500, maxY: 500 },
       client,
     );

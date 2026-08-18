@@ -43,6 +43,13 @@ export async function seedSessions(opts: SeedOptions): Promise<SeedResult> {
   const sessions = db.collection("sessions");
 
   const runId = `loadtest-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  // users.pseudo carries a partial-unique index (see db.ts), same as a real
+  // player's pseudo; a bare `bot-${i}` would collide with any earlier run's
+  // leftovers (a crashed run skips its own cleanup, e.g. this harness killed
+  // ungracefully), permanently squatting the name and failing every run after
+  // it. A short per-run tag keeps it unique across runs while staying
+  // readable in the peer-cursor name tag.
+  const pseudoTag = randomUUID().slice(0, 4);
   const expires = new Date(Date.now() + opts.ttlMs);
 
   const userDocs = [];
@@ -55,6 +62,9 @@ export async function seedSessions(opts: SeedOptions): Promise<SeedResult> {
       _id: userId,
       email: `loadbot+${runId}-${i}@loadtest.invalid`,
       name: `loadbot ${i}`,
+      // Read back as client.pseudo at the WS upgrade (see auth.ts), so a bot
+      // renders a real name tag over its peer cursor like any other player.
+      pseudo: `bot-${i}-${pseudoTag}`,
       loadTest: true,
       runId,
     });

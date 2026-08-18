@@ -44,8 +44,6 @@ const panelRows = computed(() => {
 
 <style scoped>
 .leaderboard {
-  top: 16px;
-  right: 16px;
   width: min(288px, calc(50vw - 24px));
   padding: 14px 14px 10px;
 }
@@ -92,8 +90,6 @@ const panelRows = computed(() => {
 
 @media (max-width: 680px) {
   .leaderboard {
-    top: 10px;
-    right: 10px;
     /* Wider cap than the other three panels: a leaderboard row has 4
        fixed-width columns (rank, avatar, exact piece count), so it needs
        more room than a thumbnail panel to keep the name column legible. */
