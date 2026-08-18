@@ -208,4 +208,8 @@ export class Hub {
   allClients(): Client[] {
     return [...this.clients];
   }
+
+  clientCount(): number {
+    return this.clients.size;
+  }
 }

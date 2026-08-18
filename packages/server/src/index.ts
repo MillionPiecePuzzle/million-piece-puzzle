@@ -529,10 +529,13 @@ async function main(): Promise<void> {
     // Presence: tell the newcomer about peers already present, then announce
     // the newcomer to them. join and leave bracket a connection.
     for (const peer of hub.allClients()) {
-      hub.send(client, { t: "join", userId: peer.userId, pseudo: peer.pseudo });
+      hub.send(client, { t: "join", userId: peer.userId, pseudo: peer.pseudo, count: hub.clientCount() });
     }
     hub.add(client);
-    hub.broadcast({ t: "join", userId: client.userId, pseudo: client.pseudo }, client);
+    hub.broadcast(
+      { t: "join", userId: client.userId, pseudo: client.pseudo, count: hub.clientCount() },
+      client,
+    );
 
     ws.on("message", (data) => {
       // The bucket is shared by every connection from this IP, so messages over
@@ -550,7 +553,7 @@ async function main(): Promise<void> {
       // Return the admission slot and admit the next waiter into it.
       if (admission.enabled) admission.releaseConnection();
       hub.remove(client);
-      hub.broadcast({ t: "leave", userId: client.userId });
+      hub.broadcast({ t: "leave", userId: client.userId, count: hub.clientCount() });
       void releaseHeldGroups(ctx, client, hub);
     });
   });

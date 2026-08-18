@@ -74,6 +74,7 @@ const fr: MessageSchema = {
   },
   minimap: {
     overview: "Aperçu",
+    online: "{n} en ligne",
     label: "Mini-carte",
     openDetail: "Ouvrir la vue détaillée des cases",
     detailTitle: "Détail du chargement des cases",

@@ -3,11 +3,13 @@ import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { paintDensityGrid } from "../canvas/minimapDensity";
 import { useMinimap } from "../composables/useMinimap";
+import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useRafLoop } from "../composables/useRafLoop";
 import MinimapModal from "./MinimapModal.vue";
 
 const { t } = useI18n();
 const { source, navigate } = useMinimap();
+const { onlineCount } = usePuzzleSession();
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
 const dragging = ref(false);
@@ -182,22 +184,28 @@ useRafLoop(draw);
   <aside v-show="ready" class="panel minimap" :aria-label="t('minimap.label')">
     <div class="minimap-head">
       <h3>{{ t("minimap.overview") }}</h3>
-      <button
-        type="button"
-        class="expand"
-        :disabled="!ready"
-        :aria-label="t('minimap.openDetail')"
-        @click="showDetail = true"
-      >
-        <svg viewBox="0 0 16 16" fill="none">
-          <path
-            d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
-            stroke="currentColor"
-            stroke-width="1.4"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
+      <div class="minimap-head-right">
+        <span class="online-count" :title="t('minimap.online', { n: onlineCount })">
+          <span class="online-dot" aria-hidden="true"></span>
+          {{ onlineCount }}
+        </span>
+        <button
+          type="button"
+          class="expand"
+          :disabled="!ready"
+          :aria-label="t('minimap.openDetail')"
+          @click="showDetail = true"
+        >
+          <svg viewBox="0 0 16 16" fill="none">
+            <path
+              d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="mm-canvas" :style="{ aspectRatio: canvasAspect }">
       <canvas
@@ -226,6 +234,25 @@ useRafLoop(draw);
   justify-content: space-between;
   margin-bottom: 8px;
   padding: 0 4px;
+}
+.minimap-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.online-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.online-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34a853;
+  flex: none;
 }
 .mm-canvas {
   position: relative;

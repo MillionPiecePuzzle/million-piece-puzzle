@@ -72,6 +72,7 @@ const en = {
   },
   minimap: {
     overview: "Overview",
+    online: "{n} online",
     label: "Minimap",
     openDetail: "Open tile detail view",
     detailTitle: "Tile load detail",

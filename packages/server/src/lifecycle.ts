@@ -70,6 +70,7 @@ export class PuzzleLifecycle {
       protocolVersion: PROTOCOL_VERSION,
       puzzleId: this.ctx.puzzleId,
       lockedCount,
+      count: this.ctx.hub.clientCount(),
       playZone: this.playZone,
       eventStartsAt: this.ctx.eventStartsAt,
       broadcastMaxCells: this.ctx.broadcastMaxCells,

@@ -68,6 +68,7 @@ const totalPieces = ref(0);
 const lockedCount = ref(0);
 const activity = ref<ActivityEntry[]>([]);
 const leaderboard = ref<LeaderboardEntry[]>([]);
+const onlineCount = ref(0);
 const transport = ref<Transport>("none");
 // The puzzle is finished once every piece is locked. Derived so the shell can
 // gate the contributor entry points (Contribute card, auth modal) on it.
@@ -177,6 +178,7 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   userId.value = msg.userId;
   eventStartsAt.value = msg.eventStartsAt;
   lockedCount.value = msg.lockedCount;
+  onlineCount.value = msg.count;
   activity.value = [];
   leaderboard.value = [];
   flushPendingDev();
@@ -325,6 +327,8 @@ function connectWs(grant: string | null): void {
       applyActivity(msg);
     } else if (msg.t === "leaderboard") {
       leaderboard.value = msg.entries;
+    } else if (msg.t === "join" || msg.t === "leave") {
+      onlineCount.value = msg.count;
     } else if (msg.t === "error") {
       handleServerError(msg);
     }
@@ -433,6 +437,7 @@ export function usePuzzleSession() {
     lockedCount,
     activity,
     leaderboard,
+    onlineCount,
     transport,
     completed,
     startContributor,
