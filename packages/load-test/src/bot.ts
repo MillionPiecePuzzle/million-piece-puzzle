@@ -265,13 +265,21 @@ export class Bot {
     }
   }
 
-  // Every bot (clustering or not) reports what it sees, so the shared hotspot
-  // is discovered fast and self-heals as pieces get dragged away from it. A
-  // client can't know piece positions a priori (see DECISIONS: anti-
-  // programmatic-solving); this is the same "look around" discovery a real
-  // player does, just fed into a shared spot instead of one player's memory.
+  // A client can't know piece positions a priori (see DECISIONS: anti-
+  // programmatic-solving), so the hotspot has to come from a bot actually
+  // looking. Early on (board mostly loose) any bot's viewport has something in
+  // it, so a non-clustering bot may only seed the very first hotspot; once one
+  // exists, only clustering bots keep it fresh. Early testing showed that
+  // letting every bot report unconditionally let the 6 independent-scatter
+  // bots (uniformly random across the whole board) overwrite the hotspot with
+  // an unrelated sighting on almost every tick, so the clustering bots never
+  // got a stable point to converge on: the swarm just chased whichever bot
+  // last happened to glance somewhere. Restricting ongoing updates to the
+  // clustering subset keeps drift local (their own viewport jitter, or a
+  // piece genuinely dragged out of the area) instead of board-wide teleports.
   private reportHotspot(groups: { worldX: number; worldY: number }[]): void {
     if (groups.length === 0) return;
+    if (!this.cfg.cluster && this.cfg.swarm.get() !== null) return;
     let sx = 0;
     let sy = 0;
     for (const g of groups) {

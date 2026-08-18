@@ -76,11 +76,14 @@ A client can't know where pieces are ahead of time: the scatter layout
 derives from `generationSeed`, which is server-only and never sent over the
 wire (see DECISIONS: anti-programmatic-solving). So with `--cluster-fraction`
 above 0, bots discover pieces the same way a real player does, by looking
-around: every bot reports the centroid of any groups its `region_state`
-stream turns up to a shared in-process hotspot, and a clustering bot's later
-viewport picks jitter around that shared point instead of the whole play
-zone. The rest of the bots keep the default fully independent scatter, so the
-run still exercises broad board coverage.
+around: any bot may seed the first shared hotspot from a `region_state`
+sighting, but once one exists, only clustering bots keep it fresh, so it
+tracks where they're actually working instead of getting yanked around by the
+independent-scatter bots' unrelated sightings elsewhere on the board. A
+clustering bot's later viewport picks jitter around that shared point instead
+of the whole play zone; non-clustering bots keep the default fully
+independent scatter throughout, so the run still exercises broad board
+coverage.
 
 Watch it by opening `/play` in a real browser (any guest or signed-in
 session) alongside the run, and tailing the console for a line like:
