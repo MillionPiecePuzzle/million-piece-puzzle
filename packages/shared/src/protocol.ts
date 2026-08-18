@@ -237,6 +237,9 @@ export type SRollback = {
   groupId: number;
   worldX: number;
   worldY: number;
+  // The client whose drop was reverted, so peers watching them can clear the
+  // held-cursor indicator the earlier grab_ok set.
+  userId: string;
   // Why the drop was reverted, when it was the server rejecting it rather than a
   // lost grab. "tile_full": the destination tile is at its piece cap, so the
   // client flashes that tile and toasts. Absent for a plain position correction

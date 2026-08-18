@@ -179,6 +179,7 @@ function routeMessage(msg: ServerMessage): void {
       break;
     case "rollback":
       stage.applyRollback(msg.groupId, msg.worldX, msg.worldY, msg.reason);
+      stage.setPeerHeld(msg.userId, false);
       break;
     case "join":
       stage.addPeer(msg.userId, msg.pseudo);
