@@ -1,12 +1,13 @@
 // One simulated client: connects, holds a local mirror of state, and runs
 // a continuous grab/drag/drop loop while also emitting periodic viewport
-// and cursor presence. Records latency and error counters on shared
+// presence and a mouse-like cursor that tracks whatever it's about to grab
+// or is currently dragging. Records latency and error counters on shared
 // metrics (passed by the runner).
 //
-// The bot does not try to engineer snaps; targets are random within the
-// play zone, so the snap/merge path is exercised only opportunistically.
-// The heavy paths under load (drag fan-out, drop with snap detection that
-// usually returns null) are exercised on every cycle.
+// The bot does not try to engineer snaps; drag targets are random within its
+// own current viewport, so the snap/merge path is exercised only
+// opportunistically. The heavy paths under load (drag fan-out, drop with
+// snap detection that usually returns null) are exercised on every cycle.
 
 import { WebSocket } from "ws";
 import type {
@@ -18,9 +19,24 @@ import type {
 import { PROTOCOL_VERSION } from "@mpp/shared";
 import { World } from "./world.js";
 import type { Metrics } from "./runner.js";
+import type { Swarm } from "./swarm.js";
 
 // Poll cadence while a bot waits in the admission queue past the server cap.
 const QUEUE_POLL_MS = 2000;
+
+// Fraction of the remaining distance to the target the cursor closes per
+// 100ms tick while easing toward a piece it's about to grab.
+const CURSOR_EASE_FRACTION = 0.25;
+// Below this distance (world units) the cursor is treated as converged: stop
+// sending so a genuinely resting cursor goes idle (see peerCursors.ts's bob),
+// instead of resetting the receiving client's idle timer every tick forever.
+const CURSOR_IDLE_EPS = 0.5;
+
+// Drag-target sampling range beyond the bot's own current viewport, as a
+// fraction of its width/height, plus a floor so the range isn't degenerate
+// under a tiny --viewport-frac. Eyeballed, see DECISIONS.
+const DRAG_RANGE_EXPAND = 0.5;
+const DRAG_RANGE_FLOOR = 300;
 
 export type BotConfig = {
   id: number;
@@ -42,6 +58,14 @@ export type BotConfig = {
   metrics: Metrics;
   rng: () => number;
   verbose: boolean;
+  // When true, this bot biases its viewport toward the shared discovered
+  // hotspot instead of a fully random one, so it stays visually grouped with
+  // other clustering bots. A non-clustering bot never reads `swarm`.
+  cluster: boolean;
+  // Shared once per run across every bot, clustering or not: every bot
+  // reports what it finds, so discovery is fast and the hotspot self-heals as
+  // pieces get dragged away from it. See swarm.ts.
+  swarm: Swarm;
 };
 
 export class Bot {
@@ -53,6 +77,22 @@ export class Bot {
   private dragOrigin: { x: number; y: number } | null = null;
   private dragStartTime = 0;
   private dragDuration = 0;
+  // Live drag position, updated every tickDrag(); the cursor snaps to this
+  // while holding, since the mouse and the dragged piece are the same point.
+  private dragCurrentX = 0;
+  private dragCurrentY = 0;
+  // The bot's own current viewport rect, set at the end of sendViewport();
+  // beginDrag() samples its drag target from it instead of the whole play zone.
+  private viewportX = 0;
+  private viewportY = 0;
+  private viewportW = 0;
+  private viewportH = 0;
+  // Current cursor position and where it's easing toward while not holding.
+  private cursorX = 0;
+  private cursorY = 0;
+  private cursorTargetX = 0;
+  private cursorTargetY = 0;
+  private cursorInitialized = false;
   private readonly pendingGrabs = new Map<number, number>();
   private cycleTimer: NodeJS.Timeout | null = null;
   private viewportTimer: NodeJS.Timeout | null = null;
@@ -176,6 +216,7 @@ export class Bot {
         return;
       case "region_state":
         this.world.applyRegionState(msg);
+        this.reportHotspot(msg.groups);
         return;
       case "grab_ok": {
         this.world.applyGrabOk(msg);
@@ -224,11 +265,31 @@ export class Bot {
     }
   }
 
+  // Every bot (clustering or not) reports what it sees, so the shared hotspot
+  // is discovered fast and self-heals as pieces get dragged away from it. A
+  // client can't know piece positions a priori (see DECISIONS: anti-
+  // programmatic-solving); this is the same "look around" discovery a real
+  // player does, just fed into a shared spot instead of one player's memory.
+  private reportHotspot(groups: { worldX: number; worldY: number }[]): void {
+    if (groups.length === 0) return;
+    let sx = 0;
+    let sy = 0;
+    for (const g of groups) {
+      sx += g.worldX;
+      sy += g.worldY;
+    }
+    const cx = sx / groups.length;
+    const cy = sy / groups.length;
+    if (this.cfg.swarm.report(cx, cy)) {
+      console.log(`[swarm] hotspot found near (${cx.toFixed(0)}, ${cy.toFixed(0)})`);
+    }
+  }
+
   private startTimers(): void {
     this.scheduleNextCycle(50 + Math.floor(this.cfg.rng() * 200));
     this.viewportTimer = setInterval(() => this.sendViewport(), 1000);
     this.sendViewport();
-    this.cursorTimer = setInterval(() => this.sendCursor(), 100);
+    this.cursorTimer = setInterval(() => this.tickCursor(), 100);
   }
 
   private scheduleNextCycle(delayMs: number): void {
@@ -244,6 +305,10 @@ export class Bot {
       this.scheduleNextCycle(200);
       return;
     }
+    // The cursor starts easing toward the piece the instant the bot decides
+    // to grab it, same as it would for a real click.
+    this.cursorTargetX = g.worldX;
+    this.cursorTargetY = g.worldY;
     this.pendingGrabs.set(g.id, Date.now());
     this.cfg.metrics.grabSent.inc();
     this.send({ t: "grab", groupId: g.id });
@@ -265,8 +330,18 @@ export class Bot {
     }
     this.heldGroupId = groupId;
     const z = this.world.playZone;
-    const targetX = z.minX + this.cfg.rng() * (z.maxX - z.minX);
-    const targetY = z.minY + this.cfg.rng() * (z.maxY - z.minY);
+    // Sample the drag target within the bot's own current viewport (expanded
+    // slightly), not the whole play zone: keeps a clustered piece from flying
+    // off across the board mid-drag, and is more realistic on its own too
+    // (nobody drags a piece the width of a 1M-piece board in one motion).
+    const padX = Math.max(this.viewportW * DRAG_RANGE_EXPAND, DRAG_RANGE_FLOOR);
+    const padY = Math.max(this.viewportH * DRAG_RANGE_EXPAND, DRAG_RANGE_FLOOR);
+    const minX = clamp(this.viewportX - padX, z.minX, z.maxX);
+    const maxX = clamp(this.viewportX + this.viewportW + padX, z.minX, z.maxX);
+    const minY = clamp(this.viewportY - padY, z.minY, z.maxY);
+    const maxY = clamp(this.viewportY + this.viewportH + padY, z.minY, z.maxY);
+    const targetX = minX + this.cfg.rng() * Math.max(0, maxX - minX);
+    const targetY = minY + this.cfg.rng() * Math.max(0, maxY - minY);
     this.dragTarget = { x: targetX, y: targetY };
     this.dragOrigin = { x: g.worldX, y: g.worldY };
     this.dragStartTime = Date.now();
@@ -283,6 +358,8 @@ export class Bot {
     const jy = (this.cfg.rng() - 0.5) * 2;
     const x = this.dragOrigin.x + (this.dragTarget.x - this.dragOrigin.x) * t + jx;
     const y = this.dragOrigin.y + (this.dragTarget.y - this.dragOrigin.y) * t + jy;
+    this.dragCurrentX = x;
+    this.dragCurrentY = y;
     this.send({ t: "drag", groupId: this.heldGroupId, worldX: x, worldY: y });
     this.cfg.metrics.dragsSent.inc();
     if (t >= 1) {
@@ -311,21 +388,69 @@ export class Bot {
     const z = this.world.playZone;
     const w = (z.maxX - z.minX) * this.cfg.viewportFrac;
     const h = (z.maxY - z.minY) * this.cfg.viewportFrac;
-    const x = z.minX + this.cfg.rng() * Math.max(0, z.maxX - z.minX - w);
-    const y = z.minY + this.cfg.rng() * Math.max(0, z.maxY - z.minY - h);
+    const hotspot = this.cfg.cluster ? this.cfg.swarm.get() : null;
+    let x: number;
+    let y: number;
+    if (hotspot) {
+      // Center near the hotspot plus jitter of roughly one viewport-width, so
+      // clustering bots spread across a human-watchable area instead of
+      // stacking on one exact point.
+      const jitterX = (this.cfg.rng() - 0.5) * 2 * w;
+      const jitterY = (this.cfg.rng() - 0.5) * 2 * h;
+      x = clamp(hotspot.x - w / 2 + jitterX, z.minX, Math.max(z.minX, z.maxX - w));
+      y = clamp(hotspot.y - h / 2 + jitterY, z.minY, Math.max(z.minY, z.maxY - h));
+    } else {
+      x = z.minX + this.cfg.rng() * Math.max(0, z.maxX - z.minX - w);
+      y = z.minY + this.cfg.rng() * Math.max(0, z.maxY - z.minY - h);
+    }
+    this.viewportX = x;
+    this.viewportY = y;
+    this.viewportW = w;
+    this.viewportH = h;
+    if (!this.cursorInitialized) {
+      this.cursorX = x + w / 2;
+      this.cursorY = y + h / 2;
+      this.cursorTargetX = this.cursorX;
+      this.cursorTargetY = this.cursorY;
+      this.cursorInitialized = true;
+    }
     this.send({ t: "viewport", worldX: x, worldY: y, worldW: w, worldH: h });
   }
 
-  private sendCursor(): void {
-    const z = this.world.playZone;
-    const x = z.minX + this.cfg.rng() * (z.maxX - z.minX);
-    const y = z.minY + this.cfg.rng() * (z.maxY - z.minY);
-    this.send({ t: "cursor", worldX: x, worldY: y });
+  private tickCursor(): void {
+    if (this.heldGroupId !== null) {
+      // Mouse = dragged piece, exactly like a real client's drag. Keep the
+      // idle-ease target pinned to the same point throughout the hold, so the
+      // instant the drag ends the cursor has zero pending motion instead of
+      // jumping back toward wherever this piece started (cursorTarget was
+      // last set to the pre-grab pickup point, back in cycle()).
+      this.cursorX = this.dragCurrentX;
+      this.cursorY = this.dragCurrentY;
+      this.cursorTargetX = this.cursorX;
+      this.cursorTargetY = this.cursorY;
+      this.send({ t: "cursor", worldX: this.cursorX, worldY: this.cursorY });
+      return;
+    }
+    const dx = this.cursorTargetX - this.cursorX;
+    const dy = this.cursorTargetY - this.cursorY;
+    if (Math.abs(dx) < CURSOR_IDLE_EPS && Math.abs(dy) < CURSOR_IDLE_EPS) {
+      // Converged: rest silently instead of re-sending an unchanged position,
+      // so a genuinely idle bot lets peerCursors.ts's own idle bob kick in
+      // rather than looking permanently frozen mid-motion.
+      return;
+    }
+    this.cursorX += dx * CURSOR_EASE_FRACTION;
+    this.cursorY += dy * CURSOR_EASE_FRACTION;
+    this.send({ t: "cursor", worldX: this.cursorX, worldY: this.cursorY });
   }
 }
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(Math.max(v, min), max);
 }
 
 // HTTP origin of the queue endpoints, derived from the WS url (ws->http,

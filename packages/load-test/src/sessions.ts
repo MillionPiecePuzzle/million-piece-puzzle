@@ -55,6 +55,9 @@ export async function seedSessions(opts: SeedOptions): Promise<SeedResult> {
       _id: userId,
       email: `loadbot+${runId}-${i}@loadtest.invalid`,
       name: `loadbot ${i}`,
+      // Read back as client.pseudo at the WS upgrade (see auth.ts), so a bot
+      // renders a real name tag over its peer cursor like any other player.
+      pseudo: `bot-${i}`,
       loadTest: true,
       runId,
     });

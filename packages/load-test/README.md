@@ -10,6 +10,13 @@ format is exact. It sends the shared `PROTOCOL_VERSION` in `hello`: `welcome`
 carries no board, so each bot streams its region in via `region_state` for the
 cells its (bounded) viewport enters, then grabs from what it has learned.
 
+A bot is also visible like a real player: it carries a `bot-N` pseudo, so a
+labeled peer cursor renders over it same as any signed-in player, and its
+cursor eases toward whatever it's about to grab and snaps to the piece while
+dragging, instead of teleporting to a random point every tick. See
+"Watching bots live" below to make a portion of a run watchable in one spot
+instead of scattered across the whole board.
+
 Like the real client, each bot runs the admission gate before connecting:
 `POST /queue/ticket`, then poll `GET /queue/status` while queued, then open the
 WS with `?grant=`. With no cap set (`MPP_MAX_ACTIVE_CONNECTIONS` unset/0) the
@@ -52,7 +59,38 @@ npm run start -w @mpp/load-test -- \
   --origin https://app.millionpiecepuzzle.com \
   --mongo mongodb://localhost:27017 --mongo-db mpp \
   --bots 5 --duration 300
+
+# Prod, half the bots clustered into one watchable spot (see "Watching bots
+# live" below); a smaller --viewport-frac keeps the watched area human-scale.
+npm run start -w @mpp/load-test -- \
+  --target wss://ws.millionpiecepuzzle.com \
+  --puzzle synthetic-1m \
+  --origin https://app.millionpiecepuzzle.com \
+  --mongo mongodb://localhost:27017 --mongo-db mpp \
+  --bots 20 --duration 600 --cluster-fraction 0.5 --viewport-frac 0.02
 ```
+
+## Watching bots live
+
+A client can't know where pieces are ahead of time: the scatter layout
+derives from `generationSeed`, which is server-only and never sent over the
+wire (see DECISIONS: anti-programmatic-solving). So with `--cluster-fraction`
+above 0, bots discover pieces the same way a real player does, by looking
+around: every bot reports the centroid of any groups its `region_state`
+stream turns up to a shared in-process hotspot, and a clustering bot's later
+viewport picks jitter around that shared point instead of the whole play
+zone. The rest of the bots keep the default fully independent scatter, so the
+run still exercises broad board coverage.
+
+Watch it by opening `/play` in a real browser (any guest or signed-in
+session) alongside the run, and tailing the console for a line like:
+
+```
+[swarm] hotspot found near (123456, 654321)
+```
+
+Pan or use the minimap to jump to that world position; the clustering bots'
+labeled cursors should be gliding around and dragging pieces nearby.
 
 All bots from one host share one IP, so the server's per-IP concurrent
 connection cap (`MPP_WS_MAX_CONNECTIONS_PER_IP`, default 10) bounds how many
@@ -154,6 +192,7 @@ exposed: run it on the VPS, or over an SSH tunnel to those ports.
 | `--duration`        | `300` (sec)                 | Total run length                                              |
 | `--spawn-interval`  | `250` (ms)                  | Delay between bot connects, to avoid a thundering herd        |
 | `--viewport-frac`   | `0.1`                       | Bot viewport span as a fraction of the play zone (keep small so it stays a scoped subscriber) |
+| `--cluster-fraction`| `0`                         | Fraction of bots (0..1) that bias toward a shared discovered hotspot instead of scattering independently (see "Watching bots live") |
 | `--seed`            | `42`                        | Seed for the per-bot RNG (reproducible runs)                 |
 | `--keep-sessions`   | off                         | Skip teardown of the seeded users/sessions                   |
 | `--spoof-ip-base`   | off                         | Per-bot `CF-Connecting-IP` (base + bot index) to bypass the per-IP cap; origin-direct only (see below) |
@@ -177,10 +216,11 @@ See DECISIONS: harness PASS criterion bounded to saturation signals.
 
 ## What is and is not exercised
 
-The bot generates random target positions inside the play zone, so the
-snap/merge path is hit only opportunistically. The high-rate paths under load
-(drag broadcast fan-out, drop with snap detection that returns null) are
-exercised on every cycle, which is the bottleneck the test cares about.
+The bot picks drag targets randomly within its own current viewport, not the
+whole play zone, so the snap/merge path is hit only opportunistically. The
+high-rate paths under load (drag broadcast fan-out, drop with snap detection
+that returns null) are exercised on every cycle, which is the bottleneck the
+test cares about.
 
 Server-side metrics (heap, queue depth) are not collected directly. Use OS
 tools (`top`, Coolify dashboard) alongside the run if you need them.

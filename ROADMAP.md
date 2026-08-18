@@ -210,6 +210,18 @@ A locked piece has no gameplay reason to keep a `groupId` once anchored, but the
 
 ---
 
+## Phase 9, Pre-Launch Load Realism
+
+**Exit criterion**: a load-test run against prod, with a portion of bots clustered, is visually confirmed in a real browser: labeled peer cursors glide and drag pieces near each other in one viewport, with a clean PASS verdict and a clean state-corruption validator pass afterward.
+
+### `qa-and-load`
+- [~] Bots discover pieces empirically and report a shared hotspot; `--cluster-fraction` biases a portion of bots' viewports toward it instead of a fully random one
+- [~] Drag targets sample from the bot's own current viewport instead of the whole play zone
+- [~] Bot cursor eases toward its next grab target and snaps to the live drag position instead of teleporting randomly every tick; seeded sessions carry a `pseudo` so bots render a name tag like any other player
+- [~] `--cluster-fraction` CLI flag wired end to end, README and DECISIONS updated
+
+---
+
 ## Backlog
 
 Ideas worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.

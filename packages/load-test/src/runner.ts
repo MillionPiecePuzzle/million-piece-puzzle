@@ -4,6 +4,7 @@
 import { Bot } from "./bot.js";
 import { Counter, Histogram } from "./metrics.js";
 import { seedSessions, sessionCookie } from "./sessions.js";
+import { Swarm } from "./swarm.js";
 
 export type Metrics = {
   grabSent: Counter;
@@ -71,6 +72,9 @@ export type RunnerConfig = {
   // Base IPv4 for per-bot CF-Connecting-IP spoofing (each bot gets base + its
   // index). Empty disables it (no header sent). See BotConfig.spoofIp.
   spoofIpBase: string;
+  // Fraction of bots (0..1) that bias toward the shared discovered hotspot
+  // instead of scattering fully independently. See BotConfig.cluster.
+  clusterFraction: number;
 };
 
 // Adds an integer offset to a dotted IPv4, wrapping within 32 bits. Used to hand
@@ -92,6 +96,7 @@ export function ipFromBase(base: string, offset: number): string | null {
 export class Runner {
   readonly metrics = newMetrics();
   private readonly bots: Bot[] = [];
+  private readonly swarm = new Swarm();
   private progressTimer: NodeJS.Timeout | null = null;
   private lastSnapshot = { drags: 0, grabs: 0, drops: 0, ts: Date.now() };
 
@@ -123,6 +128,13 @@ export class Runner {
       );
     }
 
+    const clusterCount = Math.round(this.cfg.bots * this.cfg.clusterFraction);
+    if (clusterCount > 0) {
+      console.log(
+        `[runner] ${clusterCount}/${this.cfg.bots} bots clustering toward a shared discovered hotspot`,
+      );
+    }
+
     try {
       for (let i = 0; i < this.cfg.bots; i++) {
         const session = seed.sessions[i];
@@ -138,6 +150,8 @@ export class Runner {
           metrics: this.metrics,
           rng: makeRng(this.cfg.seed + i * 1000003),
           verbose: this.cfg.verbose,
+          cluster: i < clusterCount,
+          swarm: this.swarm,
         });
         this.bots.push(bot);
         // Fire and forget: a bot's admission handshake (and any queue wait) runs
@@ -178,8 +192,12 @@ export class Runner {
     const grabRate = (grabs - this.lastSnapshot.grabs) / dtSec;
     const dropRate = (drops - this.lastSnapshot.drops) / dtSec;
     const lat = m.grabLatency.summary();
+    const hotspot = this.swarm.get();
+    const hotspotStatus = hotspot
+      ? `(${hotspot.x.toFixed(0)}, ${hotspot.y.toFixed(0)})`
+      : "searching";
     console.log(
-      `[progress] drag/s=${dragRate.toFixed(0)} grab/s=${grabRate.toFixed(1)} drop/s=${dropRate.toFixed(1)} grab.p95=${lat.p95}ms grab.p99=${lat.p99}ms denied=${m.grabDenied.get()} srvErr=${m.serverErrors.get()} wsErr=${m.wsErrors.get()} 1013=${m.backpressureCloses.get()}`,
+      `[progress] drag/s=${dragRate.toFixed(0)} grab/s=${grabRate.toFixed(1)} drop/s=${dropRate.toFixed(1)} grab.p95=${lat.p95}ms grab.p99=${lat.p99}ms denied=${m.grabDenied.get()} srvErr=${m.serverErrors.get()} wsErr=${m.wsErrors.get()} 1013=${m.backpressureCloses.get()} hotspot=${hotspotStatus}`,
     );
     this.lastSnapshot = { drags, grabs, drops, ts: now };
   }
