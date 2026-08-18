@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from "vue";
+import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
 import BrandMark from "./BrandMark.vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
-import { formatCountdown } from "../composables/useCountdown";
 import { useAuth } from "../composables/useAuth";
 import { useOptionsModal } from "../composables/useOptionsModal";
 import { useLocaleFormat } from "../i18n/format";
@@ -12,28 +11,13 @@ import { flagUrl } from "../data/flags";
 
 const { t } = useI18n();
 const { formatNumber } = useLocaleFormat();
-const { eventStartsAt, totalPieces, lockedCount } = usePuzzleSession();
+const { totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
 const { show: showOptions } = useOptionsModal();
 
 const progressPct = computed(() =>
   totalPieces.value > 0 ? (lockedCount.value / totalPieces.value) * 100 : 0,
 );
-
-const now = ref(Date.now());
-const ticker = setInterval(() => {
-  now.value = Date.now();
-}, 1000);
-onUnmounted(() => clearInterval(ticker));
-
-// Elapsed since the event started, ticking each second. Null until a real start
-// has been reached (no schedule or a future start has no play time to show yet).
-const playTime = computed(() => {
-  if (eventStartsAt.value <= 0 || now.value < eventStartsAt.value) return null;
-  const { days, hours, minutes, seconds } = formatCountdown(now.value - eventStartsAt.value);
-  const clock = `${hours}:${minutes}:${seconds}`;
-  return Number(days) > 0 ? `${Number(days)}${t("units.d")} ${clock}` : clock;
-});
 </script>
 
 <template>
@@ -41,9 +25,6 @@ const playTime = computed(() => {
     <RouterLink to="/" class="brand">
       <BrandMark />
       <span class="brand-name">Million Piece <em>Puzzle</em></span>
-      <span v-if="playTime" class="brand-caption" :title="t('topbar.playTime')">{{
-        playTime
-      }}</span>
     </RouterLink>
 
     <div v-if="totalPieces > 0" class="progress-pill" :title="t('topbar.puzzleProgress')">
@@ -132,14 +113,6 @@ const playTime = computed(() => {
   font-style: italic;
   font-weight: 400;
   color: var(--ink-3);
-}
-.brand-caption {
-  margin-left: 10px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--ink-4);
-  flex: none;
 }
 .progress-pill {
   display: flex;
@@ -232,11 +205,6 @@ const playTime = computed(() => {
   color: var(--ink);
 }
 
-@media (max-width: 560px) {
-  .brand-caption {
-    display: none;
-  }
-}
 @media (max-width: 420px) {
   .brand-name {
     display: none;

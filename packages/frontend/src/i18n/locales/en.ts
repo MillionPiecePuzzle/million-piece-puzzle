@@ -51,7 +51,6 @@ const en = {
     stage: "Puzzle stage",
   },
   topbar: {
-    playTime: "Play time",
     puzzleProgress: "Puzzle progress",
     nationalityTitle: "Nationality: {code}",
     signedInAs: "Signed in as {pseudo}",

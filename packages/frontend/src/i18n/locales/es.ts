@@ -53,7 +53,6 @@ const es: MessageSchema = {
     stage: "Tablero del puzle",
   },
   topbar: {
-    playTime: "Tiempo de juego",
     puzzleProgress: "Progreso del puzle",
     nationalityTitle: "Nacionalidad: {code}",
     signedInAs: "Conectado como {pseudo}",
