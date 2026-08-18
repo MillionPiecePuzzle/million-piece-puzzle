@@ -545,7 +545,9 @@ async function main(): Promise<void> {
       const raw = typeof data === "string" ? data : data.toString("utf8");
       // Fire and forget: dispatch routes the message onto its group's queue
       // synchronously (preserving arrival order) and resolves once handled.
-      void dispatch(ctx, client, raw);
+      void dispatch(ctx, client, raw).catch((e: unknown) => {
+        console.error("[dispatch]", e);
+      });
     });
 
     ws.on("close", () => {
@@ -644,6 +646,13 @@ function grantFromUpgrade(req: IncomingMessage): string | null {
     return null;
   }
 }
+
+// A rejection escaping a fire-and-forget path must not take the process down:
+// under Node an unhandled rejection is fatal, so a single Mongo or Redis hiccup
+// would cost a full boot and eject every connected player.
+process.on("unhandledRejection", (e: unknown) => {
+  console.error("[unhandled-rejection]", e);
+});
 
 main().catch((e: unknown) => {
   console.error("[fatal]", e);
