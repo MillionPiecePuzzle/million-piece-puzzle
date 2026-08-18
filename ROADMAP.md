@@ -37,7 +37,7 @@ Phase 2 performance was pulled forward and built as the real solution: drag coal
 **Exit criterion (met)**: the puzzle is open to the public, with 1 000 000 pieces on a single shared canvas, full auth, monitoring sufficient to operate, and legal documents in place.
 
 ### `shared-protocol`
-- [x] Protocol frozen at v6, breaking changes bump the version asserted at the `hello` handshake
+- [x] Protocol frozen at v10, breaking changes bump the version asserted at the `hello` handshake
 - [x] `eventStartsAt` drives the landing countdown and the `/play` entry gate
 - [x] Anti-programmatic-solving: seed-permuted wire ids, anchor-relative offsets, server-only seed
 

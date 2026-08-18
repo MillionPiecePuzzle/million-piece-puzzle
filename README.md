@@ -4,7 +4,7 @@ A community-built online jigsaw puzzle: **1,000,000 pieces** on a single shared 
 
 ## Status
 
-Feature-complete. All roadmap phases (local MVP, closed alpha, public 1M, open access) are closed; the production deployment serves a 1,000,000-piece synthetic puzzle ahead of the public event.
+Feature-complete. All roadmap phases (local MVP, closed alpha, public 1M, open access, launch readiness) are closed; the production deployment serves the 1,000,000-piece `earth-mosaic` board ahead of the public event.
 
 ## Stack
 
@@ -29,7 +29,7 @@ See [LICENSE](LICENSE).
 
 ## Contributing
 
-The wire protocol (v8), schema, and gameplay are frozen for the public event. Code contributions are welcome but please open an issue first to discuss the change before sending a pull request.
+The wire protocol (v10), schema, and gameplay are frozen for the public event. Code contributions are welcome but please open an issue first to discuss the change before sending a pull request.
 
 To run the stack locally:
 
