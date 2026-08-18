@@ -145,6 +145,11 @@ const fr: MessageSchema = {
     error: "Erreur",
     loading: "Chargement",
     couldNotLoad: "Impossible de charger le puzzle",
+    errorProtocol: "Cette page utilise une ancienne version. Rechargez-la pour continuer.",
+    errorManifest:
+      "Impossible de charger les données du puzzle. Vérifiez votre connexion et rechargez la page.",
+    errorQueue: "Impossible de rejoindre la file d'attente. Vérifiez votre connexion et réessayez.",
+    errorConnection: "Connexion perdue. Rechargez la page pour revenir dans la partie.",
     stepConnect: "Connexion",
     stepBuild: "Construction",
     stepTextures: "Textures",

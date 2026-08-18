@@ -110,7 +110,9 @@ const isProgressPhase = computed(
   () => loadPhase.value === "build" || loadPhase.value === "textures",
 );
 
-const errorMessage = computed(() => (state.value.kind === "error" ? state.value.message : null));
+const errorMessage = computed(() =>
+  state.value.kind === "error" ? t(state.value.messageKey) : null,
+);
 
 // Admission-queue wait: the loading cover shows a place-in-line message instead of
 // the staged-load steps while the client waits past the server cap.

@@ -146,6 +146,12 @@ const de: MessageSchema = {
     error: "Fehler",
     loading: "Wird geladen",
     couldNotLoad: "Das Puzzle konnte nicht geladen werden",
+    errorProtocol: "Diese Seite läuft in einer alten Version. Lade sie neu, um fortzufahren.",
+    errorManifest:
+      "Die Puzzledaten konnten nicht geladen werden. Prüfe deine Verbindung und lade neu.",
+    errorQueue:
+      "Die Warteschlange konnte nicht betreten werden. Prüfe deine Verbindung und versuche es erneut.",
+    errorConnection: "Verbindung verloren. Lade die Seite neu, um wieder mitzuspielen.",
     stepConnect: "Verbinden",
     stepBuild: "Aufbau",
     stepTextures: "Texturen",

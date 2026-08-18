@@ -43,7 +43,10 @@ export type PuzzleSessionState =
       groups: InitialGroupSpec[];
       epoch: number;
     }
-  | { kind: "error"; message: string };
+  // The error state carries an i18n key, not a sentence: the message is shown to
+  // players in their own locale, and the technical detail (urls, server text)
+  // goes to the console instead of the screen.
+  | { kind: "error"; messageKey: string };
 
 export type MessageHandler = (msg: ServerMessage) => void;
 
@@ -146,7 +149,8 @@ function buildEmptyBoard(): void {
 
 function handleServerError(msg: SError): void {
   if (msg.code === "protocol_mismatch") {
-    state.value = { kind: "error", message: `${msg.code}: ${msg.message}` };
+    console.error(`puzzle session: ${msg.code}: ${msg.message}`);
+    state.value = { kind: "error", messageKey: "loading.errorProtocol" };
     return;
   }
   console.warn(`puzzle session: transient server error ${msg.code}: ${msg.message}`);
@@ -160,10 +164,8 @@ async function loadManifestFor(puzzleId: string): Promise<void> {
     if (!res.ok) throw new Error(`manifest ${res.status}`);
     manifest = (await res.json()) as ImageManifest;
   } catch (e) {
-    state.value = {
-      kind: "error",
-      message: `failed to load manifest from ${url}: ${(e as Error).message}`,
-    };
+    console.error(`puzzle session: failed to load manifest from ${url}: ${(e as Error).message}`);
+    state.value = { kind: "error", messageKey: "loading.errorManifest" };
     return;
   }
   puzzleName.value = manifest.name;
@@ -215,8 +217,9 @@ async function startContributor(): Promise<void> {
   try {
     grant = await acquireAdmission();
   } catch (e) {
+    console.error(`puzzle session: failed to join the queue: ${(e as Error).message}`);
     if (started) {
-      state.value = { kind: "error", message: `failed to join the queue: ${(e as Error).message}` };
+      state.value = { kind: "error", messageKey: "loading.errorQueue" };
     }
     started = false;
     return;
@@ -341,10 +344,8 @@ function connectWs(grant: string | null): void {
     manifest = null;
     started = false;
     if (state.value.kind === "error") return;
-    state.value = {
-      kind: "error",
-      message: `connection lost to ${wsUrl}`,
-    };
+    console.error(`puzzle session: connection lost to ${wsUrl}`);
+    state.value = { kind: "error", messageKey: "loading.errorConnection" };
   });
 
   client.connect();

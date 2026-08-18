@@ -143,6 +143,11 @@ const es: MessageSchema = {
     error: "Error",
     loading: "Cargando",
     couldNotLoad: "No se pudo cargar el puzle",
+    errorProtocol: "Esta página usa una versión antigua. Recárgala para continuar.",
+    errorManifest:
+      "No se pudieron cargar los datos del puzle. Comprueba tu conexión y recarga la página.",
+    errorQueue: "No se pudo entrar en la cola. Comprueba tu conexión e inténtalo de nuevo.",
+    errorConnection: "Conexión perdida. Recarga la página para volver a entrar.",
     stepConnect: "Conectar",
     stepBuild: "Construcción",
     stepTextures: "Texturas",
