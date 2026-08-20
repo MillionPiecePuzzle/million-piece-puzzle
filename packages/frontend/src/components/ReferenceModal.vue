@@ -133,6 +133,10 @@ onBeforeUnmount(() => {
      the play area rather than the whole viewport. */
   inset: 52px 0 0 0;
   z-index: 60;
+  /* Rendered inside a HUD rail, which sets pointer-events:none so drags reach
+     the canvas between panels: the overlay has to opt back in, or neither its
+     backdrop nor its buttons ever receive a click. */
+  pointer-events: auto;
   display: grid;
   place-items: center;
   /* One uniform value on all four sides, so the gap around the window is equal

@@ -169,6 +169,10 @@ onMounted(trap.activate);
   /* Cover the play zone only (below the 52px TopBar), matching ReferenceModal. */
   inset: 52px 0 0 0;
   z-index: 60;
+  /* Rendered inside a HUD rail, which sets pointer-events:none so drags reach
+     the canvas between panels: the overlay has to opt back in, or neither its
+     backdrop nor its buttons ever receive a click. */
+  pointer-events: auto;
   display: grid;
   place-items: center;
   padding: clamp(24px, 5vmin, 56px);

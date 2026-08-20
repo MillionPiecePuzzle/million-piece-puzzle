@@ -105,6 +105,10 @@ onMounted(trap.activate);
   position: fixed;
   inset: 0;
   z-index: 60;
+  /* Rendered inside a HUD rail, which sets pointer-events:none so drags reach
+     the canvas between panels: the overlay has to opt back in, or neither its
+     backdrop nor its buttons ever receive a click. */
+  pointer-events: auto;
   display: grid;
   place-items: center;
   background: rgba(21, 20, 15, 0.32);
