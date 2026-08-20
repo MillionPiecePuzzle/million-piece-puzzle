@@ -73,75 +73,75 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="backdrop" @mousedown="onMousedown" @click="onClick">
-    <div
-      ref="shellEl"
-      class="shell"
-      role="dialog"
-      aria-modal="true"
-      :aria-label="t('reference.image')"
-      :style="{ '--ar': aspectRatio }"
-    >
-      <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
-        &times;
-      </button>
-      <div ref="host" class="osd-large" />
-      <div class="zoom">
-        <button type="button" :aria-label="t('zoom.in')" @click="zoomBy(1.4)">
-          <svg class="ic" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M8 3v10M3 8h10"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-            />
-          </svg>
-        </button>
-        <button type="button" :aria-label="t('zoom.out')" @click="zoomBy(1 / 1.4)">
-          <svg class="ic" viewBox="0 0 16 16" fill="none">
-            <path d="M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-          </svg>
-        </button>
-        <button type="button" :aria-label="t('reference.fitToView')" @click="fit()">
-          <svg class="ic" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
-              stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-            />
-          </svg>
-        </button>
-      </div>
-      <RouterLink
-        to="/legal#credits"
-        class="caption"
-        :title="t('reference.credits')"
-        target="_blank"
-        rel="noopener"
+  <Teleport to="body">
+    <div class="backdrop" @mousedown="onMousedown" @click="onClick">
+      <div
+        ref="shellEl"
+        class="shell"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="t('reference.image')"
+        :style="{ '--ar': aspectRatio }"
       >
-        {{ manifest.name }}
-      </RouterLink>
+        <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
+          &times;
+        </button>
+        <div ref="host" class="osd-large" />
+        <div class="zoom">
+          <button type="button" :aria-label="t('zoom.in')" @click="zoomBy(1.4)">
+            <svg class="ic" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M8 3v10M3 8h10"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+          <button type="button" :aria-label="t('zoom.out')" @click="zoomBy(1 / 1.4)">
+            <svg class="ic" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button type="button" :aria-label="t('reference.fitToView')" @click="fit()">
+            <svg class="ic" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+        <RouterLink
+          to="/legal#credits"
+          class="caption"
+          :title="t('reference.credits')"
+          target="_blank"
+          rel="noopener"
+        >
+          {{ manifest.name }}
+        </RouterLink>
+      </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
 .backdrop {
   position: fixed;
-  /* Cover the play zone only (below the 52px TopBar), so the window centers in
-     the play area rather than the whole viewport. */
-  inset: 52px 0 0 0;
+  inset: 0;
   z-index: 60;
-  /* Rendered inside a HUD rail, which sets pointer-events:none so drags reach
-     the canvas between panels: the overlay has to opt back in, or neither its
-     backdrop nor its buttons ever receive a click. */
-  pointer-events: auto;
   display: grid;
   place-items: center;
   /* One uniform value on all four sides, so the gap around the window is equal
-     left/right and top/bottom. */
+     left/right and top/bottom. The top adds the 52px TopBar height instead of
+     insetting the backdrop: the overlay covers the whole viewport, so nothing
+     behind it stays clickable, while the window still centers in the play
+     zone below the bar. */
   padding: clamp(24px, 5vmin, 56px);
+  padding-top: calc(52px + clamp(24px, 5vmin, 56px));
   background: rgba(21, 20, 15, 0.6);
   backdrop-filter: blur(2px);
   /* Size container so the shell can compute the largest image-ratio box that

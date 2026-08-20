@@ -134,48 +134,48 @@ onMounted(trap.activate);
 </script>
 
 <template>
-  <div class="backdrop" @mousedown="onMousedown" @click="onClick">
-    <div
-      ref="shellEl"
-      class="shell"
-      role="dialog"
-      aria-modal="true"
-      :aria-label="t('minimap.detailTitle')"
-      :style="{ '--ar': shellAspect }"
-    >
-      <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
-        &times;
-      </button>
-      <h3 class="title">{{ t("minimap.detailTitle") }}</h3>
-      <div class="grid-wrap">
-        <canvas ref="canvasEl"></canvas>
-        <div class="readout">
-          <div>{{ memoryLabel }}</div>
-          <div>{{ tilesLabel }}</div>
+  <Teleport to="body">
+    <div class="backdrop" @mousedown="onMousedown" @click="onClick">
+      <div
+        ref="shellEl"
+        class="shell"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="t('minimap.detailTitle')"
+        :style="{ '--ar': shellAspect }"
+      >
+        <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
+          &times;
+        </button>
+        <h3 class="title">{{ t("minimap.detailTitle") }}</h3>
+        <div class="grid-wrap">
+          <canvas ref="canvasEl"></canvas>
+          <div class="readout">
+            <div>{{ memoryLabel }}</div>
+            <div>{{ tilesLabel }}</div>
+          </div>
         </div>
+        <ul class="legend">
+          <li><span class="swatch loaded"></span>{{ t("minimap.legendLoaded") }}</li>
+          <li><span class="swatch loading"></span>{{ t("minimap.legendLoading") }}</li>
+          <li><span class="swatch not-loaded"></span>{{ t("minimap.legendNotLoaded") }}</li>
+        </ul>
       </div>
-      <ul class="legend">
-        <li><span class="swatch loaded"></span>{{ t("minimap.legendLoaded") }}</li>
-        <li><span class="swatch loading"></span>{{ t("minimap.legendLoading") }}</li>
-        <li><span class="swatch not-loaded"></span>{{ t("minimap.legendNotLoaded") }}</li>
-      </ul>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
 .backdrop {
   position: fixed;
-  /* Cover the play zone only (below the 52px TopBar), matching ReferenceModal. */
-  inset: 52px 0 0 0;
+  inset: 0;
   z-index: 60;
-  /* Rendered inside a HUD rail, which sets pointer-events:none so drags reach
-     the canvas between panels: the overlay has to opt back in, or neither its
-     backdrop nor its buttons ever receive a click. */
-  pointer-events: auto;
   display: grid;
   place-items: center;
+  /* Extra top padding for the 52px TopBar, matching ReferenceModal: the overlay
+     covers the whole viewport while the window centers in the play zone. */
   padding: clamp(24px, 5vmin, 56px);
+  padding-top: calc(52px + clamp(24px, 5vmin, 56px));
   background: rgba(21, 20, 15, 0.6);
   backdrop-filter: blur(2px);
 }

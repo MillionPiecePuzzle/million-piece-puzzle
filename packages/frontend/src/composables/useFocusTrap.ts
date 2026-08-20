@@ -1,4 +1,5 @@
 import { nextTick, onBeforeUnmount, type Ref } from "vue";
+import { pushEscapeHandler } from "../escapeStack";
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -8,7 +9,9 @@ export interface FocusTrapOptions {
   autoFocus?: boolean;
 }
 
-// Tab-cycling, Escape-to-close and return-to-trigger for a modal dialog.
+// Tab-cycling, Escape-to-close and return-to-trigger for a modal dialog. Escape
+// goes through the shared stack (see escapeStack.ts) so a press reaches only the
+// top-most dialog rather than every open one.
 // Emit-owned modals (mounted/unmounted by a parent's v-if) call activate from
 // onMounted and get deactivate for free via this composable's own
 // onBeforeUnmount below. Composable-owned modals (always mounted, toggled via
@@ -17,6 +20,7 @@ export interface FocusTrapOptions {
 export function useFocusTrap(containerEl: Ref<HTMLElement | null>, options: FocusTrapOptions) {
   const autoFocus = options.autoFocus ?? true;
   let triggerEl: HTMLElement | null = null;
+  let releaseEscape: (() => void) | null = null;
   let active = false;
 
   function focusables(): HTMLElement[] {
@@ -26,10 +30,6 @@ export function useFocusTrap(containerEl: Ref<HTMLElement | null>, options: Focu
   }
 
   function onKeydown(e: KeyboardEvent): void {
-    if (e.key === "Escape") {
-      options.onEscape();
-      return;
-    }
     if (e.key !== "Tab") return;
     const items = focusables();
     if (items.length === 0) return;
@@ -50,6 +50,7 @@ export function useFocusTrap(containerEl: Ref<HTMLElement | null>, options: Focu
     active = true;
     triggerEl = document.activeElement as HTMLElement | null;
     window.addEventListener("keydown", onKeydown);
+    releaseEscape = pushEscapeHandler(() => options.onEscape());
     if (autoFocus) void nextTick(() => focusables()[0]?.focus());
   }
 
@@ -57,6 +58,8 @@ export function useFocusTrap(containerEl: Ref<HTMLElement | null>, options: Focu
     if (!active) return;
     active = false;
     window.removeEventListener("keydown", onKeydown);
+    releaseEscape?.();
+    releaseEscape = null;
     if (triggerEl && document.body.contains(triggerEl)) triggerEl.focus();
     triggerEl = null;
   }

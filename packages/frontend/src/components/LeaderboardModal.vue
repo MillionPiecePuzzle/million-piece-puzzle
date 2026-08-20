@@ -47,57 +47,64 @@ onMounted(trap.activate);
 </script>
 
 <template>
-  <div class="backdrop" @mousedown="onMousedown" @click="onClick">
-    <div
-      ref="shellEl"
-      class="panel modal"
-      role="dialog"
-      aria-modal="true"
-      :aria-label="t('leaderboardModal.label')"
-    >
-      <div class="modal-head">
-        <h3>{{ t("common.leaderboard") }}</h3>
-        <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
-          &times;
-        </button>
-      </div>
-      <div class="seg" role="group" :aria-label="t('leaderboardModal.rankingMode')">
-        <button
-          type="button"
-          :class="{ on: mode === 'people' }"
-          :aria-pressed="mode === 'people'"
-          @click="mode = 'people'"
-        >
-          {{ t("leaderboardModal.people") }}
-        </button>
-        <button
-          type="button"
-          :class="{ on: mode === 'countries' }"
-          :aria-pressed="mode === 'countries'"
-          @click="mode = 'countries'"
-        >
-          {{ t("leaderboardModal.countries") }}
-        </button>
-      </div>
-      <ol class="lb-list">
-        <LeaderboardRow
-          v-for="row in pageRows"
-          :key="row.rank"
-          :row="row"
-          :show-you-tag="mode === 'people'"
-        />
-      </ol>
-      <div class="modal-foot">
-        <button type="button" :disabled="page === 0" @click="prev">
-          &larr; {{ t("leaderboardModal.prev") }}
-        </button>
-        <span class="page">{{ page + 1 }} / {{ pageCount }}</span>
-        <button type="button" :disabled="page === pageCount - 1" @click="next">
-          {{ t("leaderboardModal.next") }} &rarr;
-        </button>
+  <Teleport to="body">
+    <div class="backdrop" @mousedown="onMousedown" @click="onClick">
+      <div
+        ref="shellEl"
+        class="panel modal"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="t('leaderboardModal.label')"
+      >
+        <div class="modal-head">
+          <h3>{{ t("common.leaderboard") }}</h3>
+          <button
+            type="button"
+            class="close"
+            :aria-label="t('common.close')"
+            @click="emit('close')"
+          >
+            &times;
+          </button>
+        </div>
+        <div class="seg" role="group" :aria-label="t('leaderboardModal.rankingMode')">
+          <button
+            type="button"
+            :class="{ on: mode === 'people' }"
+            :aria-pressed="mode === 'people'"
+            @click="mode = 'people'"
+          >
+            {{ t("leaderboardModal.people") }}
+          </button>
+          <button
+            type="button"
+            :class="{ on: mode === 'countries' }"
+            :aria-pressed="mode === 'countries'"
+            @click="mode = 'countries'"
+          >
+            {{ t("leaderboardModal.countries") }}
+          </button>
+        </div>
+        <ol class="lb-list">
+          <LeaderboardRow
+            v-for="row in pageRows"
+            :key="row.rank"
+            :row="row"
+            :show-you-tag="mode === 'people'"
+          />
+        </ol>
+        <div class="modal-foot">
+          <button type="button" :disabled="page === 0" @click="prev">
+            &larr; {{ t("leaderboardModal.prev") }}
+          </button>
+          <span class="page">{{ page + 1 }} / {{ pageCount }}</span>
+          <button type="button" :disabled="page === pageCount - 1" @click="next">
+            {{ t("leaderboardModal.next") }} &rarr;
+          </button>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -105,10 +112,6 @@ onMounted(trap.activate);
   position: fixed;
   inset: 0;
   z-index: 60;
-  /* Rendered inside a HUD rail, which sets pointer-events:none so drags reach
-     the canvas between panels: the overlay has to opt back in, or neither its
-     backdrop nor its buttons ever receive a click. */
-  pointer-events: auto;
   display: grid;
   place-items: center;
   background: rgba(21, 20, 15, 0.32);

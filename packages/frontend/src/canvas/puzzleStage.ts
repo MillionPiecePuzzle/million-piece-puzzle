@@ -20,6 +20,7 @@ import {
 import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
+import { pushEscapeHandler } from "../escapeStack";
 import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
 import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, unpackCell, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
@@ -428,11 +429,11 @@ export class PuzzleStage {
   private carryIdleTimer: ReturnType<typeof setTimeout> | null = null;
   // Escape returns a carried cluster to where it was picked up. Window-level so it
   // fires without the canvas being focused; bound once for add/remove symmetry.
-  private readonly onKeyDown = (ev: KeyboardEvent): void => {
-    if (ev.key === "Escape" && this.held?.carry) {
-      ev.preventDefault();
-      this.cancelCarry();
-    }
+  private releaseEscape: (() => void) | null = null;
+  private readonly onEscapeKey = (ev: KeyboardEvent): void => {
+    if (!this.held?.carry) return;
+    ev.preventDefault();
+    this.cancelCarry();
   };
   // The window losing focus (alt-tab, or an OS overlay like the Windows
   // screenshot tool grabbing the pointer) means an in-progress press-drag will
@@ -676,7 +677,7 @@ export class PuzzleStage {
     app.ticker.add(this.tickDragFlush);
     app.ticker.add(this.tickEdgePan);
     app.ticker.add(this.tickLod);
-    window.addEventListener("keydown", this.onKeyDown);
+    this.releaseEscape = pushEscapeHandler(this.onEscapeKey);
     window.addEventListener("blur", this.onWindowBlur);
     this.attachWheelZoom(app.canvas);
     this.attachPinchZoom();
@@ -1009,7 +1010,8 @@ export class PuzzleStage {
     this.buildToken++;
     this.stopConfetti();
     this.clearCarryIdle();
-    window.removeEventListener("keydown", this.onKeyDown);
+    this.releaseEscape?.();
+    this.releaseEscape = null;
     window.removeEventListener("blur", this.onWindowBlur);
     this.detachPinchZoom();
     this.tweener?.destroy();
