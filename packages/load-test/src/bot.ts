@@ -16,7 +16,7 @@ import type {
   QueueTicketResponse,
   ServerMessage,
 } from "@mpp/shared";
-import { PROTOCOL_VERSION } from "@mpp/shared";
+import { PROTOCOL_VERSION, WORLD_TILE_SIZE } from "@mpp/shared";
 import { World } from "./world.js";
 import type { Metrics } from "./runner.js";
 import type { Swarm } from "./swarm.js";
@@ -218,6 +218,7 @@ export class Bot {
       case "welcome":
         this.userId = msg.userId;
         this.world.playZone = msg.playZone;
+        this.warnIfGlobalSubscriber(msg.broadcastMaxCells);
         // Protocol v4: no board arrives on join. Start the viewport/cursor
         // presence and the grab loop now; the board fills in from the
         // region_state stream the first viewport triggers.
@@ -402,6 +403,24 @@ export class Bot {
     this.heldGroupId = null;
     this.dragTarget = null;
     this.dragOrigin = null;
+  }
+
+  // A viewport over the server's cell cap makes the bot a global subscriber: it
+  // gets no region_state, so it never sees a piece, never grabs, and the run ends
+  // on a clean PASS having exercised nothing. --viewport-frac is a fraction of the
+  // play zone, which differs per puzzle, so a value tuned on one board silently
+  // blows past the cap on a wider one.
+  private warnIfGlobalSubscriber(maxCells: number | undefined): void {
+    if (this.cfg.id !== 0 || maxCells === undefined) return;
+    const z = this.world.playZone;
+    const w = (z.maxX - z.minX) * this.cfg.viewportFrac;
+    const h = (z.maxY - z.minY) * this.cfg.viewportFrac;
+    const cells = (Math.ceil(w / WORLD_TILE_SIZE) + 1) * (Math.ceil(h / WORLD_TILE_SIZE) + 1);
+    if (cells <= maxCells) return;
+    const suggested = this.cfg.viewportFrac * Math.sqrt(maxCells / cells) * 0.8;
+    console.error(
+      `[bot] viewport spans ~${cells} cells, over the server's cap of ${maxCells}: every bot is a global subscriber and will stream no board. Lower --viewport-frac to about ${suggested.toFixed(4)}.`,
+    );
   }
 
   private sendViewport(): void {

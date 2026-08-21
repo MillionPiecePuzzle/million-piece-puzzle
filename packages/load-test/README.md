@@ -47,7 +47,7 @@ session even when `AUTH_SECRET` is unset.
 # Local docker-compose (puzzle pre-loaded via MPP_PUZZLE_ID + MPP_ASSETS_BASE_URL).
 npm run start -w @mpp/load-test -- \
   --target ws://localhost:8080 \
-  --puzzle synthetic-1m \
+  --puzzle earth-mosaic \
   --origin http://localhost:5173 \
   --mongo mongodb://localhost:27017 --mongo-db mpp \
   --bots 5 --duration 300
@@ -55,7 +55,7 @@ npm run start -w @mpp/load-test -- \
 # Prod (Mongo reached over a tunnel, wss target selects the __Secure- cookie).
 npm run start -w @mpp/load-test -- \
   --target wss://ws.millionpiecepuzzle.com \
-  --puzzle synthetic-1m \
+  --puzzle earth-mosaic \
   --origin https://app.millionpiecepuzzle.com \
   --mongo mongodb://localhost:27017 --mongo-db mpp \
   --bots 5 --duration 300
@@ -64,7 +64,7 @@ npm run start -w @mpp/load-test -- \
 # live" below); a smaller --viewport-frac keeps the watched area human-scale.
 npm run start -w @mpp/load-test -- \
   --target wss://ws.millionpiecepuzzle.com \
-  --puzzle synthetic-1m \
+  --puzzle earth-mosaic \
   --origin https://app.millionpiecepuzzle.com \
   --mongo mongodb://localhost:27017 --mongo-db mpp \
   --bots 20 --duration 600 --cluster-fraction 0.5 --viewport-frac 0.02
@@ -140,20 +140,26 @@ NET=$(docker inspect "$SRV" --format '{{range $k,$v := .NetworkSettings.Networks
 
 # 15-min, 50-bot soak. --secure-cookie because the prod server's auth host is
 # https, so it only reads the __Secure- cookie even over this ws:// hop.
-# --viewport-frac 0.05: the harness default (0.1) spans ~400 broadcast cells
-# against this puzzle's play zone, over MPP_BROADCAST_MAX_CELLS (256), so every
-# bot becomes a global subscriber and never streams region_state. 0.05 keeps
-# each bot's viewport under ~121 cells, comfortably inside the cap.
+# --viewport-frac is a fraction of the play zone, and the play zone differs per
+# puzzle, so this number does NOT carry across boards: earth-mosaic's spans
+# ~1 020 000 world units (scatter reaching ~+/-225 000, widened 50% by
+# computePlayZone), where 0.05 gives a 51 000-unit viewport = ~625 broadcast
+# cells, well over MPP_BROADCAST_MAX_CELLS (256). Every bot would then be a
+# global subscriber, stream no region_state, never grab, and the run would end
+# on a clean PASS having exercised nothing. 0.0125 gives ~12 750 units, which
+# both stays under the cap and matches what a real player sees at MIN_ZOOM.
+# The harness prints a loud [bot] warning with a suggested value if the viewport
+# is over the cap, so read the first lines of a run before trusting its verdict.
 docker run --rm --network "$NET" mpp-loadtest run \
-  --target ws://server:8080 --puzzle synthetic-1m \
+  --target ws://server:8080 --puzzle earth-mosaic \
   --origin https://app.millionpiecepuzzle.com \
   --mongo mongodb://mongo:27017 --mongo-db mpp \
-  --bots 50 --duration 900 --viewport-frac 0.05 --spoof-ip-base 198.51.100.0 --secure-cookie
+  --bots 50 --duration 900 --viewport-frac 0.0125 --spoof-ip-base 198.51.100.0 --secure-cookie
 
 # ~5s settle, then the corruption gate (also in-network, by service name)
 docker run --rm --network "$NET" mpp-loadtest validate \
   --redis redis://redis:6379 --mongo mongodb://mongo:27017 --mongo-db mpp \
-  --puzzle synthetic-1m
+  --puzzle earth-mosaic
 ```
 
 If `$NET` resolves to more than one network, pick the one `mongo` and `redis` are
@@ -171,7 +177,7 @@ the board at rest, pointed at the same Redis and Mongo the target server uses:
 npm run validate-state -w @mpp/server -- \
   --redis redis://127.0.0.1:6379 \
   --mongo mongodb://127.0.0.1:27017 --mongo-db mpp \
-  --puzzle synthetic-1m
+  --puzzle earth-mosaic
 ```
 
 It asserts piece/group partition consistency, group-size and locked-count
