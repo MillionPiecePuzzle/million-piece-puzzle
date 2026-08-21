@@ -24,8 +24,16 @@ import type { Swarm } from "./swarm.js";
 // Poll cadence while a bot waits in the admission queue past the server cap.
 const QUEUE_POLL_MS = 2000;
 
-// Fraction of the remaining distance to the target the cursor closes per
-// 100ms tick while easing toward a piece it's about to grab.
+// Drag broadcast cadence while holding a cluster, ~144/s. The real client emits
+// one drag per rendered frame on an uncapped Pixi ticker, so a player on a
+// high-refresh display outpaces a 60Hz one; the bot is sized for that, not for
+// the average display.
+const DRAG_TICK_MS = 7;
+// Cursor cadence, matching the real client's own CURSOR_THROTTLE_MS.
+const CURSOR_TICK_MS = 60;
+
+// Fraction of the remaining distance to the target the cursor closes per cursor
+// tick while easing toward a piece it's about to grab.
 const CURSOR_EASE_FRACTION = 0.25;
 // Below this distance (world units) the cursor is treated as converged: stop
 // sending so a genuinely resting cursor goes idle (see peerCursors.ts's bob),
@@ -205,6 +213,7 @@ export class Bot {
     } catch {
       return;
     }
+    this.cfg.metrics.msgsRecv.inc();
     switch (msg.t) {
       case "welcome":
         this.userId = msg.userId;
@@ -240,7 +249,11 @@ export class Bot {
         }
         return;
       case "drag":
+        this.cfg.metrics.dragsRecv.inc();
         this.world.applyDrag(msg);
+        return;
+      case "cursor":
+        this.cfg.metrics.cursorsRecv.inc();
         return;
       case "drop":
         this.world.applyDrop(msg);
@@ -297,7 +310,7 @@ export class Bot {
     this.scheduleNextCycle(50 + Math.floor(this.cfg.rng() * 200));
     this.viewportTimer = setInterval(() => this.sendViewport(), 1000);
     this.sendViewport();
-    this.cursorTimer = setInterval(() => this.tickCursor(), 100);
+    this.cursorTimer = setInterval(() => this.tickCursor(), CURSOR_TICK_MS);
   }
 
   private scheduleNextCycle(delayMs: number): void {
@@ -355,7 +368,7 @@ export class Bot {
     this.dragStartTime = Date.now();
     this.dragDuration = 1000 + Math.floor(this.cfg.rng() * 2000);
     if (this.dragTimer) clearInterval(this.dragTimer);
-    this.dragTimer = setInterval(() => this.tickDrag(), 16);
+    this.dragTimer = setInterval(() => this.tickDrag(), DRAG_TICK_MS);
   }
 
   private tickDrag(): void {

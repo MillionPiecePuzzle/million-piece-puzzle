@@ -220,10 +220,21 @@ See DECISIONS: harness PASS criterion bounded to saturation signals.
 ## What is and is not exercised
 
 The bot picks drag targets randomly within its own current viewport, not the
-whole play zone, so the snap/merge path is hit only opportunistically. The
-high-rate paths under load (drag broadcast fan-out, drop with snap detection
-that returns null) are exercised on every cycle, which is the bottleneck the
-test cares about.
+whole play zone, so the snap/merge path is hit only opportunistically. Drop with
+snap detection that returns null is exercised on every cycle.
+
+Send cadences are sized to match or exceed one real player: `drag` at 7ms
+(~144/s, the rate an uncapped Pixi ticker gives a player on a high-refresh
+display, not the 60Hz average) and `cursor` at 60ms (the real client's own
+throttle). The bot also holds a cluster ~85% of the time, well past any human
+duty cycle.
+
+Broadcast fan-out is the exception: it only happens where viewports overlap, and
+bots scatter to a random viewport every second, so at `--cluster-fraction 0` a
+cursor (scoped to a single point) reaches almost no one. Read `recv/s` in the
+progress line and the `received` totals in the final report: near zero means the
+run never exercised fan-out at all, whatever the verdict says. Raise
+`--cluster-fraction` until those counters are non-trivial.
 
 Server-side metrics (heap, queue depth) are not collected directly. Use OS
 tools (`top`, Coolify dashboard) alongside the run if you need them.

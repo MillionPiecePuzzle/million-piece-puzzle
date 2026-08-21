@@ -14,6 +14,12 @@ export type Metrics = {
   grabTimeouts: Counter;
   dragsSent: Counter;
   dropsSent: Counter;
+  // Inbound fan-out, the half of the load the send-side counters cannot see: a
+  // clean verdict with these near zero means the viewports never overlapped, not
+  // that the broadcast path held up. Raise --cluster-fraction if so.
+  msgsRecv: Counter;
+  dragsRecv: Counter;
+  cursorsRecv: Counter;
   serverErrors: Counter;
   wsErrors: Counter;
   wsCloses: Counter;
@@ -30,6 +36,9 @@ function newMetrics(): Metrics {
     grabTimeouts: new Counter(),
     dragsSent: new Counter(),
     dropsSent: new Counter(),
+    msgsRecv: new Counter(),
+    dragsRecv: new Counter(),
+    cursorsRecv: new Counter(),
     serverErrors: new Counter(),
     wsErrors: new Counter(),
     wsCloses: new Counter(),
@@ -98,7 +107,7 @@ export class Runner {
   private readonly bots: Bot[] = [];
   private readonly swarm = new Swarm();
   private progressTimer: NodeJS.Timeout | null = null;
-  private lastSnapshot = { drags: 0, grabs: 0, drops: 0, ts: Date.now() };
+  private lastSnapshot = { drags: 0, grabs: 0, drops: 0, recv: 0, ts: Date.now() };
 
   constructor(private readonly cfg: RunnerConfig) {}
 
@@ -191,15 +200,17 @@ export class Runner {
     const dragRate = (drags - this.lastSnapshot.drags) / dtSec;
     const grabRate = (grabs - this.lastSnapshot.grabs) / dtSec;
     const dropRate = (drops - this.lastSnapshot.drops) / dtSec;
+    const recv = m.msgsRecv.get();
+    const recvRate = (recv - this.lastSnapshot.recv) / dtSec;
     const lat = m.grabLatency.summary();
     const hotspot = this.swarm.get();
     const hotspotStatus = hotspot
       ? `(${hotspot.x.toFixed(0)}, ${hotspot.y.toFixed(0)})`
       : "searching";
     console.log(
-      `[progress] drag/s=${dragRate.toFixed(0)} grab/s=${grabRate.toFixed(1)} drop/s=${dropRate.toFixed(1)} grab.p95=${lat.p95}ms grab.p99=${lat.p99}ms denied=${m.grabDenied.get()} srvErr=${m.serverErrors.get()} wsErr=${m.wsErrors.get()} 1013=${m.backpressureCloses.get()} hotspot=${hotspotStatus}`,
+      `[progress] drag/s=${dragRate.toFixed(0)} grab/s=${grabRate.toFixed(1)} drop/s=${dropRate.toFixed(1)} recv/s=${recvRate.toFixed(0)} grab.p95=${lat.p95}ms grab.p99=${lat.p99}ms denied=${m.grabDenied.get()} srvErr=${m.serverErrors.get()} wsErr=${m.wsErrors.get()} 1013=${m.backpressureCloses.get()} hotspot=${hotspotStatus}`,
     );
-    this.lastSnapshot = { drags, grabs, drops, ts: now };
+    this.lastSnapshot = { drags, grabs, drops, recv, ts: now };
   }
 
   private printFinal(): void {
@@ -212,6 +223,9 @@ export class Runner {
       `grabs sent=${m.grabSent.get()} ok=${m.grabOk.get()} denied=${m.grabDenied.get()} raceLost=${m.grabRaceLost.get()} timeouts=${m.grabTimeouts.get()}`,
     );
     console.log(`drags sent=${m.dragsSent.get()} drops sent=${m.dropsSent.get()}`);
+    console.log(
+      `received total=${m.msgsRecv.get()} peer drags=${m.dragsRecv.get()} peer cursors=${m.cursorsRecv.get()}`,
+    );
     console.log(
       `grab latency (ms): count=${lat.count} p50=${lat.p50} p95=${lat.p95} p99=${lat.p99} max=${lat.max}`,
     );
