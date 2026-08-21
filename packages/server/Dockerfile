@@ -24,6 +24,21 @@ ENV MPP_ASSETS_BASE_URL=https://assets.millionpiecepuzzle.com
 # AUTH_SECRET, and must match the slicer's --seed for this puzzle's R2 assets.
 ENV MPP_DEV_ENABLED=0
 
+# Global cap on concurrent WS connections; past it the admission queue holds
+# arrivals in a FIFO wait list instead of accepting until the box falls over
+# (see DECISIONS: admission queue). 0, the code default, disables the queue
+# entirely, so this has to be set explicitly to arm it.
+#
+# 200 comes from the staircase soak of 2026-08-21 against this board. The server
+# process pegs one core (~110% CPU, flat across 200/500/1000 bots) while the host
+# keeps 4 of its 6 cores and 10 GB of RAM idle: the ceiling is the single-threaded
+# event loop, not the machine, so no VPS tier moves it. At 200 concurrent, grab
+# round-trip was p50 84ms / p95 300ms with 3.7% timing out. At 500 it was p50
+# 457ms / p95 824ms with 43% timing out, and at 1000 the server never got past
+# ~623 established connections in five minutes while the rest errored out.
+# Read at boot only, so raising it needs a redeploy, not just a restart.
+ENV MPP_MAX_ACTIVE_CONNECTIONS=200
+
 # Board snapshot cadence: the in-memory snapshot (locked count, leaderboard,
 # activity, current minimap grid) is regenerated at most every 300s while the
 # event is live, frozen otherwise. The minimap grid is maintained incrementally
