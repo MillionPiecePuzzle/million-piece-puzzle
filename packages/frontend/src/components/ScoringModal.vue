@@ -48,10 +48,6 @@ onMounted(trap.activate);
             <span class="badge gain">+1</span>
             <span class="example-text">{{ t("scoring.snapCluster") }}</span>
           </li>
-          <li>
-            <span class="badge lock">+N</span>
-            <span class="example-text">{{ t("scoring.lockCluster") }}</span>
-          </li>
         </ul>
 
         <section class="block">
@@ -110,9 +106,6 @@ onMounted(trap.activate);
 }
 .badge.gain {
   background: var(--c2);
-}
-.badge.lock {
-  background: var(--accent);
 }
 .example-text {
   font-size: 13px;

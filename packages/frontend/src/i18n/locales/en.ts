@@ -151,14 +151,12 @@ const en = {
       "You snap two loose pieces together: one point, not two. The other piece's point is set aside for whoever locks that cluster into the board.",
     snapCluster:
       "You drag a 30-piece cluster onto another one: the 29 already credited do not count twice, so you take the one nobody had ever snapped.",
-    lockCluster:
-      "Your drop locks a cluster into the board: every point set aside in it is credited to you at once.",
     mismatchTitle: "Why it does not match the progress bar",
     mismatchBody:
-      "The leaderboard credits a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place. A cluster floating in the middle of nowhere has nearly all of its pieces credited and none of them locked, so the two numbers are not meant to be equal.",
+      "The leaderboard credits a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place: the two numbers are not meant to be equal.",
     fairTitle: "It adds up",
     fairBody:
-      "One piece, one point, one owner: that is what keeps the board fair. Every point set aside is credited the day its cluster locks in, so when the last piece goes in, the standings add up to exactly {total} pieces.",
+      "This is what keeps the standings fair. It also means that, once the last piece is placed, they add up to exactly {total} pieces.",
   },
   activityPanel: {
     placedLine: "placed {object}",

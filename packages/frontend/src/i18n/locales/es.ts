@@ -156,14 +156,12 @@ const es: MessageSchema = {
       "Encajas dos piezas sueltas: un punto, no dos. El punto de la otra pieza queda reservado para quien bloquee ese grupo en el tablero.",
     snapCluster:
       "Arrastras un grupo de 30 piezas sobre otro: las 29 ya acreditadas no cuentan dos veces, así que te llevas la que nadie había encajado nunca.",
-    lockCluster:
-      "Sueltas un grupo en su sitio y se bloquea: todos los puntos reservados que contiene se te acreditan de golpe.",
     mismatchTitle: "Por qué no cuadra con la barra de progreso",
     mismatchBody:
-      "La clasificación acredita una pieza en cuanto encaja, esté donde esté en el tablero. La barra de progreso solo cuenta las piezas bloqueadas en su sitio definitivo. Un grupo que flota en medio de la nada tiene casi todas sus piezas acreditadas y ninguna bloqueada: los dos números no tienen por qué coincidir.",
+      "La clasificación acredita una pieza en cuanto encaja, esté donde esté en el tablero. La barra de progreso solo cuenta las piezas bloqueadas en su sitio definitivo: los dos números no tienen por qué coincidir.",
     fairTitle: "Las cuentas cuadran",
     fairBody:
-      "Una pieza, un punto, un dueño: eso es lo que mantiene justa la clasificación. Cada punto reservado se acredita el día en que su grupo se bloquea, así que cuando entra la última pieza, la clasificación suma exactamente {total} piezas.",
+      "Este sistema es lo que mantiene justa la clasificación. También hace que, una vez colocada la última pieza, sume exactamente {total} piezas.",
   },
   activityPanel: {
     placedLine: "colocó {object}",

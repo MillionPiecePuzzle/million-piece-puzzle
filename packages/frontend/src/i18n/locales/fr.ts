@@ -158,14 +158,12 @@ const fr: MessageSchema = {
       "Vous emboîtez deux pièces libres : un point, pas deux. Le point de l'autre pièce est mis de côté pour celui qui verrouillera ce groupe dans le plateau.",
     snapCluster:
       "Vous glissez un groupe de 30 pièces sur un autre : les 29 déjà créditées ne comptent pas deux fois, vous prenez celle que personne n'avait jamais emboîtée.",
-    lockCluster:
-      "Vous posez un groupe à sa place et il se verrouille : tous les points mis de côté qu'il contient vous sont crédités d'un coup.",
     mismatchTitle: "Pourquoi le total ne colle pas à la barre de progression",
     mismatchBody:
-      "Le classement crédite une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive. Un groupe qui flotte au milieu de nulle part a presque toutes ses pièces créditées et aucune verrouillée : les deux nombres n'ont pas vocation à être égaux.",
+      "Le classement crédite une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive : les deux nombres n'ont pas vocation à être égaux.",
     fairTitle: "Le compte tombe juste",
     fairBody:
-      "Une pièce, un point, un propriétaire : c'est ce qui garde le classement équitable. Chaque point mis de côté est crédité le jour où son groupe se verrouille, donc quand la dernière pièce entre, le classement totalise exactement {total} pièces.",
+      "Ce système permet de garder un classement équitable. Il permettra aussi, quand la dernière pièce sera posée, de comptabiliser exactement {total} pièces.",
   },
   activityPanel: {
     placedLine: "a placé {object}",
