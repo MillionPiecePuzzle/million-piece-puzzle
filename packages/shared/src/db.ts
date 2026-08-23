@@ -68,9 +68,10 @@ export type ClusterMerge = {
   addedPieceIds: number[];
   // Pieces of the group the user dragged in this merge. The basis for
   // contribution scoring: a piece is credited to the user of the first merge
-  // that dragged it, the user who carried it toward its solved position.
-  // Distinct from addedPieceIds, which follows group-id order, not drag
-  // direction.
+  // that dragged it, the user who carried it toward its solved position (an
+  // anchoring merge also credits lockedPieceIds below, so no piece ever locks
+  // unowned). Distinct from addedPieceIds, which follows group-id order, not
+  // drag direction.
   droppedPieceIds: number[];
   targetAnchorPieceId: number;
   anchored: boolean;
@@ -81,7 +82,8 @@ export type ClusterMerge = {
   // Every piece newly locked by this merge (empty for a non-anchoring merge).
   // Distinct from addedPieceIds for the same reason as lockedDelta: a locked
   // cluster is never persisted as a group past this event, so a replay has no
-  // other way to recover which piece ids it covers.
+  // other way to recover which piece ids it covers. Also the second scoring
+  // input (see droppedPieceIds above).
   lockedPieceIds: number[];
   // Piece count of the resulting cluster (host + added groups). The size the
   // activity feed reports for a snap; stored because the host group's pre-merge

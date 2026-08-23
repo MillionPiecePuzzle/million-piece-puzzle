@@ -696,6 +696,22 @@ describe("handleDrop", () => {
     );
   });
 
+  it("credits a never-dragged neighbour to the player whose drop locks it", async () => {
+    const { ctx, attachProfiles, state } = makeDropCtx();
+    // Group 1 sits at its solved position and is never dragged: this merge is
+    // the only event it ever takes part in, and it takes part on the receiving
+    // side. The drop lands group 4 on the frame origin, so the merge anchors
+    // and locks both pieces at once.
+    state.place({ id: 1, worldX: 0, worldY: 0, size: 1, heldBy: null }, [1]);
+    state.place(dropped(4, 0, 0), [4]);
+    await handleDrop(ctx, client, 4, 0, 0);
+    expect(state.lockedCount).toBe(2);
+    // Crediting droppedPieceIds alone would lock piece 1 with no owner, and the
+    // standings would end the event short of the board (see DECISIONS:
+    // leaderboard scoring).
+    expect(attachProfiles).toHaveBeenCalledWith([{ userId: "u1", pieces: 2 }]);
+  });
+
   it("anchors the dropped group and counts pieces when snapping onto a locked neighbour", async () => {
     const { ctx, broadcast, logMerge, state } = makeDropCtx();
     // A locked piece has no group and no stored position: it is implicitly at

@@ -1,12 +1,13 @@
 // Per-user contribution standings: each piece scores one point, credited to
-// the user of the first merge (by time) that dragged it (see DECISIONS:
-// leaderboard scoring). A from-scratch rebuild derives the full standings
-// from every piece's first-dropper row, the same shape a Mongo merge-log scan
-// produces; an incremental update folds in one merge's dropped pieces without
-// rescanning the log, mirroring MinimapGridTracker's own
-// rebuildFromBoard/applyTranslation split.
+// the user of the first merge (by time) that dragged it, or that locked it
+// while it had never been dragged (see DECISIONS: leaderboard scoring). A
+// from-scratch rebuild derives the full standings from every piece's
+// first-scorer row, the same shape a Mongo merge-log scan produces; an
+// incremental update folds in one merge's scored pieces without rescanning the
+// log, mirroring MinimapGridTracker's own rebuildFromBoard/applyTranslation
+// split.
 
-// One piece's first-ever dropper: pieceId is the internal grid id (the same
+// One piece's first-ever scorer: pieceId is the internal grid id (the same
 // space droppedPieceIds uses), userId the merge's dragger.
 export type LeaderboardScoreRow = { pieceId: number; userId: string };
 
@@ -26,8 +27,8 @@ export class LeaderboardTracker {
   }
 
   // O(rows): overwrites the live standings with a from-scratch reconstruction.
-  // rows must carry exactly one entry per piece ever dropped (its first
-  // dropper only), the same shape MongoLogger.leaderboardScoreRows produces.
+  // rows must carry exactly one entry per piece ever scored (its first scorer
+  // only), the same shape MongoLogger.leaderboardScoreRows produces.
   // Meant for boot, reset, force-complete, and the periodic resync, never the
   // per-merge hot path.
   rebuildFromLog(rows: readonly LeaderboardScoreRow[]): void {

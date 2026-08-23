@@ -159,15 +159,20 @@ export class MongoLogger {
     });
   }
 
-  // Every piece's first dropper (see DECISIONS: leaderboard scoring): one row
-  // per piece ever dropped, the exact shape LeaderboardTracker.rebuildFromLog
-  // needs to seed the live standings from scratch. Same match/sort/unwind/
-  // group shape a per-merge aggregation would use, but paid once (boot,
-  // reset, force-complete, the slow defense-in-depth resync) instead of on
-  // every anchoring snap: re-running this full scan per snap degraded
-  // visibly once the merge log grew past ~600 000 documents (a
-  // 995 000-piece lock run went from 13 to 1.7 pieces/s), the exact per-event
-  // cost the incremental tracker exists to avoid.
+  // Every piece's first scorer (see DECISIONS: leaderboard scoring): one row
+  // per piece ever dropped or locked, the exact shape
+  // LeaderboardTracker.rebuildFromLog needs to seed the live standings from
+  // scratch. The two arrays are concatenated because applyMerge scores the
+  // same union: droppedPieceIds on every merge, plus the whole locked set on
+  // an anchoring one, so a piece that only ever sat on the receiving end still
+  // gets an owner when it locks. Both come from one doc with one userId, so
+  // their order inside it does not matter. Same match/sort/unwind/group shape
+  // a per-merge aggregation would use, but paid once (boot, reset,
+  // force-complete, the slow defense-in-depth resync) instead of on every
+  // anchoring snap: re-running this full scan per snap degraded visibly once
+  // the merge log grew past ~600 000 documents (a 995 000-piece lock run went
+  // from 13 to 1.7 pieces/s), the exact per-event cost the incremental tracker
+  // exists to avoid.
   async leaderboardScoreRows(puzzleId: string): Promise<LeaderboardScoreRow[]> {
     const rows = await this.merges
       .aggregate<{
@@ -176,8 +181,19 @@ export class MongoLogger {
       }>([
         { $match: { puzzleId } },
         { $sort: { at: 1 } },
-        { $unwind: "$droppedPieceIds" },
-        { $group: { _id: "$droppedPieceIds", userId: { $first: "$userId" } } },
+        {
+          $project: {
+            userId: 1,
+            scoredPieceIds: {
+              $concatArrays: [
+                { $ifNull: ["$droppedPieceIds", []] },
+                { $ifNull: ["$lockedPieceIds", []] },
+              ],
+            },
+          },
+        },
+        { $unwind: "$scoredPieceIds" },
+        { $group: { _id: "$scoredPieceIds", userId: { $first: "$userId" } } },
       ])
       .toArray();
     return rows.map((r) => ({ pieceId: r._id, userId: r.userId }));

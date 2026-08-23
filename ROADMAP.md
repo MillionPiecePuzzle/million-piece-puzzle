@@ -87,6 +87,10 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 **Exit criterion**: every task below shipped to prod. Tasks are promoted from the backlog as they are decided, so the list grows until the version is cut.
 
+### `backend-realtime`
+
+- [x] Every piece on a finished board has exactly one owner, so the standings add up to the full million: an anchoring merge credits the whole set it locks, not just the dragged side, closing the case where a piece that only ever sat on the receiving end locked with nobody credited for it. The log replay unions the same two arrays, so prod's existing merges are re-credited at the next boot with no migration. See DECISIONS
+
 ### `auth-and-accounts`
 
 - [x] Syncing with Google produces a permanent account that reads as one: the sign-in promotes the guest document the provider account is linked onto (`guest` cleared, OAuth email/name/image stored) instead of leaving it flagged as a guest, and the options menu answers with a checked "Synced with Google" row carrying the linked address in place of the action. The seven accounts already linked in prod are backfilled from the identity in their stored `id_token`. Both provider entries carry their mark (the Google G, the Discord logo). See DECISIONS

@@ -600,12 +600,18 @@ async function applyMerge(
     ctx.minimapGrid.applyTranslation(piecesByGroup.get(id) ?? [], from, to);
   }
 
+  const allPieces = allIds.flatMap((id) => piecesByGroup.get(id) ?? []);
+
   // Every merge (anchoring or not) can be the first-ever drop of one of its
   // own pieces (see DECISIONS: leaderboard scoring), so this runs
-  // unconditionally, not just when anchored.
-  ctx.leaderboardTracker.recordDrop(client.userId, droppedPieces);
+  // unconditionally, not just when anchored. An anchoring merge credits every
+  // piece it locks, not just the dragged side: a piece that only ever sat on
+  // the receiving end of a merge would otherwise lock with no owner at all,
+  // and the standings would end the event short of the board. allPieces is a
+  // superset of droppedPieces (allIds starts at droppedGroupId), and the same
+  // union is what leaderboardScoreRows replays from the log.
+  ctx.leaderboardTracker.recordDrop(client.userId, anchored ? allPieces : droppedPieces);
 
-  const allPieces = allIds.flatMap((id) => piecesByGroup.get(id) ?? []);
   const addedPieceIds = allIds
     .filter((id) => id !== newId)
     .flatMap((id) => piecesByGroup.get(id) ?? []);
