@@ -29,9 +29,14 @@ export type CountryResult =
   | { ok: false; reason: "cooldown"; retryAt: number };
 export type GuestResult = { ok: true } | { ok: false; reason: "taken" | "invalid" | "error" };
 
-// The one-time guest claim token, stored at mint. POST /guest/claim spends it to
-// fold that guest into a signed-in account.
-const GUEST_CLAIM_TOKEN_KEY = "mpp.guestClaimToken";
+// Guest claim tokens still to spend, oldest first. POST /guest/claim folds the
+// guest each one names into the signed-in account. A list rather than a single
+// slot: an account switch signs this browser out on the way to Google, so a
+// sign-in abandoned there comes back to a fresh guest mint, and that mint must
+// not overwrite the token of the guest still waiting to be folded in.
+const GUEST_CLAIM_TOKENS_KEY = "mpp.guestClaimTokens";
+const LEGACY_GUEST_CLAIM_TOKEN_KEY = "mpp.guestClaimToken";
+const MAX_PENDING_CLAIM_TOKENS = 5;
 
 const user = ref<SessionUser | null>(null);
 const ready = ref(false);
@@ -47,6 +52,10 @@ const claimSettled = ref(true);
 // Pseudo captured in the first guest-onboarding modal, sent with the country to
 // POST /guest in the second.
 const guestPseudo = ref<string | null>(null);
+// Auth.js error code from a sign-in it refused, handed back by the auth host's
+// handoff route as a query param on /play. "AccountNotLinked" is the one that
+// happens here: the Google account already belongs to another profile.
+const authError = ref<string | null>(null);
 
 async function fetchCsrf(): Promise<string> {
   const res = await fetch(`${authBaseUrl()}/auth/csrf`, { credentials: "include" });
@@ -92,20 +101,54 @@ async function getSession(): Promise<SessionUser | null> {
   return user.value;
 }
 
-async function signIn(provider = "google"): Promise<void> {
+async function signIn(provider = "google", callbackUrl = window.location.href): Promise<void> {
   const csrfToken = await fetchCsrf();
-  submitForm(`${authBaseUrl()}/auth/signin/${provider}`, {
-    csrfToken,
-    callbackUrl: window.location.href,
-  });
+  submitForm(`${authBaseUrl()}/auth/signin/${provider}`, { csrfToken, callbackUrl });
+}
+
+async function signOutTo(callbackUrl: string): Promise<void> {
+  const csrfToken = await fetchCsrf();
+  submitForm(`${authBaseUrl()}/auth/signout`, { csrfToken, callbackUrl });
 }
 
 async function signOut(): Promise<void> {
-  const csrfToken = await fetchCsrf();
-  submitForm(`${authBaseUrl()}/auth/signout`, {
-    csrfToken,
-    callbackUrl: window.location.origin,
-  });
+  await signOutTo(window.location.origin);
+}
+
+// The Google account already belongs to another profile, so Auth.js refuses to
+// attach it to this guest as well. Dropping this session first turns the next
+// attempt into an ordinary sign-in, which lands in that profile, and the pending
+// claim tokens fold this browser's guest into it on arrival.
+async function switchToLinkedAccount(): Promise<void> {
+  await signOutTo(`${window.location.origin}/play?resumeSignIn=1`);
+}
+
+function clearAuthError(): void {
+  authError.value = null;
+}
+
+const AUTH_ERROR_PARAM = "authError";
+const RESUME_SIGN_IN_PARAM = "resumeSignIn";
+
+function readQueryFlag(name: string): string | null {
+  try {
+    return new URL(window.location.href).searchParams.get(name);
+  } catch {
+    return null;
+  }
+}
+
+// Strips the flags bootstrap already read, so a reload does not replay them.
+// Returns a path+search+hash reference, or null when the URL carried none: the
+// caller hands it to router.replace for the same reason consumeAnalyticsOptOut
+// does, a raw history write at boot gets clobbered by the router's own initial
+// navigation.
+export function stripAuthFlags(href: string): string | null {
+  const url = new URL(href, window.location.origin);
+  const carried = [AUTH_ERROR_PARAM, RESUME_SIGN_IN_PARAM].filter((p) => url.searchParams.has(p));
+  if (carried.length === 0) return null;
+  for (const param of carried) url.searchParams.delete(param);
+  return url.pathname + url.search + url.hash;
 }
 
 async function submitPseudo(pseudo: string): Promise<PseudoResult> {
@@ -177,11 +220,7 @@ async function createGuest(pseudo: string, country: string): Promise<GuestResult
     if (res.ok) {
       const data = (await res.json()) as { user: SessionUser; claimToken: string };
       user.value = data.user;
-      try {
-        localStorage.setItem(GUEST_CLAIM_TOKEN_KEY, data.claimToken);
-      } catch {
-        // best effort: the claim token only enables a later Google sync
-      }
+      writeClaimTokens([...readClaimTokens(), data.claimToken]);
       useMode().setMode("contributor");
       return { ok: true };
     }
@@ -193,53 +232,66 @@ async function createGuest(pseudo: string, country: string): Promise<GuestResult
   }
 }
 
-function hasClaimToken(): boolean {
+function readClaimTokens(): string[] {
+  let tokens: string[] = [];
   try {
-    return localStorage.getItem(GUEST_CLAIM_TOKEN_KEY) !== null;
-  } catch {
-    return false;
-  }
-}
-
-function clearClaimToken(): void {
-  try {
-    localStorage.removeItem(GUEST_CLAIM_TOKEN_KEY);
-  } catch {
-    // best effort: a leftover token only triggers a redundant claim that 404s
-  }
-}
-
-// Reattribute the stored guest's contributions to the now signed-in account
-// (POST /guest/claim), carrying over its pseudo and country. A 200 updates the
-// session user and consumes the token; a 404 means there is nothing to fold in
-// (the guest is gone, or the sign-in linked its document in place), so the token
-// is dropped; any other status keeps the token for a later retry (a 409
-// self-claim means we are still the guest, so a sync has not happened yet).
-async function claimGuestContributions(): Promise<void> {
-  let token: string | null = null;
-  try {
-    token = localStorage.getItem(GUEST_CLAIM_TOKEN_KEY);
-  } catch {
-    return;
-  }
-  if (!token) return;
-  try {
-    const res = await fetch(`${authBaseUrl()}/guest/claim`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ claimToken: token }),
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { user: SessionUser };
-      user.value = data.user;
-      clearClaimToken();
-      return;
+    const raw = localStorage.getItem(GUEST_CLAIM_TOKENS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) tokens = parsed.filter((t): t is string => typeof t === "string");
+    const legacy = localStorage.getItem(LEGACY_GUEST_CLAIM_TOKEN_KEY);
+    if (legacy !== null) {
+      tokens = [legacy, ...tokens.filter((t) => t !== legacy)];
+      writeClaimTokens(tokens);
     }
-    if (res.status === 404) clearClaimToken();
   } catch {
-    // network error: keep the token, a later boot retries
+    // private mode, disabled storage, or corrupt json: nothing to fold in
   }
+  return tokens;
+}
+
+function writeClaimTokens(tokens: string[]): void {
+  try {
+    localStorage.removeItem(LEGACY_GUEST_CLAIM_TOKEN_KEY);
+    if (tokens.length === 0) localStorage.removeItem(GUEST_CLAIM_TOKENS_KEY);
+    else
+      localStorage.setItem(
+        GUEST_CLAIM_TOKENS_KEY,
+        JSON.stringify(tokens.slice(-MAX_PENDING_CLAIM_TOKENS)),
+      );
+  } catch {
+    // best effort: a token that cannot be stored only costs a later fold-in
+  }
+}
+
+// Fold every pending guest into the now signed-in account (POST /guest/claim),
+// oldest first, filling whatever identity the account is still missing. A 200
+// updates the session user and spends the token; a 404 means there is nothing to
+// fold in (the guest is gone, or the sign-in linked its document in place), so
+// the token is dropped too; any other status keeps it for a later retry.
+async function claimGuestContributions(): Promise<void> {
+  const pending = readClaimTokens();
+  if (pending.length === 0) return;
+  const unspent: string[] = [];
+  for (const claimToken of pending) {
+    try {
+      const res = await fetch(`${authBaseUrl()}/guest/claim`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ claimToken }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { user: SessionUser };
+        user.value = data.user;
+        continue;
+      }
+      if (res.status !== 404) unspent.push(claimToken);
+    } catch {
+      // network error: keep the token, a later boot retries
+      unspent.push(claimToken);
+    }
+  }
+  writeClaimTokens(unspent);
 }
 
 // App boot and return-from-redirect: resolve the session and, for a user who
@@ -249,7 +301,22 @@ async function claimGuestContributions(): Promise<void> {
 // itself is deferred to startOnboardingIfNeeded, which the app only runs on
 // /play.
 async function bootstrap(): Promise<void> {
-  const maybeClaim = hasClaimToken();
+  authError.value = readQueryFlag(AUTH_ERROR_PARAM);
+  // Halfway through an account switch: this browser was signed out on purpose
+  // and sent back here to finish. Leave for Google straight away, before the
+  // onboarding gate can mint the guest a signed-out visitor would get. The
+  // callback target is spelled out rather than taken from the current href, so
+  // the return lands on a clean /play whatever the address bar still carries.
+  if (readQueryFlag(RESUME_SIGN_IN_PARAM) !== null) {
+    try {
+      await signIn("google", `${window.location.origin}/play`);
+      return;
+    } catch {
+      // the auth host is unreachable: fall through to the ordinary boot, which
+      // lands on the maintenance screen rather than a half-finished switch
+    }
+  }
+  const maybeClaim = readClaimTokens().length > 0;
   if (maybeClaim) claimSettled.value = false;
   const u = await getSession();
   if (!u) {
@@ -284,6 +351,9 @@ export function useAuth() {
     user: computed(() => user.value),
     ready: computed(() => ready.value),
     backendDown: computed(() => backendDown.value),
+    authError: computed(() => authError.value),
+    clearAuthError,
+    switchToLinkedAccount,
     claimSettled: computed(() => claimSettled.value),
     getSession,
     signIn,

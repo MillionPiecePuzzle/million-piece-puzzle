@@ -7,6 +7,7 @@ import {
   makeProfilePseudoHandler,
   makeProfileCountryHandler,
   makeGuestHandler,
+  makeAuthHandoffHandler,
   makeClaimHandler,
   makeCors,
   makeRateLimit,
@@ -39,6 +40,7 @@ function fakeRes() {
     body: undefined as unknown,
     ended: false,
     headers: {} as Record<string, string>,
+    redirectedTo: undefined as string | undefined,
     cookies: [] as { name: string; value: string; options: Record<string, unknown> }[],
   };
   const r = res as unknown as Response & typeof res;
@@ -63,6 +65,9 @@ function fakeRes() {
     res.ended = true;
     return r;
   }) as unknown as Response["end"];
+  r.redirect = vi.fn((url: string) => {
+    res.redirectedTo = url;
+  }) as unknown as Response["redirect"];
   r.setHeader = vi.fn((k: string, v: string) => {
     res.headers[k] = v;
     return r;
@@ -463,7 +468,11 @@ describe("makeClaimHandler", () => {
   });
 
   it("200 reattributes by token hash and returns the updated profile", async () => {
-    const claimGuest = vi.fn(async () => ({ status: "ok" as const, user: claimedProfile }));
+    const claimGuest = vi.fn(async () => ({
+      status: "ok" as const,
+      guestId: "g1",
+      user: claimedProfile,
+    }));
     const handler = makeClaimHandler({
       getUserId: async () => "google1",
       claimStore: { claimGuest },
@@ -476,6 +485,50 @@ describe("makeClaimHandler", () => {
     // The handler hashes the token before it reaches the store; the raw token never does.
     expect(claimGuest).toHaveBeenCalledWith("google1", hashClaimToken("raw-token"));
     expect(claimGuest).not.toHaveBeenCalledWith("google1", "raw-token");
+  });
+
+  it("hands the folded guest and its new owner to onClaimed, and only on success", async () => {
+    const onClaimed = vi.fn();
+    const ok = makeClaimHandler({
+      getUserId: async () => "google1",
+      claimStore: {
+        claimGuest: async () => ({ status: "ok" as const, guestId: "g1", user: claimedProfile }),
+      },
+      onClaimed,
+    });
+    await ok({ body: { claimToken: "tok" } } as Request, fakeRes());
+    expect(onClaimed).toHaveBeenCalledWith("g1", "google1");
+
+    onClaimed.mockClear();
+    const missing = makeClaimHandler({
+      getUserId: async () => "google1",
+      claimStore: { claimGuest: async () => ({ status: "not_found" as const }) },
+      onClaimed,
+    });
+    await missing({ body: { claimToken: "tok" } } as Request, fakeRes());
+    expect(onClaimed).not.toHaveBeenCalled();
+  });
+});
+
+describe("makeAuthHandoffHandler", () => {
+  const handler = makeAuthHandoffHandler({ appOrigin: "http://app.test" });
+
+  it("carries the error code back to the app", () => {
+    const res = fakeRes();
+    handler({ query: { error: "AccountNotLinked" } } as unknown as Request, res);
+    expect((res as unknown as { redirectedTo: string }).redirectedTo).toBe(
+      "http://app.test/play?authError=AccountNotLinked",
+    );
+  });
+
+  it("substitutes a generic code for anything that is not a plain error name", () => {
+    for (const error of [undefined, "", "../evil", "a b", ["x"]]) {
+      const res = fakeRes();
+      handler({ query: { error } } as unknown as Request, res);
+      expect((res as unknown as { redirectedTo: string }).redirectedTo).toBe(
+        "http://app.test/play?authError=SignIn",
+      );
+    }
   });
 });
 

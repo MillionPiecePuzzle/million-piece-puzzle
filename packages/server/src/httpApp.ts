@@ -15,7 +15,7 @@ import type {
   QueueTicketResponse,
 } from "@mpp/shared";
 import { clientIp, type RedisFixedWindow } from "./limits.js";
-import { generateClaimToken, hashClaimToken } from "./auth.js";
+import { AUTH_HANDOFF_PATH, generateClaimToken, hashClaimToken } from "./auth.js";
 import {
   CountryCooldownError,
   DuplicatePseudoError,
@@ -91,6 +91,7 @@ export type CreateAppDeps = {
   countryStore: CountryStore;
   guestStore: GuestStore;
   claimStore: ClaimStore;
+  onClaimed?: (guestUserId: string, targetUserId: string) => void;
   guestSessionMinter: GuestSessionMinter;
   // Session cookie identity, mirrored from the Auth.js cookie config so a guest
   // cookie is indistinguishable from a Google one to the WS gate.
@@ -161,6 +162,10 @@ export function createApp(deps: CreateAppDeps): Express {
   // back), the account-creation chokepoint. Runs in addition to the auth window.
   app.use("/auth/callback/google", makeRateLimit(deps.signupLimiter, deps.devEnabled));
 
+  // Before the Auth.js mount, so a refused sign-in lands here instead of on
+  // Auth.js's own page (see AUTH_HANDOFF_PATH).
+  app.get(AUTH_HANDOFF_PATH, makeAuthHandoffHandler({ appOrigin: deps.appOrigin }));
+
   app.use("/auth/*", ExpressAuth(deps.authConfig));
 
   // Guest mint: a real User + DB session with no Google step. The signup window
@@ -188,6 +193,7 @@ export function createApp(deps: CreateAppDeps): Express {
     makeClaimHandler({
       getUserId: (req) => sessionUserId(req, deps.authConfig),
       claimStore: deps.claimStore,
+      ...(deps.onClaimed ? { onClaimed: deps.onClaimed } : {}),
     }),
   );
 
@@ -570,9 +576,23 @@ export function makeGuestHandler(deps: GuestDeps) {
   };
 }
 
+// GET /auth/handoff: the landing spot for a sign-in Auth.js refused. It carries
+// the error code back to the SPA, which owns the wording and the recovery, and
+// substitutes a generic code for anything that is not a plain error name.
+export function makeAuthHandoffHandler(deps: { appOrigin: string }) {
+  return (req: Request, res: Response): void => {
+    const raw = req.query.error;
+    const code = typeof raw === "string" && /^[A-Za-z]{1,40}$/.test(raw) ? raw : "SignIn";
+    res.redirect(`${deps.appOrigin}/play?authError=${code}`);
+  };
+}
+
 export type ClaimDeps = {
   getUserId: (req: Request) => Promise<string | null>;
   claimStore: ClaimStore;
+  // Notified with (guestUserId, targetUserId) once a fold succeeds, so live
+  // in-memory state keyed by the old id follows the rows that just moved.
+  onClaimed?: (guestUserId: string, targetUserId: string) => void;
 };
 
 // POST /guest/claim: a signed-in user presents a guest's one-time claim token to
@@ -604,6 +624,7 @@ export function makeClaimHandler(deps: ClaimDeps) {
         res.status(409).json({ error: "self_claim" });
         return;
       }
+      deps.onClaimed?.(result.guestId, userId);
       res.status(200).json({ user: result.user });
     } catch (e) {
       console.error("[guest/claim]", (e as Error).message);

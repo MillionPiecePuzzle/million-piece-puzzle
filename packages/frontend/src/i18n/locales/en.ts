@@ -86,6 +86,11 @@ const en = {
     title: "Sync your account",
     lede: "Sign in with Google to save your contributions permanently and keep them under one account.",
     continueGoogle: "Continue with Google",
+    switchTitle: "This Google account has a profile",
+    switchLede:
+      "It already belongs to another builder profile. Recover it, and the pieces you placed here come with you.",
+    switchAction: "Recover my account",
+    signInFailed: "Sign-in did not go through. Try again.",
   },
   options: {
     title: "Account",
@@ -106,6 +111,7 @@ const en = {
     reference: "Open the reference image and zoom in to find where a piece belongs.",
   },
   pseudo: {
+    haveAccount: "Already have an account? Sign in",
     titleEdit: "Change your pseudo",
     titleNew: "Choose your pseudo",
     ledeEdit: "Pick a new pseudo. It is shown to other builders next to the pieces you place.",

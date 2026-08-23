@@ -106,3 +106,21 @@ describe("LeaderboardTracker", () => {
     }
   });
 });
+
+describe("reassign", () => {
+  it("moves a folded guest's tally onto the account that claimed it", () => {
+    const t = new LeaderboardTracker(10);
+    t.recordDrop("guest", [0, 1, 2]);
+    t.recordDrop("account", [3]);
+    t.reassign("guest", "account");
+    expect(t.top(10)).toEqual([{ userId: "account", pieces: 4 }]);
+  });
+
+  it("carries the tally over when the account had none, and ignores an unknown guest", () => {
+    const t = new LeaderboardTracker(10);
+    t.recordDrop("guest", [0, 1]);
+    t.reassign("guest", "account");
+    t.reassign("nobody", "account");
+    expect(t.top(10)).toEqual([{ userId: "account", pieces: 2 }]);
+  });
+});

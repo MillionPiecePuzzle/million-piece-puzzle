@@ -88,6 +88,11 @@ const de: MessageSchema = {
     title: "Konto synchronisieren",
     lede: "Melde dich mit Google an, um deine Beiträge dauerhaft zu sichern und unter einem Konto zu vereinen.",
     continueGoogle: "Mit Google fortfahren",
+    switchTitle: "Dieses Google-Konto hat schon ein Profil",
+    switchLede:
+      "Es gehört bereits zu einem anderen Profil im Puzzle. Hol es zurück, die hier gesetzten Teile kommen mit.",
+    switchAction: "Mein Konto zurückholen",
+    signInFailed: "Die Anmeldung wurde nicht abgeschlossen. Versuch es erneut.",
   },
   options: {
     title: "Konto",
@@ -109,6 +114,7 @@ const de: MessageSchema = {
     reference: "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört.",
   },
   pseudo: {
+    haveAccount: "Du hast schon ein Konto? Anmelden",
     titleEdit: "Pseudonym ändern",
     titleNew: "Wähle dein Pseudonym",
     ledeEdit:

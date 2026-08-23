@@ -88,6 +88,11 @@ const fr: MessageSchema = {
     title: "Synchroniser votre compte",
     lede: "Connectez-vous avec Google pour conserver vos contributions de façon permanente et les réunir sous un seul compte.",
     continueGoogle: "Continuer avec Google",
+    switchTitle: "Ce compte Google a déjà un profil",
+    switchLede:
+      "Il appartient déjà à un autre profil du puzzle. Récupérez-le, les pièces posées ici vous suivent.",
+    switchAction: "Récupérer mon compte",
+    signInFailed: "La connexion n'a pas abouti. Réessayez.",
   },
   options: {
     title: "Compte",
@@ -109,6 +114,7 @@ const fr: MessageSchema = {
     reference: "Ouvrez l'image de référence et zoomez pour trouver où va une pièce.",
   },
   pseudo: {
+    haveAccount: "Vous avez déjà un compte ? Se connecter",
     titleEdit: "Changer de pseudo",
     titleNew: "Choisissez votre pseudo",
     ledeEdit:

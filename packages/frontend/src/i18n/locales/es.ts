@@ -88,6 +88,11 @@ const es: MessageSchema = {
     title: "Sincroniza tu cuenta",
     lede: "Inicia sesión con Google para guardar tus contribuciones de forma permanente y reunirlas en una sola cuenta.",
     continueGoogle: "Continuar con Google",
+    switchTitle: "Esta cuenta de Google ya tiene un perfil",
+    switchLede:
+      "Ya pertenece a otro perfil del puzle. Recupérala y las piezas que has colocado aquí te acompañan.",
+    switchAction: "Recuperar mi cuenta",
+    signInFailed: "El inicio de sesión no se completó. Inténtalo de nuevo.",
   },
   options: {
     title: "Cuenta",
@@ -109,6 +114,7 @@ const es: MessageSchema = {
     reference: "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza.",
   },
   pseudo: {
+    haveAccount: "¿Ya tienes una cuenta? Inicia sesión",
     titleEdit: "Cambiar tu pseudónimo",
     titleNew: "Elige tu pseudónimo",
     ledeEdit:

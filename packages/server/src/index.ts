@@ -381,6 +381,8 @@ async function main(): Promise<void> {
     countryStore: mongo,
     guestStore: mongo,
     claimStore: mongo,
+    onClaimed: (guestUserId, targetUserId) =>
+      leaderboardTracker.reassign(guestUserId, targetUserId),
     guestSessionMinter,
     authCookieName: sessionCookieName(config.authSecure),
     authSecure: config.authSecure,

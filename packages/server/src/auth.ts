@@ -25,6 +25,12 @@ export function hashClaimToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+// Where Auth.js sends a sign-in it refused (a Google account already linked to
+// another profile is the one that happens here). Its own page renders on the
+// auth host, away from the app and outside its locales, so this path is served
+// by the app's own handoff route instead (see makeAuthHandoffHandler).
+export const AUTH_HANDOFF_PATH = "/auth/handoff";
+
 export type AuthConfigOptions = {
   adapter: Adapter;
   // Whether the session cookie is marked Secure (https). Also selects the
@@ -42,6 +48,7 @@ export function buildAuthConfig(opts: AuthConfigOptions): ExpressAuthConfig {
     providers: [Google],
     session: { strategy: "database" },
     trustHost: true,
+    pages: { signIn: AUTH_HANDOFF_PATH },
     cookies: {
       sessionToken: {
         name: sessionCookieName(opts.secure),

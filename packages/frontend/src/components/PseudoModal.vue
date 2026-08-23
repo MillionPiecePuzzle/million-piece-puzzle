@@ -13,11 +13,12 @@ import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
+import GoogleMark from "./GoogleMark.vue";
 
 const { t } = useI18n();
 const { open, mode, initialError, hide } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
-const { user, submitPseudo, setGuestPseudo } = useAuth();
+const { user, submitPseudo, setGuestPseudo, signIn } = useAuth();
 
 const draft = ref("");
 const error = ref<string | null>(null);
@@ -100,6 +101,14 @@ function skip() {
   void save();
 }
 
+// The way back into an existing account. Only in guest mode, the one step that
+// runs with no session at all: Auth.js finds the profile the Google account is
+// linked to and signs straight into it, instead of refusing to attach it to a
+// guest this browser has not minted yet.
+function signInInstead() {
+  void signIn("google");
+}
+
 function onBackdrop() {
   if (dismissible.value) hide();
 }
@@ -161,6 +170,11 @@ const { onMousedown, onClick } = useBackdropClick(onBackdrop);
         <button class="save" :disabled="!valid || saving" @click="save">
           {{ saving ? t("common.saving") : t("common.save") }}
         </button>
+
+        <button v-if="mode === 'guest'" class="signin" :disabled="saving" @click="signInInstead">
+          <GoogleMark :size="16" />
+          {{ t("pseudo.haveAccount") }}
+        </button>
       </div>
     </div>
   </Teleport>
@@ -197,6 +211,24 @@ const { onMousedown, onClick } = useBackdropClick(onBackdrop);
   font-family: var(--mono);
   font-size: 12px;
   color: oklch(0.55 0.18 30);
+}
+.signin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  transition: background 160ms ease;
+}
+.signin:hover:not(:disabled) {
+  background: var(--paper-2);
 }
 .save {
   width: 100%;

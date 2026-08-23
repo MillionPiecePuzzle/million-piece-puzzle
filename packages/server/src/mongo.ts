@@ -48,7 +48,7 @@ export type UserProfile = {
 // a caller trying to claim its own guest session; "not_found" is an unknown or
 // already-claimed token (indistinguishable once the guest doc is deleted).
 export type ClaimResult =
-  | { status: "ok"; user: UserProfile }
+  | { status: "ok"; guestId: string; user: UserProfile }
   | { status: "not_found" }
   | { status: "self" };
 
@@ -269,18 +269,22 @@ export class MongoLogger {
   }
 
   // Fold a guest into a signed-in user: verify the claim token, move the guest's
-  // cluster_merges onto the target, overwrite the target's pseudo/country with the
-  // guest's, and delete the guest. The findOneAndDelete keyed by the guest _id is
-  // the concurrency lock, so two concurrent claims of one token cannot both
+  // cluster_merges onto the target, fill whatever identity the target is missing
+  // from the guest, and delete the guest. The findOneAndDelete keyed by the guest
+  // _id is the concurrency lock, so two concurrent claims of one token cannot both
   // reattribute (the loser reads a gone doc). A self-claim (the caller is the
   // guest) is rejected before any delete, so the caller never deletes its own
   // account. Deleting the guest before setting its pseudo on the target frees the
   // pseudo first, so the carry-over cannot transiently collide on the
-  // partial-unique index.
+  // partial-unique index. Only missing fields are carried: an established account
+  // absorbing a throwaway guest keeps its own pseudo and country, a freshly
+  // created one takes the guest's.
   async claimGuest(targetUserId: string, claimTokenHash: string): Promise<ClaimResult> {
     const guest = await this.users.findOne({ claimTokenHash, guest: true });
     if (!guest) return { status: "not_found" };
     if (guest._id.toString() === targetUserId) return { status: "self" };
+    const target = await this.users.findOne({ _id: new ObjectId(targetUserId) });
+    if (!target) throw new Error(`claim target ${targetUserId} not found`);
     const deleted = await this.users.findOneAndDelete({
       _id: guest._id,
       claimTokenHash,
@@ -289,13 +293,18 @@ export class MongoLogger {
     if (!deleted) return { status: "not_found" };
     const guestId = deleted._id.toString();
     await this.merges.updateMany({ userId: guestId }, { $set: { userId: targetUserId } });
-    const target = await this.users.findOneAndUpdate(
-      { _id: new ObjectId(targetUserId) },
-      { $set: { pseudo: deleted.pseudo ?? null, country: deleted.country ?? null } },
-      { returnDocument: "after" },
-    );
-    if (!target) throw new Error(`claim target ${targetUserId} not found`);
-    return { status: "ok", user: toProfile(target) };
+    const carried = {
+      ...(target.pseudo == null && deleted.pseudo != null ? { pseudo: deleted.pseudo } : {}),
+      ...(target.country == null && deleted.country != null ? { country: deleted.country } : {}),
+    };
+    const filled = Object.keys(carried).length
+      ? await this.users.findOneAndUpdate(
+          { _id: target._id },
+          { $set: carried },
+          { returnDocument: "after" },
+        )
+      : target;
+    return { status: "ok", guestId, user: toProfile(filled ?? target) };
   }
 
   // Set a contributor's pseudo, enforcing global uniqueness through the

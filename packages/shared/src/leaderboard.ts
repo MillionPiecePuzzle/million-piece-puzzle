@@ -57,6 +57,17 @@ export class LeaderboardTracker {
     if (gained > 0) this.perUser.set(userId, (this.perUser.get(userId) ?? 0) + gained);
   }
 
+  // Move one user's tally onto another, for a guest folded into the account that
+  // claimed it: the merge rows change hands in Mongo, and the live standings have
+  // to follow without paying a rebuild. O(1), and a no-op for a guest that never
+  // scored.
+  reassign(fromUserId: string, toUserId: string): void {
+    const gained = this.perUser.get(fromUserId);
+    if (gained === undefined) return;
+    this.perUser.delete(fromUserId);
+    this.perUser.set(toUserId, (this.perUser.get(toUserId) ?? 0) + gained);
+  }
+
   // Highest-first standings, ties broken by userId ascending (matches the
   // Mongo aggregation's own sort). O(active users log limit), never the log.
   top(limit: number): LeaderboardStanding[] {
