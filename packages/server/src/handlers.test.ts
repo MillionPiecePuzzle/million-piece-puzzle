@@ -495,6 +495,7 @@ function makeDropCtx() {
   const broadcastOverlapping = vi.fn();
   const logMerge = vi.fn();
   const attachProfiles = vi.fn().mockResolvedValue([]);
+  const markDirty = vi.fn();
   const state = new FakeState();
   const ctx = {
     hub: { send, broadcast, broadcastOverlapping },
@@ -514,10 +515,11 @@ function makeDropCtx() {
     ),
     minimapGrid: testMinimapGrid(dropMeta.gridCols, dropMeta.pieceSize),
     leaderboardTracker: new LeaderboardTracker(dropMeta.totalPieces),
+    leaderboardBroadcast: { markDirty },
     tilePieceCap: 2048,
     clusterPieceCap: 20000,
   } as unknown as Context;
-  return { ctx, send, broadcast, broadcastOverlapping, logMerge, attachProfiles, state };
+  return { ctx, send, broadcast, broadcastOverlapping, logMerge, attachProfiles, markDirty, state };
 }
 
 const dropped = (id: number, worldX: number, worldY: number): GroupRuntime => ({
@@ -633,7 +635,7 @@ describe("handleDrop", () => {
   });
 
   it("anchors the group to the frame when dropped near the origin", async () => {
-    const { ctx, broadcast, logMerge, state } = makeDropCtx();
+    const { ctx, broadcast, logMerge, markDirty, state } = makeDropCtx();
     state.place(dropped(4, 3, -4), [4]);
     await handleDrop(ctx, client, 4, 3, -4);
     expect(state.groups.has(4)).toBe(false);
@@ -654,8 +656,9 @@ describe("handleDrop", () => {
     expect(logMerge).toHaveBeenCalledWith(
       expect.objectContaining({ anchored: true, lockedDelta: 1 }),
     );
-    // An anchoring snap rebroadcasts the live leaderboard, before completion.
-    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ t: "leaderboard" }));
+    // The standings moved, so the contributor is marked dirty for the next
+    // coalesced publish (see leaderboardBroadcast.ts).
+    expect(markDirty).toHaveBeenCalledWith("u1");
   });
 
   it("sends an empty lockedPieceIds array on a non-anchoring snap", async () => {
@@ -666,6 +669,16 @@ describe("handleDrop", () => {
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ t: "snap", anchored: false, lockedPieceIds: [] }),
     );
+  });
+
+  it("marks the standings dirty on a merge that locks nothing", async () => {
+    const { ctx, markDirty, state } = makeDropCtx();
+    state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
+    state.place(dropped(4, 200, 200), [4]);
+    await handleDrop(ctx, client, 4, 200, 200);
+    // Two loose clusters joining scores the dropped piece, so the standings are
+    // live on it the same as on an anchoring lock.
+    expect(markDirty).toHaveBeenCalledWith("u1");
   });
 
   it("merges the dropped group into an aligned unlocked neighbour", async () => {
@@ -697,7 +710,7 @@ describe("handleDrop", () => {
   });
 
   it("credits a never-dragged neighbour to the player whose drop locks it", async () => {
-    const { ctx, attachProfiles, state } = makeDropCtx();
+    const { ctx, state } = makeDropCtx();
     // Group 1 sits at its solved position and is never dragged: this merge is
     // the only event it ever takes part in, and it takes part on the receiving
     // side. The drop lands group 4 on the frame origin, so the merge anchors
@@ -709,7 +722,7 @@ describe("handleDrop", () => {
     // Crediting droppedPieceIds alone would lock piece 1 with no owner, and the
     // standings would end the event short of the board (see DECISIONS:
     // leaderboard scoring).
-    expect(attachProfiles).toHaveBeenCalledWith([{ userId: "u1", pieces: 2 }]);
+    expect(ctx.leaderboardTracker.top(10)).toEqual([{ userId: "u1", pieces: 2 }]);
   });
 
   it("anchors the dropped group and counts pieces when snapping onto a locked neighbour", async () => {
@@ -841,6 +854,7 @@ describe("handleDrop", () => {
       ),
       minimapGrid: testMinimapGrid(bigMeta.gridCols, bigMeta.pieceSize),
       leaderboardTracker: new LeaderboardTracker(bigMeta.totalPieces),
+      leaderboardBroadcast: { markDirty: vi.fn() },
       tilePieceCap: 2048,
       clusterPieceCap: 20000,
     } as unknown as Context;
@@ -900,12 +914,13 @@ describe("handleDrop", () => {
     expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ t: "snap", anchored: true }));
   });
 
-  it("broadcasts a leaderboard and marks the puzzle completed when the final piece is anchored", async () => {
+  it("credits the standings and marks the puzzle completed when the final piece is anchored", async () => {
     const send = vi.fn();
     const broadcast = vi.fn();
     const broadcastOverlapping = vi.fn();
     const logMerge = vi.fn();
     const attachProfiles = vi.fn().mockResolvedValue([{ userId: "u1", pieces: 1 }]);
+    const markDirty = vi.fn();
     const markCompleted = vi.fn().mockResolvedValue(undefined);
     const state = new FakeState();
     const onePieceMeta: PuzzleMeta = { ...dropMeta, totalPieces: 1, gridRows: 1, gridCols: 1 };
@@ -927,6 +942,7 @@ describe("handleDrop", () => {
       ),
       minimapGrid: testMinimapGrid(onePieceMeta.gridCols, onePieceMeta.pieceSize),
       leaderboardTracker: new LeaderboardTracker(onePieceMeta.totalPieces),
+      leaderboardBroadcast: { markDirty },
       lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);
@@ -935,12 +951,9 @@ describe("handleDrop", () => {
 
     expect(state.lockedCount).toBe(1);
     // The one piece's first (and only) drop credits client.userId ("u1") with
-    // exactly one point; attachProfiles is called with the tracker's own
-    // computed top N, not a mocked pass-through.
-    expect(attachProfiles).toHaveBeenCalledWith([{ userId: "u1", pieces: 1 }]);
-    expect(broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ t: "leaderboard", entries: [{ userId: "u1", pieces: 1 }] }),
-    );
+    // exactly one point, and hands the publish to the coalescing broadcaster.
+    expect(ctx.leaderboardTracker.top(10)).toEqual([{ userId: "u1", pieces: 1 }]);
+    expect(markDirty).toHaveBeenCalledWith("u1");
     expect(markCompleted).toHaveBeenCalled();
   });
 });

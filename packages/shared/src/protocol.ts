@@ -146,8 +146,9 @@ export type SActivity = {
 };
 
 // Per-user contribution standings for the active puzzle, derived on demand from
-// the ClusterMerge log. Broadcast after every anchoring snap and sent to each
-// client on join, so the in-game leaderboard stays live. Each piece is worth
+// the ClusterMerge log. The full top N is sent to a client on join and
+// rebroadcast when a whole tally changes hands (a guest folded into an
+// account); live movement rides on `leaderboard_delta` instead. Each piece is worth
 // one point, credited to the user of the first merge that dragged it; every
 // piece is dragged at least once on its way to its solved position, so the
 // entries' pieces sum to the puzzle's piece count. userId is the persisted user
@@ -165,6 +166,29 @@ export type LeaderboardEntry = {
 export type SLeaderboard = {
   t: "leaderboard";
   entries: LeaderboardEntry[];
+};
+
+// Standings movement, broadcast on a coalescing interval after any merge that
+// scored (see DECISIONS: live standings). Carries only the entries whose tally
+// changed and that currently sit inside the top N, so the payload is a handful
+// of rows instead of the whole list on every merge. The client folds them into
+// the list it already holds by userId, re-sorts (see compareStandings) and
+// truncates back to LEADERBOARD_LIMIT, which stays exact: a contributor only
+// ever enters the top N by scoring, and a scoring contributor is in this delta.
+export type SLeaderboardDelta = {
+  t: "leaderboard_delta";
+  entries: LeaderboardEntry[];
+};
+
+// The receiving client's own live standing, sent to that client alone and only
+// while it ranks outside the top N (inside it, the standings list already
+// carries the row). Sent on join and after any merge of theirs that scored, so
+// a contributor ranked 4000th still watches their own count move. `rank` is the
+// competition rank: 1 + the number of contributors with strictly more pieces.
+export type SStanding = {
+  t: "standing";
+  pieces: number;
+  rank: number;
 };
 
 export type SGrabOk = {
@@ -417,6 +441,8 @@ export type ServerMessage =
   | SWelcome
   | SActivity
   | SLeaderboard
+  | SLeaderboardDelta
+  | SStanding
   | SGrabOk
   | SGrabDenied
   | SDrag

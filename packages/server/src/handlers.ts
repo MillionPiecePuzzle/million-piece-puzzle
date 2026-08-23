@@ -27,10 +27,6 @@ import {
   wireLockedPieces,
 } from "./wire.js";
 
-// Cap on leaderboard entries sent over the wire. Bounds the payload
-// regardless of how many contributors the puzzle actually has.
-export const LEADERBOARD_LIMIT = 100;
-
 export type Context = {
   hub: Hub;
   state: RedisState;
@@ -69,6 +65,11 @@ export type Context = {
   // boot, reset, force-complete, and a slow defense-in-depth resync, the same
   // occasions minimapGrid above rebuilds.
   leaderboardTracker: LeaderboardTracker;
+  // Coalescing publisher for the standings the tracker above maintains (see
+  // leaderboardBroadcast.ts). A merge marks its contributor dirty; the sends
+  // are batched on an interval, so the hot path never pays a profile lookup or
+  // a fan-out of its own.
+  leaderboardBroadcast: { markDirty: (userId: string) => void };
   // Max pieces allowed to rest in one world grid cell (one LOD tile). A non-merging
   // drop that would push the destination cell past this is rejected (see handleDrop).
   tilePieceCap: number;
@@ -610,7 +611,10 @@ async function applyMerge(
   // and the standings would end the event short of the board. allPieces is a
   // superset of droppedPieces (allIds starts at droppedGroupId), and the same
   // union is what leaderboardScoreRows replays from the log.
-  ctx.leaderboardTracker.recordDrop(client.userId, anchored ? allPieces : droppedPieces);
+  const scoredPieces = ctx.leaderboardTracker.recordDrop(
+    client.userId,
+    anchored ? allPieces : droppedPieces,
+  );
 
   const addedPieceIds = allIds
     .filter((id) => id !== newId)
@@ -736,15 +740,12 @@ async function applyMerge(
     lockedCount,
   });
 
-  // Standings shift on every merge (see recordDrop above), but only
-  // rebroadcast on an anchoring snap, the existing cadence: reading the
-  // in-memory tracker's top N and attaching profiles for just those is
-  // O(limit), not the full-log scan a per-snap Mongo aggregation used to pay
-  // (see DECISIONS: leaderboard scoring).
-  if (lockedDelta > 0) {
-    const entries = await ctx.mongo.attachProfiles(ctx.leaderboardTracker.top(LEADERBOARD_LIMIT));
-    ctx.hub.broadcast({ t: "leaderboard", entries });
-  }
+  // Standings shift on every merge that credits a piece (see recordDrop
+  // above), anchoring or not, so every such merge marks this contributor
+  // dirty. The publish itself is coalesced and its payload bounded to the rows
+  // that moved (see DECISIONS: live standings delta), which is what makes
+  // per-merge liveness affordable at all.
+  if (scoredPieces > 0) ctx.leaderboardBroadcast.markDirty(client.userId);
 
   if (anchored && lockedCount >= ctx.meta.totalPieces) {
     await ctx.lifecycle?.markCompleted();

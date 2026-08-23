@@ -1,7 +1,13 @@
 // Real leaderboard data: server LeaderboardEntry values (userId + piece count)
 // turned into the display rows consumed by LeaderboardRow.vue and the panels.
 
-import { COUNTRIES, INTERNATIONAL, type LeaderboardEntry } from "@mpp/shared";
+import {
+  COUNTRIES,
+  INTERNATIONAL,
+  LEADERBOARD_LIMIT,
+  compareStandings,
+  type LeaderboardEntry,
+} from "@mpp/shared";
 
 export type LeaderboardRow = {
   rank: number;
@@ -30,12 +36,48 @@ const palette = [
 // An entry's display name is the contributor's pseudo. It falls back to a short
 // prefix of the user id when the pseudo is unset (a contributor who placed
 // pieces before choosing one cannot occur, but backfilled rows stay robust).
-function displayName(entry: LeaderboardEntry): string {
+function displayName(entry: { userId: string; pseudo?: string | null }): string {
   return entry.pseudo ?? entry.userId.slice(0, 8);
 }
 
 function initials(name: string): string {
   return (name.slice(0, 2) || "??").toUpperCase();
+}
+
+// Fold a standings delta into the list held since the welcome: a delta entry
+// replaces the row with the same userId or joins the list, then the whole list
+// re-sorts the server's way and truncates back to the server's own bound, so an
+// entry climbing into the top N pushes the last one out. Truncating is what
+// keeps the list a true top N rather than a growing pile: the server only ever
+// deltas entries that are inside it.
+export function mergeLeaderboardDelta(
+  current: LeaderboardEntry[],
+  delta: LeaderboardEntry[],
+): LeaderboardEntry[] {
+  if (delta.length === 0) return current;
+  const byUser = new Map(current.map((entry) => [entry.userId, entry]));
+  for (const entry of delta) byUser.set(entry.userId, entry);
+  return [...byUser.values()].sort(compareStandings).slice(0, LEADERBOARD_LIMIT);
+}
+
+// The local contributor's own row while they rank outside the standings list
+// (see the `standing` message): same rendering as any other row, built from the
+// rank and tally the server sends plus the profile the session already knows.
+export function toPersonalRow(
+  standing: { pieces: number; rank: number },
+  profile: { userId: string; pseudo: string | null; country: string | null },
+): LeaderboardRow {
+  const name = displayName({ userId: profile.userId, pseudo: profile.pseudo });
+  return {
+    rank: standing.rank,
+    name,
+    initials: initials(name),
+    color: "var(--accent)",
+    country: profile.country,
+    pieces: standing.pieces,
+    online: false,
+    you: true,
+  };
 }
 
 export function toLeaderboardRows(

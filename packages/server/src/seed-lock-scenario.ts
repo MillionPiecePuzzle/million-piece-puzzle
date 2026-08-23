@@ -263,9 +263,7 @@ async function main(): Promise<void> {
     const playZone = playZoneForManifest(manifest, config.generationSeed);
     const minimapGrid = new MinimapGridTracker(meta.gridCols, meta.pieceSize, playZone);
     // Fresh, like every other in-process index here: this script only ever
-    // targets a fresh, unplayed puzzle (see the top-of-file comment), and the
-    // leaderboard broadcast applyMerge triggers is a no-op anyway (no real
-    // clients on this script's Hub).
+    // targets a fresh, unplayed puzzle (see the top-of-file comment).
     const leaderboardTracker = new LeaderboardTracker(meta.totalPieces);
     const solvedDensity = Math.round((cellSize / meta.pieceSize) ** 2);
     const tilePieceCap =
@@ -288,6 +286,10 @@ async function main(): Promise<void> {
       lockedPieces,
       minimapGrid,
       leaderboardTracker,
+      // Nothing to publish to: the standings publisher would only fan out to
+      // this script's clientless Hub, at the cost of a profile lookup per
+      // window against the very Mongo the run is measuring.
+      leaderboardBroadcast: { markDirty: () => {} },
       tilePieceCap,
       clusterPieceCap: config.clusterPieceCap,
       broadcastMaxCells: config.broadcastMaxCells,

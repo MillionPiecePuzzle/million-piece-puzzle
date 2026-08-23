@@ -45,6 +45,15 @@ describe("LeaderboardTracker", () => {
     expect(tracker.top(10)).toEqual([{ userId: "u1", pieces: 2 }]);
   });
 
+  it("reports how many pieces the drop actually credited", () => {
+    const tracker = new LeaderboardTracker(10);
+    expect(tracker.recordDrop("u1", [0, 1])).toBe(2);
+    // Piece 1 is already scored, so only piece 2 counts here, and a drop that
+    // credits nothing reports 0 (the caller publishes standings on the count).
+    expect(tracker.recordDrop("u2", [1, 2])).toBe(1);
+    expect(tracker.recordDrop("u2", [0, 1, 2])).toBe(0);
+  });
+
   it("top() sorts by pieces descending, ties broken by userId ascending", () => {
     const tracker = new LeaderboardTracker(10);
     tracker.rebuildFromLog([
@@ -122,5 +131,58 @@ describe("reassign", () => {
     t.reassign("guest", "account");
     t.reassign("nobody", "account");
     expect(t.top(10)).toEqual([{ userId: "account", pieces: 2 }]);
+  });
+});
+
+describe("standingsFor", () => {
+  it("ranks a contributor by how many others have strictly more pieces", () => {
+    const t = new LeaderboardTracker(20);
+    t.recordDrop("first", [0, 1, 2]);
+    t.recordDrop("second", [3, 4]);
+    t.recordDrop("third", [5]);
+    expect([...t.standingsFor(["first", "second", "third"]).values()]).toEqual([
+      { userId: "first", pieces: 3, rank: 1 },
+      { userId: "second", pieces: 2, rank: 2 },
+      { userId: "third", pieces: 1, rank: 3 },
+    ]);
+  });
+
+  it("gives tied contributors one shared rank", () => {
+    const t = new LeaderboardTracker(20);
+    t.recordDrop("a", [0, 1]);
+    t.recordDrop("b", [2]);
+    t.recordDrop("c", [3]);
+    t.recordDrop("d", [4]);
+    const ranked = t.standingsFor(["b", "c", "d"]);
+    expect(ranked.get("b")!.rank).toBe(2);
+    expect(ranked.get("c")!.rank).toBe(2);
+    expect(ranked.get("d")!.rank).toBe(2);
+  });
+
+  it("has nothing to say about a contributor who never scored", () => {
+    const t = new LeaderboardTracker(20);
+    t.recordDrop("a", [0]);
+    expect(t.standingsFor(["nobody"]).size).toBe(0);
+  });
+
+  it("agrees with the ranks top() lays out, over a long random tally", () => {
+    const rng = mulberry32(seedFromString("standings-rank-check"));
+    const t = new LeaderboardTracker(400);
+    const users = Array.from({ length: 40 }, (_, i) => `u${i}`);
+    for (let piece = 0; piece < 400; piece++) {
+      t.recordDrop(users[Math.floor(rng() * users.length)]!, [piece]);
+    }
+    const ordered = t.top(users.length);
+    const ranked = t.standingsFor(users);
+    // A rank is a position in top()'s own order, up to the ties top() breaks by
+    // userId and a competition rank shares: the first holder of a tally is the
+    // one whose position must match.
+    const firstAtTally = new Map<number, number>();
+    ordered.forEach((s, i) => {
+      if (!firstAtTally.has(s.pieces)) firstAtTally.set(s.pieces, i + 1);
+    });
+    for (const standing of ordered) {
+      expect(ranked.get(standing.userId)!.rank).toBe(firstAtTally.get(standing.pieces));
+    }
   });
 });

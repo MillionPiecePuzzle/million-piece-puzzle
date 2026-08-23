@@ -105,6 +105,11 @@ export type ServerConfig = {
   // maintained incrementally (see DECISIONS: server-computed minimap grid), so
   // this tick reads it rather than re-scanning the board.
   keyframeIntervalMs: number;
+  // Floor between two standings publishes (see leaderboardBroadcast.ts). Every
+  // merge that credits a piece moves the standings, so this is what turns an
+  // unbounded per-merge fan-out into one bounded publish per window; the first
+  // merge after a quiet window still publishes immediately.
+  leaderboardBroadcastIntervalMs: number;
   // Cadence of the minimap grid's defense-in-depth full resync: a from-scratch
   // O(board) recompute that overwrites the incrementally-maintained grid, in
   // case a bug or an unforeseen code path ever let it drift from the true board
@@ -278,6 +283,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
     clusterPieceCap: int("MPP_CLUSTER_PIECE_CAP", 20000),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
+    leaderboardBroadcastIntervalMs: int("MPP_LEADERBOARD_BROADCAST_INTERVAL_MS", 2000),
     minimapGridResyncIntervalMs: int("MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS", 86400000),
     eventStartsAt: overrides.eventStartsAt ?? int("MPP_EVENT_STARTS_AT", 0),
     authUrl,

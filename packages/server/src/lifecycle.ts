@@ -1,8 +1,8 @@
 import type { ImageManifest, PlayZone } from "@mpp/shared";
-import { PROTOCOL_VERSION } from "@mpp/shared";
+import { LEADERBOARD_LIMIT, PROTOCOL_VERSION } from "@mpp/shared";
 import type { BoardSnapshot } from "./keyframe.js";
 import type { Hub, Client } from "./hub.js";
-import { LEADERBOARD_LIMIT, type Context } from "./handlers.js";
+import type { Context } from "./handlers.js";
 import {
   forceInitPuzzle,
   playZoneForManifest,
@@ -81,6 +81,20 @@ export class PuzzleLifecycle {
       this.ctx.leaderboardTracker.top(LEADERBOARD_LIMIT),
     );
     this.ctx.hub.send(client, { t: "leaderboard", entries });
+    // A contributor ranked outside that top N appears in no row of it, so their
+    // own tally would never reach them. Send it as the personal standing the
+    // panel pins, the same message the coalescing broadcaster sends when it
+    // moves (see leaderboardBroadcast.ts).
+    if (!entries.some((e) => e.userId === client.userId)) {
+      const standing = this.ctx.leaderboardTracker.standingsFor([client.userId]).get(client.userId);
+      if (standing) {
+        this.ctx.hub.send(client, {
+          t: "standing",
+          pieces: standing.pieces,
+          rank: standing.rank,
+        });
+      }
+    }
     // The minimap grid is reused from the latest keyframe (computed on the
     // keyframe cadence), so a join costs no extra full-board read. None yet at
     // the very first boot tick: the next periodic minimap broadcast fills it.

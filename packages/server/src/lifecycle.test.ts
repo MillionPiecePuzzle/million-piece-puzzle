@@ -12,8 +12,10 @@ import {
   MinimapGridTracker,
   WORLD_TILE_SIZE,
   type ImageManifest,
+  type LeaderboardStanding,
   type PlayZone,
 } from "@mpp/shared";
+import type { Client } from "./hub.js";
 
 // PuzzleLifecycle's constructor runs real piece geometry generation off the
 // manifest's own rows/cols (via playZoneForManifest), unrelated to
@@ -54,8 +56,9 @@ function makeLifecycle(totalPieces: number, lockedCount: number) {
   const addLockedCount = vi.fn().mockResolvedValue(0);
   const anchorAllGroups = vi.fn().mockResolvedValue(undefined);
   const leaderboardScoreRows = vi.fn().mockResolvedValue([]);
+  const send = vi.fn();
   const ctx = {
-    hub: { allClients: () => [], resetSubscription: vi.fn(), send: vi.fn() },
+    hub: { allClients: () => [], resetSubscription: vi.fn(), send, clientCount: () => 1 },
     state: {
       anchorAllGroups,
       getLockedCount: vi.fn().mockResolvedValue(lockedCount),
@@ -67,7 +70,14 @@ function makeLifecycle(totalPieces: number, lockedCount: number) {
     },
     meta,
     puzzleId: "test",
-    mongo: { logMerge, leaderboardScoreRows },
+    mongo: {
+      logMerge,
+      leaderboardScoreRows,
+      recentMerges: vi.fn().mockResolvedValue([]),
+      // Pass-through: sendWelcome reads the entries back to decide whether the
+      // joining contributor is inside the list at all.
+      attachProfiles: vi.fn(async (standings: LeaderboardStanding[]) => standings),
+    },
     generationSeed: meta.generationSeed,
     groupIndex: new GroupIndex(WORLD_TILE_SIZE),
     lockedPieces: new LockedPieceIndex(
@@ -81,7 +91,7 @@ function makeLifecycle(totalPieces: number, lockedCount: number) {
     leaderboardTracker: new LeaderboardTracker(meta.totalPieces),
   } as unknown as Context;
   const lifecycle = new PuzzleLifecycle(ctx, manifest);
-  return { lifecycle, ctx, logMerge, addLockedCount, anchorAllGroups, leaderboardScoreRows };
+  return { lifecycle, ctx, logMerge, addLockedCount, anchorAllGroups, leaderboardScoreRows, send };
 }
 
 describe("PuzzleLifecycle.forceComplete", () => {
@@ -191,5 +201,32 @@ describe("PuzzleLifecycle.forceComplete", () => {
   it("does not touch the compositor when none is wired", async () => {
     const { lifecycle } = makeLifecycle(7, 2);
     await expect(lifecycle.forceComplete("user-1")).resolves.not.toThrow();
+  });
+});
+
+describe("PuzzleLifecycle.sendWelcome", () => {
+  it("hands a contributor ranked outside the standings list their own standing", async () => {
+    const { lifecycle, ctx, send } = makeLifecycle(250, 0);
+    // 100 contributors on two pieces each fill the list exactly, leaving this
+    // one just outside it with nothing to read their own tally from.
+    for (let i = 0; i < 100; i++) {
+      ctx.leaderboardTracker.recordDrop(`u${i}`, [i * 2, i * 2 + 1]);
+    }
+    ctx.leaderboardTracker.recordDrop("zz-tail", [200]);
+    const client = { userId: "zz-tail" } as unknown as Client;
+
+    await lifecycle.sendWelcome(client);
+
+    expect(send).toHaveBeenCalledWith(client, { t: "standing", pieces: 1, rank: 101 });
+  });
+
+  it("sends no personal standing to a contributor the list already carries", async () => {
+    const { lifecycle, ctx, send } = makeLifecycle(10, 0);
+    ctx.leaderboardTracker.recordDrop("u1", [0]);
+    const client = { userId: "u1" } as unknown as Client;
+
+    await lifecycle.sendWelcome(client);
+
+    expect(send).not.toHaveBeenCalledWith(client, expect.objectContaining({ t: "standing" }));
   });
 });

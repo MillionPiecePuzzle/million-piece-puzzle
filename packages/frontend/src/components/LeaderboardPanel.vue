@@ -1,25 +1,40 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { useAuth } from "../composables/useAuth";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
-import { toLeaderboardRows } from "../data/leaderboard";
+import { toLeaderboardRows, toPersonalRow } from "../data/leaderboard";
 import LeaderboardModal from "./LeaderboardModal.vue";
 import LeaderboardRow from "./LeaderboardRow.vue";
 import ScoringModal from "./ScoringModal.vue";
 
 const { t } = useI18n();
-const { leaderboard, userId } = usePuzzleSession();
+const { leaderboard, myStanding, userId } = usePuzzleSession();
+const { user } = useAuth();
 const showModal = ref(false);
 const showScoring = ref(false);
 
 // Compact panel: the leaders, plus the local user and their neighbour when the
-// local user ranks outside the visible leaders.
+// local user ranks outside the visible leaders. Outside the standings list
+// entirely (nothing to slice), their own row comes from the personal standing
+// the server sends them instead, so a contributor ranked 4000th still watches
+// their own count move.
 const panelRows = computed(() => {
   const rows = toLeaderboardRows(leaderboard.value, userId.value);
   const top = rows.slice(0, 6);
   const youIndex = rows.findIndex((r) => r.you);
-  const tail = youIndex >= 6 ? rows.slice(youIndex, youIndex + 2) : [];
-  return [...top, ...tail];
+  if (youIndex >= 6) return [...top, ...rows.slice(youIndex, youIndex + 2)];
+  if (youIndex === -1 && myStanding.value && userId.value) {
+    return [
+      ...top,
+      toPersonalRow(myStanding.value, {
+        userId: userId.value,
+        pseudo: user.value?.pseudo ?? null,
+        country: user.value?.country ?? null,
+      }),
+    ];
+  }
+  return top;
 });
 </script>
 

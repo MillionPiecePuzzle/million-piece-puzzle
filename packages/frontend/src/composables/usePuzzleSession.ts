@@ -15,6 +15,7 @@ import { WS_CLOSE_SERVICE_RESTART } from "@mpp/shared";
 import type { InitialGroupSpec } from "../canvas/puzzleStage";
 import { PuzzleWsClient } from "../canvas/wsClient";
 import { backendReachable, backendRetryDelayMs } from "../data/landing";
+import { mergeLeaderboardDelta } from "../data/leaderboard";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { queueStatusUrl, queueTicketUrl } from "../data/queueUrl";
 import { useMode } from "./useMode";
@@ -77,6 +78,10 @@ const totalPieces = ref(0);
 const lockedCount = ref(0);
 const activity = ref<ActivityEntry[]>([]);
 const leaderboard = ref<LeaderboardEntry[]>([]);
+// The local contributor's own standing while they rank outside the standings
+// list above, which then carries no row for them. Null while they are inside it
+// (the list is the finer answer) and until the server has sent one.
+const myStanding = ref<{ pieces: number; rank: number } | null>(null);
 const onlineCount = ref(0);
 const transport = ref<Transport>("none");
 // The puzzle is finished once every piece is locked. Derived so the shell can
@@ -233,6 +238,7 @@ async function handleWelcome(msg: SWelcome): Promise<void> {
   onlineCount.value = msg.count;
   activity.value = [];
   leaderboard.value = [];
+  myStanding.value = null;
   flushPendingDev();
   const needsLoad = !manifest || manifest.puzzleId !== msg.puzzleId;
   if (needsLoad) {
@@ -401,6 +407,12 @@ function connectWs(grant: string | null): void {
       applyActivity(msg);
     } else if (msg.t === "leaderboard") {
       leaderboard.value = msg.entries;
+      if (msg.entries.some((e) => e.userId === userId.value)) myStanding.value = null;
+    } else if (msg.t === "leaderboard_delta") {
+      leaderboard.value = mergeLeaderboardDelta(leaderboard.value, msg.entries);
+      if (msg.entries.some((e) => e.userId === userId.value)) myStanding.value = null;
+    } else if (msg.t === "standing") {
+      myStanding.value = { pieces: msg.pieces, rank: msg.rank };
     } else if (msg.t === "join" || msg.t === "leave") {
       onlineCount.value = msg.count;
     } else if (msg.t === "error") {
@@ -456,6 +468,7 @@ function close(): void {
   totalPieces.value = 0;
   activity.value = [];
   leaderboard.value = [];
+  myStanding.value = null;
 }
 
 function onMessage(handler: MessageHandler): () => void {
@@ -517,6 +530,7 @@ export function usePuzzleSession() {
     lockedCount,
     activity,
     leaderboard,
+    myStanding,
     onlineCount,
     transport,
     completed,

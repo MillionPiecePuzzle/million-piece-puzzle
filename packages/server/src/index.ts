@@ -8,6 +8,7 @@ import {
   PROTOCOL_VERSION,
   WORLD_TILE_SIZE,
   WS_CLOSE_SERVICE_RESTART,
+  LEADERBOARD_LIMIT,
   LeaderboardTracker,
   MinimapGridTracker,
   seedFromString,
@@ -20,7 +21,7 @@ import { buildWireContext } from "./wire.js";
 import { reconcileBoardSeed } from "./relabel.js";
 import { RedisState } from "./state.js";
 import { MongoLogger, ensureIndexes } from "./mongo.js";
-import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
+import { dispatch, type Context } from "./handlers.js";
 import { GroupQueue } from "./queue.js";
 import { releaseHeldGroups, sweepStaleHolds } from "./holds.js";
 import { sleep } from "./regionStream.js";
@@ -43,6 +44,7 @@ import { unpackCellKey } from "./worldGrid.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
 import { KeyframePublisher } from "./keyframe.js";
+import { LeaderboardBroadcaster } from "./leaderboardBroadcast.js";
 import {
   buildAuthConfig,
   resolveSessionUser,
@@ -207,6 +209,15 @@ async function main(): Promise<void> {
   // a group's own messages stay ordered, and a merge serializes against every
   // group it joins (see DECISIONS: per-group dispatch queues).
   const queue = new GroupQueue();
+  // Coalescing publisher for the standings: every scoring merge marks its
+  // contributor dirty and the batched publish sends the rows that moved (see
+  // leaderboardBroadcast.ts).
+  const leaderboardBroadcast = new LeaderboardBroadcaster(config.leaderboardBroadcastIntervalMs, {
+    hub,
+    tracker: leaderboardTracker,
+    attachProfiles: (standings) => mongo.attachProfiles(standings),
+    limit: LEADERBOARD_LIMIT,
+  });
   const ctx: Context = {
     hub,
     state,
@@ -222,6 +233,7 @@ async function main(): Promise<void> {
     lockedPieces,
     minimapGrid,
     leaderboardTracker,
+    leaderboardBroadcast,
     tilePieceCap,
     clusterPieceCap: config.clusterPieceCap,
     broadcastMaxCells: config.broadcastMaxCells,
@@ -381,8 +393,13 @@ async function main(): Promise<void> {
     countryStore: mongo,
     guestStore: mongo,
     claimStore: mongo,
-    onClaimed: (guestUserId, targetUserId) =>
-      leaderboardTracker.reassign(guestUserId, targetUserId),
+    onClaimed: (guestUserId, targetUserId) => {
+      leaderboardTracker.reassign(guestUserId, targetUserId);
+      // A fold moves a whole tally between two user ids and retires the guest's
+      // row, which the standings delta cannot express, so the full list goes
+      // out instead (see LeaderboardBroadcaster.broadcastSnapshot).
+      void leaderboardBroadcast.broadcastSnapshot();
+    },
     guestSessionMinter,
     authCookieName: sessionCookieName(config.authSecure),
     authSecure: config.authSecure,
@@ -647,6 +664,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     console.log("[shutdown] closing");
     keyframePublisher.stop();
+    leaderboardBroadcast.stop();
     clearInterval(heartbeatTimer);
     if (admissionSweepTimer) clearInterval(admissionSweepTimer);
     clearInterval(staleHoldSweepTimer);
