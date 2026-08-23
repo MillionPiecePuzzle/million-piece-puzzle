@@ -12,6 +12,8 @@ v1.0 is out: production serves the 1,000,000-piece `earth-mosaic` board ahead of
 
 Every player, guest or signed in, connects over a single WebSocket path. Past a global connection cap an admission queue holds new arrivals in a first-in-first-out wait, so the server sheds load into an orderly queue instead of accepting connections until it falls over.
 
+A restart is announced rather than suffered: the server tells every connected player it is going down before it drops the sockets, and the app switches to a maintenance screen (served by Cloudflare Pages, so it survives the backend being gone) that reloads itself back into the board once the server answers again.
+
 Piece events are tiered by cost:
 
 | Event | Scope |

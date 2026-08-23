@@ -166,6 +166,12 @@ const fr: MessageSchema = {
     position: "Position {n} dans la file",
     waiting: "En attente d'une place libre",
   },
+  maintenance: {
+    kicker: "Maintenance",
+    heading: "Le puzzle est indisponible",
+    body: "Le plateau n'est pas joignable pour le moment. Il devrait revenir dans quelques minutes.",
+    retrying: "La page revient toute seule, pas besoin de la recharger.",
+  },
   completion: {
     complete: "Terminé",
     assembled: "Puzzle assemblé.",

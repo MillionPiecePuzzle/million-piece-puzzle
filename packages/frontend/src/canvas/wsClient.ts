@@ -1,7 +1,9 @@
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from "@mpp/shared";
 
 export type WsListener = (msg: ServerMessage) => void;
-export type WsCloseListener = (info: { intentional: boolean }) => void;
+// `code` is the WebSocket close code, so a caller can tell a deliberate server
+// restart (1012) from any other drop.
+export type WsCloseListener = (info: { intentional: boolean; code: number }) => void;
 
 export class PuzzleWsClient {
   private ws: WebSocket | null = null;
@@ -30,10 +32,10 @@ export class PuzzleWsClient {
       }
       for (const l of this.listeners) l(msg);
     });
-    ws.addEventListener("close", () => {
+    ws.addEventListener("close", (ev) => {
       this.ws = null;
       const intentional = this.intentionalClose;
-      for (const l of this.closeListeners) l({ intentional });
+      for (const l of this.closeListeners) l({ intentional, code: ev.code });
     });
   }
 

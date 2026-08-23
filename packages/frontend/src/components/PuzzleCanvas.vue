@@ -6,6 +6,7 @@ import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuz
 import { useStageControls } from "../composables/useStageControls";
 import { useMinimap } from "../composables/useMinimap";
 import { useMode } from "../composables/useMode";
+import { useAuth } from "../composables/useAuth";
 import { useLocaleFormat } from "../i18n/format";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 import { toLeaderboardRows } from "../data/leaderboard";
@@ -20,6 +21,7 @@ const {
   userId,
   leaderboard,
   startContributor,
+  enterMaintenance,
   close,
   onMessage,
   sendGrab,
@@ -31,6 +33,7 @@ const {
 const { setControls, setCamera, setReady } = useStageControls();
 const { setMinimapSource, setMinimapNavigate, setMinimapDetailSource } = useMinimap();
 const { mode } = useMode();
+const { backendDown } = useAuth();
 
 let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
@@ -117,14 +120,20 @@ const errorMessage = computed(() =>
 // Admission-queue wait: the loading cover shows a place-in-line message instead of
 // the staged-load steps while the client waits past the server cap.
 const isQueued = computed(() => state.value.kind === "queued");
+
+// Server down: the same cover carries the maintenance notice. It outranks the
+// error branch, since this is not the player's problem to act on.
+const isMaintenance = computed(() => state.value.kind === "maintenance");
 const queuePosition = computed(() => (state.value.kind === "queued" ? state.value.position : 0));
 
 const coverKicker = computed(() => {
+  if (isMaintenance.value) return t("maintenance.kicker");
   if (errorMessage.value) return t("loading.error");
   if (isQueued.value) return t("queue.kicker");
   return t("loading.loading");
 });
 const coverHeading = computed(() => {
+  if (isMaintenance.value) return t("maintenance.heading");
   if (errorMessage.value) return t("loading.couldNotLoad");
   if (isQueued.value) return t("queue.heading");
   return phaseHeading.value;
@@ -301,6 +310,18 @@ onMounted(async () => {
   }
 });
 
+// The session request finding nobody home means the server is down, so mode will
+// never flip to contributor and no connection is coming: show the maintenance
+// screen straight away. Immediate, since the session can already have resolved
+// by the time the canvas mounts.
+watch(
+  backendDown,
+  (down) => {
+    if (down) enterMaintenance();
+  },
+  { immediate: true },
+);
+
 // Connect when the identity becomes ready: a resolved returning session or a
 // just-minted guest flips mode to contributor, which opens the WebSocket; the
 // `welcome` then drives the board build on the freshly mounted stage.
@@ -396,6 +417,18 @@ onBeforeUnmount(() => {
     <div v-if="showStatus" class="status" role="status" aria-live="polite">
       <p class="kicker">{{ coverKicker }}</p>
       <p class="value">{{ coverHeading }}</p>
+      <template v-if="isMaintenance">
+        <p class="detail">{{ t("maintenance.body") }}</p>
+        <div
+          class="progress indeterminate"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          <div class="bar" />
+        </div>
+        <p class="detail">{{ t("maintenance.retrying") }}</p>
+      </template>
       <template v-if="isQueued">
         <p class="detail queue-detail">
           {{
@@ -413,7 +446,7 @@ onBeforeUnmount(() => {
           <div class="bar" />
         </div>
       </template>
-      <template v-if="!errorMessage && !isQueued">
+      <template v-if="!errorMessage && !isQueued && !isMaintenance">
         <ol class="steps" aria-hidden="true">
           <li
             v-for="(phase, i) in LOAD_PHASES"

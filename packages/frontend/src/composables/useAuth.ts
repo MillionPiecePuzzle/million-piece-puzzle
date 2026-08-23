@@ -33,6 +33,11 @@ const GUEST_CLAIM_TOKEN_KEY = "mpp.guestClaimToken";
 
 const user = ref<SessionUser | null>(null);
 const ready = ref(false);
+// True when the session request could not reach the server at all, as opposed to
+// the server answering "no session". Onboarding must not start in that case: the
+// server that would mint the guest is down, so the player belongs on the
+// maintenance screen instead of in a modal whose submit is bound to fail.
+const backendDown = ref(false);
 // False while a guest-claim is pending on boot, so the onboarding gate does not
 // flash a forced-pseudo modal at a freshly synced Google account before the
 // claim carries over the guest's pseudo and country.
@@ -69,6 +74,7 @@ function submitForm(action: string, fields: Record<string, string>): void {
 async function getSession(): Promise<SessionUser | null> {
   try {
     const res = await fetch(`${authBaseUrl()}/auth/session`, { credentials: "include" });
+    backendDown.value = res.status >= 500;
     if (res.ok) {
       const data = (await res.json()) as { user?: SessionUser } | null;
       user.value = data?.user ?? null;
@@ -76,6 +82,7 @@ async function getSession(): Promise<SessionUser | null> {
       user.value = null;
     }
   } catch {
+    backendDown.value = true;
     user.value = null;
   } finally {
     ready.value = true;
@@ -274,6 +281,7 @@ export function useAuth() {
   return {
     user: computed(() => user.value),
     ready: computed(() => ready.value),
+    backendDown: computed(() => backendDown.value),
     claimSettled: computed(() => claimSettled.value),
     getSession,
     signIn,

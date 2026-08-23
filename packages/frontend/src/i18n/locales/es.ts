@@ -164,6 +164,12 @@ const es: MessageSchema = {
     position: "Posición {n} en la cola",
     waiting: "Esperando un hueco libre",
   },
+  maintenance: {
+    kicker: "Mantenimiento",
+    heading: "El puzle no está disponible",
+    body: "El tablero no está accesible ahora mismo. Debería volver en unos minutos.",
+    retrying: "La página vuelve sola, no hace falta recargarla.",
+  },
   completion: {
     complete: "Completado",
     assembled: "Puzle ensamblado.",

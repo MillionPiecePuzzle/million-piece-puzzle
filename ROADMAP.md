@@ -89,7 +89,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ### `infra-deploy`
 
-- [~] A restart or an outage never reads as the player's own connection failing: the server announces the shutdown before closing sockets, and every client (in game, arriving, or on the landing) lands on a localized "puzzle unavailable, back in a few minutes" screen served entirely from Cloudflare Pages, which returns to the board by itself once the server answers again
+- [x] A restart or an outage never reads as the player's own connection failing: the server announces the shutdown (maintenance notice, then WS close 1012) before dropping sockets, and every client (in game, arriving, or on the landing) lands on a localized "puzzle unavailable, back in a few minutes" screen served entirely from Cloudflare Pages, which reloads itself back into the board once the server answers again. See DECISIONS
 
 ---
 

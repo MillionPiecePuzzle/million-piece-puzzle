@@ -278,9 +278,24 @@ export type SCursor = {
 
 export type SError = {
   t: "error";
-  code: "bad_message" | "unknown_group" | "protocol_mismatch" | "not_held" | "dev_disabled";
+  code:
+    | "bad_message"
+    | "unknown_group"
+    | "protocol_mismatch"
+    | "not_held"
+    | "dev_disabled"
+    // The server is shutting down (deploy, restart, outage). Terminal, unlike the
+    // other codes: the connection closes right behind it and the client shows the
+    // maintenance screen instead of a connection error.
+    | "maintenance";
   message: string;
 };
+
+// RFC 6455 close code 1012, Service Restart. Carried on the close frame that
+// follows the maintenance error so a client whose notice was lost to the
+// shutdown race still reads the drop as a restart, not as its own connection
+// failing.
+export const WS_CLOSE_SERVICE_RESTART = 1012;
 
 // Construction data for one group in a region_state stream: its anchor world
 // position (worldX, worldY), member count, and member pieces (each with its

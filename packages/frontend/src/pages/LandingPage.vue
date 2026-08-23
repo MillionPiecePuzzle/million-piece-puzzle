@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import type { ActivityItem, LeaderboardEntry } from "@mpp/shared";
@@ -10,7 +10,13 @@ import LeaderboardRow from "../components/LeaderboardRow.vue";
 import { useCountdown } from "../composables/useCountdown";
 import { useRelativeTime } from "../composables/useRelativeTime";
 import { useLocaleFormat } from "../i18n/format";
-import { interestedUrl, loadLanding, type InterestState } from "../data/landing";
+import {
+  backendRetryDelayMs,
+  interestedUrl,
+  loadLanding,
+  type InterestState,
+  type LandingData,
+} from "../data/landing";
 import { toLeaderboardRows } from "../data/leaderboard";
 
 const router = useRouter();
@@ -30,6 +36,10 @@ const progress = ref<{ locked: number; total: number }>({ locked: 0, total: 0 })
 const leaderboard = ref<LeaderboardEntry[]>([]);
 const activity = ref<ActivityItem[]>([]);
 const completion = ref<{ at: number; startedAt: number } | null>(null);
+// The backend is not answering. The landing itself is on Cloudflare Pages and
+// stays up regardless, so it says the puzzle is down instead of rendering an
+// empty board with a Play button that leads nowhere.
+const unavailable = ref(false);
 
 // Before the start the landing counts down; once the board is done it shows the
 // recap; in between it shows live progress. Completion wins over the timer so a
@@ -124,12 +134,9 @@ function interestLabel(): string {
   return t("landing.interestCount", count.value, { named: { n: formatNumber(count.value) } });
 }
 
-onMounted(async () => {
-  interested.value = cachedInterested();
-  // loadLanding never rejects: a failed fetch resolves to null and the landing
-  // still works offline (countdown shows its placeholder, interested can retry).
-  const data = await loadLanding();
-  if (!data) return;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function applyLanding(data: LandingData): void {
   eventStartsAt.value = data.eventStartsAt;
   count.value = data.interested.count;
   interested.value = data.interested.me;
@@ -139,6 +146,28 @@ onMounted(async () => {
   leaderboard.value = data.leaderboard;
   activity.value = data.activity;
   completion.value = data.completion ?? null;
+}
+
+// loadLanding never rejects: a failed fetch resolves to null, and only successes
+// are cached, so retrying it is also how the page notices the server is back.
+async function refresh(): Promise<void> {
+  const data = await loadLanding();
+  if (!data) {
+    unavailable.value = true;
+    retryTimer = setTimeout(() => void refresh(), backendRetryDelayMs());
+    return;
+  }
+  unavailable.value = false;
+  applyLanding(data);
+}
+
+onMounted(() => {
+  interested.value = cachedInterested();
+  void refresh();
+});
+
+onUnmounted(() => {
+  if (retryTimer !== null) clearTimeout(retryTimer);
 });
 </script>
 
@@ -157,8 +186,13 @@ onMounted(async () => {
         <h1>Million Piece Puzzle</h1>
         <p class="tagline">{{ t("landing.tagline") }}</p>
 
+        <div v-if="unavailable" class="hero-feature unavailable">
+          <p class="unavailable-heading">{{ t("maintenance.heading") }}</p>
+          <p class="unavailable-body">{{ t("maintenance.body") }}</p>
+        </div>
+
         <CountdownTimer
-          v-if="phase === 'scheduled'"
+          v-else-if="phase === 'scheduled'"
           class="hero-feature"
           :scheduled="scheduled"
           :parts="parts"
@@ -187,7 +221,7 @@ onMounted(async () => {
           </p>
         </div>
 
-        <div class="actions">
+        <div v-if="!unavailable" class="actions">
           <button
             v-if="phase !== 'scheduled'"
             type="button"
@@ -212,7 +246,7 @@ onMounted(async () => {
         </p>
       </div>
 
-      <section v-if="phase === 'live'" class="live-panels">
+      <section v-if="phase === 'live' && !unavailable" class="live-panels">
         <div class="board-card">
           <h3>{{ t("landing.liveActivity") }}</h3>
           <ul v-if="activityLines.length > 0" class="activity-list">
@@ -385,6 +419,19 @@ h1 {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+}
+.unavailable-heading {
+  margin: 0 0 10px;
+  font-family: var(--serif);
+  font-size: clamp(24px, 4vw, 34px);
+  color: var(--ink);
+}
+.unavailable-body {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
 }
 .completed-word {
   margin: 0;

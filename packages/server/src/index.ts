@@ -7,6 +7,7 @@ import { WebSocketServer, type WebSocket, type VerifyClientCallbackAsync } from 
 import {
   PROTOCOL_VERSION,
   WORLD_TILE_SIZE,
+  WS_CLOSE_SERVICE_RESTART,
   LeaderboardTracker,
   MinimapGridTracker,
   seedFromString,
@@ -22,6 +23,7 @@ import { MongoLogger, ensureIndexes } from "./mongo.js";
 import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
 import { GroupQueue } from "./queue.js";
 import { releaseHeldGroups, sweepStaleHolds } from "./holds.js";
+import { sleep } from "./regionStream.js";
 import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
 import {
   initPuzzleIfEmpty,
@@ -63,6 +65,11 @@ const ADMISSION_SWEEP_INTERVAL_MS = 5000;
 // sweep). Independent of config.staleHoldMs (the age threshold): this is how
 // often the (normally empty) candidate list is checked.
 const STALE_HOLD_SWEEP_INTERVAL_MS = 30000;
+
+// How long shutdown waits after telling every player the server is restarting,
+// so the notice and the close frames leave the socket before the process exits.
+// Docker's stop grace period is 10s, so this is well inside it.
+const SHUTDOWN_DRAIN_MS = 300;
 
 // User stashed on the upgrade request by verifyClient and read by the
 // connection handler, so the session is resolved exactly once at the upgrade.
@@ -632,13 +639,33 @@ async function main(): Promise<void> {
       });
   }, config.minimapGridResyncIntervalMs);
 
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log("[shutdown] closing");
     keyframePublisher.stop();
     clearInterval(heartbeatTimer);
     if (admissionSweepTimer) clearInterval(admissionSweepTimer);
     clearInterval(staleHoldSweepTimer);
     clearInterval(boardIndexResyncTimer);
+    // Announce the restart before dropping anyone: a player who loses the socket
+    // with no explanation reads it as their own connection failing. The notice
+    // and the 1012 close frame carry the same signal twice, since either can be
+    // lost in the shutdown race.
+    const connected = hub.clientCount();
+    if (connected > 0) {
+      console.log(`[shutdown] notifying ${connected} client(s)`);
+      hub.broadcast({ t: "error", code: "maintenance", message: "server restarting" });
+      for (const c of hub.allClients()) {
+        try {
+          c.ws.close(WS_CLOSE_SERVICE_RESTART, "maintenance");
+        } catch {
+          c.ws.terminate();
+        }
+      }
+      await sleep(SHUTDOWN_DRAIN_MS);
+    }
     wss.close();
     httpServer.close();
     await redis.quit();

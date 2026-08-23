@@ -36,6 +36,28 @@ export function loadLanding(): Promise<LandingData | null> {
   return inFlight;
 }
 
+// Reachability probe for the maintenance screens: does the backend answer at
+// all. Deliberately not loadLanding, whose cached success predates the outage
+// and would read as "back up" on the first check.
+export async function backendReachable(): Promise<boolean> {
+  try {
+    const res = await fetch(landingUrl(), { cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Spread between two probes while the backend is unreachable. Randomized so a
+// few hundred waiting clients come back staggered rather than in one wave the
+// instant the server accepts connections again.
+const RETRY_MIN_MS = 8_000;
+const RETRY_MAX_MS = 16_000;
+
+export function backendRetryDelayMs(rand: () => number = Math.random): number {
+  return RETRY_MIN_MS + Math.floor(rand() * (RETRY_MAX_MS - RETRY_MIN_MS));
+}
+
 // /play is sealed only while a real start is scheduled and still in the future.
 // An unset start (0) leaves it open, so scheduling the event is what arms the
 // gate; dev with no date set keeps /play reachable.

@@ -8,7 +8,7 @@ import NationalityModal from "./components/NationalityModal.vue";
 import { useAuth } from "./composables/useAuth";
 
 const route = useRoute();
-const { ready, claimSettled, user, bootstrap, startOnboardingIfNeeded } = useAuth();
+const { ready, claimSettled, user, backendDown, bootstrap, startOnboardingIfNeeded } = useAuth();
 
 // Resolve the session once on boot. This also runs on return from the OAuth
 // redirect.
@@ -22,10 +22,14 @@ onMounted(() => {
 // navigation and as the session resolves, so the gate never fires before we know
 // whether a session exists. claimSettled holds it off until a pending guest-claim
 // has carried over pseudo/country, so a freshly synced account skips onboarding.
+// backendDown holds it off too: with the server unreachable there is nothing to
+// mint a guest against, and the canvas shows the maintenance screen instead.
 watch(
-  [() => route.name, ready, claimSettled, user],
+  [() => route.name, ready, claimSettled, user, backendDown],
   () => {
-    if (route.name === "play" && ready.value && claimSettled.value) startOnboardingIfNeeded();
+    if (route.name === "play" && ready.value && claimSettled.value && !backendDown.value) {
+      startOnboardingIfNeeded();
+    }
   },
   { immediate: true },
 );

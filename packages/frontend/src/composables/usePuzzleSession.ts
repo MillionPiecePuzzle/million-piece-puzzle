@@ -11,8 +11,10 @@ import type {
   SWelcome,
   ServerMessage,
 } from "@mpp/shared";
+import { WS_CLOSE_SERVICE_RESTART } from "@mpp/shared";
 import type { InitialGroupSpec } from "../canvas/puzzleStage";
 import { PuzzleWsClient } from "../canvas/wsClient";
+import { backendReachable, backendRetryDelayMs } from "../data/landing";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { queueStatusUrl, queueTicketUrl } from "../data/queueUrl";
 import { useMode } from "./useMode";
@@ -46,7 +48,11 @@ export type PuzzleSessionState =
   // The error state carries an i18n key, not a sentence: the message is shown to
   // players in their own locale, and the technical detail (urls, server text)
   // goes to the console instead of the screen.
-  | { kind: "error"; messageKey: string };
+  | { kind: "error"; messageKey: string }
+  // The server is down: restarting for a deploy, or unreachable. Distinct from
+  // `error` because nothing is wrong on the player's side and nothing is asked of
+  // them: the session watches for the server to come back and reloads by itself.
+  | { kind: "maintenance" };
 
 export type MessageHandler = (msg: ServerMessage) => void;
 
@@ -87,6 +93,8 @@ let started = false;
 let queueAbort: AbortController | null = null;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let queueDelayResolve: (() => void) | null = null;
+// Pending backend probe while the session sits on the maintenance screen.
+let maintenanceTimer: ReturnType<typeof setTimeout> | null = null;
 let buildEpoch = 0;
 const handlers = new Set<MessageHandler>();
 // Dev messages clicked before the WebSocket is connected. They are queued here and
@@ -153,7 +161,49 @@ function handleServerError(msg: SError): void {
     state.value = { kind: "error", messageKey: "loading.errorProtocol" };
     return;
   }
+  if (msg.code === "maintenance") {
+    console.warn(`puzzle session: ${msg.code}: ${msg.message}`);
+    enterMaintenance();
+    return;
+  }
   console.warn(`puzzle session: transient server error ${msg.code}: ${msg.message}`);
+}
+
+// Park the session until the server is back. Reached from the shutdown notice,
+// from the 1012 close frame behind it, and from a queue request that finds the
+// host unreachable, so a deploy, a crash and an outage all land here.
+function enterMaintenance(): void {
+  if (state.value.kind === "maintenance") return;
+  client?.close();
+  client = null;
+  cancelQueueGate();
+  welcome = null;
+  manifest = null;
+  started = false;
+  transport.value = "none";
+  state.value = { kind: "maintenance" };
+  scheduleBackendProbe();
+}
+
+// The server answering again almost always means a fresh deploy, so recovery is
+// a page reload, not a reconnect: the bundle, the board and the protocol version
+// come back in step instead of an old client resyncing against a new server.
+function scheduleBackendProbe(): void {
+  if (maintenanceTimer !== null) return;
+  maintenanceTimer = setTimeout(() => {
+    maintenanceTimer = null;
+    void backendReachable().then((up) => {
+      if (state.value.kind !== "maintenance") return;
+      if (up) window.location.reload();
+      else scheduleBackendProbe();
+    });
+  }, backendRetryDelayMs());
+}
+
+function cancelBackendProbe(): void {
+  if (maintenanceTimer === null) return;
+  clearTimeout(maintenanceTimer);
+  maintenanceTimer = null;
 }
 
 async function loadManifestFor(puzzleId: string): Promise<void> {
@@ -217,10 +267,14 @@ async function startContributor(): Promise<void> {
   try {
     grant = await acquireAdmission();
   } catch (e) {
-    console.error(`puzzle session: failed to join the queue: ${(e as Error).message}`);
-    if (started) {
-      state.value = { kind: "error", messageKey: "loading.errorQueue" };
+    if (!started) return;
+    if (e instanceof BackendUnavailableError) {
+      console.warn(`puzzle session: server unreachable: ${e.message}`);
+      enterMaintenance();
+      return;
     }
+    console.error(`puzzle session: failed to join the queue: ${(e as Error).message}`);
+    state.value = { kind: "error", messageKey: "loading.errorQueue" };
     started = false;
     return;
   }
@@ -272,16 +326,33 @@ async function acquireAdmission(): Promise<string | null> {
   return null;
 }
 
+// The host not answering at all (no response, or a 5xx from the edge in front of
+// a stopped container) means the server is down, not that the queue refused. It
+// takes the client to the maintenance screen instead of a "check your connection"
+// error, which would blame the player for a restart we caused.
+class BackendUnavailableError extends Error {}
+
+async function fetchQueue(url: string, init?: RequestInit): Promise<Response> {
+  const abort = new AbortController();
+  queueAbort = abort;
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal: abort.signal });
+  } catch (e) {
+    throw new BackendUnavailableError((e as Error).message);
+  }
+  if (res.status >= 500) throw new BackendUnavailableError(`status ${res.status}`);
+  return res;
+}
+
 async function postQueueTicket(): Promise<QueueTicketResponse> {
-  queueAbort = new AbortController();
-  const res = await fetch(queueTicketUrl(), { method: "POST", signal: queueAbort.signal });
+  const res = await fetchQueue(queueTicketUrl(), { method: "POST" });
   if (!res.ok) throw new Error(`queue ticket ${res.status}`);
   return (await res.json()) as QueueTicketResponse;
 }
 
 async function getQueueStatus(ticket: string): Promise<QueueStatusResponse> {
-  queueAbort = new AbortController();
-  const res = await fetch(queueStatusUrl(ticket), { signal: queueAbort.signal });
+  const res = await fetchQueue(queueStatusUrl(ticket));
   if (!res.ok) throw new Error(`queue status ${res.status}`);
   return (await res.json()) as QueueStatusResponse;
 }
@@ -338,12 +409,19 @@ function connectWs(grant: string | null): void {
     for (const h of handlers) h(msg);
   });
 
-  client.onClose(({ intentional }) => {
+  client.onClose(({ intentional, code }) => {
     if (intentional) return;
+    // The shutdown notice usually arrives first and has already switched the
+    // session over; this catches the run where only the close frame made it.
+    if (code === WS_CLOSE_SERVICE_RESTART) {
+      console.warn("puzzle session: server restarting");
+      enterMaintenance();
+      return;
+    }
     welcome = null;
     manifest = null;
     started = false;
-    if (state.value.kind === "error") return;
+    if (state.value.kind === "error" || state.value.kind === "maintenance") return;
     console.error(`puzzle session: connection lost to ${wsUrl}`);
     state.value = { kind: "error", messageKey: "loading.errorConnection" };
   });
@@ -366,6 +444,7 @@ function close(): void {
   client?.close();
   client = null;
   cancelQueueGate();
+  cancelBackendProbe();
   welcome = null;
   manifest = null;
   started = false;
@@ -442,6 +521,7 @@ export function usePuzzleSession() {
     transport,
     completed,
     startContributor,
+    enterMaintenance,
     close,
     onMessage,
     sendGrab,
