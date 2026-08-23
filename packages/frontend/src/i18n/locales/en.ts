@@ -146,16 +146,19 @@ const en = {
   scoring: {
     open: "How pieces are counted",
     title: "How pieces are counted",
-    lede: "Every piece on the board is worth one point. It is paid once, to the first player who snaps it into place.",
-    gainText: "You drag a loose piece against its neighbour: that piece is yours.",
-    noGainText:
-      "You drag a 30-piece cluster onto another one: all 30 were paid for the day they were first moved, so nothing is added.",
+    lede: "Every piece on the board is worth one point. It is credited once, to the first player who snaps it into place.",
+    snapTwo:
+      "You snap two loose pieces together: one point, not two. The other piece's point is set aside for whoever locks that cluster into the board.",
+    snapCluster:
+      "You drag a 30-piece cluster onto another one: the 29 already credited do not count twice, so you take the one nobody had ever snapped.",
+    lockCluster:
+      "Your drop locks a cluster into the board: every point set aside in it is credited to you at once.",
     mismatchTitle: "Why it does not match the progress bar",
     mismatchBody:
-      "The leaderboard counts a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place. A 30-piece cluster floating in the middle of nowhere is 30 points and 0 locked pieces, so the two numbers are not meant to be equal.",
+      "The leaderboard credits a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place. A cluster floating in the middle of nowhere has nearly all of its pieces credited and none of them locked, so the two numbers are not meant to be equal.",
     fairTitle: "It adds up",
     fairBody:
-      "No piece is ever paid twice, and nobody is paid for someone else's work. A piece nobody ever moved goes to whoever locks it into the board. So when the last piece goes in, the standings add up to exactly {total} pieces.",
+      "One piece, one point, one owner: that is what keeps the board fair. Every point set aside is credited the day its cluster locks in, so when the last piece goes in, the standings add up to exactly {total} pieces.",
   },
   activityPanel: {
     placedLine: "placed {object}",

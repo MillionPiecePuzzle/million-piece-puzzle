@@ -151,16 +151,19 @@ const es: MessageSchema = {
   scoring: {
     open: "Cómo se cuentan las piezas",
     title: "Cómo se cuentan las piezas",
-    lede: "Cada pieza del tablero vale un punto. Se paga una sola vez, al primer jugador que la encaja.",
-    gainText: "Arrastras una pieza suelta contra su vecina: esa pieza es tuya.",
-    noGainText:
-      "Arrastras un grupo de 30 piezas sobre otro: las 30 se pagaron el día en que se movieron por primera vez, así que no se suma nada.",
+    lede: "Cada pieza del tablero vale un punto. Se acredita una sola vez, al primer jugador que la encaja.",
+    snapTwo:
+      "Encajas dos piezas sueltas: un punto, no dos. El punto de la otra pieza queda reservado para quien bloquee ese grupo en el tablero.",
+    snapCluster:
+      "Arrastras un grupo de 30 piezas sobre otro: las 29 ya acreditadas no cuentan dos veces, así que te llevas la que nadie había encajado nunca.",
+    lockCluster:
+      "Sueltas un grupo en su sitio y se bloquea: todos los puntos reservados que contiene se te acreditan de golpe.",
     mismatchTitle: "Por qué no cuadra con la barra de progreso",
     mismatchBody:
-      "La clasificación cuenta una pieza en cuanto encaja, esté donde esté en el tablero. La barra de progreso solo cuenta las piezas bloqueadas en su sitio definitivo. Un grupo de 30 piezas flotando en medio de la nada son 30 puntos y 0 piezas bloqueadas: los dos números no tienen por qué coincidir.",
+      "La clasificación acredita una pieza en cuanto encaja, esté donde esté en el tablero. La barra de progreso solo cuenta las piezas bloqueadas en su sitio definitivo. Un grupo que flota en medio de la nada tiene casi todas sus piezas acreditadas y ninguna bloqueada: los dos números no tienen por qué coincidir.",
     fairTitle: "Las cuentas cuadran",
     fairBody:
-      "Ninguna pieza se paga dos veces y nadie cobra por el trabajo de otro. Una pieza que nadie ha movido nunca va a quien la bloquea en el tablero. Así que cuando entra la última pieza, la clasificación suma exactamente {total} piezas.",
+      "Una pieza, un punto, un dueño: eso es lo que mantiene justa la clasificación. Cada punto reservado se acredita el día en que su grupo se bloquea, así que cuando entra la última pieza, la clasificación suma exactamente {total} piezas.",
   },
   activityPanel: {
     placedLine: "colocó {object}",

@@ -153,16 +153,19 @@ const fr: MessageSchema = {
   scoring: {
     open: "Comment les pièces sont comptées",
     title: "Comment les pièces sont comptées",
-    lede: "Chaque pièce du plateau vaut un point. Il est versé une seule fois, au premier joueur qui l'emboîte.",
-    gainText: "Vous glissez une pièce isolée contre sa voisine : cette pièce est à vous.",
-    noGainText:
-      "Vous glissez un groupe de 30 pièces sur un autre : les 30 ont été payées le jour où elles ont bougé pour la première fois, rien ne s'ajoute.",
+    lede: "Chaque pièce du plateau vaut un point. Il est crédité une seule fois, au premier joueur qui l'emboîte.",
+    snapTwo:
+      "Vous emboîtez deux pièces libres : un point, pas deux. Le point de l'autre pièce est mis de côté pour celui qui verrouillera ce groupe dans le plateau.",
+    snapCluster:
+      "Vous glissez un groupe de 30 pièces sur un autre : les 29 déjà créditées ne comptent pas deux fois, vous prenez celle que personne n'avait jamais emboîtée.",
+    lockCluster:
+      "Vous posez un groupe à sa place et il se verrouille : tous les points mis de côté qu'il contient vous sont crédités d'un coup.",
     mismatchTitle: "Pourquoi le total ne colle pas à la barre de progression",
     mismatchBody:
-      "Le classement compte une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive. Un groupe de 30 pièces flottant au milieu de nulle part, c'est 30 points et 0 pièce verrouillée : les deux nombres n'ont pas vocation à être égaux.",
+      "Le classement crédite une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive. Un groupe qui flotte au milieu de nulle part a presque toutes ses pièces créditées et aucune verrouillée : les deux nombres n'ont pas vocation à être égaux.",
     fairTitle: "Le compte tombe juste",
     fairBody:
-      "Aucune pièce n'est payée deux fois et personne n'est payé pour le travail d'un autre. Une pièce que personne n'a jamais déplacée revient à celui qui la verrouille dans le plateau. Quand la dernière pièce entre, le classement totalise donc exactement {total} pièces.",
+      "Une pièce, un point, un propriétaire : c'est ce qui garde le classement équitable. Chaque point mis de côté est crédité le jour où son groupe se verrouille, donc quand la dernière pièce entre, le classement totalise exactement {total} pièces.",
   },
   activityPanel: {
     placedLine: "a placé {object}",

@@ -42,11 +42,15 @@ onMounted(trap.activate);
         <ul class="examples">
           <li>
             <span class="badge gain">+1</span>
-            <span class="example-text">{{ t("scoring.gainText") }}</span>
+            <span class="example-text">{{ t("scoring.snapTwo") }}</span>
           </li>
           <li>
-            <span class="badge none">+0</span>
-            <span class="example-text">{{ t("scoring.noGainText") }}</span>
+            <span class="badge gain">+1</span>
+            <span class="example-text">{{ t("scoring.snapCluster") }}</span>
+          </li>
+          <li>
+            <span class="badge lock">+N</span>
+            <span class="example-text">{{ t("scoring.lockCluster") }}</span>
           </li>
         </ul>
 
@@ -107,8 +111,8 @@ onMounted(trap.activate);
 .badge.gain {
   background: var(--c2);
 }
-.badge.none {
-  background: var(--ink-4);
+.badge.lock {
+  background: var(--accent);
 }
 .example-text {
   font-size: 13px;

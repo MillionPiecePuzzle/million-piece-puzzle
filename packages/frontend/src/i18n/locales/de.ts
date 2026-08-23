@@ -154,16 +154,19 @@ const de: MessageSchema = {
   scoring: {
     open: "Wie Teile gezählt werden",
     title: "Wie Teile gezählt werden",
-    lede: "Jedes Teil auf dem Brett ist einen Punkt wert. Er wird einmal ausgezahlt, an den ersten Spieler, der es einrastet.",
-    gainText: "Du ziehst ein einzelnes Teil an seinen Nachbarn: dieses Teil gehört dir.",
-    noGainText:
-      "Du ziehst einen 30-Teile-Verbund auf einen anderen: alle 30 wurden an dem Tag ausgezahlt, an dem sie zum ersten Mal bewegt wurden, es kommt also nichts dazu.",
+    lede: "Jedes Teil auf dem Brett ist einen Punkt wert. Er wird einmal gutgeschrieben, an den ersten Spieler, der es einrastet.",
+    snapTwo:
+      "Du rastest zwei lose Teile zusammen: ein Punkt, nicht zwei. Der Punkt des anderen Teils bleibt für den zurückgelegt, der diesen Verbund im Brett verriegelt.",
+    snapCluster:
+      "Du ziehst einen 30-Teile-Verbund auf einen anderen: die 29 bereits gutgeschriebenen zählen nicht doppelt, du bekommst das eine, das noch nie jemand eingerastet hat.",
+    lockCluster:
+      "Dein Zug verriegelt einen Verbund im Brett: alle darin zurückgelegten Punkte werden dir auf einmal gutgeschrieben.",
     mismatchTitle: "Warum das nicht zum Fortschrittsbalken passt",
     mismatchBody:
-      "Die Rangliste zählt ein Teil in dem Moment, in dem es einrastet, egal wo auf dem Brett. Der Fortschrittsbalken zählt nur die Teile, die an ihrem endgültigen Platz verriegelt sind. Ein 30-Teile-Verbund mitten im Nirgendwo sind 30 Punkte und 0 verriegelte Teile: die beiden Zahlen sollen gar nicht gleich sein.",
+      "Die Rangliste schreibt ein Teil in dem Moment gut, in dem es einrastet, egal wo auf dem Brett. Der Fortschrittsbalken zählt nur die Teile, die an ihrem endgültigen Platz verriegelt sind. Ein Verbund mitten im Nirgendwo hat fast alle seine Teile gutgeschrieben und keines verriegelt: die beiden Zahlen sollen gar nicht gleich sein.",
     fairTitle: "Am Ende geht es auf",
     fairBody:
-      "Kein Teil wird zweimal ausgezahlt, und niemand wird für die Arbeit anderer bezahlt. Ein Teil, das nie jemand bewegt hat, geht an den, der es ins Brett verriegelt. Wenn das letzte Teil sitzt, ergibt die Rangliste also genau {total} Teile.",
+      "Ein Teil, ein Punkt, ein Besitzer: das hält die Rangliste fair. Jeder zurückgelegte Punkt wird an dem Tag gutgeschrieben, an dem sein Verbund verriegelt, also ergibt die Rangliste genau {total} Teile, wenn das letzte Teil sitzt.",
   },
   activityPanel: {
     placedLine: "hat {object} platziert",

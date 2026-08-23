@@ -89,7 +89,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ### `frontend-shell`
 
-- [x] The account menu carries a stepped tips strip (one-line hints, an arrow on either side, no screen of its own) and the leaderboard panel an info control opening a scoring explainer: one point per piece paid once, why the standings run ahead of the locked counter, why snapping a cluster someone else assembled pays nothing. EN/FR/ES/DE
+- [x] The account menu carries a stepped tips strip (one-line hints, an arrow on either side, no screen of its own) and the leaderboard panel an info control opening a scoring explainer: one point per piece credited once, why the standings run ahead of the locked counter, why snapping a 30-piece cluster credits one point and not thirty. EN/FR/ES/DE
 
 ### `backend-realtime`
 
