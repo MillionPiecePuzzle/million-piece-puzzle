@@ -427,7 +427,6 @@ onBeforeUnmount(() => {
         >
           <div class="bar" />
         </div>
-        <p class="detail">{{ t("maintenance.retrying") }}</p>
       </template>
       <template v-if="isQueued">
         <p class="detail queue-detail">

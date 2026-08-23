@@ -193,7 +193,6 @@ const en = {
     kicker: "Maintenance",
     heading: "The puzzle is unavailable",
     body: "The board is not reachable right now. It should be back in a few minutes.",
-    retrying: "This page comes back on its own, no need to reload.",
   },
   completion: {
     complete: "Complete",

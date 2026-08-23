@@ -199,7 +199,6 @@ const es: MessageSchema = {
     kicker: "Mantenimiento",
     heading: "El puzle no está disponible",
     body: "El tablero no está accesible ahora mismo. Debería volver en unos minutos.",
-    retrying: "La página vuelve sola, no hace falta recargarla.",
   },
   completion: {
     complete: "Completado",

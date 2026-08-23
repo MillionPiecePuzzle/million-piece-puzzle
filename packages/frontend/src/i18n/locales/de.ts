@@ -203,7 +203,6 @@ const de: MessageSchema = {
     kicker: "Wartung",
     heading: "Das Puzzle ist nicht verfügbar",
     body: "Das Spielfeld ist gerade nicht erreichbar. Es sollte in ein paar Minuten zurück sein.",
-    retrying: "Die Seite kommt von selbst zurück, kein Neuladen nötig.",
   },
   completion: {
     complete: "Fertig",
