@@ -191,7 +191,7 @@ Revisit when: a boot-time R2 read becomes a deploy hazard during an extended Clo
 ### 2026-05-28, qa-and-load, harness PASS criterion bounded to saturation signals
 
 Choice: the load harness gates PASS on zero 1013 (backpressure) closes, zero `ws` errors, and under 5% server error frames. Latency (p50/p95/p99) is reported but not gated.
-Why: the Phase 1 exit bar was "without server saturation"; an early 20-bot baseline showed multi-second latency bounded by the (since-fixed) serial dispatch and unthrottled drag broadcast, not by a load-induced fault, so an absolute latency gate would have conflated "does it stay up" with "is it snappy".
+Why: the closed-alpha exit bar was "without server saturation"; an early 20-bot baseline showed multi-second latency bounded by the (since-fixed) serial dispatch and unthrottled drag broadcast, not by a load-induced fault, so an absolute latency gate would have conflated "does it stay up" with "is it snappy".
 
 ### 2026-06-07, qa-and-load, harness seeds sessions by direct Mongo write
 

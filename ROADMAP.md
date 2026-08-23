@@ -1,6 +1,6 @@
 # Roadmap
 
-Five phases, eleven tracks, all closed: the project is complete. A phase is closed only when its exit criterion is met. Each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
+Work is tracked by version. v1.0 is live in prod, v1.1 is the version being built. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
 
 Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
@@ -20,104 +20,29 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ---
 
-## Phase 0, Local MVP, CLOSED
+## Before v1.0
 
-**Exit criterion (met)**: a single user completes a puzzle of N configurable pieces in a browser, with the full architecture running locally (WS server + Redis + Mongo via docker-compose), in anonymous mode.
+Four milestones, all met, condensed to what they achieved. The detail lives in the code and in [DECISIONS.md](DECISIONS.md).
 
-## Phase 1, Closed Alpha, CLOSED
+### Local MVP
 
-**Exit criterion (met)**: 5 to 20 invited people, connected concurrently, complete a 10 000-piece puzzle on a deployed instance, in anonymous mode.
+A single user completed a puzzle of N configurable pieces in a browser, with the full architecture running locally (WS server + Redis + Mongo via docker-compose), in anonymous mode.
 
-Phase 2 performance was pulled forward and built as the real solution: drag coalescing, per-group dispatch queues, zoom-out LOD, per-IP rate limiting. Viewport and write sharding stay deferred, blocked on the single-writer topology, not on piece count.
+### Closed Alpha
 
----
+5 to 20 invited people, connected concurrently, completed a 10 000-piece puzzle on a deployed instance. Performance was pulled forward and built as the real solution rather than a stopgap: drag coalescing, per-group dispatch queues, zoom-out LOD, per-IP rate limiting. Viewport and write sharding stay deferred, blocked on the single-writer topology, not on piece count.
 
-## Phase 2, Public 1M, CLOSED
+### Public 1M
 
-**Exit criterion (met)**: the puzzle is open to the public, with 1 000 000 pieces on a single shared canvas, full auth, monitoring sufficient to operate, and legal documents in place.
+The puzzle opened to the public with 1 000 000 unique pieces on a single shared canvas, full auth and legal documents in place: the gigapixel image pipeline on R2, viewport-sharded broadcasts backed by a group index and partial-state resync, PixiJS LOD with viewport-driven texture streaming, Auth.js with Google, the admin ops page, the frontend on Cloudflare Pages, EN/FR/ES/DE throughout, and load tests to 10 000 clients.
 
-### `shared-protocol`
-- [x] Protocol frozen at v10, breaking changes bump the version asserted at the `hello` handshake
-- [x] `eventStartsAt` drives the landing countdown and the `/play` entry gate
-- [x] Anti-programmatic-solving: seed-permuted wire ids, anchor-relative offsets, server-only seed
+### Open Access (guest-first)
 
-### `piece-generation`
-- [x] 1 000 000 unique pieces validated (`npm run validate:generation`)
-
-### `image-pipeline`
-- [x] Piece borders baked into tiles at slice time
-- [x] Gigapixel pipeline (Deep Zoom + per-piece AVIF) running end to end on R2
-
-### `frontend-shell`
-- [x] Landing, countdown, single Google auth modal, `/play` entry gate
-- [x] Localized EN/FR/ES/DE
-- [x] Dev-only Place/Reset/Complete controls off in prod (`MPP_DEV_ENABLED=0`, `VITE_DEV_BUTTONS=0`)
-
-### `frontend-canvas`
-- [x] Zoom-out LOD, viewport-driven texture streaming, chunked board build
-- [x] Fixed z-order layers, evicted geometry cache, VRAM-bounded zoom-out
-- [x] Per-tile piece cap on non-merging drops (8x solved density)
-- [x] Single per-frame `reconcile()` as sole authority for cull/LOD/residency
-- [x] Zoom in/out reuses resident nodes with no re-fetch at 1M
-
-### `backend-realtime`
-- [x] Viewport-sharded broadcasts (spatial index + cluster-AABB scoping)
-- [x] Group index + partial-state resync on pan
-- [x] Viewport-scoped initial state on join, no full board in `welcome`
-- [x] Paced `region_state` resync, avoids the WS backpressure close
-
-### `auth-and-accounts`
-- [x] Auth.js with Google, per-IP login anti-abuse, Mongo profiles
-- [x] 24h cooldown on pseudo/country changes
-
-### `infra-deploy`
-- [x] Production hardening: R2 backup sidecar, Cloudflare-proxied WS with heartbeat. Firewalling the origin to Cloudflare ranges stays the open DDoS gap (backlog)
-- [x] Frontend moved to Cloudflare Pages, dropped from Coolify. Manual follow-up still outstanding: remove the unused `VITE_WS_URL`/`VITE_AUTH_BASE_URL`/`MPP_ALLOWED_HOSTS` from the old Coolify service env
-- [x] Admin ops page (wipe, set event start, switch puzzle); confirmed live behind Basic auth
-
-### `qa-and-load`
-- [x] Load-test bots authenticated past the WS session gate, verified at 10 000
-- [x] Soak test at target scale passes with no state corruption
-
-### `legal`
-- [x] Privacy policy, GDPR notes, license attributions published
-
-### `complementary`
-- [x] Interested counter, nationality onboarding with an international opt-out
-- [x] Edge-pan navigation, sticky carry mode, minimap navigation
-- [x] Activity feed, snap particle burst, brand icons, countdown labels
+A first-time visitor reaches the canvas and places a piece with no OAuth redirect: a guest identity is minted in-site and the pseudo and country are asked in-app, and signing in with Google claims those contributions under one persistent identity. A single real-time path serves everyone, gated by an admission queue past a global connection cap, and the spectator read-path was retired down to its DNS record.
 
 ---
 
-## Phase 3, Open Access (guest-first), CLOSED
-
-**Exit criterion (met)**: a first-time visitor reaches the canvas and places a piece without an OAuth redirect (instant guest identity, in-site pseudo + country modals); signing in with Google claims and keeps the guest's contributions under one identity; a single real-time path serves everyone, gated by an admission queue under load; the spectator read-path is retired.
-
-Shipped in 3 independent chantiers under the single prod, no staging: A added guests without touching anything else, B put the admission safety valve in place before C removed the CDN read-path. Confirmed 2026-08-05: the retired `snapshot.*` hostname now resolves to nothing.
-
-### `auth-and-accounts`
-- [x] Guest players: `POST /guest` mints a real User, rate-limited per IP
-- [x] Claim on sign-in: `POST /guest/claim` reattributes guest contributions to the Google user
-
-### `frontend-shell`
-- [x] Single "Play" entry point, no spectator/contributor mode toggle
-- [x] Options menu (sync account, sign out, change pseudo/country)
-
-### `backend-realtime`
-- [x] Admission queue: global connection cap, ticket + poll, TTL'd grants
-- [x] Spectator read-path retired (`GET /keyframe`/`GET /events`/`EventLog` gone)
-- [x] Grab/disconnect hold-leak race fixed, stale-hold sweep added
-- [x] Keyframe cadence moved off full-board scans onto an incrementally-maintained minimap grid
-
-### `frontend-canvas`
-- [x] Spectator transport removed, canvas is WS-only
-
-### `shared-protocol`
-- [x] Spectator wire types dropped, `PROTOCOL_VERSION` bumped to 6
-
----
-
-## Phase 4-9, Launch Readiness, CLOSED
+## v1.0, Launch Readiness, RELEASED
 
 **Exit criterion (met)**: the puzzle serves the real photo mosaic at full production scale; locked pieces render from server-composited tiles with resident memory inside budget past 995 000 locked pieces and no unlocked cluster exceeding `MPP_CLUSTER_PIECE_CAP`; player diagnostics, self-hosted analytics, and search discoverability are all live in prod; a clustered load-test run against prod passes a clean visual and state-corruption check.
 
@@ -158,11 +83,21 @@ Shipped in 3 independent chantiers under the single prod, no staging: A added gu
 
 ---
 
+## v1.1, IN PROGRESS
+
+**Exit criterion**: every task below shipped to prod. Tasks are promoted from the backlog as they are decided, so the list grows until the version is cut.
+
+### `infra-deploy`
+
+- [~] A restart or an outage never reads as the player's own connection failing: the server announces the shutdown before closing sockets, and every client (in game, arriving, or on the landing) lands on a localized "puzzle unavailable, back in a few minutes" screen served entirely from Cloudflare Pages, which returns to the board by itself once the server answers again
+
+---
+
 ## Backlog
 
-Ideas and open fixes worth keeping but not yet committed to a phase. Promote into a phase track when scope and timing are clear.
+Ideas and open fixes worth keeping but not yet committed to a version. Promote into a version track when scope and timing are clear.
 
-- **Locale-prefixed URLs for search.** The SEO metadata work (Phase 4-9) is English-only because locale is chosen client-side (`localStorage`/browser language) with no URL segmentation, so a search engine can only index one language version of `/`. Ranking for non-English queries (e.g. French "puzzle le plus grand") needs its own crawlable URL per locale (`/fr/`, `/es/`, `/de/`), native-language meta strings, hreflang alternates, and rewiring every internal link (language switcher, router pushes) to a locale-aware path: a router restructuring, not a metadata tweak. See [DECISIONS](DECISIONS.md#2026-08-17-frontend-shell-seo-metadata-is-english-only-corrected-per-route-in-js-rather-than-per-locale).
+- **Locale-prefixed URLs for search.** The SEO metadata work (v1.0) is English-only because locale is chosen client-side (`localStorage`/browser language) with no URL segmentation, so a search engine can only index one language version of `/`. Ranking for non-English queries (e.g. French "puzzle le plus grand") needs its own crawlable URL per locale (`/fr/`, `/es/`, `/de/`), native-language meta strings, hreflang alternates, and rewiring every internal link (language switcher, router pushes) to a locale-aware path: a router restructuring, not a metadata tweak. See [DECISIONS](DECISIONS.md#2026-08-17-frontend-shell-seo-metadata-is-english-only-corrected-per-route-in-js-rather-than-per-locale).
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out early and relax it as pieces are placed, to bound the visible piece count. A fixed 15% zoom floor already exists (see [play-zone hard limits](DECISIONS.md#2026-05-21-frontend-canvas-play-zone-hard-limits)); the progress-relative version is the open idea.
 - **Coordinate HUD overlay.** Small overlay showing viewport position (XY, sector, zoom). Needs a "sector" concept first. Revisit at 1M when orientation becomes a real problem.
 - **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
@@ -174,7 +109,6 @@ Ideas and open fixes worth keeping but not yet committed to a phase. Promote int
 - **Shareable viewport deep link.** `/play` accepting a position and zoom in the query string, so a spot on the board can be linked in Discord ("help here") or bookmarked outside the app. Sibling of the flags above and the natural way to share one. No secret is exposed: board coordinates are already client-visible, unlike the seed-permuted piece ids.
 - **Live leaderboard on merges, not only on locks.** Standings reach clients on an anchoring lock and on the per-client send at join, so pieces scored by a merge that does not lock only appear after a page reload. The tracker is already correct (`recordDrop` runs on every merge, only the broadcast is gated on `lockedDelta > 0` in `handlers.ts`). Two things to solve when lifting that gate: the payload is the top 100 with pseudo and country broadcast to everyone, so per-merge sends need coalescing; and a player ranked outside the top 100 never receives their own row, so their own live count needs a personal rank/count field rather than a bigger broadcast.
 - **Tips & tricks section, with leaderboard scoring explained.** A help section in the menu, plus an info control on the leaderboard itself stating the rule (one point per piece, credited to the first merge that moved it, see [DECISIONS](DECISIONS.md#2026-05-21-backend-realtime-leaderboard-scoring)). Cheap in code; the real cost is writing the content and translating it to the four locales.
-- **Static maintenance page.** A standalone page to put in front of the site during a deliberate pause or an outage, ready before it is needed rather than written under pressure. Open: where it is served from and how it is switched on and off, given the frontend is on Cloudflare Pages and keeps serving the app even when the VPS backend is down.
 - **Per-piece attribution.** Who placed a given piece, and when, surfaced on a locked piece in the canvas. The data model already answers it with no new storage (the first `ClusterMerge` by `at` whose `droppedPieceIds` contains the piece), so the work is a lookup route, the matching index, and the UI affordance. Pairs with the leaderboard explainer: it makes the scoring rule visible on the board itself.
 - **Timelapse.** Replay the board's assembly by walking `ClusterMerge` in `at` order, geometry reconstructed from `generationSeed`. Designed for since the start, never built, and a project in its own right rather than a feature to slip into another chantier. The obvious payoff is shareable footage of a months-long build.
 - **Fix: no confirmation after syncing a guest account with Google.** Reported live: the sync entry in the options menu gives no feedback once the sign-in completes and still reads as actionable, so the player cannot tell the account is now permanent. Wanted: an explicit synced state (green check, the linked identity shown) in place of the action. Diagnose first, since `OptionsModal.vue` already gates the entry on `user.guest` and a Google document maps to `guest: false` in `mongo.ts`: if the entry really is still actionable after a successful claim, the session state is wrong and the missing indicator is only the visible half. Either way the menu shows no account identity at all today.
