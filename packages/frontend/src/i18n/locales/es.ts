@@ -99,6 +99,15 @@ const es: MessageSchema = {
     discord: "Unirse al servidor de Discord",
     signOut: "Cerrar sesión",
   },
+  tips: {
+    title: "Consejos",
+    prev: "Consejo anterior",
+    next: "Consejo siguiente",
+    carry:
+      "Haz doble clic en una pieza para pegarla al cursor y doble clic otra vez para soltarla.",
+    minimap: "Haz clic en cualquier punto del minimapa para mover la vista allí.",
+    reference: "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza.",
+  },
   pseudo: {
     titleEdit: "Cambiar tu pseudónimo",
     titleNew: "Elige tu pseudónimo",
@@ -132,6 +141,20 @@ const es: MessageSchema = {
     countries: "Países",
     prev: "ant.",
     next: "sig.",
+  },
+  scoring: {
+    open: "Cómo se cuentan las piezas",
+    title: "Cómo se cuentan las piezas",
+    lede: "Cada pieza del tablero vale un punto. Se paga una sola vez, al primer jugador que la encaja.",
+    gainText: "Arrastras una pieza suelta contra su vecina: esa pieza es tuya.",
+    noGainText:
+      "Arrastras un grupo de 30 piezas sobre otro: las 30 se pagaron el día en que se movieron por primera vez, así que no se suma nada.",
+    mismatchTitle: "Por qué no cuadra con la barra de progreso",
+    mismatchBody:
+      "La clasificación cuenta una pieza en cuanto encaja, esté donde esté en el tablero. La barra de progreso solo cuenta las piezas bloqueadas en su sitio definitivo. Un grupo de 30 piezas flotando en medio de la nada son 30 puntos y 0 piezas bloqueadas: los dos números no tienen por qué coincidir.",
+    fairTitle: "Las cuentas cuadran",
+    fairBody:
+      "Ninguna pieza se paga dos veces y nadie cobra por el trabajo de otro. Una pieza que nadie ha movido nunca va a quien la bloquea en el tablero. Así que cuando entra la última pieza, la clasificación suma exactamente {total} piezas.",
   },
   activityPanel: {
     placedLine: "colocó {object}",

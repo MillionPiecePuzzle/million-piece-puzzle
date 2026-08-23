@@ -5,10 +5,12 @@ import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { toLeaderboardRows } from "../data/leaderboard";
 import LeaderboardModal from "./LeaderboardModal.vue";
 import LeaderboardRow from "./LeaderboardRow.vue";
+import ScoringModal from "./ScoringModal.vue";
 
 const { t } = useI18n();
 const { leaderboard, userId } = usePuzzleSession();
 const showModal = ref(false);
+const showScoring = ref(false);
 
 // Compact panel: the leaders, plus the local user and their neighbour when the
 // local user ranks outside the visible leaders.
@@ -25,6 +27,19 @@ const panelRows = computed(() => {
   <aside class="panel leaderboard">
     <div class="lb-head">
       <h3>{{ t("common.leaderboard") }}</h3>
+      <button
+        type="button"
+        class="info"
+        :aria-label="t('scoring.open')"
+        :title="t('scoring.open')"
+        @click="showScoring = true"
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="9.2" stroke="currentColor" stroke-width="1.6" />
+          <path d="M12 10.8v5.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <circle cx="12" cy="7.9" r="1.05" fill="currentColor" />
+        </svg>
+      </button>
     </div>
     <template v-if="panelRows.length > 0">
       <ol class="lb-list">
@@ -40,6 +55,7 @@ const panelRows = computed(() => {
   </aside>
 
   <LeaderboardModal v-if="showModal" @close="showModal = false" />
+  <ScoringModal v-if="showScoring" @close="showScoring = false" />
 </template>
 
 <style scoped>
@@ -52,6 +68,27 @@ const panelRows = computed(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
+}
+.info {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-4);
+  border-radius: var(--radius-btn);
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+.info:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.info svg {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 .lb-list {
   list-style: none;

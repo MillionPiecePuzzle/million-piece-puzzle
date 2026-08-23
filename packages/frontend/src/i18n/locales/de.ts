@@ -99,6 +99,15 @@ const de: MessageSchema = {
     discord: "Discord-Server beitreten",
     signOut: "Abmelden",
   },
+  tips: {
+    title: "Tipps & Tricks",
+    prev: "Vorheriger Tipp",
+    next: "Nächster Tipp",
+    carry:
+      "Doppelklicke auf ein Teil, um es an den Cursor zu heften, und noch einmal, um es abzulegen.",
+    minimap: "Klicke irgendwo auf die Mini-Karte, um die Ansicht dorthin zu bewegen.",
+    reference: "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört.",
+  },
   pseudo: {
     titleEdit: "Pseudonym ändern",
     titleNew: "Wähle dein Pseudonym",
@@ -135,6 +144,20 @@ const de: MessageSchema = {
     countries: "Länder",
     prev: "zurück",
     next: "weiter",
+  },
+  scoring: {
+    open: "Wie Teile gezählt werden",
+    title: "Wie Teile gezählt werden",
+    lede: "Jedes Teil auf dem Brett ist einen Punkt wert. Er wird einmal ausgezahlt, an den ersten Spieler, der es einrastet.",
+    gainText: "Du ziehst ein einzelnes Teil an seinen Nachbarn: dieses Teil gehört dir.",
+    noGainText:
+      "Du ziehst einen 30-Teile-Verbund auf einen anderen: alle 30 wurden an dem Tag ausgezahlt, an dem sie zum ersten Mal bewegt wurden, es kommt also nichts dazu.",
+    mismatchTitle: "Warum das nicht zum Fortschrittsbalken passt",
+    mismatchBody:
+      "Die Rangliste zählt ein Teil in dem Moment, in dem es einrastet, egal wo auf dem Brett. Der Fortschrittsbalken zählt nur die Teile, die an ihrem endgültigen Platz verriegelt sind. Ein 30-Teile-Verbund mitten im Nirgendwo sind 30 Punkte und 0 verriegelte Teile: die beiden Zahlen sollen gar nicht gleich sein.",
+    fairTitle: "Am Ende geht es auf",
+    fairBody:
+      "Kein Teil wird zweimal ausgezahlt, und niemand wird für die Arbeit anderer bezahlt. Ein Teil, das nie jemand bewegt hat, geht an den, der es ins Brett verriegelt. Wenn das letzte Teil sitzt, ergibt die Rangliste also genau {total} Teile.",
   },
   activityPanel: {
     placedLine: "hat {object} platziert",

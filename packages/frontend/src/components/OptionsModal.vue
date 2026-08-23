@@ -29,6 +29,16 @@ watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 const synced = computed(() => user.value != null && !user.value.guest);
 const syncedIdentity = computed(() => user.value?.email ?? user.value?.name ?? null);
 
+// One-liner gameplay hints, stepped through in place rather than opened as
+// their own screen: the menu is the only surface a player already comes back to.
+const TIP_KEYS = ["tips.carry", "tips.minimap", "tips.reference"] as const;
+const tipIndex = ref(0);
+const tip = computed(() => t(TIP_KEYS[tipIndex.value] ?? TIP_KEYS[0]));
+
+function stepTip(delta: number) {
+  tipIndex.value = (tipIndex.value + delta + TIP_KEYS.length) % TIP_KEYS.length;
+}
+
 // Sync hands off to the (confirmation) auth modal; the profile edits reuse the
 // existing pseudo/country modals in their dismissible edit mode.
 function sync() {
@@ -117,6 +127,22 @@ function changeCountry() {
             <span class="label">{{ t("options.discord") }}</span>
           </a>
         </div>
+
+        <section class="tips">
+          <div class="tips-head">
+            <span>{{ t("tips.title") }}</span>
+            <span>{{ tipIndex + 1 }} / {{ TIP_KEYS.length }}</span>
+          </div>
+          <div class="tips-body">
+            <button type="button" class="tip-nav" :aria-label="t('tips.prev')" @click="stepTip(-1)">
+              &larr;
+            </button>
+            <p class="tip" aria-live="polite">{{ tip }}</p>
+            <button type="button" class="tip-nav" :aria-label="t('tips.next')" @click="stepTip(1)">
+              &rarr;
+            </button>
+          </div>
+        </section>
 
         <button type="button" class="signout" @click="signOut">{{ t("options.signOut") }}</button>
       </div>
@@ -207,6 +233,60 @@ function changeCountry() {
 }
 .action.synced:hover {
   background: var(--paper);
+}
+.tips {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.tips-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.tips-body {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tip {
+  /* Floor over the tallest tip at the modal's own width (3 lines in every
+     locale): stepping through them must not resize the modal under the pointer
+     doing the stepping. A floor rather than a fixed height so a narrower phone,
+     where a tip can wrap to a fourth line, grows the strip instead of clipping
+     the text out of its centered box. */
+  flex: 1;
+  min-width: 0;
+  min-height: 58px;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.tip-nav {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-btn);
+  color: var(--ink-4);
+  font-size: 14px;
+  line-height: 1;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+.tip-nav:hover {
+  background: var(--ground-2);
+  color: var(--ink);
 }
 .signout {
   width: 100%;

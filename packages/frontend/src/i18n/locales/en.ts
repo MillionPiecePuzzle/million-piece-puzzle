@@ -97,6 +97,14 @@ const en = {
     discord: "Join the Discord server",
     signOut: "Sign out",
   },
+  tips: {
+    title: "Tips & tricks",
+    prev: "Previous tip",
+    next: "Next tip",
+    carry: "Double-click a piece to stick it to your cursor, double-click again to drop it.",
+    minimap: "Click anywhere on the minimap to move the view there.",
+    reference: "Open the reference image and zoom in to find where a piece belongs.",
+  },
   pseudo: {
     titleEdit: "Change your pseudo",
     titleNew: "Choose your pseudo",
@@ -128,6 +136,20 @@ const en = {
     countries: "Countries",
     prev: "prev",
     next: "next",
+  },
+  scoring: {
+    open: "How pieces are counted",
+    title: "How pieces are counted",
+    lede: "Every piece on the board is worth one point. It is paid once, to the first player who snaps it into place.",
+    gainText: "You drag a loose piece against its neighbour: that piece is yours.",
+    noGainText:
+      "You drag a 30-piece cluster onto another one: all 30 were paid for the day they were first moved, so nothing is added.",
+    mismatchTitle: "Why it does not match the progress bar",
+    mismatchBody:
+      "The leaderboard counts a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place. A 30-piece cluster floating in the middle of nowhere is 30 points and 0 locked pieces, so the two numbers are not meant to be equal.",
+    fairTitle: "It adds up",
+    fairBody:
+      "No piece is ever paid twice, and nobody is paid for someone else's work. A piece nobody ever moved goes to whoever locks it into the board. So when the last piece goes in, the standings add up to exactly {total} pieces.",
   },
   activityPanel: {
     placedLine: "placed {object}",

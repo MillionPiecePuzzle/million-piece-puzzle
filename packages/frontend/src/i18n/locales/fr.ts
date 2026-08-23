@@ -99,6 +99,15 @@ const fr: MessageSchema = {
     discord: "Rejoindre le serveur Discord",
     signOut: "Se déconnecter",
   },
+  tips: {
+    title: "Astuces",
+    prev: "Astuce précédente",
+    next: "Astuce suivante",
+    carry:
+      "Double-cliquez sur une pièce pour la coller à votre curseur, double-cliquez à nouveau pour la déposer.",
+    minimap: "Cliquez n'importe où sur la mini-carte pour y déplacer la vue.",
+    reference: "Ouvrez l'image de référence et zoomez pour trouver où va une pièce.",
+  },
   pseudo: {
     titleEdit: "Changer de pseudo",
     titleNew: "Choisissez votre pseudo",
@@ -134,6 +143,20 @@ const fr: MessageSchema = {
     countries: "Pays",
     prev: "préc.",
     next: "suiv.",
+  },
+  scoring: {
+    open: "Comment les pièces sont comptées",
+    title: "Comment les pièces sont comptées",
+    lede: "Chaque pièce du plateau vaut un point. Il est versé une seule fois, au premier joueur qui l'emboîte.",
+    gainText: "Vous glissez une pièce isolée contre sa voisine : cette pièce est à vous.",
+    noGainText:
+      "Vous glissez un groupe de 30 pièces sur un autre : les 30 ont été payées le jour où elles ont bougé pour la première fois, rien ne s'ajoute.",
+    mismatchTitle: "Pourquoi le total ne colle pas à la barre de progression",
+    mismatchBody:
+      "Le classement compte une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive. Un groupe de 30 pièces flottant au milieu de nulle part, c'est 30 points et 0 pièce verrouillée : les deux nombres n'ont pas vocation à être égaux.",
+    fairTitle: "Le compte tombe juste",
+    fairBody:
+      "Aucune pièce n'est payée deux fois et personne n'est payé pour le travail d'un autre. Une pièce que personne n'a jamais déplacée revient à celui qui la verrouille dans le plateau. Quand la dernière pièce entre, le classement totalise donc exactement {total} pièces.",
   },
   activityPanel: {
     placedLine: "a placé {object}",
