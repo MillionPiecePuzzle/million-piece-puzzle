@@ -186,6 +186,54 @@ export class RedisState {
     await this.r.hset(keys.group(this.puzzleId, id), { worldX, worldY });
   }
 
+  // Bulk counterpart for a whole-board rewrite (see relabel.ts), chunked so it
+  // never builds a single million-command pipeline.
+  async setGroupPositions(entries: readonly { id: number; worldX: number; worldY: number }[]) {
+    const chunk = 10_000;
+    for (let start = 0; start < entries.length; start += chunk) {
+      const pipe = this.r.pipeline();
+      const end = Math.min(start + chunk, entries.length);
+      for (let i = start; i < end; i++) {
+        const e = entries[i]!;
+        pipe.hset(keys.group(this.puzzleId, e.id), { worldX: e.worldX, worldY: e.worldY });
+      }
+      await pipe.exec();
+    }
+  }
+
+  // Pre-relabel origin snapshot (see relabel.ts and keys.relabelOrigins). Kept
+  // in Redis rather than in the migrating process so it survives the crash it
+  // exists to cover.
+  async saveOriginBackup(
+    entries: readonly { id: number; worldX: number; worldY: number }[],
+  ): Promise<void> {
+    const key = keys.relabelOrigins(this.puzzleId);
+    const chunk = 10_000;
+    for (let start = 0; start < entries.length; start += chunk) {
+      const pipe = this.r.pipeline();
+      const end = Math.min(start + chunk, entries.length);
+      for (let i = start; i < end; i++) {
+        const e = entries[i]!;
+        pipe.hset(key, e.id, `${e.worldX},${e.worldY}`);
+      }
+      await pipe.exec();
+    }
+  }
+
+  async readOriginBackup(): Promise<{ id: number; worldX: number; worldY: number }[] | null> {
+    const h = await this.r.hgetall(keys.relabelOrigins(this.puzzleId));
+    const ids = Object.keys(h);
+    if (ids.length === 0) return null;
+    return ids.map((id) => {
+      const [x, y] = h[id]!.split(",");
+      return { id: Number(id), worldX: Number(x), worldY: Number(y) };
+    });
+  }
+
+  async clearOriginBackup(): Promise<void> {
+    await this.r.del(keys.relabelOrigins(this.puzzleId));
+  }
+
   async tryAcquireGroup(id: number, userId: string): Promise<string | null> {
     const key = keys.group(this.puzzleId, id);
     // 'size' marks a fully written group (see parseGroup); reject acquiring a

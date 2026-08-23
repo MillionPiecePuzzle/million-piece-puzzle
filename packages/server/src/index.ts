@@ -16,6 +16,7 @@ import { NoCompositorError, readAdminOverrides, UnknownPuzzleError } from "./adm
 import { adminEventStart, adminPuzzleOverride } from "./redis/keys.js";
 import { Hub, type Client } from "./hub.js";
 import { buildWireContext } from "./wire.js";
+import { reconcileBoardSeed } from "./relabel.js";
 import { RedisState } from "./state.js";
 import { MongoLogger, ensureIndexes } from "./mongo.js";
 import { dispatch, LEADERBOARD_LIMIT, type Context } from "./handlers.js";
@@ -89,7 +90,11 @@ async function main(): Promise<void> {
 
   const manifest = config.manifest;
   const state = new RedisState(redis, manifest.puzzleId);
-  const meta = await initPuzzleIfEmpty(state, manifest, config.generationSeed);
+  const meta = await reconcileBoardSeed(
+    state,
+    await initPuzzleIfEmpty(state, manifest, config.generationSeed),
+    config.generationSeed,
+  );
 
   // The wire boundary: the seed permutation (gridId <-> wireId) plus the grid
   // metrics the anchor/offset encoding needs. Built once at boot from the

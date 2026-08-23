@@ -32,6 +32,15 @@ export const heldGroups = (puzzleId: string) => `puzzle:${puzzleId}:held-groups`
 export const groupPieces = (puzzleId: string, groupId: number) =>
   `puzzle:${puzzleId}:group-pieces:${groupId}`;
 
+/**
+ * Hash: pieceId -> "worldX,worldY", the board's origins as they were before a
+ * seed relabel started (see relabel.ts). Written before the first position is
+ * overwritten and deleted once the new seed is committed to meta, so a crash
+ * mid-rewrite leaves the untouched pre-relabel state to resume from rather than
+ * a board with a permutation half applied.
+ */
+export const relabelOrigins = (puzzleId: string) => `puzzle:${puzzleId}:relabel-origins`;
+
 /** Integer: atomic counter of locked pieces, broadcast for live progress. */
 export const lockedCount = (puzzleId: string) => `puzzle:${puzzleId}:locked-count`;
 

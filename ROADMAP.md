@@ -140,6 +140,7 @@ Shipped in 3 independent chantiers under the single prod, no staging: A added gu
 - [x] Hard cap `MPP_CLUSTER_PIECE_CAP` (20 000) on unlocked-unlocked merges, merging into a locked neighbor exempt; `stateInvariants.ts` validates `locked` via a direct Mongo-replay-vs-Redis piece-flag comparison
 - [x] Locked-region state reaches clients as incremental, server-composited per-cell tiles (sharp, debounced dirty-cell queue, cached/versioned in R2, pushed live over `region_state`/`cell_composite`), not per-piece fetches
 - [x] `CellCompositor`'s photo-tier retired: `DziRevealLayer` renders straight from the DZI pyramid and never fetches it
+- [~] A board whose stored `generationSeed` differs from the one the server loads is relabeled onto the loaded seed at boot (crash-resumable, refuses anything already merged or locked) instead of being served unplayable. Exit: prod relabeled and a piece locks again. See DECISIONS
 
 ### `auth-and-accounts`
 - [x] Pseudo and country onboarding steps independently skippable (a Skip control in place of the header close button, since neither step is otherwise dismissible during onboarding); skipping the pseudo step mints a unique "Guest #XXXX" pseudo (4 random alphanumeric characters), skipping the country step sets the international nationality. Menu-triggered edit modals are unchanged, already dismissible. See DECISIONS
