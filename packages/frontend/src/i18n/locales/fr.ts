@@ -93,6 +93,7 @@ const fr: MessageSchema = {
     title: "Compte",
     sync: "Synchroniser le compte",
     syncHint: "Connectez-vous avec Google pour conserver vos contributions de façon permanente.",
+    synced: "Compte synchronisé avec Google",
     changePseudo: "Changer de pseudo",
     changeCountry: "Changer de pays",
     discord: "Rejoindre le serveur Discord",

@@ -91,6 +91,7 @@ const en = {
     title: "Account",
     sync: "Sync account",
     syncHint: "Sign in with Google to save your contributions permanently.",
+    synced: "Synced with Google",
     changePseudo: "Change pseudo",
     changeCountry: "Change country",
     discord: "Join the Discord server",

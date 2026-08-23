@@ -71,8 +71,8 @@ export function buildAuthConfig(opts: AuthConfigOptions): ExpressAuthConfig {
       },
       // Database strategy: surface the user id, pseudo, country and guest flag so
       // GET /auth/session can drive the forced onboarding steps, snap attribution
-      // and the account-sync affordance (shown for a guest, hidden for a Google
-      // account).
+      // and the account state in the options menu (the sync action for a guest,
+      // the synced identity once a Google account is linked).
       session({ session, user }) {
         session.user.id = user.id;
         (session.user as { pseudo?: string | null }).pseudo =
@@ -91,6 +91,22 @@ export function buildAuthConfig(opts: AuthConfigOptions): ExpressAuthConfig {
         await opts.adapter.updateUser({
           id: user.id,
           createdAt: new Date(),
+        } as Parameters<NonNullable<Adapter["updateUser"]>>[0]);
+      },
+      // Account sync is always started from an open guest session, so Auth.js
+      // links the Google account to that guest document rather than creating a
+      // second user. Promote it in place: the account is permanent from here, its
+      // claim token is spent, and the linked identity is what the options menu
+      // shows back to the player.
+      async linkAccount({ user, profile }) {
+        if (!user.id || !opts.adapter.updateUser) return;
+        await opts.adapter.updateUser({
+          id: user.id,
+          guest: false,
+          claimTokenHash: null,
+          ...(profile.email ? { email: profile.email } : {}),
+          ...(profile.name ? { name: profile.name } : {}),
+          ...(profile.image ? { image: profile.image } : {}),
         } as Parameters<NonNullable<Adapter["updateUser"]>>[0]);
       },
     },

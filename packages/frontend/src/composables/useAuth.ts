@@ -6,11 +6,13 @@ import { authBaseUrl } from "../data/authBaseUrl";
 
 // The authenticated contributor as exposed by GET /auth/session. pseudo and
 // country are null until the user completes the forced onboarding steps. guest
-// is true for an in-site guest (no Google account), which drives the account-sync
-// affordance in the options menu.
+// is true for an in-site guest (no Google account) and drives the options menu:
+// the sync action while it holds, the synced state carrying email and name once a
+// Google account is linked.
 export type SessionUser = {
   id: string;
   guest: boolean;
+  email?: string | null;
   name?: string | null;
   image?: string | null;
   pseudo: string | null;
@@ -27,8 +29,8 @@ export type CountryResult =
   | { ok: false; reason: "cooldown"; retryAt: number };
 export type GuestResult = { ok: true } | { ok: false; reason: "taken" | "invalid" | "error" };
 
-// The one-time guest claim token, stored at mint so a later Google sign-in can
-// reattribute the guest's contributions (POST /guest/claim).
+// The one-time guest claim token, stored at mint. POST /guest/claim spends it to
+// fold that guest into a signed-in account.
 const GUEST_CLAIM_TOKEN_KEY = "mpp.guestClaimToken";
 
 const user = ref<SessionUser | null>(null);
@@ -39,8 +41,8 @@ const ready = ref(false);
 // maintenance screen instead of in a modal whose submit is bound to fail.
 const backendDown = ref(false);
 // False while a guest-claim is pending on boot, so the onboarding gate does not
-// flash a forced-pseudo modal at a freshly synced Google account before the
-// claim carries over the guest's pseudo and country.
+// flash a forced-pseudo modal at a freshly synced account before the claim
+// settles.
 const claimSettled = ref(true);
 // Pseudo captured in the first guest-onboarding modal, sent with the country to
 // POST /guest in the second.
@@ -207,12 +209,12 @@ function clearClaimToken(): void {
   }
 }
 
-// Reattribute the stored guest's contributions to the now signed-in Google
-// account (POST /guest/claim), carrying over its pseudo and country. A 200
-// updates the session user and consumes the token; a 404 means the token is
-// stale (guest already claimed or gone), so it is dropped; any other status
-// keeps the token for a later retry (a 409 self-claim means we are still the
-// guest, so a sync has not happened yet).
+// Reattribute the stored guest's contributions to the now signed-in account
+// (POST /guest/claim), carrying over its pseudo and country. A 200 updates the
+// session user and consumes the token; a 404 means there is nothing to fold in
+// (the guest is gone, or the sign-in linked its document in place), so the token
+// is dropped; any other status keeps the token for a later retry (a 409
+// self-claim means we are still the guest, so a sync has not happened yet).
 async function claimGuestContributions(): Promise<void> {
   let token: string | null = null;
   try {
@@ -242,10 +244,10 @@ async function claimGuestContributions(): Promise<void> {
 
 // App boot and return-from-redirect: resolve the session and, for a user who
 // already finished onboarding, restore contributor mode. A stored claim token on
-// a non-guest (Google) session means the user just synced: the guest's
-// contributions are claimed before onboarding runs, so the carried-over pseudo
-// and country suppress the forced modals. The forced onboarding itself is
-// deferred to startOnboardingIfNeeded, which the app only runs on /play.
+// a signed-in session is spent before onboarding runs, so a pseudo and country
+// carried over from the guest suppress the forced modals. The forced onboarding
+// itself is deferred to startOnboardingIfNeeded, which the app only runs on
+// /play.
 async function bootstrap(): Promise<void> {
   const maybeClaim = hasClaimToken();
   if (maybeClaim) claimSettled.value = false;

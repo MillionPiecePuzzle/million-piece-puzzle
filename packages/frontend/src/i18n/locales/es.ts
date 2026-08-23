@@ -93,6 +93,7 @@ const es: MessageSchema = {
     title: "Cuenta",
     sync: "Sincronizar cuenta",
     syncHint: "Inicia sesión con Google para guardar tus contribuciones de forma permanente.",
+    synced: "Cuenta sincronizada con Google",
     changePseudo: "Cambiar pseudónimo",
     changeCountry: "Cambiar país",
     discord: "Unirse al servidor de Discord",

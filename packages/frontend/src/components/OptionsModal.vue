@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useOptionsModal } from "../composables/useOptionsModal";
 import { useAuthModal } from "../composables/useAuthModal";
@@ -8,6 +8,7 @@ import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
+import GoogleMark from "./GoogleMark.vue";
 
 const { t } = useI18n();
 const { open, hide } = useOptionsModal();
@@ -22,6 +23,11 @@ const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: hide });
 const { onMousedown, onClick } = useBackdropClick(hide);
 watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
+
+// A linked Google account turns the sync action into a read-only synced state:
+// the identity it resolves to is what tells the player the account is permanent.
+const synced = computed(() => user.value != null && !user.value.guest);
+const syncedIdentity = computed(() => user.value?.email ?? user.value?.name ?? null);
 
 // Sync hands off to the (confirmation) auth modal; the profile edits reuse the
 // existing pseudo/country modals in their dismissible edit mode.
@@ -60,9 +66,34 @@ function changeCountry() {
         </header>
 
         <div class="actions">
-          <button v-if="user?.guest" type="button" class="action sync" @click="sync">
-            <span class="label">{{ t("options.sync") }}</span>
-            <span class="hint">{{ t("options.syncHint") }}</span>
+          <div v-if="synced" class="action synced">
+            <svg
+              class="check"
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            <span class="synced-text">
+              <span class="label">{{ t("options.synced") }}</span>
+              <span v-if="syncedIdentity" class="hint">{{ syncedIdentity }}</span>
+            </span>
+          </div>
+          <button v-else-if="user?.guest" type="button" class="action sync" @click="sync">
+            <span class="g-mark" aria-hidden="true">
+              <GoogleMark />
+            </span>
+            <span class="sync-text">
+              <span class="label">{{ t("options.sync") }}</span>
+              <span class="hint">{{ t("options.syncHint") }}</span>
+            </span>
           </button>
           <button type="button" class="action" @click="changePseudo">
             <span class="label">{{ t("options.changePseudo") }}</span>
@@ -70,7 +101,19 @@ function changeCountry() {
           <button type="button" class="action" @click="changeCountry">
             <span class="label">{{ t("options.changeCountry") }}</span>
           </button>
-          <a class="action" :href="DISCORD_URL" target="_blank" rel="noopener">
+          <a class="action discord" :href="DISCORD_URL" target="_blank" rel="noopener">
+            <svg
+              class="discord-mark"
+              viewBox="0 0 127.14 96.36"
+              width="18"
+              height="18"
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"
+              />
+            </svg>
             <span class="label">{{ t("options.discord") }}</span>
           </a>
         </div>
@@ -120,8 +163,50 @@ function changeCountry() {
   color: var(--ink-3);
   line-height: 1.4;
 }
+.action.sync,
+.action.synced,
+.action.discord {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.sync-text,
+.synced-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.synced-text .hint {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.g-mark,
+.check,
+.discord-mark {
+  flex: none;
+}
+.g-mark {
+  display: inline-grid;
+  place-items: center;
+}
+.check {
+  color: #34a853;
+}
+.discord-mark {
+  color: #5865f2;
+}
 .action.sync {
   border-color: var(--ink);
+}
+.action.synced {
+  cursor: default;
+}
+.action.synced:hover {
+  background: var(--paper);
 }
 .signout {
   width: 100%;

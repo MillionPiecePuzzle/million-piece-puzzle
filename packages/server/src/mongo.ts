@@ -11,8 +11,9 @@ import {
 export type ClusterMergeDoc = Omit<ClusterMerge, "_id">;
 
 // User document: either a guest (minted by createGuest, no email, carries
-// claimTokenHash) or a Google account written by the Auth.js Mongo adapter (OAuth
-// profile). Both carry the fields this app adds: pseudo and country, createdAt,
+// claimTokenHash) or a permanent account (email and OAuth profile, guest false),
+// which is the same document once a Google account is linked to the guest's live
+// session. Both carry the fields this app adds: pseudo and country, createdAt,
 // lastSeenAt. pseudoChangedAt/countryChangedAt are set on a change (not the
 // initial onboarding choice) and enforce PROFILE_COOLDOWN_MS.
 type UserDoc = {
@@ -31,11 +32,12 @@ type UserDoc = {
 };
 
 // Public-facing profile returned to the SPA after a guest mint or a pseudo /
-// country update. guest lets the client show the account-sync affordance to a
-// guest and hide it for a Google account.
+// country update. guest drives the options menu: the sync action for a guest, the
+// synced state carrying email and name once a Google account is linked.
 export type UserProfile = {
   id: string;
   guest: boolean;
+  email: string | null;
   name: string | null;
   image: string | null;
   pseudo: string | null;
@@ -339,6 +341,7 @@ function toProfile(doc: UserDoc): UserProfile {
   return {
     id: doc._id.toString(),
     guest: doc.guest ?? false,
+    email: doc.email ?? null,
     name: doc.name ?? null,
     image: doc.image ?? null,
     pseudo: doc.pseudo ?? null,

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Adapter } from "@auth/core/adapters";
 import {
+  buildAuthConfig,
   readCookie,
   sessionCookieName,
   resolveSessionUser,
@@ -101,5 +102,51 @@ describe("resolveSessionUser", () => {
       user: { id: "u1", email: "a@b.c", emailVerified: null },
     });
     expect(await resolveSessionUser(cookie("old"), adapter, false)).toBeNull();
+  });
+});
+
+describe("buildAuthConfig events.linkAccount", () => {
+  const config = (updateUser: Adapter["updateUser"]) =>
+    buildAuthConfig({
+      adapter: { updateUser } as unknown as Adapter,
+      secure: true,
+      cookieDomain: ".example.com",
+      appOrigin: "https://app.example.com",
+    });
+
+  const link = async (
+    updateUser: ReturnType<typeof vi.fn>,
+    profile: { email?: string; name?: string; image?: string },
+  ) => {
+    const events = config(updateUser as unknown as Adapter["updateUser"]).events;
+    await events?.linkAccount?.({
+      user: { id: "u1", email: "", emailVerified: null },
+      account: { provider: "google", providerAccountId: "g1", type: "oidc", userId: "u1" },
+      profile: { id: "g1", email: "", emailVerified: null, ...profile },
+    });
+  };
+
+  it("promotes the linked guest to a permanent account carrying the Google identity", async () => {
+    const updateUser = vi.fn(async () => undefined);
+    await link(updateUser, { email: "a@b.c", name: "Ada", image: "https://img/a.png" });
+    expect(updateUser).toHaveBeenCalledWith({
+      id: "u1",
+      guest: false,
+      claimTokenHash: null,
+      email: "a@b.c",
+      name: "Ada",
+      image: "https://img/a.png",
+    });
+  });
+
+  it("leaves an absent profile field untouched rather than overwriting it with nothing", async () => {
+    const updateUser = vi.fn(async () => undefined);
+    await link(updateUser, { email: "a@b.c" });
+    expect(updateUser).toHaveBeenCalledWith({
+      id: "u1",
+      guest: false,
+      claimTokenHash: null,
+      email: "a@b.c",
+    });
   });
 });

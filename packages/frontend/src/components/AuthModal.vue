@@ -5,6 +5,7 @@ import { useAuthModal } from "../composables/useAuthModal";
 import { useAuth } from "../composables/useAuth";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
+import GoogleMark from "./GoogleMark.vue";
 
 const { t } = useI18n();
 const { open, hide } = useAuthModal();
@@ -16,9 +17,9 @@ const { onMousedown, onClick } = useBackdropClick(hide);
 watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 
 function continueWithGoogle() {
-  // Navigates away to Google; on return the guest's contributions are claimed
-  // into this account and the carried-over pseudo/country skip onboarding (see
-  // useAuth.bootstrap).
+  // Navigates away to Google; the sign-in carries the live guest session, so the
+  // provider account is linked onto that same guest document, which the server
+  // promotes to a permanent account (see the linkAccount event in auth.ts).
   void signIn("google");
 }
 </script>
@@ -42,7 +43,9 @@ function continueWithGoogle() {
 
         <div class="providers">
           <button class="provider google" @click="continueWithGoogle">
-            <span class="g-mark" aria-hidden="true">G</span>
+            <span class="g-mark" aria-hidden="true">
+              <GoogleMark :size="14" />
+            </span>
             {{ t("auth.continueGoogle") }}
           </button>
         </div>
@@ -86,9 +89,5 @@ function continueWithGoogle() {
   border-radius: 99px;
   background: #fff;
   border: 1px solid var(--line);
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: 13px;
-  color: #4285f4;
 }
 </style>

@@ -77,6 +77,7 @@ function fakeRes() {
 const profile: UserProfile = {
   id: "u1",
   guest: false,
+  email: null,
   name: "N",
   image: null,
   pseudo: "Alice",
@@ -257,6 +258,7 @@ describe("makeGuestHandler", () => {
   const guestProfile: UserProfile = {
     id: "g1",
     guest: true,
+    email: null,
     name: null,
     image: null,
     pseudo: "Alice",
@@ -412,6 +414,7 @@ describe("makeClaimHandler", () => {
   const claimedProfile: UserProfile = {
     id: "google1",
     guest: false,
+    email: "g@example.com",
     name: "G",
     image: null,
     pseudo: "Alice",
