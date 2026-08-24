@@ -33,8 +33,8 @@ function dropTargets(): FlagDropTarget[] {
 }
 
 // Pointer-driven and bottom-center: the bar has no room on a phone, where the
-// zoom controls and the minimap already hold that edge. Gated in JS rather than
-// in CSS so the number keys go with it.
+// minimap already holds that edge. Gated in JS rather than in CSS so the number
+// keys go with it.
 const { wide } = useWideViewport();
 
 function goTo(flag: BoardFlag): void {

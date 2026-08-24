@@ -42,12 +42,12 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
              other regardless of their own content-driven size (a portrait
              reference image, a long activity list, a full leaderboard, ...)
              or the viewport's height, unlike the corner-anchored absolute
-             positioning this replaced. The two reading panels are dropped
-             below the breakpoint, where the board needs every pixel more
-             than a phone needs standings. See DECISIONS. -->
+             positioning this replaced. Below the breakpoint the rails are
+             down to the reference thumbnail and the minimap, where the board
+             needs every pixel more than a phone needs a HUD. See DECISIONS. -->
         <div class="hud-rail hud-rail-left">
           <ReferencePanel />
-          <ZoomControls />
+          <ZoomControls v-if="wide" />
           <ActivityTicker v-if="wide" />
         </div>
         <div class="hud-rail hud-rail-right">
@@ -101,8 +101,8 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
    with 3 children (reference/zoom/ticker) it also centers the middle one in
    whatever room is actually left between the other two, so a taller or
    shorter sibling on either side never has to be predicted or hardcoded.
-   On a phone the left rail is down to 2 children, which puts the zoom
-   controls in the bottom corner.
+   On a phone the left rail is down to the reference panel alone, which
+   space-between leaves in its top corner.
    pointer-events:none lets drags reach the canvas in the gaps; each panel
    (.panel, .zoom, .dev-controls) re-enables it on itself. */
 .hud-rail {

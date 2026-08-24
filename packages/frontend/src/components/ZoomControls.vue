@@ -70,8 +70,7 @@ const { controls, zoomPercent } = useStageControls();
 <style scoped>
 /* Vertically centered in whatever room the rail's space-between leaves
    between the reference panel above and the activity ticker below (see
-   PlayPage.vue .hud-rail-left), not the stage's own true center. On a phone
-   there is no ticker, so it sits in the bottom corner instead. */
+   PlayPage.vue .hud-rail-left), not the stage's own true center. */
 .zoom {
   /* Matches the HUD z-index convention in base.css .panel: without it this
      panel sits at the default stacking level (0), below both the puzzle
