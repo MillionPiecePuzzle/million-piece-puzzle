@@ -117,6 +117,7 @@ const fr: MessageSchema = {
     carry:
       "Double-cliquez sur une pièce pour la coller à votre curseur, double-cliquez à nouveau pour la déposer.",
     flags: "Utilisez les drapeaux pour vous déplacer facilement sur le plateau.",
+    flagDrop: "Faites glisser une pièce sur un drapeau de la barre pour l'envoyer là-bas.",
     minimap: "Cliquez n'importe où sur la mini-carte pour y déplacer la vue.",
     reference: "Ouvrez l'image de référence et zoomez pour trouver où va une pièce.",
   },

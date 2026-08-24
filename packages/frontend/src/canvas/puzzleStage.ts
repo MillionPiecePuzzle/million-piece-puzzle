@@ -20,10 +20,18 @@ import {
 import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { FlagLayer } from "./flagLayer";
+import { findFreeOrigin, type FlagDropTarget, type FlagDropTargetSource } from "./flagDrop";
 import type { BoardFlag } from "../data/boardFlags";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { pushEscapeHandler } from "../escapeStack";
-import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
+import {
+  aabbsOverlap,
+  boundsVisible,
+  pieceLocalBounds,
+  unionBounds,
+  type Aabb,
+  type Viewport,
+} from "./cull";
 import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, unpackCell, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
 import { fetchDziInfo, type DziInfo } from "./dziTiles";
@@ -186,6 +194,17 @@ const GRAB_HIT_ALPHA = 16;
 // unaffected (piece under the cursor); a carry drop lands the cluster at the
 // cursor.
 const HELD_CARRY_GAP = 40;
+
+// Dropping a dragged cluster on a HUD flag button sends it to that flag. Hovering
+// one shrinks the cluster toward the button, the tell that the release will send
+// it away rather than leave it here. It lands centered on the nearest patch clear
+// of everything the client knows about, kept FLAG_DROP_GAP_PIECES pieces away
+// from its neighbours; the rings bound the outward search on a crowded board,
+// past which the drop lands on the flag itself.
+const FLAG_DROP_SCALE = 0.4;
+const FLAG_DROP_SCALE_MS = 160;
+const FLAG_DROP_GAP_PIECES = 0.15;
+const FLAG_DROP_SEARCH_RINGS = 6;
 
 // Sticky carry mode (double-click or double-tap a piece to stick its cluster to
 // the cursor). A highlighted outline marks the carried cluster, and an idle
@@ -416,6 +435,9 @@ export class PuzzleStage {
   // pressed without being dragged reports the request to open its options.
   onFlagMove: ((id: string, worldX: number, worldY: number) => void) | null = null;
   onFlagSelect: ((id: string) => void) | null = null;
+  // Which HUD flag button a dragged cluster is currently over, so the bar can
+  // mark it as the button the release will send the cluster to.
+  onFlagDropHover: ((id: string | null) => void) | null = null;
 
   private flagLayer: FlagLayer | null = null;
   // In-flight personal-flag drag: the layer holds the live position, the shell
@@ -430,6 +452,18 @@ export class PuzzleStage {
     originY: number;
     moved: boolean;
   } | null = null;
+  // Flag-drop targets: the HUD bar's buttons in client coordinates, measured once
+  // when a press-drag grab starts (the bar cannot relayout while the pointer is
+  // held) and hit-tested against the pointer on every move.
+  private flagDropTargetSource: FlagDropTargetSource | null = null;
+  private flagDropTargets: FlagDropTarget[] = [];
+  private flagDropHoverId: string | null = null;
+  // Live per-piece scale of the held cluster: HELD_SCALE while it is merely
+  // dragged, tweened down to FLAG_DROP_SCALE while it hovers a flag button. The
+  // generation stamp lets a reversal (or the drop) leave an in-flight tween
+  // behind, which the tweener has no way to cancel.
+  private heldPieceScale = 1;
+  private heldPieceScaleGen = 0;
   private peerCursors: PeerCursorLayer | null = null;
   private readonly tickPeerCursors = (ticker: { deltaMS: number }): void => {
     this.peerCursors?.update(ticker.deltaMS, this.camera);
@@ -1114,6 +1148,7 @@ export class PuzzleStage {
     this.textureBase = "";
     this.minimapGrid = null;
     this.held = null;
+    this.disarmFlagDropTargets();
     this.carryHighlight = null;
     this.lastTapScreen = null;
     this.touchPoints.clear();
@@ -1200,6 +1235,7 @@ export class PuzzleStage {
     this.lastTapScreen = null;
     this.onCarryChange?.(false);
     this.held = null;
+    this.disarmFlagDropTargets();
     this.pendingDrag = null;
     this.peerCursors?.clearHeld();
     this.fileById = new Map();
@@ -1301,6 +1337,7 @@ export class PuzzleStage {
       this.setGroupHeldVisual(node, false);
       if (this.held.carry) this.endCarry();
       this.held = null;
+      this.disarmFlagDropTargets();
     }
     this.releaseGroupHeld(groupId);
   }
@@ -1863,6 +1900,7 @@ export class PuzzleStage {
     };
     this.markGroupHeld(target);
     this.setGroupHeldVisual(target, true);
+    this.armFlagDropTargets();
     this.callbacks.onGrab(target.id);
   }
 
@@ -1995,6 +2033,9 @@ export class PuzzleStage {
       // (no move event) deliberately does not, so a pointer truly at rest still
       // times out.
       if (this.held.carry) this.armCarryIdle();
+      // Client coordinates, not the renderer's: the HUD bar is measured in the
+      // page's own frame, which is the only one the DOM and the canvas share.
+      else this.setFlagDropHover(this.flagDropTargetAt(ev.client.x, ev.client.y));
     }
   }
 
@@ -2090,6 +2131,9 @@ export class PuzzleStage {
   private tickEdgePanFrame(deltaMS: number): void {
     if (!this.app || !this.playZone || !this.pointerScreen || this.pan.active) return;
     if (!this.held || this.held.carry) return;
+    // The HUD flag bar sits inside the bottom edge band, so a cluster held over a
+    // flag button would otherwise scroll the board out from under the drop.
+    if (this.flagDropHoverId) return;
     const screen = this.app.renderer.screen;
     const vx = edgePanAxis(this.pointerScreen.x, screen.width);
     const vy = edgePanAxis(this.pointerScreen.y, screen.height);
@@ -2114,12 +2158,17 @@ export class PuzzleStage {
     }
     if (this.held) {
       const node = this.groups.get(this.held.groupId);
-      if (node) {
+      const onFlag = this.flagDropHoverId;
+      if (node && !(onFlag && this.dropOnFlag(node, onFlag))) {
         const { x: nx, y: ny } = this.heldGroupOrigin(node, ev.global.x, ev.global.y);
         this.commitHeldDrop(node, nx, ny);
       }
       this.held = null;
     }
+    // Outside the branch above: the hold can also have ended under the drag (a
+    // merge, a resync, a denied grab), and the release is still what tells the bar
+    // to drop the highlight.
+    this.disarmFlagDropTargets();
     this.pan.active = false;
   }
 
@@ -2226,6 +2275,102 @@ export class PuzzleStage {
     };
   }
 
+  // ----- flag drop (drag a cluster onto a HUD flag button to send it there) -----
+
+  setFlagDropTargetSource(next: FlagDropTargetSource | null): void {
+    this.flagDropTargetSource = next;
+  }
+
+  // The HUD bar's buttons cannot move under a held pointer, so one measurement per
+  // grab is enough and the per-move hit test stays a walk of a handful of rects.
+  // Only a press-drag arms them: a sticky carry holds no button, so its press on a
+  // flag button is a plain click, which the bar answers by jumping the camera.
+  private armFlagDropTargets(): void {
+    this.flagDropTargets = this.flagDropTargetSource?.() ?? [];
+  }
+
+  private disarmFlagDropTargets(): void {
+    this.flagDropTargets = [];
+    this.setFlagDropHover(null);
+  }
+
+  private flagDropTargetAt(clientX: number, clientY: number): string | null {
+    for (const target of this.flagDropTargets) {
+      const r = target.rect;
+      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+        return target.id;
+      }
+    }
+    return null;
+  }
+
+  private setFlagDropHover(id: string | null): void {
+    if (this.flagDropHoverId === id) return;
+    this.flagDropHoverId = id;
+    this.onFlagDropHover?.(id);
+    const node = this.held ? this.groups.get(this.held.groupId) : undefined;
+    if (node) this.tweenHeldPieceScale(node.id, id === null ? HELD_SCALE : FLAG_DROP_SCALE);
+  }
+
+  // Eases the held cluster between its lifted size and the shrunk one. The tweener
+  // cannot cancel a tween, so the generation stamp is what lets a reversal (or a
+  // drop, which sets the scale outright) overrule one still running, and the node
+  // is re-resolved each frame so a cluster merged or rebuilt mid-tween is dropped
+  // rather than written to after its pieces are gone.
+  private tweenHeldPieceScale(groupId: number, to: number): void {
+    const from = this.heldPieceScale;
+    const gen = ++this.heldPieceScaleGen;
+    if (!this.tweener || from === to) return;
+    this.tweener.add({
+      duration: FLAG_DROP_SCALE_MS,
+      easing: easeOutCubic,
+      onUpdate: (eased) => {
+        if (gen !== this.heldPieceScaleGen) return;
+        const node = this.groups.get(groupId);
+        if (!node) return;
+        this.heldPieceScale = from + (to - from) * eased;
+        this.scaleGroupPieces(node, this.heldPieceScale);
+      },
+    });
+  }
+
+  // Sends the dragged cluster to the hovered flag and leaves the camera where the
+  // player was working. The landing patch is searched against what this client
+  // knows: a flag planted in board it has never streamed has nothing to avoid
+  // there, so the cluster can land on top of pieces it cannot see.
+  private dropOnFlag(node: GroupNode, flagId: string): boolean {
+    const flag = this.flagLayer?.flagAt(flagId);
+    if (!flag) return false;
+    const gap = (this.manifest?.pieceSize ?? 0) * FLAG_DROP_GAP_PIECES;
+    const origin = findFreeOrigin({
+      bounds: node.localBounds,
+      atX: flag.worldX,
+      atY: flag.worldY,
+      gap,
+      maxRing: FLAG_DROP_SEARCH_RINGS,
+      clamp: (x, y) => this.clampGroupOrigin(node, x, y),
+      isClear: (box) => this.boxIsClear(box, node.id),
+    });
+    this.commitHeldDrop(node, origin.x, origin.y);
+    return true;
+  }
+
+  // Whether a world box holds none of the clusters and locked pieces this client
+  // has streamed. Both indexes answer at cell granularity, so each candidate is
+  // refined against the real bounds.
+  private boxIsClear(box: Aabb, exceptGroupId: number): boolean {
+    for (const gid of this.groupGrid.queryRect(box)) {
+      if (gid === exceptGroupId) continue;
+      const other = this.groups.get(gid);
+      if (other && aabbsOverlap(box, this.worldAabb(other))) return false;
+    }
+    for (const pieceId of this.lockedPieceGrid.queryRect(box)) {
+      const slot = this.lockedPieces.get(pieceId);
+      if (slot && aabbsOverlap(box, slot.localBounds)) return false;
+    }
+    return true;
+  }
+
   // ----- sticky carry (double-click or double-tap to stick a cluster to the cursor) -----
 
   // True on the second of two pointerdowns within DOUBLE_TAP_MAX_MS and
@@ -2309,6 +2454,7 @@ export class PuzzleStage {
     const node = this.groups.get(this.held.groupId);
     if (node) this.commitHeldDrop(node, this.held.originX, this.held.originY);
     this.held = null;
+    this.disarmFlagDropTargets();
     this.pan.active = false;
   }
 
@@ -2388,17 +2534,24 @@ export class PuzzleStage {
   }
 
   private setGroupHeldVisual(node: GroupNode, held: boolean): void {
-    // Lift the cluster as one unit: a uniform scale about the cluster center,
+    this.heldPieceScaleGen++;
+    this.heldPieceScale = held ? HELD_SCALE : 1;
+    this.scaleGroupPieces(node, this.heldPieceScale);
+    this.placeGroupInLayer(node, held ? this.localHeldLayer : this.unlockedLayer);
+  }
+
+  private scaleGroupPieces(node: GroupNode, scale: number): void {
+    // Scale the cluster as one unit: a uniform scale about the cluster center,
     // realized per piece so the group container transform (and thus moveGroup)
-    // stays untouched. Each inner pivots on its own center, so the lift is the
-    // piece's own bump plus a shift that carries its center along the cluster's
+    // stays untouched. Each inner pivots on its own center, so the change is the
+    // piece's own scaling plus a shift that carries its center along the cluster's
     // uniform scaling. Scaling each piece about its own center in isolation
     // would pull the interlocking knobs and blanks out of register (the cluster
     // visibly seams apart); scaling about the shared center keeps every piece
-    // aligned while still feeling lifted off the board. The container origin is
+    // aligned while still reading as one body, lifted off the board on a grab and
+    // shrinking toward a flag button on a flag-drop hover. The container origin is
     // the puzzle's canonical origin, far from the cluster, so scaling the
     // container directly would fling the cluster away from the cursor instead.
-    const scale = held ? HELD_SCALE : 1;
     const half = (this.manifest?.pieceSize ?? 0) / 2;
     const b = node.localBounds;
     const cx = (b.minX + b.maxX) / 2;
@@ -2412,7 +2565,6 @@ export class PuzzleStage {
         half + (scale - 1) * (pieceCy - cy),
       );
     }
-    this.placeGroupInLayer(node, held ? this.localHeldLayer : this.unlockedLayer);
   }
 
   // Reparents a group's container into a z-order layer. A no-op when the group
@@ -2676,13 +2828,6 @@ export class PuzzleStage {
     this.camera.x = screen.width * 0.5 - worldCx * this.camera.zoom;
     this.camera.y = screen.height * 0.5 - worldCy * this.camera.zoom;
     this.applyCamera();
-    // A carried cluster is otherwise only re-placed by a pointer move, so a jump
-    // (flag teleport, minimap, fit/center) would strand it at its old world spot
-    // until the mouse next moves. Re-glue it to the screen point it was already
-    // floating at, so it travels with the view instead of being left behind.
-    if (this.held?.carry && this.lastPointerScreen) {
-      this.dragHeldTo(this.lastPointerScreen.x, this.lastPointerScreen.y);
-    }
   }
 
   private zoomBy(factor: number): void {
@@ -2744,9 +2889,22 @@ export class PuzzleStage {
     this.clampCamera();
     this.world.scale.set(this.camera.zoom);
     this.world.position.set(this.camera.x, this.camera.y);
+    this.reglueCarried();
     this.updateFlagLayer();
     this.onCameraChange?.({ ...this.camera });
     this.reconcile();
+  }
+
+  // A carried cluster is otherwise only re-placed by a pointer move, so a camera
+  // change that is not one (a flag or minimap jump, fit/center, the zoom buttons)
+  // would leave it at its old world spot. Re-glue it to the screen point it was
+  // last seen floating at, and do it before reconcile: residency runs there, and a
+  // cluster still sitting where the view no longer looks is outside the keep ring,
+  // so it would be dehydrated with nothing to bring it back until the camera next
+  // moves (invisible in the hand, the more so the deeper the zoom).
+  private reglueCarried(): void {
+    if (!this.held?.carry || !this.lastPointerScreen) return;
+    this.dragHeldTo(this.lastPointerScreen.x, this.lastPointerScreen.y);
   }
 
   // Records a world rect to invalidate on the next reconcile. Pure model-side: it

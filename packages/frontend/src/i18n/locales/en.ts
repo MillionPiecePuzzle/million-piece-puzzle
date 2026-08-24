@@ -114,6 +114,7 @@ const en = {
     next: "Next tip",
     carry: "Double-click a piece to stick it to your cursor, double-click again to drop it.",
     flags: "Use flags to easily move around the canvas.",
+    flagDrop: "Drag a piece onto a flag in the bar to send it over there.",
     minimap: "Click anywhere on the minimap to move the view there.",
     reference: "Open the reference image and zoom in to find where a piece belongs.",
   },

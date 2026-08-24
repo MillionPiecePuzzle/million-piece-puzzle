@@ -117,6 +117,7 @@ const es: MessageSchema = {
     carry:
       "Haz doble clic en una pieza para pegarla al cursor y doble clic otra vez para soltarla.",
     flags: "Usa las banderas para moverte fácilmente por el lienzo.",
+    flagDrop: "Arrastra una pieza hasta una bandera de la barra para enviársela.",
     minimap: "Haz clic en cualquier punto del minimapa para mover la vista allí.",
     reference: "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza.",
   },

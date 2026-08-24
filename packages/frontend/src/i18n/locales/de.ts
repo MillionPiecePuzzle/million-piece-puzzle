@@ -117,6 +117,7 @@ const de: MessageSchema = {
     carry:
       "Doppelklicke auf ein Teil, um es an den Cursor zu heften, und noch einmal, um es abzulegen.",
     flags: "Nutze Fahnen, um dich einfach auf dem Board zu bewegen.",
+    flagDrop: "Zieh ein Teil auf eine Fahne in der Leiste, um es dorthin zu schicken.",
     minimap: "Klicke irgendwo auf die Mini-Karte, um die Ansicht dorthin zu bewegen.",
     reference: "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört.",
   },

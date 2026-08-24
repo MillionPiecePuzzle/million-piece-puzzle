@@ -42,6 +42,12 @@ export function unionBounds(boxes: readonly Aabb[]): Aabb {
   return { minX, minY, maxX, maxY };
 }
 
+// Whether two AABBs in the same space overlap. Edge contact does not count, so a
+// box resting exactly against another is clear of it.
+export function aabbsOverlap(a: Aabb, b: Aabb): boolean {
+  return a.maxX > b.minX && a.minX < b.maxX && a.maxY > b.minY && a.minY < b.maxY;
+}
+
 // Whether a local AABB, once translated by (offsetX, offsetY) into world space,
 // overlaps the viewport. Edge contact counts as visible.
 export function boundsVisible(

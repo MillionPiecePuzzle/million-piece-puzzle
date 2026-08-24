@@ -37,9 +37,11 @@ const { setMinimapSource, setMinimapNavigate, setMinimapDetailSource } = useMini
 const {
   flags: boardFlags,
   selectedId: selectedFlagId,
+  dropTargetSource: flagDropTargetSource,
   setPuzzle: setFlagPuzzle,
   move: moveFlag,
   select: selectFlag,
+  setDropHover: setFlagDropHover,
 } = useBoardFlags();
 const { mode } = useMode();
 const { settings: displaySettings } = useDisplaySettings();
@@ -303,6 +305,8 @@ onMounted(async () => {
   };
   stage.onFlagMove = (id, x, y) => moveFlag(id, x, y);
   stage.onFlagSelect = (id) => selectFlag(id);
+  stage.onFlagDropHover = (id) => setFlagDropHover(id);
+  stage.setFlagDropTargetSource(() => flagDropTargetSource.value?.() ?? []);
   await stage.mount(host.value);
   setControls({
     zoomIn: () => stage?.zoomIn(),
@@ -848,7 +852,7 @@ onBeforeUnmount(() => {
 .toast {
   position: absolute;
   left: 50%;
-  bottom: 74px;
+  bottom: 97px;
   transform: translateX(-50%);
   max-width: min(90%, 360px);
   padding: 10px 16px;
@@ -875,7 +879,7 @@ onBeforeUnmount(() => {
 .carry-hint {
   position: absolute;
   left: 50%;
-  bottom: 74px;
+  bottom: 97px;
   transform: translateX(-50%);
   display: flex;
   align-items: center;

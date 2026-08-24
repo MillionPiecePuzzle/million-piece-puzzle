@@ -2,12 +2,34 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { FLAG_COLORS, type BoardFlag } from "../data/boardFlags";
+import type { FlagDropTarget } from "../canvas/flagDrop";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useStageControls } from "../composables/useStageControls";
 
 const { t } = useI18n();
 const { controls } = useStageControls();
-const { flags, canAdd, add, select } = useBoardFlags();
+const { flags, canAdd, dropHoverId, add, select, setDropTargetSource } = useBoardFlags();
+
+// Buttons the canvas hit-tests a dragged cluster against, so releasing over one
+// sends the cluster to that flag. Held as elements rather than measured rects:
+// the stage reads them once per grab, which is the only moment the geometry has
+// to be right, and never while the bar is hidden or between two layouts.
+const buttonEls = new Map<string, HTMLButtonElement>();
+
+function setButtonEl(id: string, el: unknown): void {
+  if (el instanceof HTMLButtonElement) buttonEls.set(id, el);
+  else buttonEls.delete(id);
+}
+
+function dropTargets(): FlagDropTarget[] {
+  if (!wide.value) return [];
+  const targets: FlagDropTarget[] = [];
+  for (const flag of flags.value) {
+    const el = buttonEls.get(flag.id);
+    if (el?.isConnected) targets.push({ id: flag.id, rect: el.getBoundingClientRect() });
+  }
+  return targets;
+}
 
 // Pointer-driven and bottom-center: the bar has no room on a phone, where the
 // activity ticker and the minimap already share that edge. Gated in JS rather
@@ -54,21 +76,31 @@ onMounted(() => {
   syncWide();
   media.addEventListener("change", syncWide);
   window.addEventListener("keydown", onKeydown);
+  setDropTargetSource(dropTargets);
 });
 
 onBeforeUnmount(() => {
   media?.removeEventListener("change", syncWide);
   window.removeEventListener("keydown", onKeydown);
+  setDropTargetSource(null);
 });
 </script>
 
 <template>
-  <div v-if="wide" class="flag-bar" role="group" :aria-label="t('flags.bar')">
+  <div
+    v-if="wide"
+    class="flag-bar"
+    :class="{ dropping: dropHoverId !== null }"
+    role="group"
+    :aria-label="t('flags.bar')"
+  >
     <button
       v-for="(flag, i) in flags"
       :key="flag.id"
+      :ref="(el) => setButtonEl(flag.id, el)"
       type="button"
       class="flag-btn"
+      :class="{ 'flag-btn-drop': dropHoverId === flag.id }"
       :style="{ '--flag-color': FLAG_COLORS[flag.color] }"
       :data-tip="t('flags.goTo', { n: i + 1 })"
       :aria-label="t('flags.goTo', { n: i + 1 })"
@@ -118,8 +150,8 @@ onBeforeUnmount(() => {
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px;
+  gap: 3px;
+  padding: 6px;
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(10px);
   border: 1px solid var(--line);
@@ -128,12 +160,16 @@ onBeforeUnmount(() => {
 }
 .flag-bar button {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: 51px;
+  height: 51px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   color: var(--ink-2);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease;
 }
 .flag-bar button:hover:not(:disabled) {
   background: var(--paper-2);
@@ -147,10 +183,10 @@ onBeforeUnmount(() => {
 }
 .flag-btn .slot {
   position: absolute;
-  right: 3px;
-  bottom: 1px;
+  right: 5px;
+  bottom: 3px;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1;
   color: var(--ink-4);
 }
@@ -174,9 +210,34 @@ onBeforeUnmount(() => {
 .flag-bar button:hover:not(:disabled)::after {
   opacity: 1;
 }
+/* A cluster dragged over the bar leaves CSS :hover on whichever button it
+   crosses, so the "go to flag" tooltip would contradict what the release does. */
+.flag-bar.dropping button::after {
+  opacity: 0;
+}
+/* The dragged cluster is painted in the canvas, under this bar, and no stacking
+   order can lift a WebGL draw above a DOM overlay. Thinning the bar out while it
+   holds a cluster is the closest thing: the piece reads as passing over the flags
+   instead of vanishing behind them. */
+.flag-bar.dropping {
+  background: rgba(255, 255, 255, 0.26);
+  box-shadow: none;
+}
+.flag-bar.dropping button:not(.flag-btn-drop) {
+  opacity: 0.4;
+}
+/* The button a released cluster would be sent to, marked while the cluster
+   shrinks toward it on the canvas. Ringed rather than filled: the fill would hide
+   the piece behind it, and the pennant inside the glyph is that same color. */
+.flag-bar button.flag-btn-drop:not(:disabled) {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: 0 0 0 3px var(--flag-color);
+  transform: scale(1.16);
+}
 .ic {
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   display: block;
 }
 </style>
