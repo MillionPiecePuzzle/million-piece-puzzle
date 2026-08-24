@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { FLAG_COLORS, type BoardFlag } from "../data/boardFlags";
 import type { FlagDropTarget } from "../canvas/flagDrop";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useStageControls } from "../composables/useStageControls";
+import { useWideViewport } from "../composables/useWideViewport";
 
 const { t } = useI18n();
 const { controls } = useStageControls();
@@ -32,15 +33,9 @@ function dropTargets(): FlagDropTarget[] {
 }
 
 // Pointer-driven and bottom-center: the bar has no room on a phone, where the
-// activity ticker and the minimap already share that edge. Gated in JS rather
-// than in CSS so the number keys go with it.
-const WIDE_QUERY = "(min-width: 681px)";
-const wide = ref(true);
-let media: MediaQueryList | null = null;
-
-function syncWide(): void {
-  wide.value = media?.matches ?? true;
-}
+// zoom controls and the minimap already hold that edge. Gated in JS rather than
+// in CSS so the number keys go with it.
+const { wide } = useWideViewport();
 
 function goTo(flag: BoardFlag): void {
   controls.value?.centerOnWorld(flag.worldX, flag.worldY);
@@ -72,15 +67,11 @@ function onKeydown(ev: KeyboardEvent): void {
 }
 
 onMounted(() => {
-  media = window.matchMedia(WIDE_QUERY);
-  syncWide();
-  media.addEventListener("change", syncWide);
   window.addEventListener("keydown", onKeydown);
   setDropTargetSource(dropTargets);
 });
 
 onBeforeUnmount(() => {
-  media?.removeEventListener("change", syncWide);
   window.removeEventListener("keydown", onKeydown);
   setDropTargetSource(null);
 });

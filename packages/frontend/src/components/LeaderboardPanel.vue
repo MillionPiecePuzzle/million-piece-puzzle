@@ -139,18 +139,4 @@ const panelRows = computed(() => {
   font-size: 11px;
   color: var(--ink-4);
 }
-
-@media (max-width: 680px) {
-  .leaderboard {
-    /* Wider cap than the other three panels: a leaderboard row has 4
-       fixed-width columns (rank, avatar, exact piece count), so it needs
-       more room than a thumbnail panel to keep the name column legible. */
-    width: min(220px, calc(50vw - 6px));
-    padding: 8px 8px 6px;
-  }
-  .lb-list {
-    max-height: 118px;
-    overflow-y: auto;
-  }
-}
 </style>

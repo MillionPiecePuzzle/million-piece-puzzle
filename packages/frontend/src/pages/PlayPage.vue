@@ -12,10 +12,12 @@ import FlagBar from "../components/FlagBar.vue";
 import FlagPopover from "../components/FlagPopover.vue";
 import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
+import { useWideViewport } from "../composables/useWideViewport";
 import { GRID_WORLD_CELL } from "@mpp/shared";
 
 const { t } = useI18n();
 const { camera, ready } = useStageControls();
+const { wide } = useWideViewport();
 
 // Drive the CSS hairline grid from world space: one cell is GRID_WORLD_CELL
 // world units, so the grid scales and pans with the canvas. The play zone is
@@ -40,14 +42,16 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
              other regardless of their own content-driven size (a portrait
              reference image, a long activity list, a full leaderboard, ...)
              or the viewport's height, unlike the corner-anchored absolute
-             positioning this replaced. See DECISIONS. -->
+             positioning this replaced. The two reading panels are dropped
+             below the breakpoint, where the board needs every pixel more
+             than a phone needs standings. See DECISIONS. -->
         <div class="hud-rail hud-rail-left">
           <ReferencePanel />
           <ZoomControls />
-          <ActivityTicker />
+          <ActivityTicker v-if="wide" />
         </div>
         <div class="hud-rail hud-rail-right">
-          <LeaderboardPanel />
+          <LeaderboardPanel v-if="wide" />
           <div class="hud-bottom-right">
             <DevControls v-if="devButtonsEnabled" />
             <MiniMap />
@@ -97,6 +101,8 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
    with 3 children (reference/zoom/ticker) it also centers the middle one in
    whatever room is actually left between the other two, so a taller or
    shorter sibling on either side never has to be predicted or hardcoded.
+   On a phone the left rail is down to 2 children, which puts the zoom
+   controls in the bottom corner.
    pointer-events:none lets drags reach the canvas in the gaps; each panel
    (.panel, .zoom, .dev-controls) re-enables it on itself. */
 .hud-rail {
@@ -126,6 +132,10 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
    minimap, second/last, always stays the bottom-most line and keeps its
    corner position. */
 .hud-bottom-right {
+  /* Pins itself to the rail's bottom edge on its own: below the breakpoint the
+     leaderboard above it is gone, and space-between with a single child would
+     otherwise park the minimap at the top of the rail. */
+  margin-top: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;

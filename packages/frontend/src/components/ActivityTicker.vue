@@ -104,17 +104,4 @@ function lineRest(entry: ActivityEntry): string {
   font-size: 11px;
   color: var(--ink-4);
 }
-
-@media (max-width: 680px) {
-  .ticker {
-    width: min(200px, calc(50vw - 20px));
-    padding: 8px 9px;
-  }
-  .msg {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-}
 </style>
