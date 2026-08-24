@@ -233,12 +233,12 @@ const fr: MessageSchema = {
     colors: {
       red: "Rouge",
       orange: "Orange",
-      yellow: "Jaune",
       green: "Vert",
-      teal: "Turquoise",
       blue: "Bleu",
       purple: "Violet",
       pink: "Rose",
+      white: "Blanc",
+      black: "Noir",
     },
   },
   row: {

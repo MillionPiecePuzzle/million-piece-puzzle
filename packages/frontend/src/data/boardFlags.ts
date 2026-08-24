@@ -14,17 +14,19 @@ export type BoardFlag = {
   color: number;
 };
 
-// Eight well-separated hues, deep enough to read over the paper backdrop and
-// over photo pieces alike. Their count is the flag cap: one color per flag.
+// Six well-separated hues plus the two neutrals, deep enough to read over the
+// paper backdrop and over photo pieces alike: every glyph draws its fill between
+// a pale halo and a dark outline, so white and black hold on either ground. Their
+// count is the flag cap: one color per flag.
 export const FLAG_COLORS = [
   "#d8453f",
   "#e08329",
-  "#cfa81d",
   "#4f9d48",
-  "#2b9a9a",
   "#3b7ad4",
   "#8659d0",
   "#d1509a",
+  "#ffffff",
+  "#15140f",
 ] as const;
 
 // i18n keys under `flags.colors`, so a swatch announces a color rather than an
@@ -32,12 +34,12 @@ export const FLAG_COLORS = [
 export const FLAG_COLOR_KEYS = [
   "red",
   "orange",
-  "yellow",
   "green",
-  "teal",
   "blue",
   "purple",
   "pink",
+  "white",
+  "black",
 ] as const;
 
 export const MAX_FLAGS = FLAG_COLORS.length;

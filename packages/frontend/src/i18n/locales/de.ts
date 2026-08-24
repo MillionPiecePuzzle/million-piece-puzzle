@@ -235,12 +235,12 @@ const de: MessageSchema = {
     colors: {
       red: "Rot",
       orange: "Orange",
-      yellow: "Gelb",
       green: "GrÃ¼n",
-      teal: "TÃ¼rkis",
       blue: "Blau",
       purple: "Lila",
       pink: "Rosa",
+      white: "Weiß",
+      black: "Schwarz",
     },
   },
   row: {

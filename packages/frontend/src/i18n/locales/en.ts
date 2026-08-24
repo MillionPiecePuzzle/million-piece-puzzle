@@ -225,12 +225,12 @@ const en = {
     colors: {
       red: "Red",
       orange: "Orange",
-      yellow: "Yellow",
       green: "Green",
-      teal: "Teal",
       blue: "Blue",
       purple: "Purple",
       pink: "Pink",
+      white: "White",
+      black: "Black",
     },
   },
   row: {

@@ -160,7 +160,7 @@ onBeforeUnmount(() => {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  border: 1px solid rgba(21, 20, 15, 0.25);
+  border: 1px solid rgba(21, 20, 15, 0.45);
   cursor: pointer;
 }
 .swatch:hover {

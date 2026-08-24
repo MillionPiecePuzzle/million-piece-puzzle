@@ -231,12 +231,12 @@ const es: MessageSchema = {
     colors: {
       red: "Rojo",
       orange: "Naranja",
-      yellow: "Amarillo",
       green: "Verde",
-      teal: "Turquesa",
       blue: "Azul",
       purple: "Morado",
       pink: "Rosa",
+      white: "Blanco",
+      black: "Negro",
     },
   },
   row: {
