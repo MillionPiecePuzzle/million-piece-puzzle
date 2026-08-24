@@ -103,6 +103,7 @@ const es: MessageSchema = {
     changePseudo: "Cambiar pseudónimo",
     changeCountry: "Cambiar país",
     discord: "Unirse al servidor de Discord",
+    updates: "Notas de actualización",
     display: {
       title: "Visualización",
       underlay: "Imagen de referencia de fondo",
@@ -120,6 +121,30 @@ const es: MessageSchema = {
     flagDrop: "Arrastra una pieza hasta una bandera de la barra para enviársela.",
     minimap: "Haz clic en cualquier punto del minimapa para mover la vista allí.",
     reference: "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza.",
+  },
+  updates: {
+    title: "Notas de actualización",
+    v11: {
+      flags:
+        "Banderas personales: coloca hasta 8 marcadores en el tablero y salta de uno a otro con un clic o con las teclas 1 a 8.",
+      flagDrop:
+        "Envía una pieza al otro extremo del tablero soltándola sobre una bandera de la barra inferior, sin dejar el punto en el que trabajas.",
+      underlay:
+        "Muestra la imagen original con transparencia bajo el tablero, desde la sección Visualización de este menú.",
+      standings:
+        "La clasificación se mueve con cada encaje, y ya no solo cuando un grupo se bloquea en el marco. Tu fila siempre está visible.",
+      account:
+        "Iniciar sesión con Google convierte tu cuenta de invitado en una cuenta permanente, que puedes recuperar desde otro navegador.",
+      maintenance:
+        "Un reinicio del servidor muestra una pantalla de mantenimiento en lugar de un error de conexión, y vuelve solo en cuanto el puzle está de nuevo disponible.",
+      mobile:
+        "En el móvil la interfaz solo conserva la referencia y el minimapa, y deja la pantalla al tablero.",
+      help: "Este menú incluye consejos, y la clasificación explica cómo se cuentan los puntos.",
+    },
+    v10: {
+      launch:
+        "Lanzamiento público: 1.000.000 de piezas únicas en un solo tablero compartido, jugable como invitado sin registro, en inglés, francés, español y alemán.",
+    },
   },
   pseudo: {
     haveAccount: "¿Ya tienes una cuenta? Inicia sesión",

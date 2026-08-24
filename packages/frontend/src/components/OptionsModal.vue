@@ -5,6 +5,7 @@ import { useOptionsModal } from "../composables/useOptionsModal";
 import { useAuthModal } from "../composables/useAuthModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
+import { useUpdatesModal } from "../composables/useUpdatesModal";
 import { useAuth } from "../composables/useAuth";
 import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { useFocusTrap } from "../composables/useFocusTrap";
@@ -16,6 +17,7 @@ const { open, hide } = useOptionsModal();
 const { show: showAuth } = useAuthModal();
 const { show: showPseudo } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
+const { show: showUpdates } = useUpdatesModal();
 const { user, signOut } = useAuth();
 const { settings: display, setReferenceUnderlay } = useDisplaySettings();
 
@@ -60,6 +62,10 @@ function changePseudo() {
 function changeCountry() {
   hide();
   showNationality("edit");
+}
+function openUpdates() {
+  hide();
+  showUpdates();
 }
 </script>
 
@@ -115,12 +121,6 @@ function changeCountry() {
               <span class="hint">{{ t("options.syncHint") }}</span>
             </span>
           </button>
-          <button type="button" class="action" @click="changePseudo">
-            <span class="label">{{ t("options.changePseudo") }}</span>
-          </button>
-          <button type="button" class="action" @click="changeCountry">
-            <span class="label">{{ t("options.changeCountry") }}</span>
-          </button>
           <a class="action discord" :href="DISCORD_URL" target="_blank" rel="noopener">
             <svg
               class="discord-mark"
@@ -136,6 +136,15 @@ function changeCountry() {
             </svg>
             <span class="label">{{ t("options.discord") }}</span>
           </a>
+          <button type="button" class="action" @click="changePseudo">
+            <span class="label">{{ t("options.changePseudo") }}</span>
+          </button>
+          <button type="button" class="action" @click="changeCountry">
+            <span class="label">{{ t("options.changeCountry") }}</span>
+          </button>
+          <button type="button" class="action" @click="openUpdates">
+            <span class="label">{{ t("options.updates") }}</span>
+          </button>
         </div>
 
         <section class="section">
@@ -185,6 +194,10 @@ function changeCountry() {
 }
 .options-modal {
   width: min(380px, calc(100vw - 32px));
+  /* Every row plus the tips strip runs past a short phone viewport in all four
+     locales, so the shell scrolls rather than off the top and bottom of it. */
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
 }
 .modal-header {
   margin-bottom: 14px;

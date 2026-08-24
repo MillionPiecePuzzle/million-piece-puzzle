@@ -101,6 +101,7 @@ const en = {
     changePseudo: "Change pseudo",
     changeCountry: "Change country",
     discord: "Join the Discord server",
+    updates: "Update notes",
     display: {
       title: "Display",
       underlay: "Reference underlay",
@@ -109,7 +110,7 @@ const en = {
     signOut: "Sign out",
   },
   tips: {
-    title: "Tips & tricks",
+    title: "Tips",
     prev: "Previous tip",
     next: "Next tip",
     carry: "Double-click a piece to stick it to your cursor, double-click again to drop it.",
@@ -117,6 +118,30 @@ const en = {
     flagDrop: "Drag a piece onto a flag in the bar to send it over there.",
     minimap: "Click anywhere on the minimap to move the view there.",
     reference: "Open the reference image and zoom in to find where a piece belongs.",
+  },
+  updates: {
+    title: "Update notes",
+    v11: {
+      flags:
+        "Personal flags: drop up to 8 markers on the board and jump between them with a click or the 1 to 8 keys.",
+      flagDrop:
+        "Send a piece across the board by dropping it onto a flag in the bottom bar, without leaving the spot you are working on.",
+      underlay:
+        "Show the source photo faintly under the board, from the Display section of this menu.",
+      standings:
+        "The standings move on every snap, not only when a cluster locks onto the frame, and your own row is always shown.",
+      account:
+        "Signing in with Google turns your guest into a permanent account, and you can sign back into it from another browser.",
+      maintenance:
+        "A server restart shows a maintenance screen instead of a connection error, and comes back on its own once the puzzle is up again.",
+      mobile:
+        "On a phone the interface keeps only the reference and the minimap, and leaves the screen to the board.",
+      help: "This menu carries tips, and the leaderboard explains how points are counted.",
+    },
+    v10: {
+      launch:
+        "Public launch: 1,000,000 unique pieces on a single shared board, playable as a guest with no sign-up, in English, French, Spanish and German.",
+    },
   },
   pseudo: {
     haveAccount: "Already have an account? Sign in",

@@ -103,6 +103,7 @@ const fr: MessageSchema = {
     changePseudo: "Changer de pseudo",
     changeCountry: "Changer de pays",
     discord: "Rejoindre le serveur Discord",
+    updates: "Notes de mises à jour",
     display: {
       title: "Affichage",
       underlay: "Image de référence en fond",
@@ -120,6 +121,30 @@ const fr: MessageSchema = {
     flagDrop: "Faites glisser une pièce sur un drapeau de la barre pour l'envoyer là-bas.",
     minimap: "Cliquez n'importe où sur la mini-carte pour y déplacer la vue.",
     reference: "Ouvrez l'image de référence et zoomez pour trouver où va une pièce.",
+  },
+  updates: {
+    title: "Notes de mises à jour",
+    v11: {
+      flags:
+        "Drapeaux personnels : posez jusqu'à 8 repères sur le plateau et passez de l'un à l'autre d'un clic ou avec les touches 1 à 8.",
+      flagDrop:
+        "Envoyez une pièce à l'autre bout du plateau en la déposant sur un drapeau de la barre du bas, sans quitter l'endroit où vous travaillez.",
+      underlay:
+        "Affichez l'image source en transparence sous le plateau, depuis la section Affichage de ce menu.",
+      standings:
+        "Le classement bouge à chaque assemblage, et plus seulement quand un groupe se verrouille sur le cadre. Votre ligne y est toujours visible.",
+      account:
+        "Se connecter avec Google transforme votre compte invité en compte permanent, que vous pouvez retrouver depuis un autre navigateur.",
+      maintenance:
+        "Un redémarrage du serveur affiche un écran de maintenance au lieu d'une erreur de connexion, et revient tout seul dès que le puzzle est de retour.",
+      mobile:
+        "Sur téléphone, l'interface ne garde que la référence et la mini-carte, et laisse l'écran au plateau.",
+      help: "Ce menu propose des astuces, et le classement explique comment les points sont comptés.",
+    },
+    v10: {
+      launch:
+        "Lancement public : 1 000 000 de pièces uniques sur un seul plateau partagé, jouable en invité sans inscription, en anglais, français, espagnol et allemand.",
+    },
   },
   pseudo: {
     haveAccount: "Vous avez déjà un compte ? Se connecter",

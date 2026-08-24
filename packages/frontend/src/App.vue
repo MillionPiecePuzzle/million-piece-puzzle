@@ -5,6 +5,7 @@ import AuthModal from "./components/AuthModal.vue";
 import OptionsModal from "./components/OptionsModal.vue";
 import PseudoModal from "./components/PseudoModal.vue";
 import NationalityModal from "./components/NationalityModal.vue";
+import UpdatesModal from "./components/UpdatesModal.vue";
 import { useAuth } from "./composables/useAuth";
 
 const route = useRoute();
@@ -41,4 +42,5 @@ watch(
   <OptionsModal />
   <PseudoModal />
   <NationalityModal />
+  <UpdatesModal />
 </template>

@@ -103,6 +103,7 @@ const de: MessageSchema = {
     changePseudo: "Pseudonym ändern",
     changeCountry: "Land ändern",
     discord: "Discord-Server beitreten",
+    updates: "Versionshinweise",
     display: {
       title: "Anzeige",
       underlay: "Referenzbild im Hintergrund",
@@ -111,7 +112,7 @@ const de: MessageSchema = {
     signOut: "Abmelden",
   },
   tips: {
-    title: "Tipps & Tricks",
+    title: "Tipps",
     prev: "Vorheriger Tipp",
     next: "Nächster Tipp",
     carry:
@@ -120,6 +121,30 @@ const de: MessageSchema = {
     flagDrop: "Zieh ein Teil auf eine Fahne in der Leiste, um es dorthin zu schicken.",
     minimap: "Klicke irgendwo auf die Mini-Karte, um die Ansicht dorthin zu bewegen.",
     reference: "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört.",
+  },
+  updates: {
+    title: "Versionshinweise",
+    v11: {
+      flags:
+        "Persönliche Fahnen: Setze bis zu 8 Marker auf das Board und springe per Klick oder mit den Tasten 1 bis 8 zwischen ihnen.",
+      flagDrop:
+        "Schick ein Teil quer über das Board, indem du es auf eine Fahne in der unteren Leiste ziehst, ohne die Stelle zu verlassen, an der du arbeitest.",
+      underlay:
+        "Zeig das Originalfoto schwach unter dem Board an, über den Bereich Anzeige in diesem Menü.",
+      standings:
+        "Die Rangliste bewegt sich bei jedem Zusammenfügen, nicht mehr nur beim Einrasten am Rahmen. Deine eigene Zeile ist immer sichtbar.",
+      account:
+        "Die Anmeldung mit Google macht aus deinem Gastkonto ein dauerhaftes Konto, das du auch von einem anderen Browser aus wieder erreichst.",
+      maintenance:
+        "Ein Neustart des Servers zeigt einen Wartungshinweis statt eines Verbindungsfehlers und kommt von selbst zurück, sobald das Puzzle wieder da ist.",
+      mobile:
+        "Auf dem Handy behält die Oberfläche nur die Referenz und die Mini-Karte und überlässt dem Board den Bildschirm.",
+      help: "Dieses Menü enthält Tipps, und die Rangliste erklärt, wie Punkte gezählt werden.",
+    },
+    v10: {
+      launch:
+        "Öffentlicher Start: 1.000.000 einzigartige Teile auf einem einzigen gemeinsamen Board, ohne Anmeldung als Gast spielbar, auf Englisch, Französisch, Spanisch und Deutsch.",
+    },
   },
   pseudo: {
     haveAccount: "Du hast schon ein Konto? Anmelden",
