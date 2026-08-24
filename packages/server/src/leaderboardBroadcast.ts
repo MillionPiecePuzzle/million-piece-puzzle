@@ -14,8 +14,9 @@ export type LeaderboardBroadcastDeps = {
 // themselves are batched at most once per minIntervalMs, so a busy board pays
 // one publish per window instead of one per merge. A window carries two kinds
 // of send: the top-N rows that moved, broadcast to everyone, and a personal
-// standing to each connected contributor who scored while ranked outside that
-// top N, whose own row no broadcast would ever carry.
+// standing to each connected contributor whose own row no broadcast would ever
+// carry, whether they scored from outside that top N or this very publish
+// pushed them out of it.
 //
 // Leading edge: the first merge after a quiet window publishes on the next
 // tick, so the common case (a board where snaps are minutes apart) reads as
@@ -25,11 +26,17 @@ export class LeaderboardBroadcaster {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private flushing = false;
   private lastFlushAt = 0;
+  // Top-N user ids as every client currently holds them, seeded with what a
+  // client joining before the first publish is served. Diffed against the next
+  // publish's top N to find the rows the clients are about to drop.
+  private lastRanked: Set<string>;
 
   constructor(
     private readonly minIntervalMs: number,
     private readonly deps: LeaderboardBroadcastDeps,
-  ) {}
+  ) {
+    this.lastRanked = new Set(deps.tracker.top(deps.limit).map((s) => s.userId));
+  }
 
   markDirty(userId: string): void {
     this.dirty.add(userId);
@@ -43,8 +50,10 @@ export class LeaderboardBroadcaster {
   // whole list is cheaper than teaching the delta to carry removals.
   async broadcastSnapshot(): Promise<void> {
     try {
-      const entries = await this.deps.attachProfiles(this.deps.tracker.top(this.deps.limit));
+      const top = this.deps.tracker.top(this.deps.limit);
+      const entries = await this.deps.attachProfiles(top);
       this.deps.hub.broadcast({ t: "leaderboard", entries });
+      this.lastRanked = new Set(top.map((s) => s.userId));
     } catch (e) {
       console.error("[leaderboard] snapshot broadcast failed:", (e as Error).message);
     }
@@ -73,6 +82,12 @@ export class LeaderboardBroadcaster {
     try {
       await this.publish(users);
     } catch (e) {
+      // A publish is the only thing that moves these tallies onto the clients,
+      // so a failed window hands its contributors back to the next one rather
+      // than stranding their rows until each of them happens to score again.
+      // Merged, not restored: merges landing during the failed publish are
+      // already in the new set.
+      for (const userId of users) this.dirty.add(userId);
       console.error("[leaderboard] delta broadcast failed:", (e as Error).message);
     } finally {
       this.flushing = false;
@@ -91,11 +106,20 @@ export class LeaderboardBroadcaster {
       const entries = await this.deps.attachProfiles(moved);
       this.deps.hub.broadcast({ t: "leaderboard_delta", entries });
     }
+    // Rows this publish pushes past the limit: the clients truncate the folded
+    // delta back to the same top N, so a contributor displaced by someone
+    // else's merge loses their own row while being in no delta and in no
+    // window's dirty set. Bounded by how many rows entered the top N, and read
+    // after the broadcast so a failed one leaves the previous top N in place to
+    // diff the retry against.
+    const displaced = [...this.lastRanked].filter((id) => !ranked.has(id));
+    this.lastRanked = ranked;
     // Only contributors who are actually connected get a personal standing:
     // one whose merge landed and then left has nothing to receive it.
+    const owed = new Set([...users, ...displaced]);
     const recipients = this.deps.hub
       .allClients()
-      .filter((c) => users.has(c.userId) && !ranked.has(c.userId));
+      .filter((c) => owed.has(c.userId) && !ranked.has(c.userId));
     if (recipients.length === 0) return;
     const standings = this.deps.tracker.standingsFor(recipients.map((c) => c.userId));
     for (const client of recipients) {

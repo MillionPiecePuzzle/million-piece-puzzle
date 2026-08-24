@@ -172,29 +172,36 @@ export class MongoLogger {
   // anchoring snap: re-running this full scan per snap degraded visibly once
   // the merge log grew past ~600 000 documents (a 995 000-piece lock run went
   // from 13 to 1.7 pieces/s), the exact per-event cost the incremental tracker
-  // exists to avoid.
+  // exists to avoid. allowDiskUse because the unwind feeds the group one
+  // document per scored piece per merge: the group's own key set is bounded by
+  // the piece count, but the blocking stages have no headroom to spare under
+  // the 100 MB in-memory cap on a full board's log, and a rebuild that throws
+  // takes the whole boot with it.
   async leaderboardScoreRows(puzzleId: string): Promise<LeaderboardScoreRow[]> {
     const rows = await this.merges
       .aggregate<{
         _id: number;
         userId: string;
-      }>([
-        { $match: { puzzleId } },
-        { $sort: { at: 1 } },
-        {
-          $project: {
-            userId: 1,
-            scoredPieceIds: {
-              $concatArrays: [
-                { $ifNull: ["$droppedPieceIds", []] },
-                { $ifNull: ["$lockedPieceIds", []] },
-              ],
+      }>(
+        [
+          { $match: { puzzleId } },
+          { $sort: { at: 1 } },
+          {
+            $project: {
+              userId: 1,
+              scoredPieceIds: {
+                $concatArrays: [
+                  { $ifNull: ["$droppedPieceIds", []] },
+                  { $ifNull: ["$lockedPieceIds", []] },
+                ],
+              },
             },
           },
-        },
-        { $unwind: "$scoredPieceIds" },
-        { $group: { _id: "$scoredPieceIds", userId: { $first: "$userId" } } },
-      ])
+          { $unwind: "$scoredPieceIds" },
+          { $group: { _id: "$scoredPieceIds", userId: { $first: "$userId" } } },
+        ],
+        { allowDiskUse: true },
+      )
       .toArray();
     return rows.map((r) => ({ pieceId: r._id, userId: r.userId }));
   }

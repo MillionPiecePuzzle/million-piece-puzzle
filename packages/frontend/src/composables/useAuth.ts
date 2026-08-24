@@ -53,9 +53,18 @@ const claimSettled = ref(true);
 // POST /guest in the second.
 const guestPseudo = ref<string | null>(null);
 // Auth.js error code from a sign-in it refused, handed back by the auth host's
-// handoff route as a query param on /play. "AccountNotLinked" is the one that
-// happens here: the Google account already belongs to another profile.
+// handoff route as a query param on /play. The one that happens here is the
+// Google account already belonging to another profile, which @auth/core spells
+// two ways: OAuthAccountNotLinked from the OAuth branch, the one Google takes,
+// and AccountNotLinked from the WebAuthn branch. Both are read as the same
+// refusal, so the offer to switch does not hinge on which branch raised it.
 const authError = ref<string | null>(null);
+
+const ACCOUNT_ALREADY_LINKED_CODES = new Set(["OAuthAccountNotLinked", "AccountNotLinked"]);
+
+export function isAccountAlreadyLinked(code: string | null): boolean {
+  return code !== null && ACCOUNT_ALREADY_LINKED_CODES.has(code);
+}
 
 async function fetchCsrf(): Promise<string> {
   const res = await fetch(`${authBaseUrl()}/auth/csrf`, { credentials: "include" });

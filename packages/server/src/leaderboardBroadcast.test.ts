@@ -23,7 +23,10 @@ function makeBroadcaster(tracker: LeaderboardTracker, limit: number, userIds: st
 
 describe("LeaderboardBroadcaster", () => {
   beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("publishes the first dirty contributor of a quiet window right away", async () => {
     const tracker = new LeaderboardTracker(10);
@@ -110,6 +113,44 @@ describe("LeaderboardBroadcaster", () => {
 
     expect(broadcast).toHaveBeenCalledTimes(1);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("sends a personal standing to the contributor the publish pushed out of the top N", async () => {
+    const tracker = new LeaderboardTracker(10);
+    tracker.recordDrop("tail", [0]);
+    // Built while "tail" holds the only row every client is served.
+    const { broadcaster, send } = makeBroadcaster(tracker, 1, ["tail"]);
+
+    tracker.recordDrop("leader", [1, 2]);
+    broadcaster.markDirty("leader");
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The delta carries "leader" alone, and the clients truncate "tail" away.
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ userId: "tail" }), {
+      t: "standing",
+      pieces: 1,
+      rank: 2,
+    });
+  });
+
+  it("republishes a window whose profile lookup failed", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const tracker = new LeaderboardTracker(10);
+    tracker.recordDrop("u1", [0]);
+    const { broadcaster, broadcast, attachProfiles } = makeBroadcaster(tracker, 10);
+    attachProfiles.mockRejectedValueOnce(new Error("mongo down"));
+
+    broadcaster.markDirty("u1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(broadcast).not.toHaveBeenCalled();
+
+    // Nothing new is dirty: the failed window's contributor carries itself over.
+    await vi.advanceTimersByTimeAsync(INTERVAL_MS);
+
+    expect(broadcast).toHaveBeenCalledWith({
+      t: "leaderboard_delta",
+      entries: [{ userId: "u1", pieces: 1, pseudo: "p-u1", country: null }],
+    });
   });
 
   it("broadcasts the full list on a snapshot, for a fold no delta can express", async () => {

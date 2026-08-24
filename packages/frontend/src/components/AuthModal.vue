@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAuthModal } from "../composables/useAuthModal";
-import { useAuth } from "../composables/useAuth";
+import { isAccountAlreadyLinked, useAuth } from "../composables/useAuth";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 import GoogleMark from "./GoogleMark.vue";
@@ -18,7 +18,7 @@ watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 
 // A refused sign-in comes back as a query flag on /play, so the modal opens
 // itself to explain rather than dropping the player back on a silent board.
-const switching = computed(() => authError.value === "AccountNotLinked");
+const switching = computed(() => isAccountAlreadyLinked(authError.value));
 const failed = computed(() => authError.value !== null && !switching.value);
 watch(authError, (code) => code !== null && show(), { immediate: true });
 

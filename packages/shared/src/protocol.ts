@@ -182,9 +182,11 @@ export type SLeaderboardDelta = {
 
 // The receiving client's own live standing, sent to that client alone and only
 // while it ranks outside the top N (inside it, the standings list already
-// carries the row). Sent on join and after any merge of theirs that scored, so
-// a contributor ranked 4000th still watches their own count move. `rank` is the
-// competition rank: 1 + the number of contributors with strictly more pieces.
+// carries the row). Sent on join, after any merge of theirs that scored, and on
+// the publish that pushes them out of the top N, so a contributor ranked 4000th
+// still watches their own count move and one displaced from the last row keeps
+// a row at all. `rank` is the competition rank: 1 + the number of contributors
+// with strictly more pieces.
 export type SStanding = {
   t: "standing";
   pieces: number;

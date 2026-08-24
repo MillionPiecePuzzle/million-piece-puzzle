@@ -228,7 +228,10 @@ export class DziRevealLayer {
   private maskInFlight = 0;
   private seamInFlight = 0;
 
+  private readonly ghostFilter: AlphaFilter;
+
   private underlayEnabled = false;
+  private disposed = false;
   private shadowSprite: Sprite | null = null;
 
   private maskTexture: RenderTexture | null = null;
@@ -292,7 +295,8 @@ export class DziRevealLayer {
     // so it costs one screen-sized pass, and antialias is pinned off for the
     // same multisampled-renderbuffer reason the root canvas pins it (see
     // puzzleStage.ts's mount).
-    this.ghostContainer.filters = [new AlphaFilter({ alpha: UNDERLAY_ALPHA, antialias: "off" })];
+    this.ghostFilter = new AlphaFilter({ alpha: UNDERLAY_ALPHA, antialias: "off" });
+    this.ghostContainer.filters = [this.ghostFilter];
     this.deps.underlayContainer.addChild(this.ghostContainer);
     this.baseGhostContainer = new Container();
     this.ghostContainer.addChild(this.baseGhostContainer);
@@ -316,7 +320,11 @@ export class DziRevealLayer {
     await Promise.all(
       tiles.map(async (t) => {
         const texture = await loadTexture(t.url);
-        if (!texture) return;
+        // destroy() can land while these are in flight (a rebuild replaces the
+        // layer, see puzzleStage.ts's createDziRevealLayer): without this the
+        // tiles would be added to containers that are no longer masked, or no
+        // longer attached to anything.
+        if (!texture || this.disposed) return;
         const sprite = new Sprite(texture);
         sprite.x = t.worldRect.minX;
         sprite.y = t.worldRect.minY;
@@ -815,7 +823,12 @@ export class DziRevealLayer {
     return (DZI_VRAM_BUDGET_MB + BASE_LAYER_VRAM_BUDGET_MB + CELL_ASSET_VRAM_BUDGET_MB) * 1e6;
   }
 
-  clear(): void {
+  // Frees everything this layer owns and detaches it from the containers
+  // `deps` handed it. There is no lighter "clear but keep it alive" variant:
+  // the layer is rebuilt, never reused, and leaving its containers parented
+  // is exactly what let a replaced instance go on drawing.
+  destroy(): void {
+    this.disposed = true;
     for (const tile of this.dziTiles.values()) this.freeDziTile(tile);
     for (const sprite of this.baseTiles) {
       this.baseTileContainer.removeChild(sprite);
@@ -837,5 +850,12 @@ export class DziRevealLayer {
     this.maskCoveredRect = null;
     this.maskGeneration = 0;
     this.lastBakedGeneration = -1;
+    this.tileContainer.destroy({ children: true });
+    this.seamContainer.destroy({ children: true });
+    this.ghostContainer.destroy({ children: true });
+    this.maskSourceContainer.destroy({ children: true });
+    // Container.destroy() drops its filter reference without destroying the
+    // filter itself, and this one owns a GPU render target.
+    this.ghostFilter.destroy();
   }
 }

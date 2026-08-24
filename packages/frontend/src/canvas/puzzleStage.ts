@@ -426,6 +426,8 @@ export class PuzzleStage {
     grabDy: number;
     startX: number;
     startY: number;
+    originX: number;
+    originY: number;
     moved: boolean;
   } | null = null;
   private peerCursors: PeerCursorLayer | null = null;
@@ -547,6 +549,11 @@ export class PuzzleStage {
   // silhouette mask plus a seam overlay, not a flat rectangle (see
   // dziRevealLayer.ts for how the two combine).
   private dziInfo: DziInfo | null = null;
+  // Which puzzle dziInfo describes (or is being fetched for): claimed when the
+  // fetch starts so a rebuild mid-flight does not start a second one, released
+  // on failure so a rebuild retries instead. Deliberately outlives clearWorld:
+  // it is a cache keyed by puzzle, not world state.
+  private dziInfoPuzzleId: string | null = null;
   private dziBaseUrl = "";
   private dziRevealLayer: DziRevealLayer | null = null;
   // Cells whose region_state has streamed in (their area was acked by the server's
@@ -806,7 +813,6 @@ export class PuzzleStage {
     this.lastVisible.clear();
     this.lodHidden.clear();
     this.salvagedPieceIds.clear();
-    this.dziRevealLayer?.clear();
     this.cellDirtyMs.clear();
     this.knownCells.clear();
     this.coverageSeen = false;
@@ -863,7 +869,6 @@ export class PuzzleStage {
     world.renderable = true;
     this.redrawBackdrop();
     this.createLodLayer();
-    this.createDziRevealLayer();
     this.fitView();
 
     // Stream the first viewport in (and bake its tiles when zoomed out) before
@@ -1078,7 +1083,7 @@ export class PuzzleStage {
     this.flagDrag = null;
     this.lodLayer?.destroy();
     this.lodLayer = null;
-    this.dziRevealLayer?.clear();
+    this.dziRevealLayer?.destroy();
     this.dziRevealLayer = null;
     this.releaseAllTextures();
     this.resetStreaming();
@@ -1170,7 +1175,7 @@ export class PuzzleStage {
     }
     this.lodLayer?.destroy();
     this.lodLayer = null;
-    this.dziRevealLayer?.clear();
+    this.dziRevealLayer?.destroy();
     this.dziRevealLayer = null;
     this.lodActive = false;
     this.lodWarm = false;
@@ -2170,6 +2175,8 @@ export class PuzzleStage {
       grabDy: world.y - flag.worldY,
       startX: ev.global.x,
       startY: ev.global.y,
+      originX: flag.worldX,
+      originY: flag.worldY,
       moved: false,
     };
   }
@@ -2196,6 +2203,18 @@ export class PuzzleStage {
     if (!flag) return;
     if (drag.moved) this.onFlagMove?.(drag.id, flag.worldX, flag.worldY);
     else this.onFlagSelect?.(drag.id);
+  }
+
+  // Abort an in-progress flag drag without reporting it: no move is committed and
+  // no options popover opens, since the player never released the flag. The layer
+  // holds the in-flight position by itself, so it is put back on the committed
+  // one, which the shell still has.
+  private cancelFlagDrag(): void {
+    const drag = this.flagDrag;
+    if (!drag) return;
+    this.flagDrag = null;
+    this.flagLayer?.moveFlag(drag.id, drag.originX, drag.originY);
+    this.updateFlagLayer();
   }
 
   private clampToPlayZone(worldX: number, worldY: number): { x: number; y: number } {
@@ -2285,7 +2304,7 @@ export class PuzzleStage {
   // at the origin is anchor-safe: a cluster grabbable at that origin was, by
   // definition, not within anchor tolerance there.
   private cancelPressDrag(): void {
-    this.endFlagDrag();
+    this.cancelFlagDrag();
     if (!this.held || this.held.carry) return;
     const node = this.groups.get(this.held.groupId);
     if (node) this.commitHeldDrop(node, this.held.originX, this.held.originY);
@@ -3317,12 +3336,24 @@ export class PuzzleStage {
     this.lodLayer.configure(screen.width, screen.height, MIN_ZOOM);
   }
 
-  // Kicks off the one dzi.xml fetch for the puzzle; createDziRevealLayer
-  // builds DziRevealLayer once it resolves (a single rebuild at startup, not
-  // worth threading dzi readiness through DziRevealLayerDeps as a live
-  // toggle).
+  // Kicks off the one dzi.xml fetch for a puzzle; createDziRevealLayer builds
+  // DziRevealLayer once it resolves (dzi readiness is not threaded through
+  // DziRevealLayerDeps as a live toggle: the layer is built when the info is
+  // there, never rebuilt to receive it).
+  //
+  // The pyramid's geometry is a property of the puzzle's source image, so a
+  // rebuild of the same puzzle skips the fetch entirely and build() creates
+  // the layer straight from the cached info, early enough for the cell
+  // versions streaming in mid-build to land in the layer that keeps them (see
+  // build()).
   private startDziReveal(manifest: ImageManifest): void {
     this.dziBaseUrl = joinUrl(this.textureBase, "source_files/");
+    if (this.dziInfoPuzzleId === manifest.puzzleId) return;
+    // Another puzzle's pyramid must never be handed to this one: its
+    // dimensions and level count decide every tile URL (see dziTiles.ts), so
+    // it is dropped here rather than left readable until the new one lands.
+    this.dziInfo = null;
+    this.dziInfoPuzzleId = manifest.puzzleId;
     const dziUrl = this.textureBase + manifest.source.dzi;
     fetchDziInfo(dziUrl)
       .then((info) => {
@@ -3330,9 +3361,10 @@ export class PuzzleStage {
         this.dziInfo = info;
         this.createDziRevealLayer();
       })
-      .catch((e: unknown) =>
-        console.warn("[stage] dzi reveal: info fetch failed, locked pieces will not render", e),
-      );
+      .catch((e: unknown) => {
+        if (this.dziInfoPuzzleId === manifest.puzzleId) this.dziInfoPuzzleId = null;
+        console.warn("[stage] dzi reveal: info fetch failed, locked pieces will not render", e);
+      });
   }
 
   // Builds the locked-content layer: DziRevealLayer, revealing the reference
@@ -3345,7 +3377,14 @@ export class PuzzleStage {
   // correctly revealing this layer underneath with no z-order change needed
   // anywhere.
   private createDziRevealLayer(): void {
-    if (!this.manifest || !this.lockedPiecesLayer || !this.underlayLayer || !this.dziInfo) return; // rebuilt again once startDziReveal resolves
+    if (!this.manifest || !this.lockedPiecesLayer || !this.underlayLayer || !this.dziInfo) return; // created once startDziReveal resolves
+    // Replaced, never abandoned: an instance goes on drawing through the
+    // containers below, and its one-shot base-layer fetch goes on landing in
+    // them (see DziRevealLayer's loadBaseLayer), until it is destroyed.
+    // Reassigning the field over a live one leaves an orphan drawing the whole
+    // reference photo, unmasked, over the board, plus a second ghost under it
+    // once the underlay is on.
+    this.dziRevealLayer?.destroy();
     this.dziRevealLayer = new DziRevealLayer({
       container: this.lockedPiecesLayer,
       underlayContainer: this.underlayLayer,
