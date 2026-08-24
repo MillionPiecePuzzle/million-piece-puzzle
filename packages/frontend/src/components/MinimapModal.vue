@@ -2,7 +2,9 @@
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { TileState } from "../canvas/reconcile";
+import { drawFlagMarkers } from "../canvas/flagMarker";
 import { useMinimap } from "../composables/useMinimap";
+import { useBoardFlags } from "../composables/useBoardFlags";
 import { useRafLoop } from "../composables/useRafLoop";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
@@ -12,6 +14,7 @@ const { t } = useI18n();
 const { formatNumber } = useLocaleFormat();
 const emit = defineEmits<{ close: [] }>();
 const { source, detailSource } = useMinimap();
+const { flags } = useBoardFlags();
 
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const shellEl = ref<HTMLElement | null>(null);
@@ -117,6 +120,8 @@ function draw(): void {
     ctx.lineWidth = Math.max(1, 1.5 * dpr);
     ctx.strokeRect(vx, vy, vw, vh);
   }
+
+  drawFlagMarkers(ctx, flags.value, toX, toY, dpr);
 
   tilesLabel.value = t("minimap.tilesLoaded", {
     loaded: formatNumber(loaded),

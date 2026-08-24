@@ -5,6 +5,7 @@ import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useMinimap } from "../composables/useMinimap";
+import { useBoardFlags } from "../composables/useBoardFlags";
 import { useMode } from "../composables/useMode";
 import { useAuth } from "../composables/useAuth";
 import { useLocaleFormat } from "../i18n/format";
@@ -32,6 +33,13 @@ const {
 } = usePuzzleSession();
 const { setControls, setCamera, setReady } = useStageControls();
 const { setMinimapSource, setMinimapNavigate, setMinimapDetailSource } = useMinimap();
+const {
+  flags: boardFlags,
+  selectedId: selectedFlagId,
+  setPuzzle: setFlagPuzzle,
+  move: moveFlag,
+  select: selectFlag,
+} = useBoardFlags();
 const { mode } = useMode();
 const { backendDown } = useAuth();
 
@@ -291,12 +299,16 @@ onMounted(async () => {
   stage.onCarryChange = (c) => {
     carrying.value = c;
   };
+  stage.onFlagMove = (id, x, y) => moveFlag(id, x, y);
+  stage.onFlagSelect = (id) => selectFlag(id);
   await stage.mount(host.value);
   setControls({
     zoomIn: () => stage?.zoomIn(),
     zoomOut: () => stage?.zoomOut(),
     center: () => stage?.centerView(),
     fit: () => stage?.fitView(),
+    centerOnWorld: (wx, wy) => stage?.centerOnWorld(wx, wy),
+    viewportCenterWorld: () => stage?.viewportCenterWorld() ?? null,
   });
   setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
   setMinimapNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
@@ -309,6 +321,9 @@ onMounted(async () => {
     await startContributor();
   }
 });
+
+watch(boardFlags, (list) => stage?.setFlags(list));
+watch(selectedFlagId, (id) => stage?.setFlagSelected(id));
 
 // The session request finding nobody home means the server is down, so mode will
 // never flip to contributor and no connection is coming: show the maintenance
@@ -342,6 +357,8 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   }
   builtEpoch = s.epoch;
   stage.setLocalUserId(userId.value);
+  setFlagPuzzle(s.manifest.puzzleId);
+  stage.setFlags(boardFlags.value);
   if (s.welcome.broadcastMaxCells !== undefined) {
     stage.setBroadcastMaxCells(s.welcome.broadcastMaxCells);
   }
@@ -816,10 +833,12 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translate(-50%, -8px);
 }
+/* Above the flag bar, which owns the bottom-center strip on desktop; back down
+   to the screen edge below the breakpoint, where the bar is not rendered. */
 .toast {
   position: absolute;
   left: 50%;
-  bottom: 32px;
+  bottom: 74px;
   transform: translateX(-50%);
   max-width: min(90%, 360px);
   padding: 10px 16px;
@@ -846,7 +865,7 @@ onBeforeUnmount(() => {
 .carry-hint {
   position: absolute;
   left: 50%;
-  bottom: 32px;
+  bottom: 74px;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -892,5 +911,12 @@ onBeforeUnmount(() => {
 .carry-hint-leave-to {
   opacity: 0;
   transform: translate(-50%, 8px);
+}
+
+@media (max-width: 680px) {
+  .toast,
+  .carry-hint {
+    bottom: 32px;
+  }
 }
 </style>

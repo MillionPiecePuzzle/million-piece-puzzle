@@ -110,6 +110,7 @@ const de: MessageSchema = {
     next: "Nächster Tipp",
     carry:
       "Doppelklicke auf ein Teil, um es an den Cursor zu heften, und noch einmal, um es abzulegen.",
+    flags: "Nutze Fahnen, um dich einfach auf dem Board zu bewegen.",
     minimap: "Klicke irgendwo auf die Mini-Karte, um die Ansicht dorthin zu bewegen.",
     reference: "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört.",
   },
@@ -218,6 +219,23 @@ const de: MessageSchema = {
   },
   carry: {
     hint: "Teil in der Hand. Doppelklicke oder tippe zweimal zum Ablegen, Esc zum Zurücklegen.",
+  },
+  flags: {
+    bar: "PersÃ¶nliche Fahnen",
+    add: "Fahne in der Bildmitte setzen",
+    goTo: "Zu Fahne {n} (Taste {n})",
+    options: "Optionen fÃ¼r Fahne {n}",
+    delete: "LÃ¶schen",
+    colors: {
+      red: "Rot",
+      orange: "Orange",
+      yellow: "Gelb",
+      green: "GrÃ¼n",
+      teal: "TÃ¼rkis",
+      blue: "Blau",
+      purple: "Lila",
+      pink: "Rosa",
+    },
   },
   row: {
     pcs: "Tle",

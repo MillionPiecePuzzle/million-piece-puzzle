@@ -5,6 +5,10 @@ export type StageControls = {
   zoomOut: () => void;
   center: () => void;
   fit: () => void;
+  // Personal flags: jump the camera to a marked point, and read the point a new
+  // flag is planted on.
+  centerOnWorld: (worldX: number, worldY: number) => void;
+  viewportCenterWorld: () => { x: number; y: number } | null;
 };
 
 export type StageCamera = {

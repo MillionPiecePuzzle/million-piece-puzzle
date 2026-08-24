@@ -110,6 +110,7 @@ const fr: MessageSchema = {
     next: "Astuce suivante",
     carry:
       "Double-cliquez sur une pièce pour la coller à votre curseur, double-cliquez à nouveau pour la déposer.",
+    flags: "Utilisez les drapeaux pour vous déplacer facilement sur le plateau.",
     minimap: "Cliquez n'importe où sur la mini-carte pour y déplacer la vue.",
     reference: "Ouvrez l'image de référence et zoomez pour trouver où va une pièce.",
   },
@@ -216,6 +217,23 @@ const fr: MessageSchema = {
   },
   carry: {
     hint: "Pièce en main. Double-cliquez ou tapez deux fois pour la déposer, Échap pour la remettre.",
+  },
+  flags: {
+    bar: "Drapeaux personnels",
+    add: "Ajouter un drapeau au centre de la vue",
+    goTo: "Aller au drapeau {n} (touche {n})",
+    options: "Options du drapeau {n}",
+    delete: "Supprimer",
+    colors: {
+      red: "Rouge",
+      orange: "Orange",
+      yellow: "Jaune",
+      green: "Vert",
+      teal: "Turquoise",
+      blue: "Bleu",
+      purple: "Violet",
+      pink: "Rose",
+    },
   },
   row: {
     pcs: "pcs",

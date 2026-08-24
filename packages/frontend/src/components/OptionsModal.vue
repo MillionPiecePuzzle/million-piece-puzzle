@@ -31,7 +31,7 @@ const syncedIdentity = computed(() => user.value?.email ?? user.value?.name ?? n
 
 // One-liner gameplay hints, stepped through in place rather than opened as
 // their own screen: the menu is the only surface a player already comes back to.
-const TIP_KEYS = ["tips.carry", "tips.minimap", "tips.reference"] as const;
+const TIP_KEYS = ["tips.carry", "tips.flags", "tips.minimap", "tips.reference"] as const;
 const tipIndex = ref(0);
 const tip = computed(() => t(TIP_KEYS[tipIndex.value] ?? TIP_KEYS[0]));
 

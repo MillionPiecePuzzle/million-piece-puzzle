@@ -107,6 +107,7 @@ const en = {
     prev: "Previous tip",
     next: "Next tip",
     carry: "Double-click a piece to stick it to your cursor, double-click again to drop it.",
+    flags: "Use flags to easily move around the canvas.",
     minimap: "Click anywhere on the minimap to move the view there.",
     reference: "Open the reference image and zoom in to find where a piece belongs.",
   },
@@ -208,6 +209,23 @@ const en = {
   },
   carry: {
     hint: "Holding a piece. Double-click or double-tap to drop it, Esc to put it back.",
+  },
+  flags: {
+    bar: "Personal flags",
+    add: "Add a flag at the center of the view",
+    goTo: "Go to flag {n} (key {n})",
+    options: "Flag {n} options",
+    delete: "Delete",
+    colors: {
+      red: "Red",
+      orange: "Orange",
+      yellow: "Yellow",
+      green: "Green",
+      teal: "Teal",
+      blue: "Blue",
+      purple: "Purple",
+      pink: "Pink",
+    },
   },
   row: {
     pcs: "pcs",

@@ -2,13 +2,16 @@
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { paintDensityGrid } from "../canvas/minimapDensity";
+import { drawFlagMarkers } from "../canvas/flagMarker";
 import { useMinimap } from "../composables/useMinimap";
+import { useBoardFlags } from "../composables/useBoardFlags";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useRafLoop } from "../composables/useRafLoop";
 import MinimapModal from "./MinimapModal.vue";
 
 const { t } = useI18n();
 const { source, navigate } = useMinimap();
+const { flags } = useBoardFlags();
 const { onlineCount } = usePuzzleSession();
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
@@ -135,6 +138,8 @@ function draw(): void {
     ctx.lineWidth = Math.max(1, 1.5 * dpr);
     ctx.strokeRect(x, y, w, h);
   }
+
+  drawFlagMarkers(ctx, flags.value, toX, toY, dpr);
 }
 
 // Invert the draw loop's mapping: pointer (CSS px relative to the canvas) ->

@@ -8,6 +8,8 @@ import ActivityTicker from "../components/ActivityTicker.vue";
 import LeaderboardPanel from "../components/LeaderboardPanel.vue";
 import ReferencePanel from "../components/ReferencePanel.vue";
 import MiniMap from "../components/MiniMap.vue";
+import FlagBar from "../components/FlagBar.vue";
+import FlagPopover from "../components/FlagPopover.vue";
 import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
 import { GRID_WORLD_CELL } from "@mpp/shared";
@@ -51,6 +53,8 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
             <MiniMap />
           </div>
         </div>
+        <FlagBar />
+        <FlagPopover />
       </template>
     </main>
   </div>

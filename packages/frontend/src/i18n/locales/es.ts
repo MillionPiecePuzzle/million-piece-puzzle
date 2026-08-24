@@ -110,6 +110,7 @@ const es: MessageSchema = {
     next: "Consejo siguiente",
     carry:
       "Haz doble clic en una pieza para pegarla al cursor y doble clic otra vez para soltarla.",
+    flags: "Usa las banderas para moverte fácilmente por el lienzo.",
     minimap: "Haz clic en cualquier punto del minimapa para mover la vista allí.",
     reference: "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza.",
   },
@@ -214,6 +215,23 @@ const es: MessageSchema = {
   },
   carry: {
     hint: "Pieza en mano. Haz doble clic o doble toque para soltarla, Esc para devolverla.",
+  },
+  flags: {
+    bar: "Banderas personales",
+    add: "AÃ±adir una bandera en el centro de la vista",
+    goTo: "Ir a la bandera {n} (tecla {n})",
+    options: "Opciones de la bandera {n}",
+    delete: "Eliminar",
+    colors: {
+      red: "Rojo",
+      orange: "Naranja",
+      yellow: "Amarillo",
+      green: "Verde",
+      teal: "Turquesa",
+      blue: "Azul",
+      purple: "Morado",
+      pink: "Rosa",
+    },
   },
   row: {
     pcs: "pzs",

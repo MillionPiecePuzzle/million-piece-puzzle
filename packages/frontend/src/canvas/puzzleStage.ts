@@ -19,6 +19,8 @@ import {
 } from "@mpp/shared";
 import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
+import { FlagLayer } from "./flagLayer";
+import type { BoardFlag } from "../data/boardFlags";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { pushEscapeHandler } from "../escapeStack";
 import { boundsVisible, pieceLocalBounds, unionBounds, type Aabb, type Viewport } from "./cull";
@@ -200,6 +202,10 @@ const CARRY_IDLE_TIMEOUT_MS = 30000;
 // touch double-tap.
 const DOUBLE_TAP_MAX_MS = 350;
 const DOUBLE_TAP_MAX_DIST = 32;
+
+// Screen px a press on a personal flag may travel and still count as a press
+// (opening its options) rather than a drag that moves it.
+const FLAG_DRAG_SLOP = 4;
 
 // Edge-pan: when the pointer rests within this many screen pixels of a canvas
 // edge, the camera scrolls toward that edge. Speed ramps quadratically from 0 at
@@ -399,7 +405,22 @@ export class PuzzleStage {
   // Fired when the local sticky-carry state changes, so the shell can show or hide
   // the carry hint. Contributor mode only.
   onCarryChange: ((carrying: boolean) => void) | null = null;
+  // Personal flags: a flag dragged aside reports its new resting point, a flag
+  // pressed without being dragged reports the request to open its options.
+  onFlagMove: ((id: string, worldX: number, worldY: number) => void) | null = null;
+  onFlagSelect: ((id: string) => void) | null = null;
 
+  private flagLayer: FlagLayer | null = null;
+  // In-flight personal-flag drag: the layer holds the live position, the shell
+  // only takes it on release. `moved` gates press-to-open against drag-to-move.
+  private flagDrag: {
+    id: string;
+    grabDx: number;
+    grabDy: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null = null;
   private peerCursors: PeerCursorLayer | null = null;
   private readonly tickPeerCursors = (ticker: { deltaMS: number }): void => {
     this.peerCursors?.update(ticker.deltaMS, this.camera);
@@ -470,6 +491,11 @@ export class PuzzleStage {
   // canvas. Drives edge-pan, which reads it from the ticker so a pointer resting
   // in the edge band keeps scrolling without further move events.
   private pointerScreen: { x: number; y: number } | null = null;
+  // Same position, but never cleared when the pointer leaves the canvas: a camera
+  // jump has to re-place a carried cluster somewhere, and the spot the player
+  // last saw it at is the only continuous answer (the pointer is off the canvas,
+  // on the flag bar, exactly when a flag teleport fires).
+  private lastPointerScreen: { x: number; y: number } | null = null;
   // Active touch-only pointers (id -> last known canvas-relative position),
   // tracked independently of the single-pointer held/pan model above (neither
   // is aware of pointer identity) so a second finger touching down can be
@@ -645,6 +671,11 @@ export class PuzzleStage {
     const peerCursors = new PeerCursorLayer();
     app.stage.addChild(peerCursors.container);
     this.peerCursors = peerCursors;
+
+    const flagLayer = new FlagLayer();
+    flagLayer.onPress = (id, ev) => this.onFlagPointerDown(id, ev);
+    app.stage.addChild(flagLayer.container);
+    this.flagLayer = flagLayer;
 
     app.stage.eventMode = "static";
     this.refreshStageHitArea(app);
@@ -1022,6 +1053,9 @@ export class PuzzleStage {
     this.app?.ticker.remove(this.tickLod);
     this.peerCursors?.destroy();
     this.peerCursors = null;
+    this.flagLayer?.destroy();
+    this.flagLayer = null;
+    this.flagDrag = null;
     this.lodLayer?.destroy();
     this.lodLayer = null;
     this.dziRevealLayer?.clear();
@@ -1768,7 +1802,7 @@ export class PuzzleStage {
 
   private onGroupPointerDown(node: GroupNode, ev: FederatedPointerEvent): void {
     if (this.pinch || !this.callbacks) return;
-    this.pointerScreen = { x: ev.global.x, y: ev.global.y };
+    this.trackPointer(ev.global.x, ev.global.y);
     const world = this.screenToWorld(ev.global.x, ev.global.y);
     // Strict hit-test with fall-through: Pixi delivers the press to the cluster
     // whose rectangular tile bounds are topmost, but those bounds include the
@@ -1884,7 +1918,7 @@ export class PuzzleStage {
 
   private onStagePointerDown(ev: FederatedPointerEvent): void {
     if (this.pinch) return;
-    this.pointerScreen = { x: ev.global.x, y: ev.global.y };
+    this.trackPointer(ev.global.x, ev.global.y);
     // Double-press bookkeeping runs regardless of carry state (a begin-carry or
     // drop-carry pair can straddle a piece and empty stage, e.g. the first tap
     // lands on the gap between pieces), so it must see every contributor-mode
@@ -1907,11 +1941,15 @@ export class PuzzleStage {
   }
 
   private onPointerMove(ev: FederatedPointerEvent): void {
-    this.pointerScreen = { x: ev.global.x, y: ev.global.y };
+    this.trackPointer(ev.global.x, ev.global.y);
     // A cursor is broadcast only in contributor mode (a connected player).
     if (this.mode === "contributor" && this.onCursorMove) {
       const cursor = this.screenToWorld(ev.global.x, ev.global.y);
       this.onCursorMove(cursor.x, cursor.y);
+    }
+    if (this.flagDrag) {
+      this.dragFlagTo(ev.global.x, ev.global.y);
+      return;
     }
     // A background pan can run alongside a sticky carry: scroll the world first,
     // then re-glue the carried cluster to the cursor under the new camera. A
@@ -2037,6 +2075,10 @@ export class PuzzleStage {
   }
 
   private onPointerUp(ev: FederatedPointerEvent): void {
+    if (this.flagDrag) {
+      this.endFlagDrag();
+      return;
+    }
     // Sticky carry ignores the button release: the cluster stays in hand until a
     // double-press drops it, Escape returns it, or it times out.
     if (this.held?.carry) {
@@ -2066,6 +2108,81 @@ export class PuzzleStage {
     this.pendingDrops.add(node.id);
     this.callbacks.onDrop(node.id, x, y);
     this.releaseGroupHeld(node.id);
+  }
+
+  // ----- personal flags (client-side board markers, never sent to the server) -----
+
+  setFlags(flags: readonly BoardFlag[]): void {
+    this.flagLayer?.setFlags(flags);
+    this.updateFlagLayer();
+  }
+
+  setFlagSelected(id: string | null): void {
+    this.flagLayer?.setSelected(id);
+  }
+
+  private updateFlagLayer(): void {
+    if (!this.app) return;
+    const screen = this.app.renderer.screen;
+    this.flagLayer?.update(this.camera, screen.width, screen.height, this.manifest?.pieceSize ?? 0);
+  }
+
+  private trackPointer(screenX: number, screenY: number): void {
+    this.pointerScreen = { x: screenX, y: screenY };
+    this.lastPointerScreen = this.pointerScreen;
+  }
+
+  // A press on a flag either drags it aside or opens its options on release. It
+  // is refused outright while a cluster is in hand: that press belongs to the
+  // sticky-carry drop, so it is left to bubble to the stage untouched.
+  private onFlagPointerDown(id: string, ev: FederatedPointerEvent): void {
+    if (this.pinch || this.mode !== "contributor" || this.held) return;
+    const flag = this.flagLayer?.flagAt(id);
+    if (!flag) return;
+    ev.stopPropagation();
+    this.trackPointer(ev.global.x, ev.global.y);
+    const world = this.screenToWorld(ev.global.x, ev.global.y);
+    this.flagDrag = {
+      id,
+      grabDx: world.x - flag.worldX,
+      grabDy: world.y - flag.worldY,
+      startX: ev.global.x,
+      startY: ev.global.y,
+      moved: false,
+    };
+  }
+
+  private dragFlagTo(screenX: number, screenY: number): void {
+    const drag = this.flagDrag;
+    if (!drag) return;
+    if (Math.hypot(screenX - drag.startX, screenY - drag.startY) > FLAG_DRAG_SLOP) {
+      drag.moved = true;
+    }
+    const world = this.screenToWorld(screenX, screenY);
+    const point = this.clampToPlayZone(world.x - drag.grabDx, world.y - drag.grabDy);
+    this.flagLayer?.moveFlag(drag.id, point.x, point.y);
+    this.updateFlagLayer();
+  }
+
+  // Release: a flag that travelled reports its new resting point, one that did
+  // not reports a plain press, which opens its options.
+  private endFlagDrag(): void {
+    const drag = this.flagDrag;
+    if (!drag) return;
+    this.flagDrag = null;
+    const flag = this.flagLayer?.flagAt(drag.id);
+    if (!flag) return;
+    if (drag.moved) this.onFlagMove?.(drag.id, flag.worldX, flag.worldY);
+    else this.onFlagSelect?.(drag.id);
+  }
+
+  private clampToPlayZone(worldX: number, worldY: number): { x: number; y: number } {
+    const zone = this.playZone;
+    if (!zone) return { x: worldX, y: worldY };
+    return {
+      x: clamp(worldX, zone.minX, zone.maxX),
+      y: clamp(worldY, zone.minY, zone.maxY),
+    };
   }
 
   // ----- sticky carry (double-click or double-tap to stick a cluster to the cursor) -----
@@ -2111,6 +2228,7 @@ export class PuzzleStage {
     this.setGroupHeldVisual(node, true);
     this.addCarryHighlight(node);
     this.callbacks.onGrab(node.id);
+    this.flagLayer?.setInteractive(false);
     this.onCarryChange?.(true);
     // Float the cluster off to the upper-right of the cursor the instant it is
     // grabbed, not on the first move, so it never starts under the pointer.
@@ -2145,6 +2263,7 @@ export class PuzzleStage {
   // at the origin is anchor-safe: a cluster grabbable at that origin was, by
   // definition, not within anchor tolerance there.
   private cancelPressDrag(): void {
+    this.endFlagDrag();
     if (!this.held || this.held.carry) return;
     const node = this.groups.get(this.held.groupId);
     if (node) this.commitHeldDrop(node, this.held.originX, this.held.originY);
@@ -2170,6 +2289,7 @@ export class PuzzleStage {
   private endCarry(): void {
     this.clearCarryIdle();
     this.removeCarryHighlight();
+    this.flagLayer?.setInteractive(true);
     this.onCarryChange?.(false);
   }
 
@@ -2321,6 +2441,13 @@ export class PuzzleStage {
   // in-bounds framing.
   centerOnWorld(worldX: number, worldY: number): void {
     this.centerOn(worldX, worldY);
+  }
+
+  // World point at the middle of the view, where a new personal flag is planted.
+  viewportCenterWorld(): { x: number; y: number } | null {
+    if (!this.app) return null;
+    const screen = this.app.renderer.screen;
+    return this.screenToWorld(screen.width * 0.5, screen.height * 0.5);
   }
 
   zoomIn(): void {
@@ -2508,6 +2635,13 @@ export class PuzzleStage {
     this.camera.x = screen.width * 0.5 - worldCx * this.camera.zoom;
     this.camera.y = screen.height * 0.5 - worldCy * this.camera.zoom;
     this.applyCamera();
+    // A carried cluster is otherwise only re-placed by a pointer move, so a jump
+    // (flag teleport, minimap, fit/center) would strand it at its old world spot
+    // until the mouse next moves. Re-glue it to the screen point it was already
+    // floating at, so it travels with the view instead of being left behind.
+    if (this.held?.carry && this.lastPointerScreen) {
+      this.dragHeldTo(this.lastPointerScreen.x, this.lastPointerScreen.y);
+    }
   }
 
   private zoomBy(factor: number): void {
@@ -2569,6 +2703,7 @@ export class PuzzleStage {
     this.clampCamera();
     this.world.scale.set(this.camera.zoom);
     this.world.position.set(this.camera.x, this.camera.y);
+    this.updateFlagLayer();
     this.onCameraChange?.({ ...this.camera });
     this.reconcile();
   }
