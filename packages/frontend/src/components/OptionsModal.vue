@@ -6,6 +6,7 @@ import { useAuthModal } from "../composables/useAuthModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useAuth } from "../composables/useAuth";
+import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 import GoogleMark from "./GoogleMark.vue";
@@ -16,6 +17,7 @@ const { show: showAuth } = useAuthModal();
 const { show: showPseudo } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
 const { user, signOut } = useAuth();
+const { settings: display, setReferenceUnderlay } = useDisplaySettings();
 
 const DISCORD_URL = "https://discord.gg/mB2juw55R3";
 
@@ -75,6 +77,8 @@ function changeCountry() {
           <button class="modal-close" :aria-label="t('common.close')" @click="hide">×</button>
         </header>
 
+        <div class="section-head">{{ t("options.account") }}</div>
+
         <div class="actions">
           <div v-if="synced" class="action synced">
             <svg
@@ -128,8 +132,27 @@ function changeCountry() {
           </a>
         </div>
 
-        <section class="tips">
-          <div class="tips-head">
+        <section class="section">
+          <div class="section-head">{{ t("options.display.title") }}</div>
+          <button
+            type="button"
+            class="action toggle"
+            role="switch"
+            :aria-checked="display.referenceUnderlay"
+            @click="setReferenceUnderlay(!display.referenceUnderlay)"
+          >
+            <span class="toggle-text">
+              <span class="label">{{ t("options.display.underlay") }}</span>
+              <span class="hint">{{ t("options.display.underlayHint") }}</span>
+            </span>
+            <span class="switch" :class="{ on: display.referenceUnderlay }" aria-hidden="true">
+              <span class="knob"></span>
+            </span>
+          </button>
+        </section>
+
+        <section class="section tips">
+          <div class="section-head tips-head">
             <span>{{ t("tips.title") }}</span>
             <span>{{ tipIndex + 1 }} / {{ TIP_KEYS.length }}</span>
           </div>
@@ -234,21 +257,66 @@ function changeCountry() {
 .action.synced:hover {
   background: var(--paper);
 }
-.tips {
+.section {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px dashed var(--line);
+}
+.section-head {
+  margin-bottom: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-4);
 }
 .tips-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-4);
+}
+.action.toggle {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+/* Hand-drawn rather than a checkbox: the row is a button (so the whole row is
+   the target), and a native input inside a button is not focusable on its own. */
+.switch {
+  flex: none;
+  width: 34px;
+  height: 20px;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--ground-2);
+  border: 1px solid var(--line);
+  transition: background 160ms ease;
+}
+.switch.on {
+  background: var(--accent);
+  border-color: transparent;
+}
+.knob {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgba(21, 20, 15, 0.3);
+  transition: transform 160ms ease;
+}
+.switch.on .knob {
+  transform: translateX(14px);
 }
 .tips-body {
   display: flex;

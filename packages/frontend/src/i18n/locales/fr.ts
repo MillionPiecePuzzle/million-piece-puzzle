@@ -57,7 +57,7 @@ const fr: MessageSchema = {
     puzzleProgress: "Progression du puzzle",
     nationalityTitle: "Nationalité : {code}",
     signedInAs: "Connecté en tant que {pseudo}",
-    options: "Options du compte",
+    options: "Paramètres",
   },
   zoom: {
     in: "Zoom avant",
@@ -95,13 +95,19 @@ const fr: MessageSchema = {
     signInFailed: "La connexion n'a pas abouti. Réessayez.",
   },
   options: {
-    title: "Compte",
+    title: "Paramètres",
+    account: "Compte",
     sync: "Synchroniser le compte",
     syncHint: "Connectez-vous avec Google pour conserver vos contributions de façon permanente.",
     synced: "Compte synchronisé avec Google",
     changePseudo: "Changer de pseudo",
     changeCountry: "Changer de pays",
     discord: "Rejoindre le serveur Discord",
+    display: {
+      title: "Affichage",
+      underlay: "Image de référence en fond",
+      underlayHint: "Affiche l'image de référence en transparence sous le plateau.",
+    },
     signOut: "Se déconnecter",
   },
   tips: {

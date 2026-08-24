@@ -57,7 +57,7 @@ const de: MessageSchema = {
     puzzleProgress: "Puzzle-Fortschritt",
     nationalityTitle: "Nationalität: {code}",
     signedInAs: "Angemeldet als {pseudo}",
-    options: "Kontooptionen",
+    options: "Einstellungen",
   },
   zoom: {
     in: "Vergrößern",
@@ -95,13 +95,19 @@ const de: MessageSchema = {
     signInFailed: "Die Anmeldung wurde nicht abgeschlossen. Versuch es erneut.",
   },
   options: {
-    title: "Konto",
+    title: "Einstellungen",
+    account: "Konto",
     sync: "Konto synchronisieren",
     syncHint: "Melde dich mit Google an, um deine Beiträge dauerhaft zu sichern.",
     synced: "Konto mit Google synchronisiert",
     changePseudo: "Pseudonym ändern",
     changeCountry: "Land ändern",
     discord: "Discord-Server beitreten",
+    display: {
+      title: "Anzeige",
+      underlay: "Referenzbild im Hintergrund",
+      underlayHint: "Zeigt das Referenzbild schwach unter dem Spielfeld.",
+    },
     signOut: "Abmelden",
   },
   tips: {

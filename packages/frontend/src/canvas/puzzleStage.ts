@@ -380,7 +380,7 @@ export class PuzzleStage {
   // World-space dark fill covering everything outside the play zone.
   private backdrop: Graphics | null = null;
   // Fixed z-order layers under world. Stacking is the child order of world
-  // (locked-pieces < unlocked < lod < remote-held < local-held), so a node's
+  // (underlay < locked-pieces < unlocked < lod < remote-held < local-held), so a node's
   // depth is which layer holds it, not a per-container zIndex. This keeps
   // world free of sortableChildren, whose sort would be O(N log N) over the
   // whole board. lockedPiecesLayer holds flat locked PieceNode containers
@@ -390,6 +390,13 @@ export class PuzzleStage {
   private unlockedLayer: Container | null = null;
   private remoteHeldLayer: Container | null = null;
   private localHeldLayer: Container | null = null;
+  // Holds the reference underlay and the locked slab's shadow, both drawn by
+  // DziRevealLayer (see setReferenceUnderlay). Its own layer rather than the
+  // bottom of lockedPiecesLayer: everything in it draws under locked content,
+  // and the toggle then adds and drops children of a container nothing else
+  // ever touches.
+  private underlayLayer: Container | null = null;
+  private referenceUnderlay = false;
   // Cached visible world rectangle, recomputed on every camera change and
   // resize; null until the first camera update. Drives frustum culling.
   private viewport: Viewport | null = null;
@@ -626,6 +633,16 @@ export class PuzzleStage {
     this.localUserId = userId;
   }
 
+  // The reference underlay: the source photo showing faintly under the board
+  // so a piece's home is visible before anything around it is locked (see
+  // dziRevealLayer.ts for how it draws, and useDisplaySettings for where the
+  // player's choice is kept). Held on the stage as well as pushed down, since
+  // a rebuild recreates the reveal layer from scratch.
+  setReferenceUnderlay(on: boolean): void {
+    this.referenceUnderlay = on;
+    this.dziRevealLayer?.setUnderlayEnabled(on);
+  }
+
   // The server's broadcast scoping bound, from the contributor welcome. Lets the
   // initial-fill gate mirror the server's scoped-vs-global viewport decision.
   setBroadcastMaxCells(maxCells: number): void {
@@ -744,7 +761,7 @@ export class PuzzleStage {
     world.renderable = false;
 
     // Fixed z-order layers, created in stacking order (first child renders at the
-    // bottom): backdrop, frame, locked, unlocked, then the held layers. The LOD
+    // bottom): backdrop, frame, underlay, locked, unlocked, then the held layers. The LOD
     // tile container is inserted into the slot before the held layers by
     // createLodLayer once the play zone is known. Depth is layer membership, so
     // the world needs no sortableChildren and pays no sort over the whole board.
@@ -763,11 +780,14 @@ export class PuzzleStage {
     world.addChild(frame);
     this.frame = frame;
 
+    this.underlayLayer = new Container();
+    this.underlayLayer.eventMode = "none";
     this.lockedPiecesLayer = new Container();
     this.unlockedLayer = new Container();
     this.remoteHeldLayer = new Container();
     this.localHeldLayer = new Container();
     world.addChild(
+      this.underlayLayer,
       this.lockedPiecesLayer,
       this.unlockedLayer,
       this.remoteHeldLayer,
@@ -1065,6 +1085,7 @@ export class PuzzleStage {
     this.app?.destroy(true, { children: true, texture: true });
     this.app = null;
     this.world = null;
+    this.underlayLayer = null;
     this.lockedPiecesLayer = null;
     this.unlockedLayer = null;
     this.remoteHeldLayer = null;
@@ -1185,6 +1206,7 @@ export class PuzzleStage {
     this.playZone = null;
     this.frame = null;
     this.backdrop = null;
+    this.underlayLayer = null;
     this.lockedPiecesLayer = null;
     this.unlockedLayer = null;
     this.remoteHeldLayer = null;
@@ -3323,9 +3345,10 @@ export class PuzzleStage {
   // correctly revealing this layer underneath with no z-order change needed
   // anywhere.
   private createDziRevealLayer(): void {
-    if (!this.manifest || !this.lockedPiecesLayer || !this.dziInfo) return; // rebuilt again once startDziReveal resolves
+    if (!this.manifest || !this.lockedPiecesLayer || !this.underlayLayer || !this.dziInfo) return; // rebuilt again once startDziReveal resolves
     this.dziRevealLayer = new DziRevealLayer({
       container: this.lockedPiecesLayer,
+      underlayContainer: this.underlayLayer,
       loadTexture: (url) => this.loadPieceTexture(url),
       dziInfo: this.dziInfo,
       dziBaseUrl: this.dziBaseUrl,
@@ -3337,6 +3360,7 @@ export class PuzzleStage {
         this.app.renderer.render({ container: source, target, transform, clear: true });
       },
     });
+    this.dziRevealLayer.setUnderlayEnabled(this.referenceUnderlay);
   }
 
   // Sibling assets baked alongside the server's photo composite at the same version

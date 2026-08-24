@@ -6,6 +6,7 @@ import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuz
 import { useStageControls } from "../composables/useStageControls";
 import { useMinimap } from "../composables/useMinimap";
 import { useBoardFlags } from "../composables/useBoardFlags";
+import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { useMode } from "../composables/useMode";
 import { useAuth } from "../composables/useAuth";
 import { useLocaleFormat } from "../i18n/format";
@@ -41,6 +42,7 @@ const {
   select: selectFlag,
 } = useBoardFlags();
 const { mode } = useMode();
+const { settings: displaySettings } = useDisplaySettings();
 const { backendDown } = useAuth();
 
 let stage: PuzzleStage | null = null;
@@ -324,6 +326,10 @@ onMounted(async () => {
 
 watch(boardFlags, (list) => stage?.setFlags(list));
 watch(selectedFlagId, (id) => stage?.setFlagSelected(id));
+watch(
+  () => displaySettings.value.referenceUnderlay,
+  (on) => stage?.setReferenceUnderlay(on),
+);
 
 // The session request finding nobody home means the server is down, so mode will
 // never flip to contributor and no connection is coming: show the maintenance
@@ -357,6 +363,10 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   }
   builtEpoch = s.epoch;
   stage.setLocalUserId(userId.value);
+  // Before build(), which is what creates the reveal layer the underlay draws
+  // from: set after it, the first frames of a fresh board would come up
+  // without the aid a returning player already turned on.
+  stage.setReferenceUnderlay(displaySettings.value.referenceUnderlay);
   setFlagPuzzle(s.manifest.puzzleId);
   stage.setFlags(boardFlags.value);
   if (s.welcome.broadcastMaxCells !== undefined) {

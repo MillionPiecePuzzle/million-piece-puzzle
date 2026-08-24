@@ -55,7 +55,7 @@ const en = {
     puzzleProgress: "Puzzle progress",
     nationalityTitle: "Nationality: {code}",
     signedInAs: "Signed in as {pseudo}",
-    options: "Account options",
+    options: "Settings",
   },
   zoom: {
     in: "Zoom in",
@@ -93,13 +93,19 @@ const en = {
     signInFailed: "Sign-in did not go through. Try again.",
   },
   options: {
-    title: "Account",
+    title: "Settings",
+    account: "Account",
     sync: "Sync account",
     syncHint: "Sign in with Google to save your contributions permanently.",
     synced: "Synced with Google",
     changePseudo: "Change pseudo",
     changeCountry: "Change country",
     discord: "Join the Discord server",
+    display: {
+      title: "Display",
+      underlay: "Reference underlay",
+      underlayHint: "Show the reference image faintly under the board.",
+    },
     signOut: "Sign out",
   },
   tips: {

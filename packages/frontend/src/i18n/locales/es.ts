@@ -57,7 +57,7 @@ const es: MessageSchema = {
     puzzleProgress: "Progreso del puzle",
     nationalityTitle: "Nacionalidad: {code}",
     signedInAs: "Conectado como {pseudo}",
-    options: "Opciones de la cuenta",
+    options: "Ajustes",
   },
   zoom: {
     in: "Acercar",
@@ -95,13 +95,19 @@ const es: MessageSchema = {
     signInFailed: "El inicio de sesión no se completó. Inténtalo de nuevo.",
   },
   options: {
-    title: "Cuenta",
+    title: "Ajustes",
+    account: "Cuenta",
     sync: "Sincronizar cuenta",
     syncHint: "Inicia sesión con Google para guardar tus contribuciones de forma permanente.",
     synced: "Cuenta sincronizada con Google",
     changePseudo: "Cambiar pseudónimo",
     changeCountry: "Cambiar país",
     discord: "Unirse al servidor de Discord",
+    display: {
+      title: "Visualización",
+      underlay: "Imagen de referencia de fondo",
+      underlayHint: "Muestra la imagen de referencia con transparencia bajo el tablero.",
+    },
     signOut: "Cerrar sesión",
   },
   tips: {

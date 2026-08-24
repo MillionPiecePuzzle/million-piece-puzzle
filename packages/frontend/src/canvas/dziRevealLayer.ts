@@ -33,7 +33,15 @@
 //   strokes a border where a piece is actually locked, so it never paints
 //   outside a valid reveal region on its own.
 
-import { Container, Matrix, Rectangle, RenderTexture, Sprite, type Texture } from "pixi.js";
+import {
+  AlphaFilter,
+  Container,
+  Matrix,
+  Rectangle,
+  RenderTexture,
+  Sprite,
+  type Texture,
+} from "pixi.js";
 import type { Aabb } from "./cull";
 import { LOD_TILE_WORLD, packCell, unpackWireCellKey, type CellKey } from "./groupGrid";
 import {
@@ -87,12 +95,32 @@ const MAX_MASK_TEXELS = 2048;
 // full (up to MAX_MASK_TEXELS^2) re-render would fire on nearly every frame
 // for that whole stretch instead of a real ring move.
 const MIN_REBAKE_INTERVAL_MS = 200;
+// Reference underlay: the same DZI tiles this layer already streams, drawn a
+// second time under the board with no mask, so the photo shows faintly
+// wherever nothing is locked yet. The twin sprites share their textures with
+// the masked ones, so the aid costs no fetch and no VRAM, only its own draws.
+// The alpha is what separates ghost from locked content: over the light stage
+// backdrop it dims the ghost and drops its chroma to the same fraction,
+// leaving locked content the only saturated thing on the board.
+const UNDERLAY_ALPHA = 0.32;
+// Locked content then reads as sitting on top of that ghost rather than
+// inside it: one offset copy of the combined mask, drawn dark under the
+// locked tiles, so the locked slab casts a shadow onto the reference behind
+// it. Offset in screen pixels (divided by the camera zoom where it is used)
+// so the lift reads the same at every zoom, like the frame's own pixelLine
+// border.
+const LOCKED_SHADOW_COLOR = 0x1a1a1a;
+const LOCKED_SHADOW_ALPHA = 0.45;
+const LOCKED_SHADOW_SCREEN_PX = 3;
 
 type DziTile = {
   key: string;
   level: number;
   bounds: Aabb;
   sprite: Sprite | null;
+  // Twin of sprite in the reference underlay (same texture, same rect), null
+  // whenever the underlay is off.
+  ghost: Sprite | null;
   hydrating: boolean;
   lru: number;
 };
@@ -120,6 +148,10 @@ type CellAsset = {
 
 export type DziRevealLayerDeps = {
   container: Container;
+  // Own layer above the frame and below every piece (see puzzleStage.ts),
+  // holding the reference underlay and the locked slab's shadow: both draw
+  // under locked content, so neither can live in the container above.
+  underlayContainer: Container;
   loadTexture: (url: string) => Promise<Texture | null>;
   dziInfo: DziInfo;
   dziBaseUrl: string;
@@ -179,6 +211,11 @@ export class DziRevealLayer {
   // reconcileDziTiles's zoom-appropriate tiles are still streaming in on top.
   private readonly baseTileContainer: Container;
   private readonly seamContainer: Container;
+  // The underlay's own two containers, mirroring tileContainer and
+  // baseTileContainer one for one so the ghost keeps the same
+  // base-under-dynamic draw order the masked tiles already have.
+  private readonly ghostContainer: Container;
+  private readonly baseGhostContainer: Container;
   // Never added to deps.container: exists only as a render source for the
   // combined mask bake below, never drawn directly by the normal scene walk.
   private readonly maskSourceContainer: Container;
@@ -190,6 +227,9 @@ export class DziRevealLayer {
   private dziInFlight = 0;
   private maskInFlight = 0;
   private seamInFlight = 0;
+
+  private underlayEnabled = false;
+  private shadowSprite: Sprite | null = null;
 
   private maskTexture: RenderTexture | null = null;
   private maskSprite: Sprite | null = null;
@@ -238,6 +278,24 @@ export class DziRevealLayer {
     this.tileContainer.addChild(this.baseTileContainer);
     this.seamContainer = new Container();
     this.deps.container.addChild(this.seamContainer);
+    this.ghostContainer = new Container();
+    // Group opacity, not the container's own alpha: the ghost is built from
+    // overlapping layers (the always-resident base tiles under the
+    // zoom-level tiles, plus a stale level kept as a fallback across a zoom
+    // step), and a container's alpha in Pixi multiplies into each child
+    // separately, so N layers over one spot compound to 1-(1-a)^N and the aid
+    // would darken and lighten as tiles stream in and out (measured: two
+    // layers in steady state, three across a zoom step, turning a nominal
+    // 0.28 into 0.48 and then 0.63). One AlphaFilter flattens the container
+    // first and blends the result once.
+    // Its render target is clamped to the viewport (Filter.clipToViewport),
+    // so it costs one screen-sized pass, and antialias is pinned off for the
+    // same multisampled-renderbuffer reason the root canvas pins it (see
+    // puzzleStage.ts's mount).
+    this.ghostContainer.filters = [new AlphaFilter({ alpha: UNDERLAY_ALPHA, antialias: "off" })];
+    this.deps.underlayContainer.addChild(this.ghostContainer);
+    this.baseGhostContainer = new Container();
+    this.ghostContainer.addChild(this.baseGhostContainer);
     this.maskSourceContainer = new Container();
     void this.loadBaseLayer();
   }
@@ -266,6 +324,7 @@ export class DziRevealLayer {
         sprite.height = t.worldRect.maxY - t.worldRect.minY;
         this.baseTileContainer.addChild(sprite);
         this.baseTiles.push(sprite);
+        if (this.underlayEnabled) this.mirrorIntoUnderlay(sprite, this.baseGhostContainer);
       }),
     );
   }
@@ -317,6 +376,85 @@ export class DziRevealLayer {
     this.reconcileDziTiles(hydrateRing, keepRing, level);
     this.reconcileCellAssets(hydrateRing, keepRing, tier);
     this.updateCombinedMask(hydrateRing, keepRing, level);
+    this.updateLockedShadow(zoom);
+  }
+
+  // Toggling the underlay never touches the masked tiles: it only adds or
+  // drops their twins (and the locked slab's shadow), so turning it off
+  // leaves the board pixel for pixel what it was before the aid existed.
+  setUnderlayEnabled(on: boolean): void {
+    if (this.underlayEnabled === on) return;
+    this.underlayEnabled = on;
+    if (!on) {
+      this.clearUnderlay();
+      return;
+    }
+    for (const sprite of this.baseTiles) {
+      this.mirrorIntoUnderlay(sprite, this.baseGhostContainer);
+    }
+    for (const tile of this.dziTiles.values()) {
+      if (tile.sprite) tile.ghost = this.mirrorIntoUnderlay(tile.sprite, this.ghostContainer);
+    }
+  }
+
+  private mirrorIntoUnderlay(sprite: Sprite, into: Container): Sprite {
+    const ghost = new Sprite(sprite.texture);
+    ghost.x = sprite.x;
+    ghost.y = sprite.y;
+    ghost.width = sprite.width;
+    ghost.height = sprite.height;
+    into.addChild(ghost);
+    return ghost;
+  }
+
+  private clearUnderlay(): void {
+    for (const tile of this.dziTiles.values()) this.freeGhost(tile);
+    for (const ghost of this.baseGhostContainer.removeChildren()) ghost.destroy();
+    this.freeLockedShadow();
+  }
+
+  private freeGhost(tile: DziTile): void {
+    if (!tile.ghost) return;
+    this.ghostContainer.removeChild(tile.ghost);
+    tile.ghost.destroy();
+    tile.ghost = null;
+  }
+
+  private freeLockedShadow(): void {
+    if (!this.shadowSprite) return;
+    this.deps.underlayContainer.removeChild(this.shadowSprite);
+    this.shadowSprite.destroy();
+    this.shadowSprite = null;
+  }
+
+  // The combined mask is already an exact silhouette of everything locked in
+  // the ring, so the shadow is that same texture drawn once more, offset and
+  // tinted: it shows only where the locked tiles above it fail to cover it,
+  // which is the frontier and the holes, and it costs one sprite for the
+  // whole board rather than one per piece (a per-piece effect would not
+  // survive the zoom-out LOD band, which bakes tiles, see puzzleStage.ts).
+  private updateLockedShadow(zoom: number): void {
+    const covered = this.maskCoveredRect;
+    if (!this.underlayEnabled || !this.maskTexture || !covered) {
+      this.freeLockedShadow();
+      return;
+    }
+    if (!this.shadowSprite) {
+      const shadow = new Sprite(this.maskTexture);
+      shadow.tint = LOCKED_SHADOW_COLOR;
+      shadow.alpha = LOCKED_SHADOW_ALPHA;
+      this.deps.underlayContainer.addChild(shadow);
+      this.shadowSprite = shadow;
+    }
+    // Reapplied every frame rather than on a rebake only: the offset is a
+    // screen-pixel distance, so it moves with zoom even when the mask itself
+    // is unchanged, and a resized mask texture needs its size reapplied too.
+    const offset = LOCKED_SHADOW_SCREEN_PX / zoom;
+    const shadow = this.shadowSprite;
+    shadow.x = covered.minX + offset;
+    shadow.y = covered.minY + offset;
+    shadow.width = covered.maxX - covered.minX;
+    shadow.height = covered.maxY - covered.minY;
   }
 
   private reconcileDziTiles(hydrateRing: Aabb, keepRing: Aabb, level: number): void {
@@ -327,7 +465,15 @@ export class DziRevealLayer {
       const key = `${level}:${t.col}:${t.row}`;
       let tile = this.dziTiles.get(key);
       if (!tile) {
-        tile = { key, level, bounds: t.worldRect, sprite: null, hydrating: false, lru: 0 };
+        tile = {
+          key,
+          level,
+          bounds: t.worldRect,
+          sprite: null,
+          ghost: null,
+          hydrating: false,
+          lru: 0,
+        };
         this.dziTiles.set(key, tile);
       }
       tile.lru = ++this.lruClock;
@@ -365,6 +511,7 @@ export class DziRevealLayer {
     sprite.height = tile.bounds.maxY - tile.bounds.minY;
     this.tileContainer.addChild(sprite);
     tile.sprite = sprite;
+    if (this.underlayEnabled) tile.ghost = this.mirrorIntoUnderlay(sprite, this.ghostContainer);
     tile.lru = ++this.lruClock;
   }
 
@@ -373,6 +520,7 @@ export class DziRevealLayer {
     this.tileContainer.removeChild(tile.sprite);
     tile.sprite.destroy();
     tile.sprite = null;
+    this.freeGhost(tile);
     if (!tile.hydrating) this.dziTiles.delete(tile.key);
   }
 
@@ -606,6 +754,19 @@ export class DziRevealLayer {
       // (RenderTargetSystem -> BindGroup.getResource). resize() emits
       // 'change' without destroyed=true, so it never trips that path.
       this.maskTexture.resize(texW, texH);
+      // A Sprite only rebuilds the quad it batches when its texture is
+      // reassigned or the texture fires an update event, and a RenderTexture
+      // resized in place does neither (a Sprite subscribes to that event only
+      // for a texture flagged dynamic, see pixi.js Sprite's texture setter),
+      // so a sprite kept across a resize goes on drawing the texture at the
+      // previous dimensions. The mask sprite never notices (Pixi's AlphaMask
+      // reads its transform, never its batched quad), but the locked shadow
+      // draws this same texture for real: it would slide the silhouette off
+      // the pieces it belongs to, by more the further the two sizes drift
+      // (observed as a whole second, displaced copy of the locked slab).
+      // Dropping the sprite here rebuilds it against the new size on this
+      // same frame, and a resize only happens on a real ring move.
+      this.freeLockedShadow();
     }
     const sprite = this.maskSprite!;
     // Plain world-space x/y/width/height, same convention tileContainer's own
@@ -627,6 +788,9 @@ export class DziRevealLayer {
     this.lastBakedGeneration = this.maskGeneration;
   }
 
+  // Underlay twins are deliberately absent from this sum: they share their
+  // textures with the tiles above, so counting them would double-report VRAM
+  // that was only ever allocated once.
   residentBytes(): number {
     let total = 0;
     for (const tile of this.dziTiles.values()) {
@@ -661,6 +825,7 @@ export class DziRevealLayer {
     this.dziTiles.clear();
     for (const tile of this.cellAssets.values()) this.freeCellAsset(tile);
     this.cellAssets.clear();
+    this.clearUnderlay();
     this.tileContainer.mask = null;
     if (this.maskSprite) {
       this.deps.container.removeChild(this.maskSprite);
