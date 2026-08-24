@@ -3851,15 +3851,20 @@ export class PuzzleStage {
 
   // Renders one tile's loose clusters into its texture with the tile matrix
   // as the root transform (bypassing the camera). Live clusters (held or
-  // gliding), the frame, the backdrop, the tile layer itself, and
-  // lockedPiecesLayer are excluded; non-tile clusters clip out of the
-  // texture, so only this tile's loose clusters contribute. Locked content is
-  // never baked in (see ROADMAP Phase 5 Stage 5): it renders on its own layer
-  // beneath this one, always visible through the transparent parts of the
-  // resulting texture, so excluding lockedPiecesLayer here is what keeps it
-  // from being captured into this tile too. After baking, the tile's
-  // clusters are re-culled and (if active) hidden now that the tile covers
-  // them.
+  // gliding), the frame, the backdrop, the tile layer itself,
+  // lockedPiecesLayer and underlayLayer are excluded; non-tile clusters clip
+  // out of the texture, so only this tile's loose clusters contribute. Locked
+  // content is never baked in (see ROADMAP Phase 5 Stage 5): it renders on
+  // its own layer beneath this one, always visible through the transparent
+  // parts of the resulting texture, so excluding lockedPiecesLayer here is
+  // what keeps it from being captured into this tile too. underlayLayer holds
+  // the reference ghost and the locked slab's shadow, which draw live under
+  // this layer at every zoom, so a baked copy lands on top of the live one
+  // (measured: the reference doubled tile by tile, each frozen at whatever DZI
+  // level was resident when that tile baked) and goes on showing after the
+  // player turns the reference underlay off, until that tile happens to be
+  // re-baked. After baking, the tile's clusters are re-culled and (if active)
+  // hidden now that the tile covers them.
   private bakeTile(key: CellKey): boolean {
     if (!this.app || !this.world || !this.lodLayer) return false;
     const groupIds = this.groupGrid.cellGroups(key);
@@ -3892,6 +3897,7 @@ export class PuzzleStage {
     if (this.frame) this.frame.visible = false;
     if (this.backdrop) this.backdrop.visible = false;
     if (this.lockedPiecesLayer) this.lockedPiecesLayer.visible = false;
+    if (this.underlayLayer) this.underlayLayer.visible = false;
     this.lodLayer.setVisible(false);
     const liveHidden: GroupNode[] = [];
     const forced: GroupNode[] = [];
@@ -3944,6 +3950,7 @@ export class PuzzleStage {
     if (this.frame) this.frame.visible = true;
     if (this.backdrop) this.backdrop.visible = true;
     if (this.lockedPiecesLayer) this.lockedPiecesLayer.visible = true;
+    if (this.underlayLayer) this.underlayLayer.visible = true;
     this.lodLayer.setVisible(this.lodActive);
     this.lodLayer.markBaked(key);
     for (const node of liveHidden) node.container.visible = true;
