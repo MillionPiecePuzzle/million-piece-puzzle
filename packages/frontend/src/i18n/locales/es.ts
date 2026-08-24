@@ -224,7 +224,7 @@ const es: MessageSchema = {
   },
   flags: {
     bar: "Banderas personales",
-    add: "AÃ±adir una bandera en el centro de la vista",
+    add: "Añadir una bandera en el centro de la vista",
     goTo: "Ir a la bandera {n} (tecla {n})",
     options: "Opciones de la bandera {n}",
     delete: "Eliminar",
