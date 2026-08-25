@@ -199,12 +199,12 @@ const HELD_CARRY_GAP = 40;
 // one shrinks the cluster toward the button, the tell that the release will send
 // it away rather than leave it here. It lands centered on the nearest patch clear
 // of everything the client knows about, kept FLAG_DROP_GAP_PIECES pieces away
-// from its neighbours; the rings bound the outward search on a crowded board,
-// past which the drop lands on the flag itself.
+// from its neighbours; the rings bound the outward search on a crowded board
+// (20 rings, a 41x41 patch area), past which the drop lands on the flag itself.
 const FLAG_DROP_SCALE = 0.4;
 const FLAG_DROP_SCALE_MS = 160;
 const FLAG_DROP_GAP_PIECES = 0.15;
-const FLAG_DROP_SEARCH_RINGS = 6;
+const FLAG_DROP_SEARCH_RINGS = 20;
 
 // Sticky carry mode (double-click or double-tap a piece to stick its cluster to
 // the cursor). A highlighted outline marks the carried cluster, and an idle
