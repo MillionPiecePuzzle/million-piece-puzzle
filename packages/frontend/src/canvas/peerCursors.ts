@@ -12,6 +12,11 @@ const IDLE_AFTER_MS = 1200;
 const BOB_RAMP_MS = 400;
 const BOB_AMPLITUDE = 3;
 const BOB_PERIOD_MS = 1500;
+// A cursor is relayed only to the clients subscribed to the one world cell its
+// point falls in, so a peer who pans or jumps out of this viewport's cells goes
+// silent with no message saying so. Without this, the pointer they left behind
+// keeps claiming they are still there (see DECISIONS: peer pointer expiry).
+const STALE_AFTER_MS = 10_000;
 
 const OUTLINE = 0x222222;
 const TAG_PAD_X = 6;
@@ -36,6 +41,10 @@ type Peer = {
   tagBg: Graphics;
   tagText: Text;
 };
+
+function isStale(peer: Peer, now: number): boolean {
+  return now - peer.lastMoveMs > STALE_AFTER_MS;
+}
 
 // Screen-space layer of collaborator cursors, one per connected peer. The stage
 // owns the instance, adds `container` above the world, and drives `update` from
@@ -73,14 +82,18 @@ export class PeerCursorLayer {
       peer = this.createPeer(userId, null);
       this.peers.set(userId, peer);
     }
+    const now = performance.now();
     peer.targetX = worldX;
     peer.targetY = worldY;
-    if (!peer.hasPosition) {
+    // A first position, or the one that brings an expired pointer back: place it
+    // outright. Easing would glide it across the board from a spot the peer left
+    // long ago.
+    if (!peer.hasPosition || isStale(peer, now)) {
       peer.renderX = worldX;
       peer.renderY = worldY;
       peer.hasPosition = true;
     }
-    peer.lastMoveMs = performance.now();
+    peer.lastMoveMs = now;
   }
 
   setHeld(userId: string, held: boolean): void {
@@ -102,7 +115,7 @@ export class PeerCursorLayer {
     const now = performance.now();
     const smooth = Math.min(1, dtMs / SMOOTH_MS);
     for (const peer of this.peers.values()) {
-      if (!peer.hasPosition) {
+      if (!peer.hasPosition || isStale(peer, now)) {
         peer.container.visible = false;
         continue;
       }
