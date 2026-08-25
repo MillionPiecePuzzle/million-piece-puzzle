@@ -18,6 +18,11 @@ watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
 // array so a line left untranslated fails the type check instead of the page.
 const RELEASES = [
   {
+    version: "1.1.1",
+    at: Date.UTC(2026, 7, 25),
+    lines: ["updates.v111.fixes"],
+  },
+  {
     version: "1.1",
     at: Date.UTC(2026, 7, 24),
     lines: [

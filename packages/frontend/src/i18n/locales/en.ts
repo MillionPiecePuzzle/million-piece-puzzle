@@ -121,6 +121,10 @@ const en = {
   },
   updates: {
     title: "Update notes",
+    v111: {
+      fixes:
+        "Bug fixes and performance improvements, around zoom, other players' cursors, flags and the reference photo.",
+    },
     v11: {
       flags:
         "Personal flags: drop up to 8 markers on the board and jump between them with a click or the 1 to 8 keys.",

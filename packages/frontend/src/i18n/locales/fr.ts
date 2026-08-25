@@ -124,6 +124,10 @@ const fr: MessageSchema = {
   },
   updates: {
     title: "Notes de mises à jour",
+    v111: {
+      fixes:
+        "Corrections de bugs et améliorations de performances, autour du zoom, des curseurs des autres joueurs, des drapeaux et de l'image de référence.",
+    },
     v11: {
       flags:
         "Drapeaux personnels : posez jusqu'à 8 repères sur le plateau et passez de l'un à l'autre d'un clic ou avec les touches 1 à 8.",

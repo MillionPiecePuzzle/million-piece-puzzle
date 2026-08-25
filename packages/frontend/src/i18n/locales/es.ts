@@ -124,6 +124,10 @@ const es: MessageSchema = {
   },
   updates: {
     title: "Notas de actualización",
+    v111: {
+      fixes:
+        "Correcciones de errores y mejoras de rendimiento, en torno al zoom, los cursores de los demás jugadores, las banderas y la imagen de referencia.",
+    },
     v11: {
       flags:
         "Banderas personales: coloca hasta 8 marcadores en el tablero y salta de uno a otro con un clic o con las teclas 1 a 8.",

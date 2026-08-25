@@ -124,6 +124,10 @@ const de: MessageSchema = {
   },
   updates: {
     title: "Versionshinweise",
+    v111: {
+      fixes:
+        "Fehlerbehebungen und Performance-Verbesserungen, rund um Zoom, die Cursor der anderen Spieler, die Fahnen und das Referenzbild.",
+    },
     v11: {
       flags:
         "Persönliche Fahnen: Setze bis zu 8 Marker auf das Board und springe per Klick oder mit den Tasten 1 bis 8 zwischen ihnen.",

@@ -1,6 +1,6 @@
 # Roadmap
 
-Work is tracked by version. v1.1 is live in prod and v1.2 is open. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
+Work is tracked by version. v1.1 is live in prod and v1.1.1 is open. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
 
 Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
@@ -115,7 +115,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ---
 
-## v1.2
+## v1.1.1
 
 **Exit criterion**: every task below shipped to prod.
 
@@ -132,7 +132,7 @@ Ideas and open fixes worth keeping but not yet committed to a version. Promote i
 - **Locale-prefixed URLs for search.** The SEO metadata work (v1.0) is English-only because locale is chosen client-side (`localStorage`/browser language) with no URL segmentation, so a search engine can only index one language version of `/`. Ranking for non-English queries (e.g. French "puzzle le plus grand") needs its own crawlable URL per locale (`/fr/`, `/es/`, `/de/`), native-language meta strings, hreflang alternates, and rewiring every internal link (language switcher, router pushes) to a locale-aware path: a router restructuring, not a metadata tweak. See [DECISIONS](DECISIONS.md#2026-08-17-frontend-shell-seo-metadata-is-english-only-corrected-per-route-in-js-rather-than-per-locale).
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out early and relax it as pieces are placed, to bound the visible piece count. A fixed 15% zoom floor already exists (see [play-zone hard limits](DECISIONS.md#2026-05-21-frontend-canvas-play-zone-hard-limits)); the progress-relative version is the open idea.
 - **Coordinate HUD overlay.** Small overlay showing viewport position (XY, sector, zoom). Needs a "sector" concept first. Revisit at 1M when orientation becomes a real problem.
-- **Peer cursor resync on cell entry.** A cursor is relayed only to the clients subscribed to the one world-grid cell its point falls in, so a player who jumps into a busy area sees nobody there until each peer happens to move their mouse. The server already holds every client's viewport: keeping each connection's last cursor and answering a `viewport` that enters new cells with the cursors of the peers now in scope closes it, walking the same cell subscriber sets a scoped broadcast already walks. Costs a new server message. This is the other half of the scoping gap that v1.2's pointer expiry covers from the client side.
+- **Peer cursor resync on cell entry.** A cursor is relayed only to the clients subscribed to the one world-grid cell its point falls in, so a player who jumps into a busy area sees nobody there until each peer happens to move their mouse. The server already holds every client's viewport: keeping each connection's last cursor and answering a `viewport` that enters new cells with the cursors of the peers now in scope closes it, walking the same cell subscriber sets a scoped broadcast already walks. Costs a new server message. This is the other half of the scoping gap that v1.1.1's pointer expiry covers from the client side.
 - **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
 - **Locked vs unlocked piece differentiation.** Locked and unlocked content already render through separate layers (`DziRevealLayer` against `unlockedLayer`), so a per-layer treatment (contrast, saturation, seam emphasis, an outline on free pieces) costs nothing per piece. Zoom-out LOD bakes tiles, so a per-piece effect such as a drop shadow will not survive the LOD band while a per-layer color treatment will. Direction still open: make free pieces stand out, or make locked content recede.
 - **Toggleable HUD windows.** Each panel individually hidable, driven by mobile where even the two panels left on screen compete with the board. This is the mobile navigation the responsive pass already named as its own revisit condition (see [DECISIONS](DECISIONS.md#2026-08-06-frontend-shell-the-hud-keeps-only-the-reference-thumbnail-and-the-minimap-on-a-phone)): panels collapse into a real control surface, and the ones a phone no longer shows get a way back onto it at all. On a phone an always-visible icon bar beats a setting buried in a modal, and that bar competes for the same screen edge as the flag bar, which already sits bottom-center on desktop.
