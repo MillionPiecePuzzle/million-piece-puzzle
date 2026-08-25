@@ -27,8 +27,9 @@
 //   "did this sprite's rectangular quad draw here", not its sampled alpha -
 //   silently reproducing the exact rectangle bug), every currently-hydrated
 //   per-cell mask sprite is combined into one RenderTexture (mirroring
-//   LodTileLayer's own bake-to-texture technique) and that one combined
-//   Sprite is what actually gets assigned as tileContainer.mask.
+//   LodTileLayer's own bake-to-texture technique) and one Sprite of that
+//   texture is what actually masks tileContainer, through a MaskFilter this
+//   layer owns rather than tileContainer.mask (see updateCombinedMask).
 // - The seam overlay draws directly on top, unmasked: the server only ever
 //   strokes a border where a piece is actually locked, so it never paints
 //   outside a valid reveal region on its own.
@@ -36,6 +37,7 @@
 import {
   AlphaFilter,
   Container,
+  MaskFilter,
   Matrix,
   Rectangle,
   RenderTexture,
@@ -95,6 +97,15 @@ const MAX_MASK_TEXELS = 2048;
 // full (up to MAX_MASK_TEXELS^2) re-render would fire on nearly every frame
 // for that whole stretch instead of a real ring move.
 const MIN_REBAKE_INTERVAL_MS = 200;
+// How much wider than the current keep ring a baked cover may be before it
+// counts as stale. Containment alone never fires on a zoom-in, since a ring
+// baked at a wider zoom keeps containing every ring the camera shrinks to, so
+// without this the mask holds the rect and the texel density of the zoom it
+// was first baked at for the whole session: this board opens at MIN_ZOOM and
+// a player zooms in up to ~33x (see puzzleStage.ts), which is one mask texel
+// per ~33 screen pixels of silhouette, and a cover rect two orders of
+// magnitude wider than the view it is masking.
+const MAX_COVER_SLACK = 2;
 // Reference underlay: the same DZI tiles this layer already streams, drawn a
 // second time under the board with no mask, so the photo shows faintly
 // wherever nothing is locked yet. The twin sprites share their textures with
@@ -187,6 +198,15 @@ export function neededCellAssets(box: Aabb): CellCoord[] {
   return out;
 }
 
+// How many times wider than the ring it is meant to cover a baked rect is, on
+// its worst axis.
+function coverSlack(covered: Aabb, keepRing: Aabb): number {
+  return Math.max(
+    (covered.maxX - covered.minX) / (keepRing.maxX - keepRing.minX),
+    (covered.maxY - covered.minY) / (keepRing.maxY - keepRing.minY),
+  );
+}
+
 function rectContains(outer: Aabb, inner: Aabb): boolean {
   return (
     outer.minX <= inner.minX &&
@@ -204,8 +224,8 @@ export class DziRevealLayer {
   private readonly tileContainer: Container;
   // Child of tileContainer, added first (so it always stays at the bottom:
   // Pixi draws later-added children on top) and therefore covered by the
-  // same tileContainer.mask every dynamic tile already is, with no separate
-  // mask assignment needed. Holds the fixed base-level tiles loadBaseLayer
+  // same combined mask every dynamic tile already is, with no separate
+  // mask of its own needed. Holds the fixed base-level tiles loadBaseLayer
   // fetches once and never evicts (see BASE_LEVEL_MAX_TILES): the whole
   // point is that they are already there, on the very first frame, while
   // reconcileDziTiles's zoom-appropriate tiles are still streaming in on top.
@@ -236,6 +256,7 @@ export class DziRevealLayer {
 
   private maskTexture: RenderTexture | null = null;
   private maskSprite: Sprite | null = null;
+  private maskFilter: MaskFilter | null = null;
   private maskCoveredRect: Aabb | null = null;
   // Bumped on every mask sprite (re)hydrate; a combined bake remembers which
   // generation it last used, so an unchanged input skips a re-render even
@@ -684,9 +705,10 @@ export class DziRevealLayer {
   }
 
   // Combines every currently-hydrated per-cell mask sprite into one
-  // RenderTexture and assigns a single Sprite of it as tileContainer.mask:
-  // the only way to get Pixi's real per-pixel AlphaMask instead of a coarse
-  // per-sprite-quad StencilMask (see this file's own header comment).
+  // RenderTexture and masks tileContainer with a single Sprite of it: a lone
+  // Sprite is the only mask Pixi honours per pixel, rather than falling back
+  // to a coarse per-sprite-quad StencilMask (see this file's own header
+  // comment).
   // Rebuilt when the last bake no longer covers the hydrate ring (a
   // meaningful pan/zoom) or a mask sprite (re)hydrated since (maskGeneration).
   // Both cases share the same MIN_REBAKE_INTERVAL_MS throttle: an earlier
@@ -702,7 +724,11 @@ export class DziRevealLayer {
   // render), so the coverage rect only ever trails the camera by at most
   // MIN_REBAKE_INTERVAL_MS, imperceptible against the cost this avoids.
   private updateCombinedMask(hydrateRing: Aabb, keepRing: Aabb, level: number): void {
-    const ringStale = !this.maskCoveredRect || !rectContains(this.maskCoveredRect, hydrateRing);
+    const covered = this.maskCoveredRect;
+    const ringStale =
+      !covered ||
+      !rectContains(covered, hydrateRing) ||
+      coverSlack(covered, keepRing) > MAX_COVER_SLACK;
     const generationChanged = this.maskGeneration !== this.lastBakedGeneration;
     if (!ringStale && !generationChanged) return;
     const now = performance.now();
@@ -723,16 +749,11 @@ export class DziRevealLayer {
       // No antialias: true here. Pixi's GL backend allocates a multisampled
       // renderbuffer (gl.renderbufferStorageMultisample) for an antialiased
       // RenderTexture and reallocates it on every resize() (GlRenderTargetAdaptor
-      // _resizeColor), unlike a plain texture; on a real browser at real 1M
-      // scale, resized up to 5x/second while zooming (MIN_REBAKE_INTERVAL_MS),
-      // this produced GL_INVALID_OPERATION "Texture total allocation size is
-      // too large" and "Framebuffer is incomplete: Attachment has zero size"
-      // specifically past ~350% zoom, leaving tileContainer masked to nothing
-      // (blank photo, seam overlay still visible since it is a separate,
-      // unmasked container). The mask is a binary silhouette cutout, not
-      // detailed content, and the true piece border is already drawn crisp and
-      // unmasked by seamContainer, so losing MSAA costs a faint edge softness
-      // at most.
+      // _resizeColor), unlike a plain texture, and this one resizes up to
+      // 5x/second while zooming (MIN_REBAKE_INTERVAL_MS). The mask is a binary
+      // silhouette cutout, not detailed content, and the true piece border is
+      // already drawn crisp and unmasked by seamContainer, so losing MSAA costs
+      // a faint edge softness at most.
       this.maskTexture = RenderTexture.create({
         width: texW,
         height: texH,
@@ -750,7 +771,39 @@ export class DziRevealLayer {
       // of the normal draw pass (it must never paint its raw mask texture as
       // visible content), while still being a real child for transform purposes.
       this.maskSprite.renderable = false;
+      // Nothing may measure this sprite: a Sprite only rebuilds the quad its
+      // bounds are read from when its texture is reassigned or fires an update
+      // event, and resize() below does neither, so its measured size is
+      // whatever the texture was at creation time, forever.
+      this.maskSprite.measurable = false;
       this.deps.container.addChild(this.maskSprite);
+      // The masking effect is applied as an explicit filter rather than by
+      // assigning tileContainer.mask, for one reason: Pixi's MaskFilter pins
+      // clipToViewport = false (see its constructor), and FilterSystem sizes
+      // the intermediate render target from the masked container's own global
+      // bounds whenever every filter in the pass opts out of the viewport clamp
+      // (_calculateFilterBounds). Those bounds are world content scaled by the
+      // camera, so they grow without limit as the camera zooms in: measured on
+      // a 1600x900 canvas going from MIN_ZOOM to MAX_ZOOM, the request went
+      // from 4480px to 10160px wide, i.e. a 16384x16384 (1GB) allocation, since
+      // TexturePool rounds up to a power of two. Past the GPU's
+      // MAX_TEXTURE_SIZE that allocation fails outright ("INVALID_VALUE:
+      // texImage2D: width or height out of range"), the framebuffer keeps a
+      // zero-size attachment, and every clear and draw into it fails
+      // ("GL_INVALID_FRAMEBUFFER_OPERATION ... Attachment has zero size"),
+      // leaving the locked photo blank with the seam overlay still on top
+      // (a separate, unmasked container) and the driver retrying the same
+      // failed allocation on every frame. Owning the filter lets the clamp be
+      // turned back on: the pass is then bounded by the canvas itself, which is
+      // also what it costs to draw. Verified pixel-identical to the mask path,
+      // alpha edges included.
+      this.maskFilter = new MaskFilter({
+        sprite: this.maskSprite,
+        resolution: "inherit",
+        antialias: "off",
+      });
+      this.maskFilter.clipToViewport = true;
+      this.tileContainer.filters = [this.maskFilter];
     } else if (this.maskTexture.width !== texW || this.maskTexture.height !== texH) {
       // Resize in place instead of destroy+recreate. Destroying fires a
       // TextureSource 'change' event with destroyed=true, which PixiJS's
@@ -767,9 +820,10 @@ export class DziRevealLayer {
       // resized in place does neither (a Sprite subscribes to that event only
       // for a texture flagged dynamic, see pixi.js Sprite's texture setter),
       // so a sprite kept across a resize goes on drawing the texture at the
-      // previous dimensions. The mask sprite never notices (Pixi's AlphaMask
-      // reads its transform, never its batched quad), but the locked shadow
-      // draws this same texture for real: it would slide the silhouette off
+      // previous dimensions. The mask sprite itself is immune (MaskFilter maps
+      // it through its worldTransform and texture.orig, both current, and it is
+      // measurable = false so its stale quad reaches no bounds), but the locked
+      // shadow draws this same texture for real: it would slide the silhouette off
       // the pieces it belongs to, by more the further the two sizes drift
       // (observed as a whole second, displaced copy of the locked slab).
       // Dropping the sprite here rebuilds it against the new size on this
@@ -791,7 +845,6 @@ export class DziRevealLayer {
     const transform = new Matrix(sx, 0, 0, sy, -keepRing.minX * sx, -keepRing.minY * sy);
     this.deps.renderToTexture(this.maskSourceContainer, this.maskTexture, transform);
 
-    this.tileContainer.mask = sprite;
     this.maskCoveredRect = keepRing;
     this.lastBakedGeneration = this.maskGeneration;
   }
@@ -839,7 +892,7 @@ export class DziRevealLayer {
     for (const tile of this.cellAssets.values()) this.freeCellAsset(tile);
     this.cellAssets.clear();
     this.clearUnderlay();
-    this.tileContainer.mask = null;
+    this.tileContainer.filters = [];
     if (this.maskSprite) {
       this.deps.container.removeChild(this.maskSprite);
       this.maskSprite.destroy();
@@ -847,6 +900,8 @@ export class DziRevealLayer {
     this.maskSprite = null;
     this.maskTexture?.destroy(true);
     this.maskTexture = null;
+    this.maskFilter?.destroy();
+    this.maskFilter = null;
     this.maskCoveredRect = null;
     this.maskGeneration = 0;
     this.lastBakedGeneration = -1;
