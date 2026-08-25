@@ -514,6 +514,7 @@ async function main(): Promise<void> {
   );
 
   wss.on("connection", (ws: WebSocket, request: IncomingMessage) => {
+    const connectedAt = Date.now();
     const authed = (request as AuthedRequest).mppUser;
     if (!authed) {
       // verifyClient only lets authenticated upgrades through, so this is a
@@ -586,7 +587,13 @@ async function main(): Promise<void> {
       });
     });
 
-    ws.on("close", () => {
+    ws.on("close", (code: number, reason: Buffer) => {
+      // Every drop is logged with its code: a player who loses the socket cannot
+      // say why it went, and the close code is the only thing that separates a
+      // reap, a slow consumer and a network fault after the fact.
+      const why = reason.length > 0 ? ` reason=${reason.toString("utf8")}` : "";
+      const ageS = Math.round((Date.now() - connectedAt) / 1000);
+      console.log(`[ws-close] user=${authed.id} code=${code}${why} age=${ageS}s`);
       ipRegistry.release(ip);
       // Return the admission slot and admit the next waiter into it.
       if (admission.enabled) admission.releaseConnection();
@@ -602,6 +609,9 @@ async function main(): Promise<void> {
   const heartbeatTimer = setInterval(() => {
     for (const c of hub.allClients()) {
       if (!c.alive) {
+        console.warn(
+          `[heartbeat] no pong from ${c.userId} since the last ping (${config.wsHeartbeatIntervalMs}ms), terminating`,
+        );
         c.ws.terminate();
         continue;
       }
@@ -609,6 +619,7 @@ async function main(): Promise<void> {
       try {
         c.ws.ping();
       } catch {
+        console.warn(`[heartbeat] ping failed for ${c.userId}, terminating`);
         c.ws.terminate();
       }
     }

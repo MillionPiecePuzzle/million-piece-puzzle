@@ -1,6 +1,6 @@
 # Roadmap
 
-Work is tracked by version. v1.1.1 is live in prod, and the next version opens when the first backlog item is promoted into it. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
+Work is tracked by version. v1.1.1 is live in prod and v1.1.2 is open. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
 
 Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
@@ -122,6 +122,16 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 ### `frontend-canvas`
 
 - [x] A peer pointer that stops being relayed disappears instead of standing there: a cursor with no update for 10s is hidden, and the next position places it outright rather than gliding it in from where it was last seen. A player who pans, jumps or zooms out of this viewport's broadcast cells no longer leaves a frozen pointer behind for the rest of the session. See DECISIONS
+
+---
+
+## v1.1.2
+
+**Exit criterion**: every task below shipped to prod.
+
+### `backend-realtime`
+
+- [~] A dropped socket names its own cause instead of both ends going silent: the server logs every close with its code, its reason and how long the connection lived, and tags the two closes it issues itself (a heartbeat reap on a missed pong, a 1013 slow-consumer close with the buffered bytes that tripped it); the client logs the close code, whether the frame was clean, and the longest stretch its own main thread went unserviced, which is what separates a background tab the browser stopped servicing from a network fault and from a server-side reap.
 
 ---
 
