@@ -37,12 +37,13 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
     <main class="stage" :aria-label="t('play.stage')" :style="backdropVars">
       <PuzzleCanvas />
       <template v-if="ready">
-        <!-- Two independent flex columns, each spanning the stage height with
-             justify-content:space-between: panels can never overlap each
+        <!-- Two independent flex columns, each spanning the stage height, each
+             a top slot over a bottom group: panels can never overlap each
              other regardless of their own content-driven size (a portrait
              reference image, a long activity list, a full leaderboard, ...)
              or the viewport's height, unlike the corner-anchored absolute
-             positioning this replaced. Each panel is here only while it is
+             positioning this replaced, and switching one off leaves every
+             other one where it was. Each panel is here only while it is
              visible: the player toggles them one by one from the options menu,
              and an untouched one follows its viewport default, which below the
              breakpoint is the reference thumbnail and the minimap alone, where
@@ -50,8 +51,10 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
              DECISIONS. -->
         <div class="hud-rail hud-rail-left">
           <ReferencePanel v-if="visiblePanels.reference" />
-          <ZoomControls v-if="visiblePanels.zoom" />
-          <ActivityTicker v-if="visiblePanels.activity" />
+          <div class="hud-bottom-left">
+            <ZoomControls v-if="visiblePanels.zoom" />
+            <ActivityTicker v-if="visiblePanels.activity" />
+          </div>
         </div>
         <div class="hud-rail hud-rail-right">
           <LeaderboardPanel v-if="visiblePanels.leaderboard" />
@@ -99,14 +102,12 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   background-position: var(--grid-x, 0) var(--grid-y, 0);
 }
 
-/* Left/right HUD columns spanning the stage height. justify-content:
-   space-between pins the first child to the top and the last to the bottom;
-   with 3 children (reference/zoom/ticker) it also centers the middle one in
-   whatever room is actually left between the other two, so a taller or
-   shorter sibling on either side never has to be predicted or hardcoded, and
-   a panel the player switched off simply leaves the column to the others.
-   On a phone the left rail is down to the reference panel alone, which
-   space-between leaves in its top corner.
+/* Left/right HUD columns spanning the stage height. Each rail holds exactly two
+   slots, a top one and a bottom group, so a panel switched off never moves the
+   ones still on: the ticker holds the bottom corner whether or not the zoom
+   pillar above it is there, and both hold it whether or not the reference panel
+   is. justify-content:space-between pins the first child to the top; the group
+   carries its own margin-top:auto so it stays pinned with the top slot gone.
    pointer-events:none lets drags reach the canvas in the gaps; each panel
    (.panel, .zoom, .dev-controls) re-enables it on itself. */
 .hud-rail {
@@ -125,6 +126,20 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 .hud-rail-right {
   right: 16px;
   align-items: flex-end;
+}
+/* The left rail's bottom group: the zoom pillar over the activity ticker, both
+   pinned to the bottom corner by margin-top:auto the way the right rail's own
+   group is. Column rather than the wrapping row on the right, since these two
+   stack. Its gap is half the right rail's: this is the column that fills its
+   rail (a square reference thumbnail plus these two comes to 652px, against
+   636px of rail on a 720px-tall window), so every pixel spent here is one the
+   ticker hangs past the bottom of the stage. */
+.hud-bottom-left {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 /* max-width mirrors every panel's own min(fixedCap, 50vw-24px) sizing: as
    long as every element on both rails is bounded the same way, no left-rail
@@ -159,6 +174,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   .hud-rail-right {
     right: 10px;
   }
+  .hud-bottom-left,
   .hud-bottom-right {
     gap: 10px;
   }

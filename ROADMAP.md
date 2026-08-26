@@ -131,7 +131,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ### `frontend-shell`
 
-- [x] Every HUD panel is switched on and off on its own from the Display section of the options menu (reference, zoom, activity, leaderboard, minimap, flags), the choice kept per browser like the rest of the display preferences. A panel nobody has touched follows its viewport default, so a phone still opens on the board with the reference thumbnail and the minimap alone while the four it drops now have a way back onto it. The menu itself holds a 375x812 phone with no scroll (six switches in two columns, tighter spacing below the breakpoint), measured at 721px against a 792px cap with the guest sync row in place. EN/FR/ES/DE. See DECISIONS
+- [x] Every HUD panel is switched on and off on its own from the Display section of the options menu (reference, zoom, activity, leaderboard, minimap, flags), the choice kept per browser like the rest of the display preferences. A panel nobody has touched follows its viewport default, so a phone still opens on the board with the reference thumbnail and the minimap alone while the four it drops now have a way back onto it. Switching one off leaves the others where they were: each rail is a top slot over a bottom group that holds its corner on its own, so the ticker keeps the bottom left whether or not the zoom pillar and the reference above it are there. The menu itself holds a 375x812 phone with no scroll (six switches in two columns, tighter spacing below the breakpoint), measured at 721px against a 792px cap with the guest sync row in place. EN/FR/ES/DE. See DECISIONS
 
 ### `backend-realtime`
 
