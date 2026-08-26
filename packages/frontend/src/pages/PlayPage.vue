@@ -28,6 +28,14 @@ const backdropVars = computed(() => ({
   "--grid-y": `${camera.value.y}px`,
 }));
 
+// The zoom pillar is the left rail's middle child, so space-between places it in
+// whatever room the reference panel above and the ticker below actually leave:
+// dropping either out of the column would slide the pillar somewhere else on
+// screen. While the pillar is on, a switched-off neighbour therefore keeps its
+// slot and only stops being drawn. Nothing is held for a pillar that is off,
+// which is every phone by default, so no panel a phone hides stays mounted.
+const holdLeftSlots = computed(() => visiblePanels.value.zoom);
+
 const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 </script>
 
@@ -37,23 +45,35 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
     <main class="stage" :aria-label="t('play.stage')" :style="backdropVars">
       <PuzzleCanvas />
       <template v-if="ready">
-        <!-- Two independent flex columns, each spanning the stage height, each
-             a top slot over a bottom group: panels can never overlap each
+        <!-- Two independent flex columns, each spanning the stage height with
+             justify-content:space-between: panels can never overlap each
              other regardless of their own content-driven size (a portrait
              reference image, a long activity list, a full leaderboard, ...)
              or the viewport's height, unlike the corner-anchored absolute
-             positioning this replaced, and switching one off leaves every
-             other one where it was. Each panel is here only while it is
-             visible: the player toggles them one by one from the options menu,
-             and an untouched one follows its viewport default, which below the
-             breakpoint is the reference thumbnail and the minimap alone, where
-             the board needs every pixel more than a phone needs a HUD. See
-             DECISIONS. -->
+             positioning this replaced. The player switches them on and off one
+             by one from the options menu, and an untouched one follows its
+             viewport default, which below the breakpoint is the reference
+             thumbnail and the minimap alone, where the board needs every pixel
+             more than a phone needs a HUD. Switching one off never moves the
+             others: a panel whose slot still holds the pillar in place stays in
+             the column and only stops being drawn (slotHeld). See DECISIONS. -->
         <div class="hud-rail hud-rail-left">
-          <ReferencePanel v-if="visiblePanels.reference" />
-          <div class="hud-bottom-left">
-            <ZoomControls v-if="visiblePanels.zoom" />
-            <ActivityTicker v-if="visiblePanels.activity" />
+          <!-- Wrapped rather than classed directly: ReferencePanel's template has
+               two roots (the panel and its modal), so a class set here on the
+               component is dropped, and the ticker follows the same shape. -->
+          <div
+            v-if="visiblePanels.reference || holdLeftSlots"
+            :class="{ 'slot-held': !visiblePanels.reference }"
+          >
+            <ReferencePanel />
+          </div>
+          <ZoomControls v-if="visiblePanels.zoom" />
+          <div
+            v-if="visiblePanels.activity || holdLeftSlots"
+            class="slot-bottom"
+            :class="{ 'slot-held': !visiblePanels.activity }"
+          >
+            <ActivityTicker />
           </div>
         </div>
         <div class="hud-rail hud-rail-right">
@@ -127,19 +147,19 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   right: 16px;
   align-items: flex-end;
 }
-/* The left rail's bottom group: the zoom pillar over the activity ticker, both
-   pinned to the bottom corner by margin-top:auto the way the right rail's own
-   group is. Column rather than the wrapping row on the right, since these two
-   stack. Its gap is half the right rail's: this is the column that fills its
-   rail (a square reference thumbnail plus these two comes to 652px, against
-   636px of rail on a 720px-tall window), so every pixel spent here is one the
-   ticker hangs past the bottom of the stage. */
-.hud-bottom-left {
+/* A panel switched off whose slot is still load-bearing: the box keeps its place
+   and its size in the column, and paints nothing. visibility rather than a
+   display:none or a v-if because only a box that still measures can hold a
+   place, and unlike an opacity:0 one it takes no pointer, no focus and no line
+   in the accessibility tree. */
+.slot-held {
+  visibility: hidden;
+}
+/* The ticker is the rail's bottom anchor. As the last of several children
+   space-between already leaves it there; alone in the column it would sit at
+   the top instead. */
+.slot-bottom:only-child {
   margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
 }
 /* max-width mirrors every panel's own min(fixedCap, 50vw-24px) sizing: as
    long as every element on both rails is bounded the same way, no left-rail
@@ -174,7 +194,6 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   .hud-rail-right {
     right: 10px;
   }
-  .hud-bottom-left,
   .hud-bottom-right {
     gap: 10px;
   }
