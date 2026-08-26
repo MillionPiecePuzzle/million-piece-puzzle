@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { FLAG_COLORS, type BoardFlag } from "../data/boardFlags";
 import type { FlagDropTarget } from "../canvas/flagDrop";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useStageControls } from "../composables/useStageControls";
-import { useDisplaySettings } from "../composables/useDisplaySettings";
+import { useWideViewport } from "../composables/useWideViewport";
 
 const { t } = useI18n();
 const { controls } = useStageControls();
@@ -23,7 +23,7 @@ function setButtonEl(id: string, el: unknown): void {
 }
 
 function dropTargets(): FlagDropTarget[] {
-  if (!shown.value) return [];
+  if (!wide.value) return [];
   const targets: FlagDropTarget[] = [];
   for (const flag of flags.value) {
     const el = buttonEls.get(flag.id);
@@ -32,12 +32,10 @@ function dropTargets(): FlagDropTarget[] {
   return targets;
 }
 
-// Pointer-driven and bottom-center: the bar is off by default on a phone, where
-// the minimap already holds that edge, and the player switches it back on from
-// the options menu. Gated in JS rather than in CSS so the number keys, and the
-// rects a drag is hit-tested against, go with it.
-const { visiblePanels } = useDisplaySettings();
-const shown = computed(() => visiblePanels.value.flags);
+// Pointer-driven and bottom-center: the bar has no room on a phone, where the
+// minimap already holds that edge. Gated in JS rather than in CSS so the number
+// keys go with it.
+const { wide } = useWideViewport();
 
 function goTo(flag: BoardFlag): void {
   controls.value?.centerOnWorld(flag.worldX, flag.worldY);
@@ -52,7 +50,7 @@ function addHere(): void {
 // 1 to 8 jump to the flag in that slot. Ignored while a dialog is open or while
 // the press is going into a field, so typing a pseudo never moves the board.
 function onKeydown(ev: KeyboardEvent): void {
-  if (!shown.value || ev.altKey || ev.ctrlKey || ev.metaKey || ev.repeat) return;
+  if (!wide.value || ev.altKey || ev.ctrlKey || ev.metaKey || ev.repeat) return;
   const slot = Number(ev.key);
   if (!Number.isInteger(slot) || slot < 1 || slot > flags.value.length) return;
   const target = ev.target;
@@ -81,7 +79,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    v-if="shown"
+    v-if="wide"
     class="flag-bar"
     :class="{ dropping: dropHoverId !== null }"
     role="group"
@@ -232,31 +230,5 @@ onBeforeUnmount(() => {
   width: 24px;
   height: 24px;
   display: block;
-}
-
-/* The bar is switchable on a phone, where nine 51px targets come to 443px and
-   the stage clips both ends of it against a 375px screen. Smaller targets hold
-   the row; the wrap is the floor under a narrower screen still, so the bar
-   loses a line rather than its first and last flag. */
-@media (max-width: 680px) {
-  .flag-bar {
-    /* Centered between two edge insets rather than off left:50%: a shrink-to-fit
-       box anchored at the middle only ever gets half the stage to lay out in, so
-       the wrap below would fire at 187px and not at the screen's real width. */
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    width: fit-content;
-    margin: 0 auto;
-    transform: none;
-    gap: 2px;
-    padding: 4px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .flag-bar button {
-    width: 36px;
-    height: 36px;
-  }
 }
 </style>
