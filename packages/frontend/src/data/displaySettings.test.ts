@@ -41,14 +41,14 @@ describe("parseDisplaySettings", () => {
   it("keeps only the known panels, and only when they hold a boolean", () => {
     expect(
       parseDisplaySettings('{"panels":{"minimap":false,"leaderboard":true,"radar":true,"zoom":1}}'),
-    ).toEqual({ referenceUnderlay: false, panels: { minimap: false, leaderboard: true } });
+    ).toEqual({ referenceUnderlay: true, panels: { minimap: false, leaderboard: true } });
     expect(parseDisplaySettings('{"panels":"all"}')).toEqual(DEFAULT_DISPLAY_SETTINGS);
     expect(parseDisplaySettings('{"panels":null}')).toEqual(DEFAULT_DISPLAY_SETTINGS);
   });
 });
 
 describe("isPanelVisible", () => {
-  const untouched: DisplaySettings = { referenceUnderlay: false, panels: {} };
+  const untouched: DisplaySettings = { referenceUnderlay: true, panels: {} };
 
   it("shows every panel on a wide viewport and only the board-first pair on a narrow one", () => {
     expect(isPanelVisible(untouched, "leaderboard", true)).toBe(true);
@@ -61,7 +61,7 @@ describe("isPanelVisible", () => {
 
   it("lets a stored choice override the viewport default either way", () => {
     const chosen: DisplaySettings = {
-      referenceUnderlay: false,
+      referenceUnderlay: true,
       panels: { leaderboard: true, minimap: false },
     };
     expect(isPanelVisible(chosen, "leaderboard", false)).toBe(true);

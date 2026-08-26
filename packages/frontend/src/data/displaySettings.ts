@@ -28,11 +28,12 @@ const NARROW_DEFAULT_PANELS: readonly HudPanelId[] = ["reference", "minimap"];
 
 const STORAGE_KEY = "mpp.display";
 
-// Off by default: the underlay is an aid, so the board a player has never
-// touched a setting for stays the one every screenshot and every explanation
-// of the game shows.
+// On by default: the aid shows the same photo the board is made of, and left
+// off it was a setting almost nobody opened the menu to find. A player who
+// wants the bare board switches it off once, and that is the choice that
+// persists.
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
-  referenceUnderlay: false,
+  referenceUnderlay: true,
   panels: {},
 };
 
