@@ -12,12 +12,12 @@ import FlagBar from "../components/FlagBar.vue";
 import FlagPopover from "../components/FlagPopover.vue";
 import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
-import { useWideViewport } from "../composables/useWideViewport";
+import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { GRID_WORLD_CELL } from "@mpp/shared";
 
 const { t } = useI18n();
 const { camera, ready } = useStageControls();
-const { wide } = useWideViewport();
+const { visiblePanels } = useDisplaySettings();
 
 // Drive the CSS hairline grid from world space: one cell is GRID_WORLD_CELL
 // world units, so the grid scales and pans with the canvas. The play zone is
@@ -42,19 +42,22 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
              other regardless of their own content-driven size (a portrait
              reference image, a long activity list, a full leaderboard, ...)
              or the viewport's height, unlike the corner-anchored absolute
-             positioning this replaced. Below the breakpoint the rails are
-             down to the reference thumbnail and the minimap, where the board
-             needs every pixel more than a phone needs a HUD. See DECISIONS. -->
+             positioning this replaced. Each panel is here only while it is
+             visible: the player toggles them one by one from the options menu,
+             and an untouched one follows its viewport default, which below the
+             breakpoint is the reference thumbnail and the minimap alone, where
+             the board needs every pixel more than a phone needs a HUD. See
+             DECISIONS. -->
         <div class="hud-rail hud-rail-left">
-          <ReferencePanel />
-          <ZoomControls v-if="wide" />
-          <ActivityTicker v-if="wide" />
+          <ReferencePanel v-if="visiblePanels.reference" />
+          <ZoomControls v-if="visiblePanels.zoom" />
+          <ActivityTicker v-if="visiblePanels.activity" />
         </div>
         <div class="hud-rail hud-rail-right">
-          <LeaderboardPanel v-if="wide" />
+          <LeaderboardPanel v-if="visiblePanels.leaderboard" />
           <div class="hud-bottom-right">
             <DevControls v-if="devButtonsEnabled" />
-            <MiniMap />
+            <MiniMap v-if="visiblePanels.minimap" />
           </div>
         </div>
         <FlagBar />
@@ -100,7 +103,8 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
    space-between pins the first child to the top and the last to the bottom;
    with 3 children (reference/zoom/ticker) it also centers the middle one in
    whatever room is actually left between the other two, so a taller or
-   shorter sibling on either side never has to be predicted or hardcoded.
+   shorter sibling on either side never has to be predicted or hardcoded, and
+   a panel the player switched off simply leaves the column to the others.
    On a phone the left rail is down to the reference panel alone, which
    space-between leaves in its top corner.
    pointer-events:none lets drags reach the canvas in the gaps; each panel

@@ -8,6 +8,7 @@ import { useNationalityModal } from "../composables/useNationalityModal";
 import { useUpdatesModal } from "../composables/useUpdatesModal";
 import { useAuth } from "../composables/useAuth";
 import { useDisplaySettings } from "../composables/useDisplaySettings";
+import { HUD_PANEL_IDS } from "../data/displaySettings";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 import GoogleMark from "./GoogleMark.vue";
@@ -19,7 +20,7 @@ const { show: showPseudo } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
 const { show: showUpdates } = useUpdatesModal();
 const { user, signOut } = useAuth();
-const { settings: display, setReferenceUnderlay } = useDisplaySettings();
+const { settings: display, visiblePanels, setReferenceUnderlay, setPanel } = useDisplaySettings();
 
 const DISCORD_URL = "https://discord.gg/mB2juw55R3";
 
@@ -164,6 +165,24 @@ function openUpdates() {
               <span class="knob"></span>
             </span>
           </button>
+
+          <div class="section-head subhead">{{ t("options.display.panels") }}</div>
+          <div class="panel-grid">
+            <button
+              v-for="panel in HUD_PANEL_IDS"
+              :key="panel"
+              type="button"
+              class="panel-toggle"
+              role="switch"
+              :aria-checked="visiblePanels[panel]"
+              @click="setPanel(panel, !visiblePanels[panel])"
+            >
+              <span class="label">{{ t(`options.display.panel.${panel}`) }}</span>
+              <span class="switch sm" :class="{ on: visiblePanels[panel] }" aria-hidden="true">
+                <span class="knob"></span>
+              </span>
+            </button>
+          </div>
         </section>
 
         <section class="section tips">
@@ -195,8 +214,11 @@ function openUpdates() {
 .options-modal {
   width: min(380px, calc(100vw - 32px));
   /* Every row plus the tips strip runs past a short phone viewport in all four
-     locales, so the shell scrolls rather than off the top and bottom of it. */
+     locales, so the shell scrolls rather than off the top and bottom of it.
+     dvh over vh because a mobile browser's vh keeps counting the strip its own
+     UI covers, which is exactly the band the bottom of this menu lands in. */
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   overflow-y: auto;
 }
 .modal-header {
@@ -337,6 +359,52 @@ function openUpdates() {
 .switch.on .knob {
   transform: translateX(14px);
 }
+.subhead {
+  margin-top: 12px;
+}
+/* Two compact columns rather than six full-width rows: the panel switches are
+   the longest group in the menu, and a phone has to reach the tips and the
+   sign-out below them without a scroll it cannot see the end of. */
+.panel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.panel-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--paper);
+  text-align: left;
+  transition: background 160ms ease;
+}
+.panel-toggle:hover {
+  background: var(--paper-2);
+}
+.panel-toggle .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink);
+}
+.switch.sm {
+  width: 28px;
+  height: 16px;
+}
+.switch.sm .knob {
+  width: 10px;
+  height: 10px;
+}
+.switch.sm.on .knob {
+  transform: translateX(12px);
+}
 .tips-body {
   display: flex;
   align-items: center;
@@ -391,5 +459,43 @@ function openUpdates() {
 .signout:hover {
   background: var(--ground-2);
   color: var(--ink);
+}
+
+/* A phone reads the whole menu in one screen: the same rows at tighter padding,
+   not a different menu. Everything here is spacing, so nothing is cut and no
+   row is hidden from the small viewport. */
+@media (max-width: 680px) {
+  .options-modal {
+    width: min(380px, calc(100vw - 20px));
+    max-height: calc(100vh - 20px);
+    max-height: calc(100dvh - 20px);
+    padding: 14px;
+  }
+  .modal-header {
+    margin-bottom: 10px;
+  }
+  .actions {
+    gap: 6px;
+  }
+  .action {
+    padding: 9px 12px;
+  }
+  .section {
+    margin-top: 12px;
+    padding-top: 10px;
+  }
+  .panel-grid {
+    gap: 6px;
+  }
+  .panel-toggle {
+    padding: 7px 9px;
+  }
+  .tip {
+    min-height: 46px;
+  }
+  .signout {
+    margin-top: 12px;
+    padding: 8px 14px;
+  }
 }
 </style>
