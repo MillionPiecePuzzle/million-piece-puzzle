@@ -108,7 +108,6 @@ const de: MessageSchema = {
       title: "Anzeige",
       underlay: "Referenzbild im Hintergrund",
       underlayHint: "Zeigt das Referenzbild schwach unter dem Spielfeld.",
-      panels: "Angezeigte Panels",
       panel: {
         reference: "Referenz",
         zoom: "Zoom",

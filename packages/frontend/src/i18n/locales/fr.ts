@@ -108,7 +108,6 @@ const fr: MessageSchema = {
       title: "Affichage",
       underlay: "Image de référence en fond",
       underlayHint: "Affiche l'image de référence en transparence sous le plateau.",
-      panels: "Panneaux affichés",
       panel: {
         reference: "Référence",
         zoom: "Zoom",

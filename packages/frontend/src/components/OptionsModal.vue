@@ -166,7 +166,6 @@ function openUpdates() {
             </span>
           </button>
 
-          <div class="section-head subhead">{{ t("options.display.panels") }}</div>
           <div class="panel-grid">
             <button
               v-for="panel in HUD_PANEL_IDS"
@@ -359,16 +358,16 @@ function openUpdates() {
 .switch.on .knob {
   transform: translateX(14px);
 }
-.subhead {
-  margin-top: 12px;
-}
 /* Two compact columns rather than six full-width rows: the panel switches are
    the longest group in the menu, and a phone has to reach the tips and the
-   sign-out below them without a scroll it cannot see the end of. */
+   sign-out below them without a scroll it cannot see the end of. Spaced off the
+   underlay row by the same gap the account rows use, so the whole section reads
+   as one list of display switches rather than two groups. */
 .panel-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+  margin-top: 8px;
 }
 .panel-toggle {
   display: flex;
@@ -486,6 +485,7 @@ function openUpdates() {
   }
   .panel-grid {
     gap: 6px;
+    margin-top: 6px;
   }
   .panel-toggle {
     padding: 7px 9px;

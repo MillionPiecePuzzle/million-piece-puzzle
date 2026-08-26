@@ -108,7 +108,6 @@ const es: MessageSchema = {
       title: "Visualización",
       underlay: "Imagen de referencia de fondo",
       underlayHint: "Muestra la imagen de referencia con transparencia bajo el tablero.",
-      panels: "Paneles en pantalla",
       panel: {
         reference: "Referencia",
         zoom: "Zoom",

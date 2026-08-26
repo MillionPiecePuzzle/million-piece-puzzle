@@ -106,7 +106,6 @@ const en = {
       title: "Display",
       underlay: "Reference underlay",
       underlayHint: "Show the reference image faintly under the board.",
-      panels: "Panels on screen",
       panel: {
         reference: "Reference",
         zoom: "Zoom",
