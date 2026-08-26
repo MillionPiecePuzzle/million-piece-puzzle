@@ -265,14 +265,17 @@ function openUpdates() {
   gap: 10px;
 }
 .action.updates {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
+  position: relative;
 }
+/* Centered on the rounded corner itself, so the dot straddles the border rather
+   than sitting inside the row: -6px lands its center on the 6px arc, 1px of
+   border included. */
 .action.updates .new-dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: var(--accent);
 }
