@@ -6,6 +6,7 @@ import { useAuthModal } from "../composables/useAuthModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useUpdatesModal } from "../composables/useUpdatesModal";
+import { useUpdatesSeen } from "../composables/useUpdatesSeen";
 import { useAuth } from "../composables/useAuth";
 import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { HUD_PANEL_IDS } from "../data/displaySettings";
@@ -19,6 +20,7 @@ const { show: showAuth } = useAuthModal();
 const { show: showPseudo } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
 const { show: showUpdates } = useUpdatesModal();
+const { unseen: unseenUpdates } = useUpdatesSeen();
 const { user, signOut } = useAuth();
 const { settings: display, visiblePanels, setReferenceUnderlay, setPanel } = useDisplaySettings();
 
@@ -143,8 +145,14 @@ function openUpdates() {
           <button type="button" class="action" @click="changeCountry">
             <span class="label">{{ t("options.changeCountry") }}</span>
           </button>
-          <button type="button" class="action" @click="openUpdates">
+          <button
+            type="button"
+            class="action updates"
+            :aria-label="unseenUpdates ? t('options.updatesNew') : undefined"
+            @click="openUpdates"
+          >
             <span class="label">{{ t("options.updates") }}</span>
+            <span v-if="unseenUpdates" class="new-dot" aria-hidden="true"></span>
           </button>
         </div>
 
@@ -258,6 +266,18 @@ function openUpdates() {
   flex-direction: row;
   align-items: center;
   gap: 10px;
+}
+.action.updates {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.action.updates .new-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
 }
 .sync-text,
 .synced-text {

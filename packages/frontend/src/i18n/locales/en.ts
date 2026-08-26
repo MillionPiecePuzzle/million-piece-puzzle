@@ -56,6 +56,7 @@ const en = {
     nationalityTitle: "Nationality: {code}",
     signedInAs: "Signed in as {pseudo}",
     options: "Settings",
+    optionsNew: "Settings, new update notes",
   },
   zoom: {
     in: "Zoom in",
@@ -102,6 +103,7 @@ const en = {
     changeCountry: "Change country",
     discord: "Join the Discord server",
     updates: "Update notes",
+    updatesNew: "Update notes, new",
     display: {
       title: "Display",
       underlay: "Reference underlay",

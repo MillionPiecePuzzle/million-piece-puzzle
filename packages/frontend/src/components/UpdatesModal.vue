@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { useUpdatesModal } from "../composables/useUpdatesModal";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
+import { RELEASES } from "../data/releases";
 import { LOCALE_TAGS, type AppLocale } from "../i18n";
 
 const { t, locale } = useI18n();
@@ -13,35 +14,6 @@ const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: hide });
 const { onMousedown, onClick } = useBackdropClick(hide);
 watch(open, (isOpen) => (isOpen ? trap.activate() : trap.deactivate()));
-
-// Newest version first. Each line is its own message key rather than a locale
-// array so a line left untranslated fails the type check instead of the page.
-const RELEASES = [
-  {
-    version: "1.1.1",
-    at: Date.UTC(2026, 7, 25),
-    lines: ["updates.v111.fixes"],
-  },
-  {
-    version: "1.1",
-    at: Date.UTC(2026, 7, 24),
-    lines: [
-      "updates.v11.flags",
-      "updates.v11.flagDrop",
-      "updates.v11.underlay",
-      "updates.v11.standings",
-      "updates.v11.account",
-      "updates.v11.maintenance",
-      "updates.v11.mobile",
-      "updates.v11.help",
-    ],
-  },
-  {
-    version: "1.0",
-    at: Date.UTC(2026, 7, 22),
-    lines: ["updates.v10.launch"],
-  },
-] as const;
 
 // Formatted in UTC so a midnight timestamp never drifts to the previous or
 // next day in the visitor's timezone.

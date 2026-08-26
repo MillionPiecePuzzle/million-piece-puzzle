@@ -58,6 +58,7 @@ const es: MessageSchema = {
     nationalityTitle: "Nacionalidad: {code}",
     signedInAs: "Conectado como {pseudo}",
     options: "Ajustes",
+    optionsNew: "Ajustes, nuevas notas de actualización",
   },
   zoom: {
     in: "Acercar",
@@ -104,6 +105,7 @@ const es: MessageSchema = {
     changeCountry: "Cambiar país",
     discord: "Unirse al servidor de Discord",
     updates: "Notas de actualización",
+    updatesNew: "Notas de actualización, novedades",
     display: {
       title: "Visualización",
       underlay: "Imagen de referencia de fondo",

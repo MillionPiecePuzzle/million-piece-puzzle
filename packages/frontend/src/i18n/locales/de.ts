@@ -58,6 +58,7 @@ const de: MessageSchema = {
     nationalityTitle: "Nationalität: {code}",
     signedInAs: "Angemeldet als {pseudo}",
     options: "Einstellungen",
+    optionsNew: "Einstellungen, neue Versionshinweise",
   },
   zoom: {
     in: "Vergrößern",
@@ -104,6 +105,7 @@ const de: MessageSchema = {
     changeCountry: "Land ändern",
     discord: "Discord-Server beitreten",
     updates: "Versionshinweise",
+    updatesNew: "Versionshinweise, neu",
     display: {
       title: "Anzeige",
       underlay: "Referenzbild im Hintergrund",
