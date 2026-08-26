@@ -87,13 +87,16 @@ onBeforeUnmount(() => {
         </span>
       </button>
     </div>
-  </aside>
 
-  <ReferenceModal
-    v-if="showModal && currentManifest"
-    :manifest="currentManifest"
-    @close="showModal = false"
-  />
+    <!-- Inside the panel rather than beside it: the modal teleports to the body
+         either way, and a single root is what lets the rail set a class on this
+         component at all. -->
+    <ReferenceModal
+      v-if="showModal && currentManifest"
+      :manifest="currentManifest"
+      @close="showModal = false"
+    />
+  </aside>
 </template>
 
 <style scoped>

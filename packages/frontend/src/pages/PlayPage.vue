@@ -12,12 +12,12 @@ import FlagBar from "../components/FlagBar.vue";
 import FlagPopover from "../components/FlagPopover.vue";
 import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
-import { useWideViewport } from "../composables/useWideViewport";
+import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { GRID_WORLD_CELL } from "@mpp/shared";
 
 const { t } = useI18n();
 const { camera, ready } = useStageControls();
-const { wide } = useWideViewport();
+const { visiblePanels } = useDisplaySettings();
 
 // Drive the CSS hairline grid from world space: one cell is GRID_WORLD_CELL
 // world units, so the grid scales and pans with the canvas. The play zone is
@@ -44,17 +44,21 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
              or the viewport's height, unlike the corner-anchored absolute
              positioning this replaced. Below the breakpoint the rails are
              down to the reference thumbnail and the minimap, where the board
-             needs every pixel more than a phone needs a HUD. See DECISIONS. -->
+             needs every pixel more than a phone needs a HUD. See DECISIONS.
+             A panel the player switches off in the options menu is hidden
+             where it stands when its place in the column is what positions a
+             neighbour (the left rail, where the zoom pillar sits between the
+             other two), and simply left out when it positions nobody. -->
         <div class="hud-rail hud-rail-left">
-          <ReferencePanel />
-          <ZoomControls v-if="wide" />
-          <ActivityTicker v-if="wide" />
+          <ReferencePanel :class="{ 'hud-off': !visiblePanels.reference }" />
+          <ZoomControls :class="{ 'hud-off': !visiblePanels.zoom }" />
+          <ActivityTicker :class="{ 'hud-off': !visiblePanels.activity }" />
         </div>
         <div class="hud-rail hud-rail-right">
-          <LeaderboardPanel v-if="wide" />
+          <LeaderboardPanel v-if="visiblePanels.leaderboard" />
           <div class="hud-bottom-right">
             <DevControls v-if="devButtonsEnabled" />
-            <MiniMap />
+            <MiniMap v-if="visiblePanels.minimap" />
           </div>
         </div>
         <FlagBar />
@@ -117,6 +121,15 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 .hud-rail-left {
   left: 16px;
   align-items: flex-start;
+}
+/* A switched-off panel that still holds a place in its column: hidden where it
+   stands, so the panels around it do not move. The paint effects go with it,
+   since a box that is not drawn must not leave its blur or its shadow behind on
+   the board; the descendant selector is there to outrank the panels' own. */
+.hud-rail .hud-off {
+  visibility: hidden;
+  backdrop-filter: none;
+  box-shadow: none;
 }
 .hud-rail-right {
   right: 16px;
