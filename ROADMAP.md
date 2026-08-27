@@ -136,6 +136,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ### `backend-realtime`
 
+- [x] A locked piece straddling a world-grid cell boundary renders whole instead of cut off along a straight line partway across itself. `WORLD_TILE_SIZE` is not a multiple of `pieceSize`, so 55 of the 1000 columns and 55 of the 1000 rows cross a boundary, and a lock only ever marked the cell owning the piece's canonical position dirty: the owning cell's composite canvas stops one margin past the boundary while the piece runs almost a full `pieceSize` further, leaving the rest of its silhouette in no composite at all until an unrelated later lock in the neighbouring cell happened to rebake it. A lock now marks every cell the piece's own box reaches into (1 to 4, never wider than the halo that would draw it). Cells baked before this shipped keep their gap until their next rebake; no resweep is planned.
 - [~] A dropped socket names its own cause instead of both ends going silent: the server logs every close with its code, its reason and how long the connection lived, and tags the two closes it issues itself (a heartbeat reap on a missed pong, a 1013 slow-consumer close with the buffered bytes that tripped it); the client logs the close code, whether the frame was clean, and the longest stretch its own main thread went unserviced, which is what separates a background tab the browser stopped servicing from a network fault and from a server-side reap.
 
 ---

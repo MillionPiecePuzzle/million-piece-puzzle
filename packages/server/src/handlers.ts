@@ -8,7 +8,7 @@ import type { GroupQueue } from "./queue.js";
 import type { GroupIndex } from "./groupIndex.js";
 import type { LockedPieceIndex } from "./lockedPieces.js";
 import {
-  cellKeyForGridId,
+  cellKeysForGridId,
   collectRegionCellComposites,
   type CellCompositeIndex,
 } from "./cellComposite.js";
@@ -627,15 +627,15 @@ async function applyMerge(
     // hydration risk a single ever-growing locked group would otherwise be.
     await ctx.state.lockPieces(allPieces);
     ctx.lockedPieces.lock(allPieces);
-    // Every cell one of these newly-locked pieces belongs to needs a fresh
+    // Every cell one of these newly-locked pieces reaches into needs a fresh
     // composite bake (see ROADMAP Phase 5 Stage 3); a Set dedupes the common
     // case of several pieces in this merge sharing a cell. Skipped entirely
     // (not just a no-op call) when no compositor is wired, the common case for
     // any deployment with no R2 write credentials configured.
     if (ctx.cellCompositor) {
       const touchedCells = new Set(
-        allPieces.map((id) =>
-          cellKeyForGridId(id, ctx.meta.gridCols, ctx.meta.pieceSize, ctx.worldTileSize),
+        allPieces.flatMap((id) =>
+          cellKeysForGridId(id, ctx.meta.gridCols, ctx.meta.pieceSize, ctx.worldTileSize),
         ),
       );
       ctx.cellCompositor.markDirty(touchedCells);

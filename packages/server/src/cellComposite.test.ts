@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   allCellKeysForGrid,
-  cellKeyForGridId,
+  cellKeysForGridId,
   CellCompositeIndex,
   collectRegionCellComposites,
   haloGridIdsForCell,
 } from "./cellComposite.js";
 import { candidateGridIdsForCell } from "./lockedPieces.js";
-import { cellKey } from "./worldGrid.js";
+import { cellKey, unpackCellKey } from "./worldGrid.js";
 
 // Same fixture lockedPieces.test.ts uses: cellSize 325, pieceSize 32 does not
 // divide evenly, so cx=0 owns cols 0-10, cx=1 owns cols 11-20, cx=2 owns
@@ -61,18 +61,49 @@ describe("haloGridIdsForCell", () => {
   });
 });
 
-describe("cellKeyForGridId", () => {
-  it("matches the cell a piece's world position falls into", () => {
-    // Grid id 15 in a 25-col grid is (col 15, row 0), world x = 15*32 = 480,
-    // which falls in cx = floor(480/325) = 1.
-    expect(cellKeyForGridId(15, GRID_COLS, PIECE_SIZE, CELL_SIZE)).toBe(cellKey(1, 0));
+describe("cellKeysForGridId", () => {
+  it("names the single cell a piece sitting entirely inside one falls into", () => {
+    // Grid id 15 in a 25-col grid is (col 15, row 0), world x = 480 to 512,
+    // both inside cx = floor(480/325) = 1.
+    expect(cellKeysForGridId(15, GRID_COLS, PIECE_SIZE, CELL_SIZE)).toEqual([cellKey(1, 0)]);
   });
 
-  it("maps every grid id in the same world cell to the same key", () => {
-    const a = cellKeyForGridId(11, GRID_COLS, PIECE_SIZE, CELL_SIZE);
-    const b = cellKeyForGridId(20, GRID_COLS, PIECE_SIZE, CELL_SIZE);
-    expect(a).toBe(b);
-    expect(a).toBe(cellKey(1, 0));
+  it("names both cells a piece straddling a boundary reaches into", () => {
+    // Col 10 spans world x 320 to 352 across the cx=0/cx=1 boundary at 325.
+    // Only 5 of its 32 units sit in its owning cell, so a bake of cx=0 alone
+    // leaves the rest of the silhouette in no composite at all.
+    expect(cellKeysForGridId(10, GRID_COLS, PIECE_SIZE, CELL_SIZE)).toEqual([
+      cellKey(0, 0),
+      cellKey(1, 0),
+    ]);
+  });
+
+  it("names all four cells a piece straddling both axes reaches into", () => {
+    const gridId = 10 * GRID_COLS + 10;
+    expect(
+      cellKeysForGridId(gridId, GRID_COLS, PIECE_SIZE, CELL_SIZE).sort((a, b) => a - b),
+    ).toEqual([cellKey(0, 0), cellKey(1, 0), cellKey(0, 1), cellKey(1, 1)].sort((a, b) => a - b));
+  });
+
+  it("stops at the last cell a piece ending exactly on a boundary occupies", () => {
+    // An evenly-dividing fixture, the one case the 25x25 one cannot produce:
+    // col 1 spans 32 to 64 and ends exactly on the cx=0/cx=1 boundary, so the
+    // next cell holds nothing of it (whatever tab crosses over is inside the
+    // owning cell canvas's own margin bleed).
+    expect(cellKeysForGridId(1, GRID_COLS, PIECE_SIZE, 64)).toEqual([cellKey(0, 0)]);
+  });
+
+  it("only ever names cells whose halo would actually bake the piece", () => {
+    // The invariant the whole thing rests on: a cell marked dirty for a piece
+    // it would not draw is a wasted bake, so every key returned here must be a
+    // cell haloGridIdsForCell puts the piece in.
+    for (let gridId = 0; gridId < GRID_COLS * GRID_ROWS; gridId++) {
+      for (const key of cellKeysForGridId(gridId, GRID_COLS, PIECE_SIZE, CELL_SIZE)) {
+        const { cx, cy } = unpackCellKey(key);
+        const halo = haloGridIdsForCell(cx, cy, CELL_SIZE, GRID_COLS, GRID_ROWS, PIECE_SIZE);
+        expect(halo).toContain(gridId);
+      }
+    }
   });
 });
 
