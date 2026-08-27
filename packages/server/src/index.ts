@@ -591,7 +591,14 @@ async function main(): Promise<void> {
       // Every drop is logged with its code: a player who loses the socket cannot
       // say why it went, and the close code is the only thing that separates a
       // reap, a slow consumer and a network fault after the fact.
-      const why = reason.length > 0 ? ` reason=${reason.toString("utf8")}` : "";
+      // The reason text is client-written, so it is stripped of control and
+      // format characters (line breaks, ANSI escapes) and quoted before it
+      // reaches the log, where it would otherwise forge lines or drive a
+      // terminal.
+      const why =
+        reason.length > 0
+          ? ` reason=${JSON.stringify(reason.toString("utf8").replace(/\p{C}/gu, "?"))}`
+          : "";
       const ageS = Math.round((Date.now() - connectedAt) / 1000);
       console.log(`[ws-close] user=${authed.id} code=${code}${why} age=${ageS}s`);
       ipRegistry.release(ip);

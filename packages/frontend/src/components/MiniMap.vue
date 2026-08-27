@@ -29,17 +29,19 @@ let transform: MapTransform | null = null;
 const canvasAspect = ref(MIN_OVERVIEW_ASPECT);
 
 function draw(): void {
+  // The enlarged view covers the HUD with its own backdrop and paints the same
+  // map, so the panel stops working entirely while it is open rather than
+  // building the overview twice a frame: the snapshot costs as much as the
+  // paint it feeds, both scaling with the known-piece count, which runs into
+  // thousands of dots on the 1M board. `ready` cannot go stale meanwhile: the
+  // view only opens from a panel that is already showing.
+  if (enlarged.value) return;
+
   // The minimap stays hidden until the stage has a play zone, so it never
   // shows a placeholder shape that would resize once real data arrives.
   const snap = source.value?.() ?? null;
   ready.value = snap !== null;
   if (!snap) return;
-
-  // The enlarged view covers the HUD with its own backdrop and paints the same
-  // map, so the panel stops painting while it is open rather than drawing the
-  // overview twice a frame: the cost scales with the known-piece count, which
-  // runs into thousands of dots on the 1M board.
-  if (enlarged.value) return;
 
   // Shaped to the play zone plus its out-of-bounds band, so the map fills the
   // canvas with no letterbox. Set before painting, so the panel appears at its
