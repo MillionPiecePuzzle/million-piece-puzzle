@@ -27,7 +27,7 @@ const en = {
     beFirst: "Be the first to follow along",
     interestCount: "{n} person interested | {n} people interested",
     piecesLockedSuffix: "/ {n} pieces locked",
-    pctComplete: "{p}% complete",
+    pctComplete: "{p} complete",
     completed: "COMPLETED",
     solvedIn: "solved in {duration}",
     liveActivity: "Live activity",

@@ -29,7 +29,7 @@ const de: MessageSchema = {
     beFirst: "Sei der Erste, der mitverfolgt",
     interestCount: "{n} Person interessiert | {n} Personen interessiert",
     piecesLockedSuffix: "/ {n} Teile fixiert",
-    pctComplete: "{p}% fertig",
+    pctComplete: "{p} fertig",
     completed: "ABGESCHLOSSEN",
     solvedIn: "gelöst in {duration}",
     liveActivity: "Live-Aktivität",
