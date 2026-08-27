@@ -85,7 +85,7 @@ import { Hub, type Client } from "./hub.js";
 import { GroupQueue } from "./queue.js";
 import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
-import { cellKeyForGridId, CellCompositeIndex } from "./cellComposite.js";
+import { cellKeysForGridId, CellCompositeIndex } from "./cellComposite.js";
 import { CellCompositor } from "./cellCompositor.js";
 import { createR2Client } from "./r2.js";
 import { TokenBucket } from "./limits.js";
@@ -290,6 +290,8 @@ async function main(): Promise<void> {
       // this script's clientless Hub, at the cost of a profile lookup per
       // window against the very Mongo the run is measuring.
       leaderboardBroadcast: { markDirty: () => {} },
+      playZone,
+      pieceMargin: manifest.margin,
       tilePieceCap,
       clusterPieceCap: config.clusterPieceCap,
       broadcastMaxCells: config.broadcastMaxCells,
@@ -355,7 +357,7 @@ async function main(): Promise<void> {
 
     if (cellCompositor) {
       const touchedCells = new Set(
-        chosenIds.map((id) => cellKeyForGridId(id, meta.gridCols, meta.pieceSize, cellSize)),
+        chosenIds.flatMap((id) => cellKeysForGridId(id, meta.gridCols, meta.pieceSize, cellSize)),
       );
       console.log(
         `[seed-lock-scenario] compositing ${touchedCells.size} touched cell(s) in one pass...`,

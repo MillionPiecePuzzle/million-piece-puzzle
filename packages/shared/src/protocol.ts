@@ -50,6 +50,20 @@ export type CDrop = {
   worldY: number;
 };
 
+// A drop aimed at a point rather than at a position: the player released the
+// cluster on one of their HUD flag buttons and the server picks where it lands,
+// searching outward from the flag against its own complete board state (the
+// client only knows the regions it has streamed, so its own search can only be
+// the optimistic placement the resulting drop broadcast corrects). Unlike every
+// other group message, worldX/worldY are a plain world point (the flag's foot),
+// not the anchor position of a group.
+export type CDropNear = {
+  t: "drop_near";
+  groupId: number;
+  worldX: number;
+  worldY: number;
+};
+
 // Presence, client to server. The client reports its viewport and cursor so the
 // server can scope broadcasts and relay cursors to viewport-neighbor peers. Both
 // change on every zoom and pan: the client throttles sends. Transient, never
@@ -84,6 +98,7 @@ export type ClientMessage =
   | CGrab
   | CDrag
   | CDrop
+  | CDropNear
   | CViewport
   | CCursor
   | CDevReset

@@ -29,7 +29,7 @@ const de: MessageSchema = {
     beFirst: "Sei der Erste, der mitverfolgt",
     interestCount: "{n} Person interessiert | {n} Personen interessiert",
     piecesLockedSuffix: "/ {n} Teile fixiert",
-    pctComplete: "{p}% fertig",
+    pctComplete: "{p} fertig",
     completed: "ABGESCHLOSSEN",
     solvedIn: "gelöst in {duration}",
     liveActivity: "Live-Aktivität",
@@ -58,6 +58,7 @@ const de: MessageSchema = {
     nationalityTitle: "Nationalität: {code}",
     signedInAs: "Angemeldet als {pseudo}",
     options: "Einstellungen",
+    optionsNew: "Einstellungen, neue Versionshinweise",
   },
   zoom: {
     in: "Vergrößern",
@@ -76,13 +77,7 @@ const de: MessageSchema = {
     overview: "Übersicht",
     online: "{n} online",
     label: "Minikarte",
-    openDetail: "Detailansicht der Felder öffnen",
-    detailTitle: "Ladedetails der Felder",
-    legendLoaded: "Geladen",
-    legendLoading: "Wird geladen",
-    legendNotLoaded: "Nicht geladen",
-    tilesLoaded: "{loaded} / {total} Felder geladen",
-    memoryUsage: "{used} / {budget}",
+    enlarge: "Übersicht vergrößern",
   },
   auth: {
     title: "Konto synchronisieren",
@@ -104,10 +99,19 @@ const de: MessageSchema = {
     changeCountry: "Land ändern",
     discord: "Discord-Server beitreten",
     updates: "Versionshinweise",
+    updatesNew: "Versionshinweise, neu",
     display: {
       title: "Anzeige",
       underlay: "Referenzbild im Hintergrund",
       underlayHint: "Zeigt das Referenzbild schwach unter dem Spielfeld.",
+      panel: {
+        reference: "Referenz",
+        zoom: "Zoom",
+        activity: "Aktivität",
+        leaderboard: "Rangliste",
+        minimap: "Minikarte",
+        flags: "Fahnen",
+      },
     },
     signOut: "Abmelden",
   },
@@ -124,11 +128,20 @@ const de: MessageSchema = {
   },
   updates: {
     title: "Versionshinweise",
+    v120: {
+      panels: "Jedes Panel hat jetzt seinen eigenen Schalter im Bereich Anzeige in diesem Menü.",
+      minimap:
+        "Die vergrößerte Ansicht der Mini-Karte wurde überarbeitet: Sie öffnet jetzt dieselbe Karte, einfach größer.",
+      notes:
+        "Ein Punkt am Einstellungen-Knopf zeigt dir, dass Versionshinweise da sind, die du noch nicht gelesen hast.",
+      fixes:
+        "Fehlerbehebungen: Ein Teil, das du auf eine Fahne in einem Bereich ziehst, den du in dieser Sitzung nicht besucht hast, stapelt sich nicht mehr auf der Fahne, dazu festgesetzte Teile auf einer Kachelgrenze und der Fortschritt auf der Startseite.",
+    },
     v111: {
       fixes:
         "Fehlerbehebungen und Performance-Verbesserungen, rund um Zoom, die Cursor der anderen Spieler, die Fahnen und das Referenzbild.",
     },
-    v11: {
+    v110: {
       flags:
         "Persönliche Fahnen: Setze bis zu 8 Marker auf das Board und springe per Klick oder mit den Tasten 1 bis 8 zwischen ihnen.",
       flagDrop:
@@ -145,7 +158,7 @@ const de: MessageSchema = {
         "Auf dem Handy behält die Oberfläche nur die Referenz und die Mini-Karte und überlässt dem Board den Bildschirm.",
       help: "Dieses Menü enthält Tipps, und die Rangliste erklärt, wie Punkte gezählt werden.",
     },
-    v10: {
+    v100: {
       launch:
         "Öffentlicher Start: 1.000.000 einzigartige Teile auf einem einzigen gemeinsamen Board, ohne Anmeldung als Gast spielbar, auf Englisch, Französisch, Spanisch und Deutsch.",
     },

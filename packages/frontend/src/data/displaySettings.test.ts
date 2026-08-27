@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_DISPLAY_SETTINGS, parseDisplaySettings } from "./displaySettings";
+import {
+  DEFAULT_DISPLAY_SETTINGS,
+  isPanelAvailable,
+  isPanelVisible,
+  parseDisplaySettings,
+  type DisplaySettings,
+} from "./displaySettings";
 
 describe("parseDisplaySettings", () => {
   it("returns the defaults for missing, malformed or non-object storage", () => {
@@ -11,9 +17,13 @@ describe("parseDisplaySettings", () => {
   });
 
   it("reads a stored boolean back", () => {
-    expect(parseDisplaySettings('{"referenceUnderlay":true}')).toEqual({ referenceUnderlay: true });
+    expect(parseDisplaySettings('{"referenceUnderlay":true}')).toEqual({
+      referenceUnderlay: true,
+      panels: {},
+    });
     expect(parseDisplaySettings('{"referenceUnderlay":false}')).toEqual({
       referenceUnderlay: false,
+      panels: {},
     });
   });
 
@@ -25,6 +35,50 @@ describe("parseDisplaySettings", () => {
   it("ignores unknown keys", () => {
     expect(parseDisplaySettings('{"referenceUnderlay":true,"zoomLock":true}')).toEqual({
       referenceUnderlay: true,
+      panels: {},
     });
+  });
+
+  it("keeps only the known panels, and only when they hold a boolean", () => {
+    expect(
+      parseDisplaySettings('{"panels":{"minimap":false,"leaderboard":true,"radar":true,"zoom":1}}'),
+    ).toEqual({ referenceUnderlay: true, panels: { minimap: false, leaderboard: true } });
+    expect(parseDisplaySettings('{"panels":"all"}')).toEqual(DEFAULT_DISPLAY_SETTINGS);
+    expect(parseDisplaySettings('{"panels":null}')).toEqual(DEFAULT_DISPLAY_SETTINGS);
+  });
+});
+
+describe("isPanelAvailable", () => {
+  it("keeps every panel on a full viewport and the board-first pair on a compact one", () => {
+    expect(isPanelAvailable("leaderboard", false)).toBe(true);
+    expect(isPanelAvailable("flags", false)).toBe(true);
+    expect(isPanelAvailable("reference", true)).toBe(true);
+    expect(isPanelAvailable("minimap", true)).toBe(true);
+    expect(isPanelAvailable("leaderboard", true)).toBe(false);
+    expect(isPanelAvailable("activity", true)).toBe(false);
+    expect(isPanelAvailable("zoom", true)).toBe(false);
+    expect(isPanelAvailable("flags", true)).toBe(false);
+  });
+});
+
+describe("isPanelVisible", () => {
+  const untouched: DisplaySettings = { referenceUnderlay: true, panels: {} };
+
+  it("draws every panel it has room for until the player says otherwise", () => {
+    expect(isPanelVisible(untouched, "leaderboard", false)).toBe(true);
+    expect(isPanelVisible(untouched, "flags", false)).toBe(true);
+    expect(isPanelVisible(untouched, "reference", true)).toBe(true);
+    expect(isPanelVisible(untouched, "minimap", true)).toBe(true);
+  });
+
+  it("reads a stored choice back, and never over a panel this viewport cannot hold", () => {
+    const chosen: DisplaySettings = {
+      referenceUnderlay: true,
+      panels: { leaderboard: true, minimap: false },
+    };
+    expect(isPanelVisible(chosen, "leaderboard", false)).toBe(true);
+    expect(isPanelVisible(chosen, "leaderboard", true)).toBe(false);
+    expect(isPanelVisible(chosen, "minimap", false)).toBe(false);
+    expect(isPanelVisible(chosen, "minimap", true)).toBe(false);
   });
 });

@@ -2,8 +2,7 @@ import { onBeforeUnmount, onMounted } from "vue";
 
 // Shared rAF-loop lifecycle: schedules `callback` on every animation frame (or
 // every Nth, if throttled), started on mount and cancelled on unmount. Used by
-// the minimap and its detail modal, each polling a stage snapshot at their own
-// cadence.
+// the minimap panel and its enlarged view to poll a stage snapshot.
 export function useRafLoop(callback: () => void, everyNFrames = 1): void {
   let raf = 0;
   let frame = 0;

@@ -6,6 +6,7 @@ export * from "./session.js";
 export * from "./country.js";
 export * from "./protocol.js";
 export * from "./playzone.js";
+export * from "./freeSpot.js";
 export * from "./grid.js";
 export * from "./maskTiers.js";
 export * from "./minimap.js";

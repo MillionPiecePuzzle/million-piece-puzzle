@@ -13,7 +13,7 @@ import type {
 } from "@mpp/shared";
 import { WS_CLOSE_SERVICE_RESTART } from "@mpp/shared";
 import type { InitialGroupSpec } from "../canvas/puzzleStage";
-import { PuzzleWsClient } from "../canvas/wsClient";
+import { PuzzleWsClient, type WsCloseInfo } from "../canvas/wsClient";
 import { backendReachable, backendRetryDelayMs } from "../data/landing";
 import { mergeLeaderboardDelta } from "../data/leaderboard";
 import { manifestUrlFor } from "../data/manifestUrl";
@@ -421,11 +421,11 @@ function connectWs(grant: string | null): void {
     for (const h of handlers) h(msg);
   });
 
-  client.onClose(({ intentional, code }) => {
-    if (intentional) return;
+  client.onClose((info) => {
+    if (info.intentional) return;
     // The shutdown notice usually arrives first and has already switched the
     // session over; this catches the run where only the close frame made it.
-    if (code === WS_CLOSE_SERVICE_RESTART) {
+    if (info.code === WS_CLOSE_SERVICE_RESTART) {
       console.warn("puzzle session: server restarting");
       enterMaintenance();
       return;
@@ -434,11 +434,27 @@ function connectWs(grant: string | null): void {
     manifest = null;
     started = false;
     if (state.value.kind === "error" || state.value.kind === "maintenance") return;
-    console.error(`puzzle session: connection lost to ${wsUrl}`);
+    console.error(`puzzle session: connection lost to ${wsUrl} (${describeClose(info)})`);
     state.value = { kind: "error", messageKey: "loading.errorConnection" };
   });
 
   client.connect();
+}
+
+// The console line is the only record of why a session ended, so it carries what
+// tells the causes apart: the close code (1006 reap or network fault, 1013 slow
+// consumer), and how long this tab went unserviced, which is what a browser
+// freezing a background tab looks like from in here.
+function describeClose(info: WsCloseInfo): string {
+  const parts = [
+    `code=${info.code}`,
+    `clean=${info.wasClean}`,
+    `age=${Math.round(info.ageMs / 1000)}s`,
+    `stalled=${Math.round(info.stalledMs / 1000)}s`,
+    `hidden=${info.hidden}`,
+  ];
+  if (info.reason) parts.push(`reason=${info.reason}`);
+  return parts.join(" ");
 }
 
 function appendGrant(wsUrl: string, grant: string): string {
@@ -486,6 +502,12 @@ function sendDrag(groupId: number, worldX: number, worldY: number): void {
 
 function sendDrop(groupId: number, worldX: number, worldY: number): void {
   client?.send({ t: "drop", groupId, worldX, worldY });
+}
+
+// A drop on a HUD flag: the point is the flag's foot and the server answers with
+// the position the cluster lands at, resolved against the whole board.
+function sendDropNear(groupId: number, worldX: number, worldY: number): void {
+  client?.send({ t: "drop_near", groupId, worldX, worldY });
 }
 
 function sendViewport(worldX: number, worldY: number, worldW: number, worldH: number): void {
@@ -541,6 +563,7 @@ export function usePuzzleSession() {
     sendGrab,
     sendDrag,
     sendDrop,
+    sendDropNear,
     sendViewport,
     sendCursor,
     sendDevReset,

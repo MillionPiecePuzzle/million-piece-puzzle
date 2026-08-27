@@ -211,6 +211,11 @@ export class Hub {
     if (ws.bufferedAmount > this.bufferedAmountLimitBytes) {
       // Slow consumer: closing prevents unbounded memory growth on the writer
       // and forces the client to reconnect and resync from a clean snapshot.
+      // Logged once per incident: the readyState guard above swallows the writes
+      // that follow, since close() moves the socket out of OPEN synchronously.
+      console.warn(
+        `[slow-consumer] user=${client.userId} buffered=${ws.bufferedAmount}B over ${this.bufferedAmountLimitBytes}B, closing`,
+      );
       ws.close(CLOSE_TRY_AGAIN_LATER, "slow consumer");
       return;
     }

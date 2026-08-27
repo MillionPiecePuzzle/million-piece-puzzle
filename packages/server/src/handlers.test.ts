@@ -489,6 +489,9 @@ const dropMeta: PuzzleMeta = {
   startedAt: 0,
 };
 
+// Body extent of an index payload: a square this many world units across.
+const box = (across: number) => ({ width: across, height: across });
+
 function makeDropCtx() {
   const send = vi.fn();
   const broadcast = vi.fn();
@@ -516,6 +519,8 @@ function makeDropCtx() {
     minimapGrid: testMinimapGrid(dropMeta.gridCols, dropMeta.pieceSize),
     leaderboardTracker: new LeaderboardTracker(dropMeta.totalPieces),
     leaderboardBroadcast: { markDirty },
+    playZone: { minX: -2000, minY: -2000, maxX: 2000, maxY: 2000 },
+    pieceMargin: 20,
     tilePieceCap: 2048,
     clusterPieceCap: 20000,
   } as unknown as Context;
@@ -581,7 +586,7 @@ describe("handleDrop", () => {
     ctx.tilePieceCap = 4;
     // The destination cell (drop at 500,500 maps to cell 0,0 at cellSize 2048)
     // already holds a cluster at the cap; the dropped group rests elsewhere.
-    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 4 });
+    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 4, ...box(200) });
     state.place(dropped(4, 5000, 5000), [4]);
     await handleDrop(ctx, client, 4, 500, 500);
 
@@ -611,7 +616,7 @@ describe("handleDrop", () => {
   it("allows a non-merging drop that stays within the tile cap", async () => {
     const { ctx, broadcastOverlapping, state } = makeDropCtx();
     ctx.tilePieceCap = 4;
-    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 3 });
+    ctx.groupIndex.set(9, 500, 500, { originX: 500, originY: 500, size: 3, ...box(200) });
     state.place(dropped(4, 5000, 5000), [4]);
     await handleDrop(ctx, client, 4, 500, 500);
     // 3 resident + 1 dropped == cap, so the drop commits normally.
@@ -958,6 +963,78 @@ describe("handleDrop", () => {
   });
 });
 
+describe("drop_near", () => {
+  // Group 4 sits at (col 1, row 1) of the 3x3 grid, so its body is the 100px
+  // square at (100, 100) from its origin: centering it on the flag point puts its
+  // origin 150 up and left of that point.
+  const dropNear = (worldX: number, worldY: number): string =>
+    JSON.stringify({ t: "drop_near", groupId: 4, worldX, worldY });
+
+  it("lands the cluster on the spot the server resolves, not on the flag point", async () => {
+    const { ctx, broadcastOverlapping, state } = makeDropCtx();
+    state.place(dropped(4, 500, 500), [4]);
+
+    await dispatch(ctx, client, dropNear(1000, 1000));
+
+    expect(state.groups.get(4)?.worldX).toBe(850);
+    expect(state.groups.get(4)?.worldY).toBe(850);
+    expect(state.groups.get(4)?.heldBy).toBeNull();
+    // A plain drop from here on, so a peer reads no message it does not already
+    // handle. (The test wire is transparent, so the broadcast position is the
+    // resolved origin itself.)
+    expect(broadcastOverlapping).toHaveBeenCalledWith(
+      expect.objectContaining({ t: "drop", groupId: 4, worldX: 850, worldY: 850 }),
+      expect.anything(),
+    );
+  });
+
+  it("steps the landing spot off a cluster already resting there", async () => {
+    const { ctx, state } = makeDropCtx();
+    state.place(dropped(4, 500, 500), [4]);
+    // Resting exactly where the flag would center this cluster's body.
+    ctx.groupIndex.set(9, 950, 950, { originX: 950, originY: 950, size: 1, ...box(100) });
+
+    await dispatch(ctx, client, dropNear(1000, 1000));
+
+    // One patch up: the piece, its tile margins and the clearance gap on either
+    // side (100 + 2 * 20 + 2 * 15).
+    expect(state.groups.get(4)?.worldX).toBe(850);
+    expect(state.groups.get(4)?.worldY).toBe(680);
+  });
+
+  it("rejects a drop_near on a group held by someone else", async () => {
+    const { ctx, send, state } = makeDropCtx();
+    state.place({ id: 4, worldX: 500, worldY: 500, size: 1, heldBy: "other" }, [4]);
+
+    await dispatch(ctx, client, dropNear(1000, 1000));
+
+    expect(send).toHaveBeenCalledWith(
+      client,
+      expect.objectContaining({ t: "error", code: "not_held" }),
+    );
+    expect(state.groups.get(4)?.worldX).toBe(500);
+  });
+
+  it("rejects a drop_near on a group that does not exist", async () => {
+    const { ctx, send } = makeDropCtx();
+    await dispatch(ctx, client, dropNear(1000, 1000));
+    expect(send).toHaveBeenCalledWith(
+      client,
+      expect.objectContaining({ t: "error", code: "unknown_group" }),
+    );
+  });
+
+  it("rejects a drop_near with non-finite coordinates before reading the group", async () => {
+    const { ctx, send, state } = makeDropCtx();
+    state.place(dropped(4, 500, 500), [4]);
+
+    await dispatch(ctx, client, '{"t":"drop_near","groupId":4,"worldX":1e999,"worldY":0}');
+
+    expect(send).toHaveBeenCalledWith(client, badMessage());
+    expect(state.groups.get(4)?.heldBy).toBe("u1");
+  });
+});
+
 describe("handleDevPlace", () => {
   it("rejects when dev controls are disabled", async () => {
     const { ctx, send } = makeDropCtx();
@@ -1067,7 +1144,7 @@ describe("group index maintenance", () => {
   it("re-keys a group to its new cell on a non-merging drop", async () => {
     const { ctx, state } = makeDropCtx();
     state.place(dropped(4, 500, 500), [4]);
-    ctx.groupIndex.set(4, 500, 500, { originX: 500, originY: 500, size: 1 });
+    ctx.groupIndex.set(4, 500, 500, { originX: 500, originY: 500, size: 1, ...box(100) });
     const oldCell = cellAt(500, 500);
 
     await handleDrop(ctx, client, 4, 50000, 50000);
@@ -1082,8 +1159,8 @@ describe("group index maintenance", () => {
     const { ctx, state } = makeDropCtx();
     state.place({ id: 1, worldX: 200, worldY: 200, size: 1, heldBy: null }, [1]);
     state.place(dropped(4, 200, 200), [4]);
-    ctx.groupIndex.set(1, 200, 200, { originX: 200, originY: 200, size: 1 });
-    ctx.groupIndex.set(4, 200, 200, { originX: 200, originY: 200, size: 1 });
+    ctx.groupIndex.set(1, 200, 200, { originX: 200, originY: 200, size: 1, ...box(100) });
+    ctx.groupIndex.set(4, 200, 200, { originX: 200, originY: 200, size: 1, ...box(100) });
 
     await dispatch(
       ctx,
@@ -1101,7 +1178,7 @@ describe("group index maintenance", () => {
     const { ctx, state } = makeDropCtx();
     // Drop near the origin so it frame-anchors.
     state.place(dropped(4, 3, -4), [4]);
-    ctx.groupIndex.set(4, 3, -4, { originX: 3, originY: -4, size: 1 });
+    ctx.groupIndex.set(4, 3, -4, { originX: 3, originY: -4, size: 1, ...box(100) });
 
     await handleDrop(ctx, client, 4, 3, -4);
 
@@ -1161,8 +1238,9 @@ function makeViewportCtx(overrides: Partial<Context> = {}) {
   return { ctx, hub, groupIndex, lockedPieces, getGroupPieces };
 }
 
-// A singleton index payload: origin equals body min, size 1.
-const single = (x: number, y: number) => ({ originX: x, originY: y, size: 1 });
+// A singleton index payload: origin equals body min, size 1, one piece across
+// (pieceSize is 100 here as in the drop fixtures).
+const single = (x: number, y: number) => ({ originX: x, originY: y, size: 1, ...box(100) });
 
 function viewportClient(): { client: Client; ws: FakeWs } {
   const ws = new FakeWs();
@@ -1234,7 +1312,7 @@ describe("handleViewport region_state construction", () => {
 
   it("reads the member piece ids from Redis for a size > 1 group", async () => {
     const { ctx, groupIndex, getGroupPieces } = makeViewportCtx();
-    groupIndex.set(8, 1500, 1500, { originX: 1500, originY: 1500, size: 2 });
+    groupIndex.set(8, 1500, 1500, { originX: 1500, originY: 1500, size: 2, ...box(200) });
     const { client, ws } = viewportClient();
 
     await handleViewport(ctx, client, {

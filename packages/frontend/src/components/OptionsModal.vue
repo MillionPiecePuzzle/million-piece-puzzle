@@ -6,6 +6,7 @@ import { useAuthModal } from "../composables/useAuthModal";
 import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useUpdatesModal } from "../composables/useUpdatesModal";
+import { useUpdatesSeen } from "../composables/useUpdatesSeen";
 import { useAuth } from "../composables/useAuth";
 import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { useFocusTrap } from "../composables/useFocusTrap";
@@ -18,8 +19,15 @@ const { show: showAuth } = useAuthModal();
 const { show: showPseudo } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
 const { show: showUpdates } = useUpdatesModal();
+const { unseen: unseenUpdates } = useUpdatesSeen();
 const { user, signOut } = useAuth();
-const { settings: display, setReferenceUnderlay } = useDisplaySettings();
+const {
+  settings: display,
+  availablePanels,
+  visiblePanels,
+  setReferenceUnderlay,
+  setPanel,
+} = useDisplaySettings();
 
 const DISCORD_URL = "https://discord.gg/mB2juw55R3";
 
@@ -142,8 +150,14 @@ function openUpdates() {
           <button type="button" class="action" @click="changeCountry">
             <span class="label">{{ t("options.changeCountry") }}</span>
           </button>
-          <button type="button" class="action" @click="openUpdates">
+          <button
+            type="button"
+            class="action updates"
+            :aria-label="unseenUpdates ? t('options.updatesNew') : undefined"
+            @click="openUpdates"
+          >
             <span class="label">{{ t("options.updates") }}</span>
+            <span v-if="unseenUpdates" class="new-dot" aria-hidden="true"></span>
           </button>
         </div>
 
@@ -164,6 +178,26 @@ function openUpdates() {
               <span class="knob"></span>
             </span>
           </button>
+
+          <!-- Only the panels this viewport can hold: a screen too small for
+               the leaderboard, the ticker, the zoom pillar and the flag bar is
+               not offered a switch that would draw one over the board. -->
+          <div class="panel-grid">
+            <button
+              v-for="panel in availablePanels"
+              :key="panel"
+              type="button"
+              class="panel-toggle"
+              role="switch"
+              :aria-checked="visiblePanels[panel]"
+              @click="setPanel(panel, !visiblePanels[panel])"
+            >
+              <span class="label">{{ t(`options.display.panel.${panel}`) }}</span>
+              <span class="switch sm" :class="{ on: visiblePanels[panel] }" aria-hidden="true">
+                <span class="knob"></span>
+              </span>
+            </button>
+          </div>
         </section>
 
         <section class="section tips">
@@ -193,11 +227,7 @@ function openUpdates() {
   z-index: 109;
 }
 .options-modal {
-  width: min(380px, calc(100vw - 32px));
-  /* Every row plus the tips strip runs past a short phone viewport in all four
-     locales, so the shell scrolls rather than off the top and bottom of it. */
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  width: min(380px, 100%);
 }
 .modal-header {
   margin-bottom: 14px;
@@ -237,6 +267,21 @@ function openUpdates() {
   flex-direction: row;
   align-items: center;
   gap: 10px;
+}
+.action.updates {
+  position: relative;
+}
+/* Centered on the rounded corner itself, so the dot straddles the border rather
+   than sitting inside the row: -6px lands its center on the 6px arc, 1px of
+   border included. */
+.action.updates .new-dot {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 .sync-text,
 .synced-text {
@@ -337,6 +382,50 @@ function openUpdates() {
 .switch.on .knob {
   transform: translateX(14px);
 }
+/* Two compact columns rather than six full-width rows, spaced off the underlay
+   row by the gap the account rows use: the section reads as one list of display
+   switches, and a phone still reaches the tips and the sign-out under it. */
+.panel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.panel-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--paper);
+  text-align: left;
+  transition: background 160ms ease;
+}
+.panel-toggle:hover {
+  background: var(--paper-2);
+}
+.panel-toggle .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink);
+}
+.switch.sm {
+  width: 28px;
+  height: 16px;
+}
+.switch.sm .knob {
+  width: 10px;
+  height: 10px;
+}
+.switch.sm.on .knob {
+  transform: translateX(12px);
+}
 .tips-body {
   display: flex;
   align-items: center;
@@ -391,5 +480,40 @@ function openUpdates() {
 .signout:hover {
   background: var(--ground-2);
   color: var(--ink);
+}
+
+/* A small screen reads the whole menu in one screen: the same rows at tighter
+   spacing, not a different menu. */
+@media (max-width: 680px), (max-height: 480px) {
+  .options-modal {
+    padding: 14px;
+  }
+  .modal-header {
+    margin-bottom: 10px;
+  }
+  .actions {
+    gap: 6px;
+  }
+  .action {
+    padding: 9px 12px;
+  }
+  .section {
+    margin-top: 12px;
+    padding-top: 10px;
+  }
+  .panel-grid {
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .panel-toggle {
+    padding: 7px 9px;
+  }
+  .tip {
+    min-height: 46px;
+  }
+  .signout {
+    margin-top: 12px;
+    padding: 8px 14px;
+  }
 }
 </style>

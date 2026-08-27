@@ -76,7 +76,7 @@ function proceed() {
   z-index: 100;
 }
 .auth-modal {
-  width: min(420px, calc(100vw - 32px));
+  width: min(420px, 100%);
 }
 .error {
   margin: -6px 0 12px;

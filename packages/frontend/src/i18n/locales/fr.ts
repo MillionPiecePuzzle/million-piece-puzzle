@@ -29,7 +29,7 @@ const fr: MessageSchema = {
     beFirst: "Soyez le premier à suivre l'aventure",
     interestCount: "{n} personne intéressée | {n} personnes intéressées",
     piecesLockedSuffix: "/ {n} pièces verrouillées",
-    pctComplete: "{p}% terminé",
+    pctComplete: "{p} terminé",
     completed: "TERMINÉ",
     solvedIn: "résolu en {duration}",
     liveActivity: "Activité en direct",
@@ -58,6 +58,7 @@ const fr: MessageSchema = {
     nationalityTitle: "Nationalité : {code}",
     signedInAs: "Connecté en tant que {pseudo}",
     options: "Paramètres",
+    optionsNew: "Paramètres, nouvelles notes de mises à jour",
   },
   zoom: {
     in: "Zoom avant",
@@ -76,13 +77,7 @@ const fr: MessageSchema = {
     overview: "Aperçu",
     online: "{n} en ligne",
     label: "Mini-carte",
-    openDetail: "Ouvrir la vue détaillée des cases",
-    detailTitle: "Détail du chargement des cases",
-    legendLoaded: "Chargée",
-    legendLoading: "En chargement",
-    legendNotLoaded: "Non chargée",
-    tilesLoaded: "{loaded} / {total} cases chargées",
-    memoryUsage: "{used} / {budget}",
+    enlarge: "Agrandir l'aperçu",
   },
   auth: {
     title: "Synchroniser votre compte",
@@ -104,10 +99,19 @@ const fr: MessageSchema = {
     changeCountry: "Changer de pays",
     discord: "Rejoindre le serveur Discord",
     updates: "Notes de mises à jour",
+    updatesNew: "Notes de mises à jour, nouveau",
     display: {
       title: "Affichage",
       underlay: "Image de référence en fond",
       underlayHint: "Affiche l'image de référence en transparence sous le plateau.",
+      panel: {
+        reference: "Référence",
+        zoom: "Zoom",
+        activity: "Activité",
+        leaderboard: "Classement",
+        minimap: "Mini-carte",
+        flags: "Drapeaux",
+      },
     },
     signOut: "Se déconnecter",
   },
@@ -124,11 +128,21 @@ const fr: MessageSchema = {
   },
   updates: {
     title: "Notes de mises à jour",
+    v120: {
+      panels:
+        "Chaque panneau a désormais son propre interrupteur dans la section Affichage de ce menu.",
+      minimap:
+        "La vue agrandie de la mini-carte a été retravaillée : elle ouvre maintenant la même carte, en plus grand.",
+      notes:
+        "Une pastille sur le bouton des réglages signale les notes de mise à jour que vous n'avez pas encore lues.",
+      fixes:
+        "Corrections de bugs : une pièce déposée sur un drapeau d'une zone que vous n'avez pas visitée pendant cette session ne s'empile plus sur le drapeau, ainsi que les pièces verrouillées à cheval sur une tuile et la progression affichée sur la page d'accueil.",
+    },
     v111: {
       fixes:
         "Corrections de bugs et améliorations de performances, autour du zoom, des curseurs des autres joueurs, des drapeaux et de l'image de référence.",
     },
-    v11: {
+    v110: {
       flags:
         "Drapeaux personnels : posez jusqu'à 8 repères sur le plateau et passez de l'un à l'autre d'un clic ou avec les touches 1 à 8.",
       flagDrop:
@@ -145,7 +159,7 @@ const fr: MessageSchema = {
         "Sur téléphone, l'interface ne garde que la référence et la mini-carte, et laisse l'écran au plateau.",
       help: "Ce menu propose des astuces, et le classement explique comment les points sont comptés.",
     },
-    v10: {
+    v100: {
       launch:
         "Lancement public : 1 000 000 de pièces uniques sur un seul plateau partagé, jouable en invité sans inscription, en anglais, français, espagnol et allemand.",
     },

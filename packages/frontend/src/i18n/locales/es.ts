@@ -29,7 +29,7 @@ const es: MessageSchema = {
     beFirst: "Sé el primero en seguir la aventura",
     interestCount: "{n} persona interesada | {n} personas interesadas",
     piecesLockedSuffix: "/ {n} piezas fijadas",
-    pctComplete: "{p}% completado",
+    pctComplete: "{p} completado",
     completed: "COMPLETADO",
     solvedIn: "resuelto en {duration}",
     liveActivity: "Actividad en directo",
@@ -58,6 +58,7 @@ const es: MessageSchema = {
     nationalityTitle: "Nacionalidad: {code}",
     signedInAs: "Conectado como {pseudo}",
     options: "Ajustes",
+    optionsNew: "Ajustes, nuevas notas de actualización",
   },
   zoom: {
     in: "Acercar",
@@ -76,13 +77,7 @@ const es: MessageSchema = {
     overview: "Vista general",
     online: "{n} en línea",
     label: "Minimapa",
-    openDetail: "Abrir la vista detallada de las casillas",
-    detailTitle: "Detalle de carga de las casillas",
-    legendLoaded: "Cargada",
-    legendLoading: "Cargando",
-    legendNotLoaded: "No cargada",
-    tilesLoaded: "{loaded} / {total} casillas cargadas",
-    memoryUsage: "{used} / {budget}",
+    enlarge: "Ampliar la vista general",
   },
   auth: {
     title: "Sincroniza tu cuenta",
@@ -104,10 +99,19 @@ const es: MessageSchema = {
     changeCountry: "Cambiar país",
     discord: "Unirse al servidor de Discord",
     updates: "Notas de actualización",
+    updatesNew: "Notas de actualización, novedades",
     display: {
       title: "Visualización",
       underlay: "Imagen de referencia de fondo",
       underlayHint: "Muestra la imagen de referencia con transparencia bajo el tablero.",
+      panel: {
+        reference: "Referencia",
+        zoom: "Zoom",
+        activity: "Actividad",
+        leaderboard: "Clasificación",
+        minimap: "Minimapa",
+        flags: "Banderas",
+      },
     },
     signOut: "Cerrar sesión",
   },
@@ -124,11 +128,21 @@ const es: MessageSchema = {
   },
   updates: {
     title: "Notas de actualización",
+    v120: {
+      panels:
+        "Cada panel tiene ahora su propio interruptor en la sección Visualización de este menú.",
+      minimap:
+        "La vista ampliada del minimapa se ha rediseñado: ahora abre el mismo mapa, en grande.",
+      notes:
+        "Un punto en el botón de ajustes te avisa cuando hay notas de actualización que no has leído.",
+      fixes:
+        "Correcciones de errores: una pieza soltada sobre una bandera de una zona que no has visitado durante esta sesión ya no se amontona sobre la bandera, además de las piezas bloqueadas a caballo entre dos casillas y el progreso que muestra la página de inicio.",
+    },
     v111: {
       fixes:
         "Correcciones de errores y mejoras de rendimiento, en torno al zoom, los cursores de los demás jugadores, las banderas y la imagen de referencia.",
     },
-    v11: {
+    v110: {
       flags:
         "Banderas personales: coloca hasta 8 marcadores en el tablero y salta de uno a otro con un clic o con las teclas 1 a 8.",
       flagDrop:
@@ -145,7 +159,7 @@ const es: MessageSchema = {
         "En el móvil la interfaz solo conserva la referencia y el minimapa, y deja la pantalla al tablero.",
       help: "Este menú incluye consejos, y la clasificación explica cómo se cuentan los puntos.",
     },
-    v10: {
+    v100: {
       launch:
         "Lanzamiento público: 1.000.000 de piezas únicas en un solo tablero compartido, jugable como invitado sin registro, en inglés, francés, español y alemán.",
     },

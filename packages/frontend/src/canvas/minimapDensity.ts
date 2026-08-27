@@ -8,8 +8,8 @@ import type { MinimapSnapshot } from "./puzzleStage";
 // and locked scale against their own independent maxima (not a shared one):
 // loose pieces vastly outnumber locked ones for most of the puzzle's life, so
 // a shared max would dilute a handful of locked pieces to near-invisible
-// alpha. Shared by MiniMap.vue and MinimapModal.vue, each with its own
-// projection (toX/toY/scale) into the target canvas. See DECISIONS.
+// alpha. Called by the overview painter with the projection (toX/toY/scale) it
+// laid out for the target canvas. See DECISIONS.
 export function paintDensityGrid(
   ctx: CanvasRenderingContext2D,
   snap: MinimapSnapshot,

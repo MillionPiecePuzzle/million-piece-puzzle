@@ -69,10 +69,6 @@ const DZI_MAX_INFLIGHT = 8;
 // resident for the rest of this layer's life. 64 tiles at ~254px each is a
 // one-time, low-hundreds-of-KB cost regardless of source image size.
 const BASE_LEVEL_MAX_TILES = 64;
-// Rough fixed overhead for reporting purposes only (see budgetBytes): base
-// tiles are never evicted, so unlike every other budget in this file this
-// one is not an eviction threshold, just what residentBytes will include.
-const BASE_LAYER_VRAM_BUDGET_MB = 16;
 // Sized against LOD tiering (see dziTiles.ts's maskTierForZoom and its
 // TIER_ZOOM_BREAKPOINTS), not native per-cell resolution: at native
 // resolution a single cell's mask+seam pair alone is already ~33.6MB decoded
@@ -847,33 +843,6 @@ export class DziRevealLayer {
 
     this.maskCoveredRect = keepRing;
     this.lastBakedGeneration = this.maskGeneration;
-  }
-
-  // Underlay twins are deliberately absent from this sum: they share their
-  // textures with the tiles above, so counting them would double-report VRAM
-  // that was only ever allocated once.
-  residentBytes(): number {
-    let total = 0;
-    for (const tile of this.dziTiles.values()) {
-      if (!tile.sprite) continue;
-      const tex = tile.sprite.texture;
-      total += tex.width * tex.height * 4;
-    }
-    for (const sprite of this.baseTiles) {
-      total += sprite.texture.width * sprite.texture.height * 4;
-    }
-    for (const tile of this.cellAssets.values()) {
-      if (tile.maskSprite)
-        total += tile.maskSprite.texture.width * tile.maskSprite.texture.height * 4;
-      if (tile.seamSprite)
-        total += tile.seamSprite.texture.width * tile.seamSprite.texture.height * 4;
-    }
-    if (this.maskTexture) total += this.maskTexture.width * this.maskTexture.height * 4;
-    return total;
-  }
-
-  budgetBytes(): number {
-    return (DZI_VRAM_BUDGET_MB + BASE_LAYER_VRAM_BUDGET_MB + CELL_ASSET_VRAM_BUDGET_MB) * 1e6;
   }
 
   // Frees everything this layer owns and detaches it from the containers

@@ -6,6 +6,7 @@ import BrandMark from "./BrandMark.vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useAuth } from "../composables/useAuth";
 import { useOptionsModal } from "../composables/useOptionsModal";
+import { useUpdatesSeen } from "../composables/useUpdatesSeen";
 import { useLocaleFormat } from "../i18n/format";
 import { flagUrl } from "../data/flags";
 
@@ -14,6 +15,13 @@ const { formatNumber } = useLocaleFormat();
 const { totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
 const { show: showOptions } = useOptionsModal();
+const { unseen: unseenUpdates } = useUpdatesSeen();
+
+// The dot marks what is behind the gear, so it has to reach the name a screen
+// reader announces too, not only the pixels.
+const optionsLabel = computed(() =>
+  unseenUpdates.value ? t("topbar.optionsNew") : t("topbar.options"),
+);
 
 const progressPct = computed(() =>
   totalPieces.value > 0 ? (lockedCount.value / totalPieces.value) * 100 : 0,
@@ -52,8 +60,8 @@ const progressPct = computed(() =>
         <button
           type="button"
           class="gear"
-          :title="t('topbar.options')"
-          :aria-label="t('topbar.options')"
+          :title="optionsLabel"
+          :aria-label="optionsLabel"
           @click="showOptions"
         >
           <svg
@@ -72,6 +80,7 @@ const progressPct = computed(() =>
               d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
             />
           </svg>
+          <span v-if="unseenUpdates" class="new-dot" aria-hidden="true"></span>
         </button>
       </div>
     </div>
@@ -186,6 +195,7 @@ const progressPct = computed(() =>
   max-width: 22vw;
 }
 .presence .gear {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -203,6 +213,30 @@ const progressPct = computed(() =>
 .presence .gear:hover {
   background: var(--ground-2);
   color: var(--ink);
+}
+/* The ring is the pill the gear sits on, so the dot keeps its edge over the
+   gear's own strokes. */
+.presence .new-dot {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--paper);
+}
+.presence .gear:hover .new-dot {
+  box-shadow: 0 0 0 2px var(--ground-2);
+}
+
+/* The bar is one row of three boxes that all want to grow: the pill drops the
+   total it is measured against before the flanking columns are squeezed down to
+   an ellipsis, since the bar beside it already reads as a ratio. */
+@media (max-width: 560px) {
+  .progress-pill .num span {
+    display: none;
+  }
 }
 
 @media (max-width: 420px) {

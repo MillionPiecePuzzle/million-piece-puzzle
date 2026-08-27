@@ -27,7 +27,7 @@ const en = {
     beFirst: "Be the first to follow along",
     interestCount: "{n} person interested | {n} people interested",
     piecesLockedSuffix: "/ {n} pieces locked",
-    pctComplete: "{p}% complete",
+    pctComplete: "{p} complete",
     completed: "COMPLETED",
     solvedIn: "solved in {duration}",
     liveActivity: "Live activity",
@@ -56,6 +56,7 @@ const en = {
     nationalityTitle: "Nationality: {code}",
     signedInAs: "Signed in as {pseudo}",
     options: "Settings",
+    optionsNew: "Settings, new update notes",
   },
   zoom: {
     in: "Zoom in",
@@ -74,13 +75,7 @@ const en = {
     overview: "Overview",
     online: "{n} online",
     label: "Minimap",
-    openDetail: "Open tile detail view",
-    detailTitle: "Tile load detail",
-    legendLoaded: "Loaded",
-    legendLoading: "Loading",
-    legendNotLoaded: "Not loaded",
-    tilesLoaded: "{loaded} / {total} tiles loaded",
-    memoryUsage: "{used} / {budget}",
+    enlarge: "Enlarge the overview",
   },
   auth: {
     title: "Sync your account",
@@ -102,10 +97,19 @@ const en = {
     changeCountry: "Change country",
     discord: "Join the Discord server",
     updates: "Update notes",
+    updatesNew: "Update notes, new",
     display: {
       title: "Display",
       underlay: "Reference underlay",
       underlayHint: "Show the reference image faintly under the board.",
+      panel: {
+        reference: "Reference",
+        zoom: "Zoom",
+        activity: "Activity",
+        leaderboard: "Leaderboard",
+        minimap: "Minimap",
+        flags: "Flags",
+      },
     },
     signOut: "Sign out",
   },
@@ -121,11 +125,20 @@ const en = {
   },
   updates: {
     title: "Update notes",
+    v120: {
+      panels: "Every panel now has its own switch in the Display section of this menu.",
+      minimap:
+        "The minimap's enlarged view has been reworked: it now opens the same map, simply bigger.",
+      notes:
+        "A dot on the settings button tells you when update notes have arrived that you have not read.",
+      fixes:
+        "Bug fixes: a piece dragged onto a flag in a part of the board you have not visited this session no longer stacks on the flag, plus locked pieces sitting on a tile edge and the progress shown on the home page.",
+    },
     v111: {
       fixes:
         "Bug fixes and performance improvements, around zoom, other players' cursors, flags and the reference photo.",
     },
-    v11: {
+    v110: {
       flags:
         "Personal flags: drop up to 8 markers on the board and jump between them with a click or the 1 to 8 keys.",
       flagDrop:
@@ -142,7 +155,7 @@ const en = {
         "On a phone the interface keeps only the reference and the minimap, and leaves the screen to the board.",
       help: "This menu carries tips, and the leaderboard explains how points are counted.",
     },
-    v10: {
+    v100: {
       launch:
         "Public launch: 1,000,000 unique pieces on a single shared board, playable as a guest with no sign-up, in English, French, Spanish and German.",
     },

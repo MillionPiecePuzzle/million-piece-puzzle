@@ -1,139 +1,41 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { TileState } from "../canvas/reconcile";
-import { drawFlagMarkers } from "../canvas/flagMarker";
+import { MIN_OVERVIEW_ASPECT, drawOverview, overviewAspect } from "../canvas/minimapView";
 import { useMinimap } from "../composables/useMinimap";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useRafLoop } from "../composables/useRafLoop";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
-import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
-const { formatNumber } = useLocaleFormat();
 const emit = defineEmits<{ close: [] }>();
-const { source, detailSource } = useMinimap();
+const { source } = useMinimap();
 const { flags } = useBoardFlags();
 
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const shellEl = ref<HTMLElement | null>(null);
-const memoryLabel = ref("");
-const tilesLabel = ref("");
 const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
 const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
 
-// Same clamp MiniMap.vue applies to the same play zone, so a strongly non-square
-// zone cannot make this grid absurdly wide or tall either.
-const MIN_ASPECT = 1;
-const MAX_ASPECT = 2;
-const shellAspect = ref(MIN_ASPECT);
+const shellAspect = ref(MIN_OVERVIEW_ASPECT);
 
-// The tile scan is cheap but still a whole-zone walk; polling it at animation-
-// frame rate would be wasted work for a diagnostic view, so it is throttled to a
-// few times a second instead of every rAF.
-const POLL_EVERY_N_FRAMES = 15;
-
-function formatBytes(bytes: number): string {
-  return `${formatNumber(Math.round(bytes / 1e6))} MB`;
-}
-
-function colorForState(state: TileState): string {
-  switch (state) {
-    case "loaded":
-      return "#6f9c6a";
-    case "loading":
-      return "#d5875a";
-    default:
-      return "#c9c3b3";
-  }
-}
-
+// The minimap panel's own map at a size that can be read rather than only aimed
+// at. Same painter, same per-frame cadence, so the frustum, the flags and the
+// piece dots track the board here exactly as they do in the panel. Nothing here
+// takes a pointer: the panel stays the one place a press moves the camera.
 function draw(): void {
-  const canvas = canvasEl.value;
   const snap = source.value?.() ?? null;
-  const detail = detailSource.value?.() ?? null;
-  if (!canvas || !snap || !detail) return;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const zone = snap.playZone;
-  const zoneW = zone.maxX - zone.minX;
-  const zoneH = zone.maxY - zone.minY;
-  if (zoneW <= 0 || zoneH <= 0) return;
-  shellAspect.value = Math.min(MAX_ASPECT, Math.max(MIN_ASPECT, zoneW / zoneH));
-
-  const dpr = window.devicePixelRatio || 1;
-  const cw = Math.round(canvas.clientWidth * dpr);
-  const ch = Math.round(canvas.clientHeight * dpr);
-  if (cw === 0 || ch === 0) return;
-  if (canvas.width !== cw) canvas.width = cw;
-  if (canvas.height !== ch) canvas.height = ch;
-
-  ctx.fillStyle = "#e9e3d3";
-  ctx.fillRect(0, 0, cw, ch);
-
-  const scale = Math.min(cw / zoneW, ch / zoneH);
-  const offX = (cw - zoneW * scale) / 2;
-  const offY = (ch - zoneH * scale) / 2;
-  const toX = (wx: number): number => offX + (wx - zone.minX) * scale;
-  const toY = (wy: number): number => offY + (wy - zone.minY) * scale;
-
-  const cellPx = detail.tiles.cellWorld * scale + 1;
-  let loaded = 0;
-  for (const cell of detail.tiles.cells) {
-    ctx.fillStyle = colorForState(cell.state);
-    ctx.fillRect(
-      toX(cell.cx * detail.tiles.cellWorld),
-      toY(cell.cy * detail.tiles.cellWorld),
-      cellPx,
-      cellPx,
-    );
-    if (cell.state === "loaded") loaded++;
-  }
-
-  // Puzzle frame, over the tile grid: the same anchor rectangle MiniMap.vue
-  // outlines, so the load state reads against a fixed reference instead of
-  // floating in blank space.
-  const fx = toX(0);
-  const fy = toY(0);
-  const fw = snap.frame.w * scale;
-  const fh = snap.frame.h * scale;
-  ctx.fillStyle = "rgba(21,20,15,0.05)";
-  ctx.fillRect(fx, fy, fw, fh);
-  ctx.strokeStyle = "rgba(21,20,15,0.45)";
-  ctx.lineWidth = Math.max(1, dpr);
-  ctx.strokeRect(fx, fy, fw, fh);
-
-  // Camera frustum, on top of everything: where the player is looking right
-  // now relative to the load state around it.
-  if (snap.viewport) {
-    const v = snap.viewport;
-    const vx = toX(v.worldX);
-    const vy = toY(v.worldY);
-    const vw = v.worldW * scale;
-    const vh = v.worldH * scale;
-    ctx.fillStyle = "rgba(213,135,90,0.14)";
-    ctx.fillRect(vx, vy, vw, vh);
-    ctx.strokeStyle = "rgb(213,135,90)";
-    ctx.lineWidth = Math.max(1, 1.5 * dpr);
-    ctx.strokeRect(vx, vy, vw, vh);
-  }
-
-  drawFlagMarkers(ctx, flags.value, toX, toY, dpr);
-
-  tilesLabel.value = t("minimap.tilesLoaded", {
-    loaded: formatNumber(loaded),
-    total: formatNumber(detail.tiles.cells.length),
-  });
-  memoryLabel.value = t("minimap.memoryUsage", {
-    used: formatBytes(detail.memory.usedBytes),
-    budget: formatBytes(detail.memory.budgetBytes),
-  });
+  if (!snap) return;
+  const aspect = overviewAspect(snap);
+  if (aspect === null) return;
+  shellAspect.value = aspect;
+  const canvas = canvasEl.value;
+  if (!canvas) return;
+  drawOverview(canvas, snap, flags.value);
 }
 
-useRafLoop(draw, POLL_EVERY_N_FRAMES);
+useRafLoop(draw);
 
 onMounted(trap.activate);
 </script>
@@ -146,25 +48,16 @@ onMounted(trap.activate);
         class="shell"
         role="dialog"
         aria-modal="true"
-        :aria-label="t('minimap.detailTitle')"
+        :aria-label="t('minimap.overview')"
         :style="{ '--ar': shellAspect }"
       >
         <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
           &times;
         </button>
-        <h3 class="title">{{ t("minimap.detailTitle") }}</h3>
-        <div class="grid-wrap">
+        <h3 class="title">{{ t("minimap.overview") }}</h3>
+        <div class="map-wrap">
           <canvas ref="canvasEl"></canvas>
-          <div class="readout">
-            <div>{{ memoryLabel }}</div>
-            <div>{{ tilesLabel }}</div>
-          </div>
         </div>
-        <ul class="legend">
-          <li><span class="swatch loaded"></span>{{ t("minimap.legendLoaded") }}</li>
-          <li><span class="swatch loading"></span>{{ t("minimap.legendLoading") }}</li>
-          <li><span class="swatch not-loaded"></span>{{ t("minimap.legendNotLoaded") }}</li>
-        </ul>
       </div>
     </div>
   </Teleport>
@@ -189,7 +82,12 @@ onMounted(trap.activate);
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(90vw, 720px);
+  /* Width the map fits in on both axes: the last term is the widest a map of
+     this aspect can be while its height still clears the modal's own chrome and
+     the backdrop padding, so a short window (a phone held sideways) shrinks the
+     map instead of running it off the screen. No lower bound, since any floor
+     above that term is exactly what would push it off again. */
+  width: min(100%, 880px, calc((100dvh - 200px) * var(--ar)));
   padding: 16px 18px 14px;
   background: var(--paper);
   border: 1px solid var(--line);
@@ -199,7 +97,7 @@ onMounted(trap.activate);
 .title {
   padding-right: 28px;
 }
-.grid-wrap {
+.map-wrap {
   position: relative;
   width: 100%;
   aspect-ratio: var(--ar);
@@ -208,55 +106,10 @@ onMounted(trap.activate);
   background: #e9e3d3;
   border: 1px solid var(--line-2);
 }
-.grid-wrap canvas {
+.map-wrap canvas {
   display: block;
   width: 100%;
   height: 100%;
-}
-.readout {
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  padding: 5px 9px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
-  line-height: 1.3;
-  color: var(--ink-2);
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: var(--radius-btn);
-  box-shadow: var(--shadow-panel);
-}
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-.legend li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.swatch {
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
-  display: inline-block;
-}
-.swatch.loaded {
-  background: #6f9c6a;
-}
-.swatch.loading {
-  background: #d5875a;
-}
-.swatch.not-loaded {
-  background: #c9c3b3;
 }
 .close {
   position: absolute;

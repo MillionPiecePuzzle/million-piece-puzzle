@@ -62,9 +62,17 @@ a {
   backdrop-filter: blur(2px);
   display: grid;
   place-items: center;
+  padding: 16px;
 }
 
+/* The backdrop's padded grid area is all the room a modal gets, on both axes:
+   a shell taller than the viewport scrolls inside itself rather than off the
+   top and bottom of it. Sized against the box rather than against `vh`, so the
+   browser chrome a phone shows and hides is already accounted for. */
 .modal-shell {
+  max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);

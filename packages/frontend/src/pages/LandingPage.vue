@@ -9,7 +9,7 @@ import LanguageSwitcher from "../components/LanguageSwitcher.vue";
 import LeaderboardRow from "../components/LeaderboardRow.vue";
 import { useCountdown } from "../composables/useCountdown";
 import { useRelativeTime } from "../composables/useRelativeTime";
-import { useLocaleFormat } from "../i18n/format";
+import { flooredPercent, useLocaleFormat } from "../i18n/format";
 import {
   backendRetryDelayMs,
   interestedUrl,
@@ -21,7 +21,7 @@ import { toLeaderboardRows } from "../data/leaderboard";
 
 const router = useRouter();
 const { t } = useI18n();
-const { formatNumber, formatDate } = useLocaleFormat();
+const { formatNumber, formatPercent, formatDate } = useLocaleFormat();
 const { relativeTime } = useRelativeTime();
 
 const INTERESTED_KEY = "mpp.interested";
@@ -50,10 +50,20 @@ const phase = computed<"scheduled" | "live" | "completed">(() => {
   return launched.value ? "live" : "scheduled";
 });
 
-const progressPct = computed(() => {
-  const { locked, total } = progress.value;
-  return total > 0 ? Math.min(100, (locked / total) * 100) : 0;
-});
+// Three decimals so the readout still moves at the scale it counts in: on the
+// 1M board one step is 10 pieces, where a second decimal would sit on 0.00%
+// for the first hundred and on 99.99% for the last hundred.
+const PROGRESS_DECIMALS = 3;
+
+const progressPct = computed(() =>
+  flooredPercent(progress.value.locked, progress.value.total, PROGRESS_DECIMALS),
+);
+
+// A finished board reads 100%, not 100.000%: the decimals earn their place only
+// while the number is still moving.
+const progressPctLabel = computed(() =>
+  formatPercent(progressPct.value, progressPct.value === 100 ? 0 : PROGRESS_DECIMALS),
+);
 
 // Anonymous viewer, so no "you" row to highlight: pass a null user id.
 const liveLeaders = computed(() => toLeaderboardRows(leaderboard.value, null).slice(0, 6));
@@ -209,7 +219,7 @@ onUnmounted(() => {
             <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
           </div>
           <p class="progress-pct">
-            {{ t("landing.pctComplete", { p: progressPct.toFixed(progressPct < 10 ? 2 : 1) }) }}
+            {{ t("landing.pctComplete", { p: progressPctLabel }) }}
           </p>
         </div>
 

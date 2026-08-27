@@ -11,7 +11,9 @@ const { t } = useI18n();
 const { state } = usePuzzleSession();
 
 const host = ref<HTMLDivElement | null>(null);
-const aspectRatio = ref("16 / 9");
+// Drives both the thumbnail's shape and the panel's own width cap, so it has to
+// be a bare number the stylesheet can multiply a height budget by.
+const aspect = ref(16 / 9);
 const showModal = ref(false);
 
 const currentManifest = computed(() =>
@@ -28,7 +30,7 @@ let openedPuzzleId: string | null = null;
 function showReference(manifest: ImageManifest): void {
   if (!viewer || manifest.puzzleId === openedPuzzleId) return;
   openedPuzzleId = manifest.puzzleId;
-  aspectRatio.value = `${manifest.source.width} / ${manifest.source.height}`;
+  aspect.value = manifest.source.width / manifest.source.height;
   const base = manifestBaseUrl(manifestUrlFor(manifest.puzzleId));
   const dziUrl = base + manifest.source.dzi;
   viewer.open(dziUrl as unknown as OpenSeadragon.TileSourceSpecifier);
@@ -64,10 +66,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside class="panel reference">
+  <aside class="panel reference" :style="{ '--ar': aspect }">
     <h3>{{ t("reference.title") }}</h3>
     <div class="preview">
-      <div ref="host" class="osd" :style="{ aspectRatio }" />
+      <div ref="host" class="osd" />
       <button
         type="button"
         class="open"
@@ -87,18 +89,27 @@ onBeforeUnmount(() => {
         </span>
       </button>
     </div>
-  </aside>
 
-  <ReferenceModal
-    v-if="showModal && currentManifest"
-    :manifest="currentManifest"
-    @close="showModal = false"
-  />
+    <!-- Inside the panel rather than beside it: the modal teleports to the body
+         either way, and a single root is what lets the rail set a class on this
+         component at all. -->
+    <ReferenceModal
+      v-if="showModal && currentManifest"
+      :manifest="currentManifest"
+      @close="showModal = false"
+    />
+  </aside>
 </template>
 
 <style scoped>
+/* Three caps, and the last one is what keeps a tall reference image (or a short
+   window) from letting this panel eat its rail: the room the left rail has left
+   once the topbar, its own insets, the zoom pillar, a readable activity list and
+   this panel's own chrome are taken out, converted to a width through the image
+   aspect. Shrinking the whole panel keeps the thumbnail exactly the shape of
+   the photo, where clamping its height alone would letterbox it. */
 .reference {
-  width: min(280px, calc(50vw - 24px));
+  width: min(280px, var(--hud-rail-max), calc((100dvh - 440px) * var(--ar)));
   padding: 12px 14px;
 }
 .reference h3 {
@@ -110,6 +121,7 @@ onBeforeUnmount(() => {
 .osd {
   position: relative;
   width: 100%;
+  aspect-ratio: var(--ar);
   overflow: hidden;
   border-radius: var(--radius-row);
   background: var(--ground-2);
@@ -154,9 +166,11 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
-@media (max-width: 680px) {
+/* The rail is down to this panel alone here, so the height budget drops to the
+   topbar, the tighter insets and this panel's own chrome. */
+@media (max-width: 680px), (max-height: 480px) {
   .reference {
-    width: min(152px, calc(50vw - 20px));
+    width: min(152px, calc(50vw - 20px), calc((100dvh - 120px) * var(--ar)));
     padding: 8px 9px;
   }
 }

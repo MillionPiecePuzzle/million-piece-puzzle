@@ -45,22 +45,40 @@ function widen([min, max]: [number, number], hi: number): [number, number] {
   return [Math.max(0, min - 1), Math.min(hi, max + 1)];
 }
 
-// The world-grid cell that owns a given grid id's canonical position, the same
-// cell a locked piece is indexed under everywhere else (broadcast scoping,
-// LockedPieceIndex). Used to translate a merge's newly-locked piece ids into
-// the cells that need a fresh composite bake.
-export function cellKeyForGridId(
+// Every world-grid cell whose composite has to contain a given grid id, used
+// to translate a merge's newly-locked piece ids into the cells that need a
+// fresh bake. Not just the cell owning the piece's canonical position:
+// cellSize is not a multiple of pieceSize, so a piece can straddle a cell
+// boundary, and the owning cell's canvas then stops a margin past that
+// boundary while the piece runs almost a full pieceSize further. Only the
+// neighbour's canvas covers the rest, which is why every cell the piece's own
+// box spans is returned (1 to 4 of them, both axes). Each of those already
+// carries the piece in its halo (see haloGridIdsForCell), so this is never
+// wider than the set of cells that would actually draw it.
+export function cellKeysForGridId(
   gridId: number,
   gridCols: number,
   pieceSize: number,
   cellSize: number,
-): number {
-  const col = gridId % gridCols;
-  const row = Math.floor(gridId / gridCols);
-  return cellKey(
-    Math.floor((col * pieceSize) / cellSize),
-    Math.floor((row * pieceSize) / cellSize),
-  );
+): number[] {
+  const [cxMin, cxMax] = spannedCells(gridId % gridCols, pieceSize, cellSize);
+  const [cyMin, cyMax] = spannedCells(Math.floor(gridId / gridCols), pieceSize, cellSize);
+  const out: number[] = [];
+  for (let cy = cyMin; cy <= cyMax; cy++) {
+    for (let cx = cxMin; cx <= cxMax; cx++) out.push(cellKey(cx, cy));
+  }
+  return out;
+}
+
+// The cell indexes one axis of a piece's nominal box spans, half-open at the
+// far end: a box ending exactly on a cell boundary stops at the cell before
+// it, since whatever tab crosses that boundary still fits inside the owning
+// cell canvas's own margin bleed.
+function spannedCells(index: number, pieceSize: number, cellSize: number): [number, number] {
+  return [
+    Math.floor((index * pieceSize) / cellSize),
+    Math.floor(((index + 1) * pieceSize - 1) / cellSize),
+  ];
 }
 
 // Every cell key that owns at least one real piece, across the whole grid.

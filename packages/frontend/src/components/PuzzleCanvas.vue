@@ -29,11 +29,12 @@ const {
   sendGrab,
   sendDrag,
   sendDrop,
+  sendDropNear,
   sendViewport,
   sendCursor,
 } = usePuzzleSession();
 const { setControls, setCamera, setReady } = useStageControls();
-const { setMinimapSource, setMinimapNavigate, setMinimapDetailSource } = useMinimap();
+const { setMinimapSource, setMinimapNavigate } = useMinimap();
 const {
   flags: boardFlags,
   selectedId: selectedFlagId,
@@ -293,6 +294,7 @@ onMounted(async () => {
     onGrab: (groupId) => sendGrab(groupId),
     onDrag: (groupId, x, y) => sendDrag(groupId, x, y),
     onDrop: (groupId, x, y) => sendDrop(groupId, x, y),
+    onDropNear: (groupId, x, y) => sendDropNear(groupId, x, y),
   });
   stage.onCameraChange = (camera) => setCamera(camera);
   stage.onViewportChange = (vp) => queueViewport(vp);
@@ -318,7 +320,6 @@ onMounted(async () => {
   });
   setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
   setMinimapNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
-  setMinimapDetailSource(() => stage?.getMinimapDetailSnapshot() ?? null);
   unsubscribe = onMessage(routeMessage);
   // Guest-first: the canvas is WS-only. It connects once a complete identity
   // exists (mode flips to contributor on a resolved session or a freshly minted
@@ -436,7 +437,6 @@ onBeforeUnmount(() => {
   setReady(false);
   setMinimapSource(null);
   setMinimapNavigate(null);
-  setMinimapDetailSource(null);
   close();
   stage?.destroy();
   stage = null;
@@ -580,6 +580,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-content: center;
   justify-items: center;
+  padding: 16px;
   text-align: center;
   color: var(--ink-3);
   /* Opaque cover (matching the stage backdrop) so the previous board is hidden
@@ -609,13 +610,17 @@ onBeforeUnmount(() => {
   color: oklch(0.55 0.18 30);
   max-width: 480px;
 }
+/* Three uppercase labels in four locales: they wrap onto a second line on a
+   narrow screen rather than running off both sides of it. */
 .steps {
   list-style: none;
   margin: 20px 0 0;
   padding: 0;
   display: flex;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: 10px 18px;
   align-items: center;
+  justify-content: center;
 }
 .steps li {
   display: flex;
@@ -723,6 +728,10 @@ onBeforeUnmount(() => {
   transform: translate(-50%, -50%);
   width: 380px;
   max-width: calc(100vw - 32px);
+  /* The stage clips its overflow, so on a short viewport the card scrolls
+     inside itself rather than losing its ends off the top and bottom. */
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
   padding: 32px 40px;
   text-align: center;
   background: rgba(255, 255, 255, 0.96);
@@ -847,8 +856,8 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translate(-50%, -8px);
 }
-/* Above the flag bar, which owns the bottom-center strip on desktop; back down
-   to the screen edge below the breakpoint, where the bar is not rendered. */
+/* Above the flag bar, which owns the bottom-center strip; back down to the
+   screen edge on a compact viewport, where the bar is not rendered. */
 .toast {
   position: absolute;
   left: 50%;
@@ -927,7 +936,7 @@ onBeforeUnmount(() => {
   transform: translate(-50%, 8px);
 }
 
-@media (max-width: 680px) {
+@media (max-width: 680px), (max-height: 480px) {
   .toast,
   .carry-hint {
     bottom: 32px;

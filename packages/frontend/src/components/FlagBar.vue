@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from "vue";
+import { computed, onBeforeUnmount, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { FLAG_COLORS, type BoardFlag } from "../data/boardFlags";
 import type { FlagDropTarget } from "../canvas/flagDrop";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useStageControls } from "../composables/useStageControls";
-import { useWideViewport } from "../composables/useWideViewport";
+import { useDisplaySettings } from "../composables/useDisplaySettings";
 
 const { t } = useI18n();
 const { controls } = useStageControls();
@@ -23,7 +23,7 @@ function setButtonEl(id: string, el: unknown): void {
 }
 
 function dropTargets(): FlagDropTarget[] {
-  if (!wide.value) return [];
+  if (!shown.value) return [];
   const targets: FlagDropTarget[] = [];
   for (const flag of flags.value) {
     const el = buttonEls.get(flag.id);
@@ -32,10 +32,13 @@ function dropTargets(): FlagDropTarget[] {
   return targets;
 }
 
-// Pointer-driven and bottom-center: the bar has no room on a phone, where the
-// minimap already holds that edge. Gated in JS rather than in CSS so the number
-// keys go with it.
-const { wide } = useWideViewport();
+// Pointer-driven and bottom-center: the bar has no room on a compact viewport,
+// where the minimap already holds that edge, and the options menu does not offer
+// it there. Gated in JS rather than in CSS so the number keys, and the rects a
+// drag is hit-tested against, go with it. Left out rather than hidden in place,
+// since nothing is positioned against it.
+const { visiblePanels } = useDisplaySettings();
+const shown = computed(() => visiblePanels.value.flags);
 
 function goTo(flag: BoardFlag): void {
   controls.value?.centerOnWorld(flag.worldX, flag.worldY);
@@ -50,7 +53,7 @@ function addHere(): void {
 // 1 to 8 jump to the flag in that slot. Ignored while a dialog is open or while
 // the press is going into a field, so typing a pseudo never moves the board.
 function onKeydown(ev: KeyboardEvent): void {
-  if (!wide.value || ev.altKey || ev.ctrlKey || ev.metaKey || ev.repeat) return;
+  if (!shown.value || ev.altKey || ev.ctrlKey || ev.metaKey || ev.repeat) return;
   const slot = Number(ev.key);
   if (!Number.isInteger(slot) || slot < 1 || slot > flags.value.length) return;
   const target = ev.target;
@@ -79,7 +82,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    v-if="wide"
+    v-if="shown"
     class="flag-bar"
     :class="{ dropping: dropHoverId !== null }"
     role="group"
@@ -132,15 +135,25 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Centered in the strip the two rails leave, not on the viewport: nine 51px
+   targets come to 455px, which reaches under the activity ticker and the
+   minimap well before a laptop-width screen. Bounding the box to the strip
+   (--hud-rail-max comes from .stage in PlayPage.vue) wraps the row inside it
+   instead of sliding it under either panel; the rails are capped at the same
+   width on both sides, so the bar still reads as centered. */
 .flag-bar {
   position: absolute;
-  left: 50%;
+  left: calc(16px + var(--hud-rail-max) + 12px);
+  right: calc(16px + var(--hud-rail-max) + 12px);
   bottom: 16px;
-  transform: translateX(-50%);
+  width: fit-content;
+  margin: 0 auto;
   z-index: 10;
   pointer-events: auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 3px;
   padding: 6px;
   background: rgba(255, 255, 255, 0.92);

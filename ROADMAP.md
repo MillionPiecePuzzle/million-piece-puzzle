@@ -1,6 +1,6 @@
 # Roadmap
 
-Work is tracked by version. v1.1.1 is live in prod, and the next version opens when the first backlog item is promoted into it. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
+Work is tracked by version, numbered `major.minor.patch`. v1.2.0 is live in prod, and the next version opens when the first backlog item is promoted into it. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
 
 Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
@@ -20,7 +20,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ---
 
-## Before v1.0
+## Before v1.0.0
 
 Four milestones, all met, condensed to what they achieved. The detail lives in the code and in [DECISIONS.md](DECISIONS.md).
 
@@ -42,7 +42,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ---
 
-## v1.0, Launch Readiness, RELEASED
+## v1.0.0, Launch Readiness, RELEASED
 
 **Exit criterion (met)**: the puzzle serves the real photo mosaic at full production scale; locked pieces render from server-composited tiles with resident memory inside budget past 995 000 locked pieces and no unlocked cluster exceeding `MPP_CLUSTER_PIECE_CAP`; player diagnostics, self-hosted analytics, and search discoverability are all live in prod; a clustered load-test run against prod passes a clean visual and state-corruption check.
 
@@ -56,7 +56,6 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 - [x] Umami tracking script (`VITE_UMAMI_URL`/`VITE_UMAMI_WEBSITE_ID`), inert outside prod; Umami's own automatic SPA route tracking distinguishes `/play` from `/` with no extra code; operator self-exclusion link on the admin page
 
 ### `frontend-canvas`
-- [x] Minimap detail modal: whole-play-zone tile grid (not loaded / loading / loaded) plus a compact memory readout, opened from the minimap via an expand button. See DECISIONS
 - [x] Locked pieces render from `DziRevealLayer`: the reference DZI pyramid revealed through a server-baked per-piece silhouette mask plus a seam overlay, decoupled from `GroupNode`/`hydrateGroup`
 - [x] Minimap header shows a live connected-player count next to a status dot, sourced from the existing join/leave broadcast (`SJoin`/`SLeave`/`SWelcome` `count`, `Hub.clientCount()`), no new WS message. See DECISIONS
 
@@ -83,7 +82,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ---
 
-## v1.1, RELEASED
+## v1.1.0, RELEASED
 
 **Exit criterion (met)**: every task below shipped to prod.
 
@@ -91,7 +90,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 - [x] A phone gets the board instead of a HUD: the leaderboard, the live activity and the zoom controls are not rendered below the 680px breakpoint, leaving the reference thumbnail in one corner and the minimap in the other, and all three come back on a widening viewport with no reload. See DECISIONS
 - [x] The account menu carries a stepped tips strip (one-line hints, an arrow on either side, no screen of its own) and the leaderboard panel an info control opening a scoring explainer: one point per piece credited once, why the standings run ahead of the locked counter, why snapping a 30-piece cluster credits one point and not thirty. EN/FR/ES/DE
-- [x] The account menu opens update notes: a modal listing the shipped versions newest first, each a dated heading over player-facing one-liners, seeded with v1.1 and the v1.0 launch. The menu rows run sync, Discord, pseudo, country, update notes, so the two profile edits sit together and the outward links lead. The menu shell scrolls past a phone viewport instead of overflowing it. EN/FR/ES/DE
+- [x] The account menu opens update notes: a modal listing the shipped versions newest first, each a dated heading over player-facing one-liners, seeded with v1.1.0 and the v1.0.0 launch. The menu rows run sync, Discord, pseudo, country, update notes, so the two profile edits sit together and the outward links lead. The menu shell scrolls past a phone viewport instead of overflowing it. EN/FR/ES/DE
 
 ### `backend-realtime`
 
@@ -125,17 +124,42 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ---
 
+## v1.2.0, RELEASED
+
+**Exit criterion (met)**: every task below shipped to prod.
+
+### `frontend-shell`
+
+- [x] A release nobody has read marks itself in the HUD: an accent dot sits on the topbar gear and on the options menu's Update notes row, both answering the newest version in `releases.ts` against the last one this browser was shown (`mpp.updatesSeen`). Opening the notes clears both, opening the menu that links to them does not, and a browser with nothing stored is seeded as read so a first-time player's settings menu is never marked new. The mark reaches the accessible name of both buttons, EN/FR/ES/DE. See DECISIONS
+- [x] Every HUD panel has its own switch in the Display section of the options menu (reference, zoom, activity, leaderboard, minimap, flags), the choice kept per browser like the rest of the display preferences. A panel nobody has touched follows its viewport default, so a phone still opens on the board with the reference thumbnail and the minimap alone while the four it drops now have a way back onto it. Switching one off never moves another: on the left rail, where the zoom pillar sits between its two neighbours, a switched-off panel is hidden where it stands instead of dropped from the column. EN/FR/ES/DE. See DECISIONS
+
+- [x] `/play` lays out inside every viewport it opens in. A compact one (at most 680px wide or 480px tall, so a phone either way up) draws the reference thumbnail and the minimap alone: the leaderboard, the activity ticker, the zoom pillar and the flag bar are neither rendered nor offered in the options menu's Display section there. Above that, neither rail can overflow the stage (the two aspect-bound panels size themselves against the height left for them, the two list panels scroll their own list) and the flag bar lays out in the strip the rails leave rather than under them; every modal is bounded by the viewport it opens in and scrolls inside itself. Verified by measured rects across 13 sizes from 320x568 to 1920x1080. EN/FR/ES/DE. See DECISIONS
+
+- [x] The landing never announces a board that is not finished: its percentage floors the locked/total ratio to three decimals instead of rounding it, so the last 500 pieces read 99.950% to 99.999% where they used to read 100.0%, and 63 pieces read 0.006% rather than 0.01%. The floor runs on the integer ratio, a finished board drops the decimals to read 100%, and the percent sign comes from Intl so fr, es and de carry their no-break space. EN/FR/ES/DE. See DECISIONS
+
+### `frontend-canvas`
+
+- [x] The minimap's expand button opens the panel's own overview at a readable size instead of a separate view: one painter (`canvas/minimapView.ts`) draws both, so the enlarged map shows the same density grid, piece dots, frame, frustum and flags, tracking the board frame by frame. The modal takes no pointer at all and the panel pauses its own paint while it is open; the panel, still the one place a press jumps the camera, does it under the plain arrow rather than a grab hand. Verified on the local 1M board. EN/FR/ES/DE. See DECISIONS
+
+### `backend-realtime`
+
+- [x] A locked piece straddling a world-grid cell boundary renders whole instead of cut off along a straight line partway across itself. `WORLD_TILE_SIZE` is not a multiple of `pieceSize`, so 55 of the 1000 columns and 55 of the 1000 rows cross a boundary, and a lock only ever marked the cell owning the piece's canonical position dirty: the owning cell's composite canvas stops one margin past the boundary while the piece runs almost a full `pieceSize` further, leaving the rest of its silhouette in no composite at all until an unrelated later lock in the neighbouring cell happened to rebake it. A lock now marks every cell the piece's own box reaches into (1 to 4, never wider than the halo that would draw it). Cells baked before this shipped keep their gap until their next rebake; no resweep is planned.
+- [x] A cluster dropped on a flag lands on a patch that is actually free, including in board this client has never streamed, where the local search has nothing to avoid and stacks it on pieces it cannot see. The landing spot is resolved by the server against its own complete indexes and dropped through the normal path, merge detection included; the client's own search stays as the optimistic placement the authoritative echo corrects. A flag standing in a cell already at `tilePieceCap` no longer bounces the piece back to where it was picked up. See DECISIONS
+- [x] A dropped socket names its own cause instead of both ends going silent: the server logs every close with its code, its reason and how long the connection lived, and tags the two closes it issues itself (a heartbeat reap on a missed pong, a 1013 slow-consumer close with the buffered bytes that tripped it); the client logs the close code, whether the frame was clean, and the longest stretch its own main thread went unserviced, which is what separates a background tab the browser stopped servicing from a network fault and from a server-side reap.
+
+---
+
 ## Backlog
 
 Ideas and open fixes worth keeping but not yet committed to a version. Promote into a version track when scope and timing are clear.
 
-- **Locale-prefixed URLs for search.** The SEO metadata work (v1.0) is English-only because locale is chosen client-side (`localStorage`/browser language) with no URL segmentation, so a search engine can only index one language version of `/`. Ranking for non-English queries (e.g. French "puzzle le plus grand") needs its own crawlable URL per locale (`/fr/`, `/es/`, `/de/`), native-language meta strings, hreflang alternates, and rewiring every internal link (language switcher, router pushes) to a locale-aware path: a router restructuring, not a metadata tweak. See [DECISIONS](DECISIONS.md#2026-08-17-frontend-shell-seo-metadata-is-english-only-corrected-per-route-in-js-rather-than-per-locale).
+- **Locale-prefixed URLs for search.** The SEO metadata work (v1.0.0) is English-only because locale is chosen client-side (`localStorage`/browser language) with no URL segmentation, so a search engine can only index one language version of `/`. Ranking for non-English queries (e.g. French "puzzle le plus grand") needs its own crawlable URL per locale (`/fr/`, `/es/`, `/de/`), native-language meta strings, hreflang alternates, and rewiring every internal link (language switcher, router pushes) to a locale-aware path: a router restructuring, not a metadata tweak. See [DECISIONS](DECISIONS.md#2026-08-17-frontend-shell-seo-metadata-is-english-only-corrected-per-route-in-js-rather-than-per-locale).
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out early and relax it as pieces are placed, to bound the visible piece count. A fixed 15% zoom floor already exists (see [play-zone hard limits](DECISIONS.md#2026-05-21-frontend-canvas-play-zone-hard-limits)); the progress-relative version is the open idea.
 - **Coordinate HUD overlay.** Small overlay showing viewport position (XY, sector, zoom). Needs a "sector" concept first. Revisit at 1M when orientation becomes a real problem.
 - **Peer cursor scope entry and exit announced on the wire.** A cursor is relayed only to the clients subscribed to the one world-grid cell its point falls in, and neither end of that scope is announced, so both transitions are guesswork on the client. Entering: a player who jumps into a busy area sees nobody there until each peer happens to move their mouse. Leaving: a peer who jumps away simply goes silent, indistinguishable from one who let go of the mouse, so their pointer stands where they left it until v1.1.1's client-side expiry retires it 10s later. The server can answer both from state it already holds, by keeping each connection's last cursor and the cell it fell in: answer a `viewport` that enters new cells with the cursors of the peers now in scope, and on a cursor crossing into another cell tell the old cell's subscribers (minus the new cell's) that the pointer is gone. That is one extra broadcast per cell crossing rather than per message, walking the same cell subscriber sets a scoped broadcast already walks. Costs two new server messages.
 - **Firewall the origin to Cloudflare IP ranges.** Closes the last DDoS gap: the VPS is still directly reachable so the edge is bypassable and `CF-Connecting-IP` is spoofable. Steps in [DECISIONS topology](DECISIONS.md#2026-05-18-infra-deploy-alpha-topology).
 - **Locked vs unlocked piece differentiation.** Locked and unlocked content already render through separate layers (`DziRevealLayer` against `unlockedLayer`), so a per-layer treatment (contrast, saturation, seam emphasis, an outline on free pieces) costs nothing per piece. Zoom-out LOD bakes tiles, so a per-piece effect such as a drop shadow will not survive the LOD band while a per-layer color treatment will. Direction still open: make free pieces stand out, or make locked content recede.
-- **Toggleable HUD windows.** Each panel individually hidable, driven by mobile where even the two panels left on screen compete with the board. This is the mobile navigation the responsive pass already named as its own revisit condition (see [DECISIONS](DECISIONS.md#2026-08-06-frontend-shell-the-hud-keeps-only-the-reference-thumbnail-and-the-minimap-on-a-phone)): panels collapse into a real control surface, and the ones a phone no longer shows get a way back onto it at all. On a phone an always-visible icon bar beats a setting buried in a modal, and that bar competes for the same screen edge as the flag bar, which already sits bottom-center on desktop.
+- **An on-canvas HUD control surface.** The panel switches live in the options menu; the open idea is an always-visible icon bar that toggles them without opening a modal at all. It competes for the same screen edge as the flag bar, which already sits bottom-center, so it needs a layout answer before it is worth building.
 - **Shareable viewport deep link.** `/play` accepting a position and zoom in the query string, so a spot on the board can be linked in Discord ("help here") or bookmarked outside the app. Sibling of the personal flags and the natural way to share one, which they deliberately are not (strictly personal, client-side). No secret is exposed: board coordinates are already client-visible, unlike the seed-permuted piece ids.
 - **Per-piece attribution.** Who placed a given piece, and when, surfaced on a locked piece in the canvas. The data model already answers it with no new storage (the first `ClusterMerge` by `at` whose `droppedPieceIds` contains the piece), so the work is a lookup route, the matching index, and the UI affordance. Pairs with the leaderboard explainer: it makes the scoring rule visible on the board itself.
 - **Timelapse.** Replay the board's assembly by walking `ClusterMerge` in `at` order, geometry reconstructed from `generationSeed`. Designed for since the start, never built, and a project in its own right rather than a feature to slip into another chantier. The obvious payoff is shareable footage of a months-long build.
