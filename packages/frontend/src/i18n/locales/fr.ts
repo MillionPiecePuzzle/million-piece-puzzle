@@ -128,6 +128,20 @@ const fr: MessageSchema = {
   },
   updates: {
     title: "Notes de mises à jour",
+    v120: {
+      panels:
+        "Chaque panneau a désormais son propre interrupteur dans la section Affichage de ce menu, pour ne garder que ceux qui vous servent.",
+      layout:
+        "L'interface s'adapte à tous les écrans, du téléphone tenu à l'horizontale au grand moniteur.",
+      minimap:
+        "Le bouton d'agrandissement de la mini-carte ouvre la même carte à une taille lisible, qui suit le plateau en direct.",
+      flagDrop:
+        "Une pièce envoyée sur un drapeau se pose maintenant à un endroit réellement libre, même dans une zone du plateau que vous n'avez jamais visitée.",
+      notes:
+        "Une pastille sur le bouton des réglages signale les notes de mise à jour que vous n'avez pas encore lues.",
+      fixes:
+        "Corrections de bugs, autour des pièces verrouillées à cheval sur une tuile et de la progression affichée sur la page d'accueil.",
+    },
     v111: {
       fixes:
         "Corrections de bugs et améliorations de performances, autour du zoom, des curseurs des autres joueurs, des drapeaux et de l'image de référence.",

@@ -125,6 +125,20 @@ const en = {
   },
   updates: {
     title: "Update notes",
+    v120: {
+      panels:
+        "Every panel now has its own switch in the Display section of this menu, so you can keep only the ones you use.",
+      layout:
+        "The interface lays out inside any screen it opens in, from a phone held sideways to a large monitor.",
+      minimap:
+        "The minimap's expand button opens the same map at a readable size, following the board live.",
+      flagDrop:
+        "A piece sent to a flag now lands on a spot that is really free, even in a part of the board you have never visited.",
+      notes:
+        "A dot on the settings button tells you when update notes have arrived that you have not read.",
+      fixes:
+        "Bug fixes, around locked pieces sitting on a tile edge and the progress shown on the home page.",
+    },
     v111: {
       fixes:
         "Bug fixes and performance improvements, around zoom, other players' cursors, flags and the reference photo.",

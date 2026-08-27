@@ -128,6 +128,20 @@ const de: MessageSchema = {
   },
   updates: {
     title: "Versionshinweise",
+    v120: {
+      panels:
+        "Jedes Panel hat jetzt seinen eigenen Schalter im Bereich Anzeige in diesem Menü, sodass nur das stehen bleibt, was du brauchst.",
+      layout:
+        "Die Oberfläche passt in jeden Bildschirm, in dem sie sich öffnet, vom quer gehaltenen Handy bis zum großen Monitor.",
+      minimap:
+        "Der Vergrößern-Knopf der Mini-Karte öffnet dieselbe Karte in lesbarer Größe, die dem Board live folgt.",
+      flagDrop:
+        "Ein Teil, das du zu einer Fahne schickst, landet jetzt auf einer wirklich freien Stelle, auch in einem Bereich des Boards, den du nie besucht hast.",
+      notes:
+        "Ein Punkt am Einstellungen-Knopf zeigt dir, dass Versionshinweise da sind, die du noch nicht gelesen hast.",
+      fixes:
+        "Fehlerbehebungen, rund um festgesetzte Teile auf einer Kachelgrenze und den Fortschritt auf der Startseite.",
+    },
     v111: {
       fixes:
         "Fehlerbehebungen und Performance-Verbesserungen, rund um Zoom, die Cursor der anderen Spieler, die Fahnen und das Referenzbild.",

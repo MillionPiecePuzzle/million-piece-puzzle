@@ -128,6 +128,20 @@ const es: MessageSchema = {
   },
   updates: {
     title: "Notas de actualización",
+    v120: {
+      panels:
+        "Cada panel tiene ahora su propio interruptor en la sección Visualización de este menú, para conservar solo los que usas.",
+      layout:
+        "La interfaz se adapta a cualquier pantalla en la que se abra, desde un móvil en horizontal hasta un monitor grande.",
+      minimap:
+        "El botón de ampliar del minimapa abre el mismo mapa a un tamaño legible, siguiendo el tablero en directo.",
+      flagDrop:
+        "Una pieza enviada a una bandera aterriza ahora en un hueco realmente libre, incluso en una zona del tablero que nunca has visitado.",
+      notes:
+        "Un punto en el botón de ajustes te avisa cuando hay notas de actualización que no has leído.",
+      fixes:
+        "Correcciones de errores, en torno a las piezas bloqueadas a caballo entre dos casillas y al progreso que muestra la página de inicio.",
+    },
     v111: {
       fixes:
         "Correcciones de errores y mejoras de rendimiento, en torno al zoom, los cursores de los demás jugadores, las banderas y la imagen de referencia.",
