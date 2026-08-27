@@ -56,7 +56,6 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 - [x] Umami tracking script (`VITE_UMAMI_URL`/`VITE_UMAMI_WEBSITE_ID`), inert outside prod; Umami's own automatic SPA route tracking distinguishes `/play` from `/` with no extra code; operator self-exclusion link on the admin page
 
 ### `frontend-canvas`
-- [x] Minimap detail modal: whole-play-zone tile grid (not loaded / loading / loaded) plus a compact memory readout, opened from the minimap via an expand button. See DECISIONS
 - [x] Locked pieces render from `DziRevealLayer`: the reference DZI pyramid revealed through a server-baked per-piece silhouette mask plus a seam overlay, decoupled from `GroupNode`/`hydrateGroup`
 - [x] Minimap header shows a live connected-player count next to a status dot, sourced from the existing join/leave broadcast (`SJoin`/`SLeave`/`SWelcome` `count`, `Hub.clientCount()`), no new WS message. See DECISIONS
 
@@ -133,6 +132,10 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 - [x] A release nobody has read marks itself in the HUD: an accent dot sits on the topbar gear and on the options menu's Update notes row, both answering the newest version in `releases.ts` against the last one this browser was shown (`mpp.updatesSeen`). Opening the notes clears both, opening the menu that links to them does not, and a browser with nothing stored is seeded as read so a first-time player's settings menu is never marked new. The mark reaches the accessible name of both buttons, EN/FR/ES/DE. See DECISIONS
 - [x] Every HUD panel has its own switch in the Display section of the options menu (reference, zoom, activity, leaderboard, minimap, flags), the choice kept per browser like the rest of the display preferences. A panel nobody has touched follows its viewport default, so a phone still opens on the board with the reference thumbnail and the minimap alone while the four it drops now have a way back onto it. Switching one off never moves another: on the left rail, where the zoom pillar sits between its two neighbours, a switched-off panel is hidden where it stands instead of dropped from the column. EN/FR/ES/DE. See DECISIONS
+
+### `frontend-canvas`
+
+- [x] The minimap's expand button opens the panel's own overview at a readable size instead of a separate view: one painter (`canvas/minimapView.ts`) draws both, so the enlarged map shows the same density grid, piece dots, frame, frustum and flags, tracking the board frame by frame. The modal takes no pointer at all and the panel pauses its own paint while it is open; the panel, still the one place a press jumps the camera, does it under the plain arrow rather than a grab hand. Verified on the local 1M board. EN/FR/ES/DE. See DECISIONS
 
 ### `backend-realtime`
 

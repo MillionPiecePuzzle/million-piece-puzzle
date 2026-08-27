@@ -38,13 +38,7 @@ import { fetchDziInfo, type DziInfo } from "./dziTiles";
 import { DziRevealLayer } from "./dziRevealLayer";
 import { resyncShouldApply } from "./resync";
 import { resolveSnap, resolveAnchor } from "./membership";
-import {
-  cellContentPending,
-  classifyTile,
-  coalesceDirtyCells,
-  residencyDecision,
-  type TileState,
-} from "./reconcile";
+import { cellContentPending, coalesceDirtyCells, residencyDecision } from "./reconcile";
 
 export type Mode = "pending" | "contributor";
 
@@ -76,25 +70,6 @@ export type MinimapSnapshot = {
   // the stale global count never shows under a region the live overlay covers.
   knownCells: Set<number>;
   viewport: Viewport | null;
-};
-
-// One LOD-tile-grid cell of the whole play zone, for the minimap detail modal's
-// tile-by-tile load-state view. cx/cy are grid coordinates (world position is
-// cx/cy * TileOverview.cellWorld), matching the cell-coordinate idiom used
-// elsewhere (groupGrid, MinimapGrid) rather than raw world floats.
-export type TileOverviewCell = { cx: number; cy: number; state: TileState };
-export type TileOverview = { cellWorld: number; cells: TileOverviewCell[] };
-
-// Resident bytes vs the combined soft budget across both texture pools (per-piece
-// nodes and LOD tiles), for the minimap detail modal's compact memory line. Exact
-// internal accounting, not performance.memory or GPU-level VRAM (neither is
-// readable from JS, and the former is Chrome-only and measures JS heap, not
-// texture memory). See DECISIONS.
-export type MemoryStats = { usedBytes: number; budgetBytes: number };
-
-export type MinimapDetailSnapshot = {
-  tiles: TileOverview;
-  memory: MemoryStats;
 };
 
 // Grid-unit offset of a piece from its group anchor, server-provided so the
@@ -2718,106 +2693,6 @@ export class PuzzleStage {
       knownCells,
       viewport: this.viewport,
     };
-  }
-
-  // Every LOD-tile-grid cell overlapping the play zone, classified for the
-  // minimap detail modal. Unlike the per-frame loading-badge scan (viewport-only,
-  // via cellContentPending), this walks the whole zone: cheap at this board's
-  // tile-grid resolution (same order of magnitude as the server density grid),
-  // and only ever called while the modal is mounted, on a throttled interval.
-  getTileOverview(): TileOverview | null {
-    if (!this.playZone) return null;
-    const cells: TileOverviewCell[] = [];
-    // The LOD bake set a not-ready cell must belong to for "loading" to mean
-    // something is baking it right now rather than just "not baked yet".
-    const neededLod =
-      this.lodActive && this.lodLayer && this.viewport
-        ? new Set(this.lodLayer.neededTiles(this.viewport))
-        : null;
-    for (const key of cellKeysForRect(this.playZone, LOD_TILE_WORLD)) {
-      const { cx, cy } = unpackCell(key);
-      const groups = this.groupGrid.cellGroups(key);
-      const lockedIds = this.lockedPieceGrid.cellGroups(key);
-      const hasContent =
-        (groups !== undefined && groups.size > 0) ||
-        (lockedIds !== undefined && lockedIds.size > 0);
-      const known = this.knownCells.has(key);
-      // Only matters zoomed in; classifyTile ignores it while the LOD tile's own
-      // ready flag governs instead.
-      let allHydrated = true;
-      let anyHydrating = false;
-      if (!this.lodActive && hasContent && known) {
-        if (groups) {
-          for (const gid of groups) {
-            const node = this.groups.get(gid);
-            if (node && !node.hydrated) {
-              allHydrated = false;
-              if (node.hydrating || this.hydrateQueued.has(gid)) anyHydrating = true;
-            }
-          }
-        }
-        // A locked piece renders only via DziRevealLayer (see ROADMAP Phase 5
-        // Stage 5), which tracks per-cell mask/seam hydration, not per-point
-        // coverage, so there is no precise "is this cell actually shown yet"
-        // fact to read here. A cell with any locked piece simply reads
-        // not-loaded for this diagnostic overview (getTileOverview feeds only
-        // the minimap detail modal, never a gameplay gate), the same bucket a
-        // never-visited cell already falls into.
-        if (lockedIds && lockedIds.size > 0) {
-          allHydrated = false;
-        }
-      }
-      const state = classifyTile({
-        known,
-        hasGroups: hasContent,
-        lodActive: this.lodActive,
-        tileReady: this.lodLayer?.isReady(key) ?? false,
-        allHydrated,
-        activelyLoading: this.lodActive ? (neededLod?.has(key) ?? false) : anyHydrating,
-      });
-      cells.push({ cx, cy, state });
-    }
-    return { cellWorld: LOD_TILE_WORLD, cells };
-  }
-
-  // Combined resident-vs-budget bytes across all three texture pools
-  // (per-piece nodes, the loose-piece LOD tiles, and the DZI reveal layer),
-  // for the minimap detail modal's memory line.
-  getMemoryStats(): MemoryStats | null {
-    if (!this.manifest) return null;
-    const pieceBytes = this.manifest.tileSize * this.manifest.tileSize * 4;
-    const lodUsed = this.lodLayer?.residentBytes() ?? 0;
-    const lodBudget = this.lodLayer?.budgetBytes() ?? 0;
-    const revealUsed = this.dziRevealLayer?.residentBytes() ?? 0;
-    const revealBudget = this.dziRevealLayer?.budgetBytes() ?? 0;
-    return {
-      usedBytes: this.residentPieceNodeCount() * pieceBytes + lodUsed + revealUsed,
-      budgetBytes: RESIDENT_PIECE_BUDGET * pieceBytes + lodBudget + revealBudget,
-    };
-  }
-
-  // Pull-based snapshot for the minimap detail modal, same idiom as
-  // getMinimapSnapshot() above.
-  getMinimapDetailSnapshot(): MinimapDetailSnapshot | null {
-    const tiles = this.getTileOverview();
-    const memory = this.getMemoryStats();
-    if (!tiles || !memory) return null;
-    return { tiles, memory };
-  }
-
-  // Total per-piece nodes currently resident (hydrated or in flight), for the
-  // memory readout. A separate small scan from evictResidentsOverBudget's, which
-  // interleaves the same count with building its evictable-candidates list.
-  // salvagedPieceIds is tiny (see reconcileSalvagedLockedPieces), so counting
-  // it directly costs nothing.
-  private residentPieceNodeCount(): number {
-    let total = 0;
-    for (const gid of this.resident.keys()) {
-      const node = this.groups.get(gid);
-      if (node) total += node.pieces.length;
-    }
-    total += this.salvagedPieceIds.size;
-    return total;
   }
 
   // Places (worldCx, worldCy) at the screen center, then lets applyCamera's

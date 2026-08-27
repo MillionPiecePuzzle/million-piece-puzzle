@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  cellContentPending,
-  classifyTile,
-  coalesceDirtyCells,
-  residencyDecision,
-} from "./reconcile";
+import { cellContentPending, coalesceDirtyCells, residencyDecision } from "./reconcile";
 import { packCell } from "./groupGrid";
 import type { Aabb } from "./cull";
 
@@ -123,112 +118,6 @@ describe("cellContentPending", () => {
     it("does not pend a known cell whose groups are all hydrated", () => {
       expect(facts({ coverageSeen: true, known: true, hasUnhydratedInRingGroup: false })).toBe(
         false,
-      );
-    });
-  });
-});
-
-describe("classifyTile", () => {
-  const facts = (over: Partial<Parameters<typeof classifyTile>[0]>) =>
-    classifyTile({
-      known: false,
-      hasGroups: false,
-      lodActive: false,
-      tileReady: false,
-      allHydrated: false,
-      activelyLoading: false,
-      ...over,
-    });
-
-  it("is not-loaded outside knownCells regardless of any other fact", () => {
-    expect(facts({ known: false })).toBe("not-loaded");
-    expect(
-      facts({
-        known: false,
-        hasGroups: true,
-        allHydrated: true,
-        tileReady: true,
-        activelyLoading: true,
-      }),
-    ).toBe("not-loaded");
-  });
-
-  it("is loaded for a known, empty cell", () => {
-    expect(facts({ known: true, hasGroups: false })).toBe("loaded");
-  });
-
-  describe("zoom-out (LOD active)", () => {
-    it("is loading while the cell's tile has not baked and is in the active bake set", () => {
-      expect(
-        facts({
-          known: true,
-          hasGroups: true,
-          lodActive: true,
-          tileReady: false,
-          activelyLoading: true,
-        }),
-      ).toBe("loading");
-    });
-
-    it("is not-loaded while the tile has not baked but nothing is baking it right now", () => {
-      expect(
-        facts({
-          known: true,
-          hasGroups: true,
-          lodActive: true,
-          tileReady: false,
-          activelyLoading: false,
-        }),
-      ).toBe("not-loaded");
-    });
-
-    it("is loaded once the tile is baked", () => {
-      expect(facts({ known: true, hasGroups: true, lodActive: true, tileReady: true })).toBe(
-        "loaded",
-      );
-    });
-
-    it("ignores hydration while active", () => {
-      expect(
-        facts({
-          known: true,
-          hasGroups: true,
-          lodActive: true,
-          tileReady: true,
-          allHydrated: false,
-        }),
-      ).toBe("loaded");
-    });
-  });
-
-  describe("zoom-in (LOD inactive)", () => {
-    it("is loading while some group in the cell is unhydrated and actively fetching", () => {
-      expect(
-        facts({
-          known: true,
-          hasGroups: true,
-          lodActive: false,
-          allHydrated: false,
-          activelyLoading: true,
-        }),
-      ).toBe("loading");
-    });
-
-    it("is not-loaded while some group is unhydrated but idle (evicted, not queued)", () => {
-      expect(
-        facts({
-          known: true,
-          hasGroups: true,
-          lodActive: false,
-          allHydrated: false,
-          activelyLoading: false,
-        }),
-      ).toBe("not-loaded");
-    });
-
-    it("is loaded once every group in the cell is hydrated", () => {
-      expect(facts({ known: true, hasGroups: true, lodActive: false, allHydrated: true })).toBe(
-        "loaded",
       );
     });
   });
