@@ -138,7 +138,7 @@ const es: MessageSchema = {
       fixes:
         "Correcciones de errores y mejoras de rendimiento, en torno al zoom, los cursores de los demás jugadores, las banderas y la imagen de referencia.",
     },
-    v11: {
+    v110: {
       flags:
         "Banderas personales: coloca hasta 8 marcadores en el tablero y salta de uno a otro con un clic o con las teclas 1 a 8.",
       flagDrop:
@@ -155,7 +155,7 @@ const es: MessageSchema = {
         "En el móvil la interfaz solo conserva la referencia y el minimapa, y deja la pantalla al tablero.",
       help: "Este menú incluye consejos, y la clasificación explica cómo se cuentan los puntos.",
     },
-    v10: {
+    v100: {
       launch:
         "Lanzamiento público: 1.000.000 de piezas únicas en un solo tablero compartido, jugable como invitado sin registro, en inglés, francés, español y alemán.",
     },

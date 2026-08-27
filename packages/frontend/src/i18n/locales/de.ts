@@ -138,7 +138,7 @@ const de: MessageSchema = {
       fixes:
         "Fehlerbehebungen und Performance-Verbesserungen, rund um Zoom, die Cursor der anderen Spieler, die Fahnen und das Referenzbild.",
     },
-    v11: {
+    v110: {
       flags:
         "Persönliche Fahnen: Setze bis zu 8 Marker auf das Board und springe per Klick oder mit den Tasten 1 bis 8 zwischen ihnen.",
       flagDrop:
@@ -155,7 +155,7 @@ const de: MessageSchema = {
         "Auf dem Handy behält die Oberfläche nur die Referenz und die Mini-Karte und überlässt dem Board den Bildschirm.",
       help: "Dieses Menü enthält Tipps, und die Rangliste erklärt, wie Punkte gezählt werden.",
     },
-    v10: {
+    v100: {
       launch:
         "Öffentlicher Start: 1.000.000 einzigartige Teile auf einem einzigen gemeinsamen Board, ohne Anmeldung als Gast spielbar, auf Englisch, Französisch, Spanisch und Deutsch.",
     },

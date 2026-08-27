@@ -135,7 +135,7 @@ const en = {
       fixes:
         "Bug fixes and performance improvements, around zoom, other players' cursors, flags and the reference photo.",
     },
-    v11: {
+    v110: {
       flags:
         "Personal flags: drop up to 8 markers on the board and jump between them with a click or the 1 to 8 keys.",
       flagDrop:
@@ -152,7 +152,7 @@ const en = {
         "On a phone the interface keeps only the reference and the minimap, and leaves the screen to the board.",
       help: "This menu carries tips, and the leaderboard explains how points are counted.",
     },
-    v10: {
+    v100: {
       launch:
         "Public launch: 1,000,000 unique pieces on a single shared board, playable as a guest with no sign-up, in English, French, Spanish and German.",
     },

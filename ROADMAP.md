@@ -1,6 +1,6 @@
 # Roadmap
 
-Work is tracked by version. v1.1.1 is live in prod and v1.1.2 is open. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
+Work is tracked by version, numbered `major.minor.patch`. v1.1.1 is live in prod and v1.2.0 is open. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Detail on non-obvious choices lives in [DECISIONS.md](DECISIONS.md); done tasks here are kept terse.
 
 Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
@@ -20,7 +20,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 ---
 
-## Before v1.0
+## Before v1.0.0
 
 Four milestones, all met, condensed to what they achieved. The detail lives in the code and in [DECISIONS.md](DECISIONS.md).
 
@@ -42,7 +42,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ---
 
-## v1.0, Launch Readiness, RELEASED
+## v1.0.0, Launch Readiness, RELEASED
 
 **Exit criterion (met)**: the puzzle serves the real photo mosaic at full production scale; locked pieces render from server-composited tiles with resident memory inside budget past 995 000 locked pieces and no unlocked cluster exceeding `MPP_CLUSTER_PIECE_CAP`; player diagnostics, self-hosted analytics, and search discoverability are all live in prod; a clustered load-test run against prod passes a clean visual and state-corruption check.
 
@@ -83,7 +83,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ---
 
-## v1.1, RELEASED
+## v1.1.0, RELEASED
 
 **Exit criterion (met)**: every task below shipped to prod.
 
@@ -91,7 +91,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 - [x] A phone gets the board instead of a HUD: the leaderboard, the live activity and the zoom controls are not rendered below the 680px breakpoint, leaving the reference thumbnail in one corner and the minimap in the other, and all three come back on a widening viewport with no reload. See DECISIONS
 - [x] The account menu carries a stepped tips strip (one-line hints, an arrow on either side, no screen of its own) and the leaderboard panel an info control opening a scoring explainer: one point per piece credited once, why the standings run ahead of the locked counter, why snapping a 30-piece cluster credits one point and not thirty. EN/FR/ES/DE
-- [x] The account menu opens update notes: a modal listing the shipped versions newest first, each a dated heading over player-facing one-liners, seeded with v1.1 and the v1.0 launch. The menu rows run sync, Discord, pseudo, country, update notes, so the two profile edits sit together and the outward links lead. The menu shell scrolls past a phone viewport instead of overflowing it. EN/FR/ES/DE
+- [x] The account menu opens update notes: a modal listing the shipped versions newest first, each a dated heading over player-facing one-liners, seeded with v1.1.0 and the v1.0.0 launch. The menu rows run sync, Discord, pseudo, country, update notes, so the two profile edits sit together and the outward links lead. The menu shell scrolls past a phone viewport instead of overflowing it. EN/FR/ES/DE
 
 ### `backend-realtime`
 
@@ -125,7 +125,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 ---
 
-## v1.1.2
+## v1.2.0
 
 **Exit criterion**: every task below shipped to prod.
 
@@ -144,7 +144,7 @@ A first-time visitor reaches the canvas and places a piece with no OAuth redirec
 
 Ideas and open fixes worth keeping but not yet committed to a version. Promote into a version track when scope and timing are clear.
 
-- **Locale-prefixed URLs for search.** The SEO metadata work (v1.0) is English-only because locale is chosen client-side (`localStorage`/browser language) with no URL segmentation, so a search engine can only index one language version of `/`. Ranking for non-English queries (e.g. French "puzzle le plus grand") needs its own crawlable URL per locale (`/fr/`, `/es/`, `/de/`), native-language meta strings, hreflang alternates, and rewiring every internal link (language switcher, router pushes) to a locale-aware path: a router restructuring, not a metadata tweak. See [DECISIONS](DECISIONS.md#2026-08-17-frontend-shell-seo-metadata-is-english-only-corrected-per-route-in-js-rather-than-per-locale).
+- **Locale-prefixed URLs for search.** The SEO metadata work (v1.0.0) is English-only because locale is chosen client-side (`localStorage`/browser language) with no URL segmentation, so a search engine can only index one language version of `/`. Ranking for non-English queries (e.g. French "puzzle le plus grand") needs its own crawlable URL per locale (`/fr/`, `/es/`, `/de/`), native-language meta strings, hreflang alternates, and rewiring every internal link (language switcher, router pushes) to a locale-aware path: a router restructuring, not a metadata tweak. See [DECISIONS](DECISIONS.md#2026-08-17-frontend-shell-seo-metadata-is-english-only-corrected-per-route-in-js-rather-than-per-locale).
 - **Dynamic max-zoom that grows with progress.** Cap zoom-out early and relax it as pieces are placed, to bound the visible piece count. A fixed 15% zoom floor already exists (see [play-zone hard limits](DECISIONS.md#2026-05-21-frontend-canvas-play-zone-hard-limits)); the progress-relative version is the open idea.
 - **Coordinate HUD overlay.** Small overlay showing viewport position (XY, sector, zoom). Needs a "sector" concept first. Revisit at 1M when orientation becomes a real problem.
 - **Peer cursor scope entry and exit announced on the wire.** A cursor is relayed only to the clients subscribed to the one world-grid cell its point falls in, and neither end of that scope is announced, so both transitions are guesswork on the client. Entering: a player who jumps into a busy area sees nobody there until each peer happens to move their mouse. Leaving: a peer who jumps away simply goes silent, indistinguishable from one who let go of the mouse, so their pointer stands where they left it until v1.1.1's client-side expiry retires it 10s later. The server can answer both from state it already holds, by keeping each connection's last cursor and the cell it fell in: answer a `viewport` that enters new cells with the cursors of the peers now in scope, and on a cursor crossing into another cell tell the old cell's subscribers (minus the new cell's) that the pointer is gone. That is one extra broadcast per cell crossing rather than per message, walking the same cell subscriber sets a scoped broadcast already walks. Costs two new server messages.

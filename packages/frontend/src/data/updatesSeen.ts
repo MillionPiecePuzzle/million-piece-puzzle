@@ -7,7 +7,7 @@ const STORAGE_KEY = "mpp.updatesSeen";
 // localStorage is player-editable, so a stored value is untrusted input. A
 // value that is not a version falls back to "nothing stored", which seeds
 // rather than marks unseen: a mangled key must never invent a release.
-const VERSION_PATTERN = /^\d+(\.\d+){0,2}$/;
+const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 
 export function parseSeenVersion(raw: string | null): string | null {
   if (!raw) return null;

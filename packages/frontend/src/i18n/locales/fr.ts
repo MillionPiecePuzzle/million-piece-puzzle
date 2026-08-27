@@ -138,7 +138,7 @@ const fr: MessageSchema = {
       fixes:
         "Corrections de bugs et améliorations de performances, autour du zoom, des curseurs des autres joueurs, des drapeaux et de l'image de référence.",
     },
-    v11: {
+    v110: {
       flags:
         "Drapeaux personnels : posez jusqu'à 8 repères sur le plateau et passez de l'un à l'autre d'un clic ou avec les touches 1 à 8.",
       flagDrop:
@@ -155,7 +155,7 @@ const fr: MessageSchema = {
         "Sur téléphone, l'interface ne garde que la référence et la mini-carte, et laisse l'écran au plateau.",
       help: "Ce menu propose des astuces, et le classement explique comment les points sont comptés.",
     },
-    v10: {
+    v100: {
       launch:
         "Lancement public : 1 000 000 de pièces uniques sur un seul plateau partagé, jouable en invité sans inscription, en anglais, français, espagnol et allemand.",
     },
