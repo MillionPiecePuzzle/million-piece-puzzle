@@ -19,19 +19,40 @@
 // drops still reach every overlapped cell through the broadcast index, and a
 // continued pan or its next drop heals the residual.
 //
-// The cell key is derived from the body top-left, but the stored payload is the
+// The cell key is derived from the body top-left, but the reported payload is the
 // group ORIGIN (plus its size): a client positions a group's container at the
 // origin and places each piece at its canonical offset inside, so `collect`
 // reports the origin while keying still uses the body-min the client sees. The
-// viewport handler turns this into the region_state construction stream.
+// viewport handler turns this into the region_state construction stream. The body
+// rectangle itself is kept alongside, which is what lets `overlapsBox` answer
+// where a cluster can land without re-reading Redis.
 
-import { cellKey } from "./worldGrid.js";
+import { cellKey, type Aabb } from "./worldGrid.js";
 
 // Reportable payload for a group: its origin (what the client positions the
-// container at) and its member count. A live group is never locked (see
-// DECISIONS: locked pieces stop being a group; LockedPieceIndex answers
-// locked-piece queries separately), so this index carries no locked field.
-export type GroupPayload = { originX: number; originY: number; size: number };
+// container at), its member count, and the extent of the body whose top-left the
+// index is keyed on, which is what turns a cell hit into the real rectangle a
+// group occupies (see overlapsBox). A live group is never locked (see DECISIONS:
+// locked pieces stop being a group; LockedPieceIndex answers locked-piece queries
+// separately), so this index carries no locked field.
+export type GroupPayload = {
+  originX: number;
+  originY: number;
+  size: number;
+  width: number;
+  height: number;
+};
+
+type IndexedGroup = {
+  cell: number;
+  bodyMinX: number;
+  bodyMinY: number;
+  originX: number;
+  originY: number;
+  size: number;
+  width: number;
+  height: number;
+};
 
 export type RegionGroup = {
   groupId: number;
@@ -42,10 +63,14 @@ export type RegionGroup = {
 
 export class GroupIndex {
   private readonly cells = new Map<number, Set<number>>();
-  private readonly groups = new Map<
-    number,
-    { cell: number; originX: number; originY: number; size: number }
-  >();
+  private readonly groups = new Map<number, IndexedGroup>();
+  // Largest body extent ever indexed, in world units. A box query starts this far
+  // back so a cluster reaching into the box from a cell up or left of it is still
+  // walked (a group sits in the cell of its top-left corner only). Monotonic: a
+  // merge that removes the widest cluster leaves the bound behind, which costs an
+  // over-wide walk and never a miss.
+  private maxWidth = 0;
+  private maxHeight = 0;
 
   constructor(private readonly cellSize: number) {}
 
@@ -54,11 +79,13 @@ export class GroupIndex {
   }
 
   // Insert or move a group keyed by the cell containing (bodyMinX, bodyMinY), its
-  // body top-left, while storing the reportable payload (origin, size).
-  // Idempotent: re-setting the same cell only refreshes the payload, so the
-  // per-frame drop path stays cheap.
+  // body top-left, while storing that corner, the reported payload (origin, size)
+  // and the body extent. Idempotent: re-setting the same cell only refreshes the
+  // stored values, so the per-frame drop path stays cheap.
   set(groupId: number, bodyMinX: number, bodyMinY: number, payload: GroupPayload): void {
     const cell = this.cellFor(bodyMinX, bodyMinY);
+    if (payload.width > this.maxWidth) this.maxWidth = payload.width;
+    if (payload.height > this.maxHeight) this.maxHeight = payload.height;
     const existing = this.groups.get(groupId);
     if (existing) {
       if (existing.cell !== cell) {
@@ -66,13 +93,17 @@ export class GroupIndex {
         this.addToCell(cell, groupId);
         existing.cell = cell;
       }
+      existing.bodyMinX = bodyMinX;
+      existing.bodyMinY = bodyMinY;
       existing.originX = payload.originX;
       existing.originY = payload.originY;
       existing.size = payload.size;
+      existing.width = payload.width;
+      existing.height = payload.height;
       return;
     }
     this.addToCell(cell, groupId);
-    this.groups.set(groupId, { cell, ...payload });
+    this.groups.set(groupId, { cell, bodyMinX, bodyMinY, ...payload });
   }
 
   remove(groupId: number): void {
@@ -120,9 +151,34 @@ export class GroupIndex {
     return total;
   }
 
+  // Whether any group other than `exceptGroupId` occupies the given world box.
+  // Answers the server-side landing search for a cluster dropped on a flag (see
+  // dropNear.ts), which is why it walks the real body rectangles rather than
+  // stopping at cell granularity.
+  overlapsBox(box: Aabb, exceptGroupId: number): boolean {
+    const cxMin = Math.floor((box.minX - this.maxWidth) / this.cellSize);
+    const cxMax = Math.floor(box.maxX / this.cellSize);
+    const cyMin = Math.floor((box.minY - this.maxHeight) / this.cellSize);
+    const cyMax = Math.floor(box.maxY / this.cellSize);
+    for (let cx = cxMin; cx <= cxMax; cx++) {
+      for (let cy = cyMin; cy <= cyMax; cy++) {
+        const set = this.cells.get(cellKey(cx, cy));
+        if (!set) continue;
+        for (const id of set) {
+          if (id === exceptGroupId) continue;
+          const g = this.groups.get(id);
+          if (g && bodyOverlaps(g, box)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   clear(): void {
     this.cells.clear();
     this.groups.clear();
+    this.maxWidth = 0;
+    this.maxHeight = 0;
   }
 
   get size(): number {
@@ -150,4 +206,15 @@ export class GroupIndex {
     set.delete(groupId);
     if (set.size === 0) this.cells.delete(cell);
   }
+}
+
+// Edge contact does not count, matching the client's own overlap test: a cluster
+// resting exactly against another is clear of it.
+function bodyOverlaps(g: IndexedGroup, box: Aabb): boolean {
+  return (
+    g.bodyMinX < box.maxX &&
+    g.bodyMinX + g.width > box.minX &&
+    g.bodyMinY < box.maxY &&
+    g.bodyMinY + g.height > box.minY
+  );
 }

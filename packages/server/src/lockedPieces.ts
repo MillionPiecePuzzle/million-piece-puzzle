@@ -1,5 +1,7 @@
 // In-memory locked-piece index: which pieces are locked, answering "which
-// locked pieces sit in these cells" for the region_state resync stream.
+// locked pieces sit in these cells" for the region_state resync stream and
+// "does anything locked stand in this box" for the landing search a cluster
+// dropped on a flag runs through (see dropNear.ts).
 //
 // A locked piece's cell is a pure function of its own grid id (its solved
 // (col, row) is fixed at generation and never changes once locked), unlike a
@@ -10,7 +12,7 @@
 // already treats a locked piece's cell the same way (minimap.ts's
 // cellIndexForPiece(p.id, 0, 0, ...), computed, never looked up).
 
-import { unpackCellKey } from "./worldGrid.js";
+import { unpackCellKey, type Aabb } from "./worldGrid.js";
 
 // The grid columns (or rows, called with gridRows) a world-grid cell index cx
 // owns at this pieceSize/cellSize ratio: column `col` belongs to cx exactly
@@ -92,6 +94,25 @@ export class LockedPieceIndex {
       }
     }
     return out;
+  }
+
+  // Whether any locked piece occupies the given world box. A locked piece rests
+  // at its solved position, so the box maps straight onto a range of grid columns
+  // and rows and the bitset answers each one: no reverse index, and no walk of the
+  // pieces that are not locked. Edge contact does not count, matching the group
+  // side of the same landing search (see dropNear.ts).
+  overlapsBox(box: Aabb): boolean {
+    const colMin = Math.max(0, Math.floor(box.minX / this.pieceSize));
+    const colMax = Math.min(this.gridCols - 1, Math.ceil(box.maxX / this.pieceSize) - 1);
+    const rowMin = Math.max(0, Math.floor(box.minY / this.pieceSize));
+    const rowMax = Math.min(this.gridRows - 1, Math.ceil(box.maxY / this.pieceSize) - 1);
+    for (let row = rowMin; row <= rowMax; row++) {
+      const base = row * this.gridCols;
+      for (let col = colMin; col <= colMax; col++) {
+        if (this.locked[base + col] === 1) return true;
+      }
+    }
+    return false;
   }
 
   // Rebuilds the whole bitset from a full piece read (see state.readAllPieces),

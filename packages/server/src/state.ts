@@ -18,6 +18,20 @@ export type StoredPiece = { id: number; groupId: number; rotation: number; locke
 // plain `GroupRuntime`.
 export type StoredGroup = GroupRuntime & { localAabb: Aabb | null };
 
+// One group as the in-process group index takes it: its body top-left (x, y) and
+// extent (w, h), plus the origin and size the index reports (see
+// readAllGroupPoints).
+export type GroupIndexPoint = {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  originX: number;
+  originY: number;
+  size: number;
+};
+
 export type PuzzleMeta = {
   totalPieces: number;
   gridRows: number;
@@ -347,33 +361,18 @@ export class RedisState {
 
   // Every existing group's index entry, for rebuilding the in-process group index
   // at boot and after a reset (Redis survives a restart, the index does not). `x`
-  // and `y` are the body top-left (world AABB min) the index keys by; `originX` /
-  // `originY` are the group origin the index reports for construction. The body min
-  // is the stored local AABB min translated by the origin; a group written before
-  // AABBs were stored falls back to its origin, like the broadcast scoping.
-  async readAllGroupPoints(totalPieces: number): Promise<
-    {
-      id: number;
-      x: number;
-      y: number;
-      originX: number;
-      originY: number;
-      size: number;
-    }[]
-  > {
+  // and `y` are the body top-left (world AABB min) the index keys by, `w` and `h`
+  // that body's extent; `originX` / `originY` are the group origin the index
+  // reports for construction. The body rect is the stored local AABB translated by
+  // the origin; a group written before AABBs were stored falls back to a zero-size
+  // rect at its origin, like the broadcast scoping.
+  async readAllGroupPoints(totalPieces: number): Promise<GroupIndexPoint[]> {
     const pipe = this.r.pipeline();
     for (let i = 0; i < totalPieces; i++) {
       pipe.hgetall(keys.group(this.puzzleId, i));
     }
     const results = await pipe.exec();
-    const points: {
-      id: number;
-      x: number;
-      y: number;
-      originX: number;
-      originY: number;
-      size: number;
-    }[] = [];
+    const points: GroupIndexPoint[] = [];
     if (!results) return points;
     for (let i = 0; i < results.length; i++) {
       const entry = results[i];
@@ -387,6 +386,8 @@ export class RedisState {
         id: i,
         x: local ? worldX + local.minX : worldX,
         y: local ? worldY + local.minY : worldY,
+        w: local ? local.maxX - local.minX : 0,
+        h: local ? local.maxY - local.minY : 0,
         originX: worldX,
         originY: worldY,
         size: Number(h.size),

@@ -9,7 +9,10 @@ import {
   type Texture,
 } from "pixi.js";
 import {
+  FLAG_DROP_GAP_PIECES,
+  FLAG_DROP_SEARCH_RINGS,
   GRID_WORLD_CELL,
+  findFreeOrigin,
   type CellComposite,
   type ImageManifest,
   type MinimapGrid,
@@ -20,7 +23,7 @@ import {
 import { Tweener, peak, easeOutCubic } from "./tween";
 import { PeerCursorLayer } from "./peerCursors";
 import { FlagLayer } from "./flagLayer";
-import { findFreeOrigin, type FlagDropTarget, type FlagDropTargetSource } from "./flagDrop";
+import type { FlagDropTarget, FlagDropTargetSource } from "./flagDrop";
 import type { BoardFlag } from "../data/boardFlags";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { pushEscapeHandler } from "../escapeStack";
@@ -150,6 +153,9 @@ export type StageCallbacks = {
   onGrab: (groupId: number) => void;
   onDrag: (groupId: number, worldX: number, worldY: number) => void;
   onDrop: (groupId: number, worldX: number, worldY: number) => void;
+  // A drop on a HUD flag: the point is the flag's foot, and the server answers
+  // with the position the cluster actually lands at (see the drop_near message).
+  onDropNear: (groupId: number, worldX: number, worldY: number) => void;
 };
 
 const MIN_ZOOM = 0.15;
@@ -172,14 +178,12 @@ const HELD_CARRY_GAP = 40;
 
 // Dropping a dragged cluster on a HUD flag button sends it to that flag. Hovering
 // one shrinks the cluster toward the button, the tell that the release will send
-// it away rather than leave it here. It lands centered on the nearest patch clear
-// of everything the client knows about, kept FLAG_DROP_GAP_PIECES pieces away
-// from its neighbours; the rings bound the outward search on a crowded board
-// (20 rings, a 41x41 patch area), past which the drop lands on the flag itself.
+// it away rather than leave it here. Where it lands is the server's answer,
+// searched against the whole board; this client runs the same search (shared
+// gap and rings) over what it has streamed to place the cluster on release, and
+// the authoritative drop that follows corrects it.
 const FLAG_DROP_SCALE = 0.4;
 const FLAG_DROP_SCALE_MS = 160;
-const FLAG_DROP_GAP_PIECES = 0.15;
-const FLAG_DROP_SEARCH_RINGS = 20;
 
 // Sticky carry mode (double-click or double-tap a piece to stick its cluster to
 // the cursor). A highlighted outline marks the carried cluster, and an idle
@@ -2152,12 +2156,21 @@ export class PuzzleStage {
   // position until the server's authoritative drop/snap lands (cleared in
   // applyRemoteDrop/applySnap/applyRollback). Shared by the press-drag drop and
   // the carry drop/cancel paths, which only differ in the (x, y) they commit to.
-  private commitHeldDrop(node: GroupNode, x: number, y: number): void {
+  // `landOn`, when given, is the flag point the server resolves the real landing
+  // spot from: (x, y) is then this client's own guess at it, held until the
+  // authoritative drop broadcast moves the cluster to the answer.
+  private commitHeldDrop(
+    node: GroupNode,
+    x: number,
+    y: number,
+    landOn?: { x: number; y: number },
+  ): void {
     if (!this.callbacks) return;
     this.moveGroup(node, x, y);
     this.setGroupHeldVisual(node, false);
     this.pendingDrops.add(node.id);
-    this.callbacks.onDrop(node.id, x, y);
+    if (landOn) this.callbacks.onDropNear(node.id, landOn.x, landOn.y);
+    else this.callbacks.onDrop(node.id, x, y);
     this.releaseGroupHeld(node.id);
   }
 
@@ -2310,9 +2323,10 @@ export class PuzzleStage {
   }
 
   // Sends the dragged cluster to the hovered flag and leaves the camera where the
-  // player was working. The landing patch is searched against what this client
-  // knows: a flag planted in board it has never streamed has nothing to avoid
-  // there, so the cluster can land on top of pieces it cannot see.
+  // player was working. The server picks the landing patch, against the whole
+  // board; the same search runs here on release so the cluster leaves the hand
+  // immediately, over the regions this client has actually streamed, which is
+  // nothing at all under a flag planted where it has never looked.
   private dropOnFlag(node: GroupNode, flagId: string): boolean {
     const flag = this.flagLayer?.flagAt(flagId);
     if (!flag) return false;
@@ -2326,7 +2340,7 @@ export class PuzzleStage {
       clamp: (x, y) => this.clampGroupOrigin(node, x, y),
       isClear: (box) => this.boxIsClear(box, node.id),
     });
-    this.commitHeldDrop(node, origin.x, origin.y);
+    this.commitHeldDrop(node, origin.x, origin.y, { x: flag.worldX, y: flag.worldY });
     return true;
   }
 

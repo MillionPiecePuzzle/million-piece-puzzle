@@ -66,6 +66,31 @@ describe("LockedPieceIndex", () => {
     expect(idx.collect([cellKey(0, 0)])).toEqual([]);
   });
 
+  it("overlapsBox answers on the solved position of the locked pieces alone", () => {
+    const idx = new LockedPieceIndex(GRID_COLS, GRID_ROWS, PIECE_SIZE, CELL_SIZE, TOTAL);
+    // Piece 26 is (col 1, row 1), solved at world [32, 64) on both axes.
+    idx.lock([26]);
+    expect(idx.overlapsBox({ minX: 40, minY: 40, maxX: 50, maxY: 50 })).toBe(true);
+    expect(idx.overlapsBox({ minX: 0, minY: 0, maxX: 40, maxY: 40 })).toBe(true);
+    // Its neighbours are unlocked, so a box beside it is clear.
+    expect(idx.overlapsBox({ minX: 70, minY: 40, maxX: 90, maxY: 50 })).toBe(false);
+  });
+
+  it("overlapsBox reads edge contact as clear", () => {
+    const idx = new LockedPieceIndex(GRID_COLS, GRID_ROWS, PIECE_SIZE, CELL_SIZE, TOTAL);
+    idx.lock([26]);
+    expect(idx.overlapsBox({ minX: 64, minY: 32, maxX: 96, maxY: 64 })).toBe(false);
+    expect(idx.overlapsBox({ minX: 0, minY: 32, maxX: 32, maxY: 64 })).toBe(false);
+  });
+
+  it("overlapsBox ignores the board outside the grid", () => {
+    const idx = new LockedPieceIndex(GRID_COLS, GRID_ROWS, PIECE_SIZE, CELL_SIZE, TOTAL);
+    idx.lock([0]);
+    expect(idx.overlapsBox({ minX: -500, minY: -500, maxX: -100, maxY: -100 })).toBe(false);
+    // A box reaching in from outside still finds the piece at the frame corner.
+    expect(idx.overlapsBox({ minX: -500, minY: -500, maxX: 10, maxY: 10 })).toBe(true);
+  });
+
   it("rebuild replaces the whole bitset from a fresh piece read", () => {
     const idx = new LockedPieceIndex(GRID_COLS, GRID_ROWS, PIECE_SIZE, CELL_SIZE, TOTAL);
     idx.lock([1, 2, 3]);

@@ -290,6 +290,7 @@ async function main(): Promise<void> {
       // this script's clientless Hub, at the cost of a profile lookup per
       // window against the very Mongo the run is measuring.
       leaderboardBroadcast: { markDirty: () => {} },
+      playZone,
       tilePieceCap,
       clusterPieceCap: config.clusterPieceCap,
       broadcastMaxCells: config.broadcastMaxCells,

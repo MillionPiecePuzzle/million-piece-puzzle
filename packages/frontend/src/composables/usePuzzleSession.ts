@@ -504,6 +504,12 @@ function sendDrop(groupId: number, worldX: number, worldY: number): void {
   client?.send({ t: "drop", groupId, worldX, worldY });
 }
 
+// A drop on a HUD flag: the point is the flag's foot and the server answers with
+// the position the cluster lands at, resolved against the whole board.
+function sendDropNear(groupId: number, worldX: number, worldY: number): void {
+  client?.send({ t: "drop_near", groupId, worldX, worldY });
+}
+
 function sendViewport(worldX: number, worldY: number, worldW: number, worldH: number): void {
   client?.send({ t: "viewport", worldX, worldY, worldW, worldH });
 }
@@ -557,6 +563,7 @@ export function usePuzzleSession() {
     sendGrab,
     sendDrag,
     sendDrop,
+    sendDropNear,
     sendViewport,
     sendCursor,
     sendDevReset,

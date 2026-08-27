@@ -176,6 +176,8 @@ export async function rebuildGroupIndex(
       originX: p.originX,
       originY: p.originY,
       size: p.size,
+      width: p.w,
+      height: p.h,
     });
   }
 }

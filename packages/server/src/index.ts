@@ -234,6 +234,7 @@ async function main(): Promise<void> {
     minimapGrid,
     leaderboardTracker,
     leaderboardBroadcast,
+    playZone,
     tilePieceCap,
     clusterPieceCap: config.clusterPieceCap,
     broadcastMaxCells: config.broadcastMaxCells,

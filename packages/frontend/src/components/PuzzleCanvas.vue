@@ -29,6 +29,7 @@ const {
   sendGrab,
   sendDrag,
   sendDrop,
+  sendDropNear,
   sendViewport,
   sendCursor,
 } = usePuzzleSession();
@@ -293,6 +294,7 @@ onMounted(async () => {
     onGrab: (groupId) => sendGrab(groupId),
     onDrag: (groupId, x, y) => sendDrag(groupId, x, y),
     onDrop: (groupId, x, y) => sendDrop(groupId, x, y),
+    onDropNear: (groupId, x, y) => sendDropNear(groupId, x, y),
   });
   stage.onCameraChange = (camera) => setCamera(camera);
   stage.onViewportChange = (vp) => queueViewport(vp);

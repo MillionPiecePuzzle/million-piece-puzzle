@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { CCursor, CHello, CViewport, ClientMessage, ServerMessage } from "@mpp/shared";
+import type {
+  CCursor,
+  CHello,
+  CViewport,
+  ClientMessage,
+  PlayZone,
+  ServerMessage,
+} from "@mpp/shared";
 import { PROTOCOL_VERSION, type LeaderboardTracker, type MinimapGridTracker } from "@mpp/shared";
 import type { Hub, Client } from "./hub.js";
 import type { RedisState, PuzzleMeta } from "./state.js";
@@ -13,6 +20,7 @@ import {
   type CellCompositeIndex,
 } from "./cellComposite.js";
 import { detectSnap } from "./snap.js";
+import { resolveDropNearOrigin } from "./dropNear.js";
 import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
 import { batchEnteredCells, sleep } from "./regionStream.js";
 import {
@@ -70,6 +78,10 @@ export type Context = {
   // are batched on an interval, so the hot path never pays a profile lookup or
   // a fan-out of its own.
   leaderboardBroadcast: { markDirty: (userId: string) => void };
+  // The world rectangle pieces are bounded to, the same one welcome carries. Read
+  // by the flag-drop landing search, which clamps its candidates to it exactly as
+  // the client clamps a dragged cluster (see dropNear.ts).
+  playZone: PlayZone;
   // Max pieces allowed to rest in one world grid cell (one LOD tile). A non-merging
   // drop that would push the destination cell past this is rejected (see handleDrop).
   tilePieceCap: number;
@@ -523,6 +535,8 @@ export async function handleDrop(
       originX,
       originY,
       size: g.size,
+      width: rest.maxX - rest.minX,
+      height: rest.maxY - rest.minY,
     });
     ctx.minimapGrid.applyTranslation(
       droppedPieces,
@@ -678,6 +692,8 @@ async function applyMerge(
       originX: targetWorldX,
       originY: targetWorldY,
       size: allPieces.length,
+      width: mergedRest.maxX - mergedRest.minX,
+      height: mergedRest.maxY - mergedRest.minY,
     });
   }
 
@@ -783,6 +799,53 @@ async function scheduleDrop(
   console.error(`[queue:drop] gave up expanding merge locks for group ${groupId}`);
 }
 
+// A drop aimed at a point instead of at a position (the player released the
+// cluster on one of their HUD flag buttons): the landing origin is resolved here
+// against the server's own indexes, then the drop runs through the normal path,
+// merge detection and the tile cap included. The search takes the dropped group's
+// queue slot so it reads the state the drop behind it will commit against, and
+// the origin it answers with is kept across the merge-lock expansion passes: the
+// cluster is placed once, not re-searched per attempt.
+async function scheduleDropNear(
+  ctx: Context,
+  client: Client,
+  groupId: number,
+  atX: number,
+  atY: number,
+): Promise<void> {
+  // A holder rather than a local: the search runs in a nested function, whose
+  // assignment TypeScript cannot narrow a plain `let` through.
+  const landing: { origin?: { x: number; y: number } } = {};
+  await ctx.queue.run("drop_near", [groupId], async () => {
+    const g = await ctx.state.readGroup(groupId);
+    if (!g) {
+      err(ctx, client, "unknown_group", `group ${groupId}`);
+      return;
+    }
+    if (g.heldBy !== client.userId) {
+      err(ctx, client, "not_held", `group ${groupId} not held by you`);
+      return;
+    }
+    // A group stored before AABBs were persisted carries none; it can only be an
+    // untouched singleton, whose box is its own canonical piece footprint.
+    const localAabb =
+      g.localAabb ?? localAabbForPieces([groupId], ctx.meta.gridCols, ctx.meta.pieceSize);
+    landing.origin = resolveDropNearOrigin(
+      {
+        groupIndex: ctx.groupIndex,
+        lockedPieces: ctx.lockedPieces,
+        playZone: ctx.playZone,
+        pieceSize: ctx.meta.pieceSize,
+        tilePieceCap: ctx.tilePieceCap,
+      },
+      { groupId, localAabb, size: g.size },
+      atX,
+      atY,
+    );
+  });
+  if (landing.origin) await scheduleDrop(ctx, client, groupId, landing.origin.x, landing.origin.y);
+}
+
 export async function dispatch(ctx: Context, client: Client, raw: string): Promise<void> {
   let msg: ClientMessage;
   try {
@@ -840,6 +903,20 @@ export async function dispatch(ctx: Context, client: Client, raw: string): Promi
           handleDrag(ctx, client, gridId, originX, originY),
         );
       else await scheduleDrop(ctx, client, gridId, originX, originY);
+      return;
+    }
+    case "drop_near": {
+      if (!isValidGroupId(msg.groupId, ctx.meta.totalPieces)) {
+        err(ctx, client, "bad_message", "invalid groupId");
+        return;
+      }
+      if (!isFiniteCoord(msg.worldX) || !isFiniteCoord(msg.worldY)) {
+        err(ctx, client, "bad_message", "invalid coordinates");
+        return;
+      }
+      // The target is a plain world point (the flag's foot), not a group position,
+      // so only the id is decoded: there is no anchor offset to undo.
+      await scheduleDropNear(ctx, client, toGridId(ctx.wire, msg.groupId), msg.worldX, msg.worldY);
       return;
     }
     case "viewport":
