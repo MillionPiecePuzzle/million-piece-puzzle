@@ -15,16 +15,18 @@ export type HudPanelId = (typeof HUD_PANEL_IDS)[number];
 
 export type DisplaySettings = {
   referenceUnderlay: boolean;
-  // Only the panels the player has decided about. An id absent here follows the
-  // viewport default below, so a phone still gets the board-first HUD and a
-  // widening viewport still brings the rest back on its own.
+  // Only the panels the player has decided about. An id absent here is on, and
+  // stays absent, so a choice made on one screen never commits a default for
+  // every other one.
   panels: Partial<Record<HudPanelId, boolean>>;
 };
 
-// What a narrow viewport shows on its own: the two panels a phone kept when the
-// HUD was cut down to the board (see DECISIONS). Every panel is on by default
-// above the breakpoint.
-const NARROW_DEFAULT_PANELS: readonly HudPanelId[] = ["reference", "minimap"];
+// The panels a compact viewport has room for (see `useCompactViewport`): the
+// board-first pair a phone keeps when the HUD is cut down to the board. The
+// other four are not drawn there and not offered in the options menu either, so
+// a choice made on a desktop cannot bring one back onto a screen that cannot
+// hold it.
+const COMPACT_PANEL_IDS: readonly HudPanelId[] = ["reference", "minimap"];
 
 const STORAGE_KEY = "mpp.display";
 
@@ -41,14 +43,18 @@ function defaults(): DisplaySettings {
   return { referenceUnderlay: DEFAULT_DISPLAY_SETTINGS.referenceUnderlay, panels: {} };
 }
 
+export function isPanelAvailable(panel: HudPanelId, compact: boolean): boolean {
+  return !compact || COMPACT_PANEL_IDS.includes(panel);
+}
+
 export function isPanelVisible(
   settings: DisplaySettings,
   panel: HudPanelId,
-  wide: boolean,
+  compact: boolean,
 ): boolean {
+  if (!isPanelAvailable(panel, compact)) return false;
   const chosen = settings.panels[panel];
-  if (typeof chosen === "boolean") return chosen;
-  return wide || NARROW_DEFAULT_PANELS.includes(panel);
+  return typeof chosen === "boolean" ? chosen : true;
 }
 
 function parsePanels(raw: unknown): Partial<Record<HudPanelId, boolean>> {

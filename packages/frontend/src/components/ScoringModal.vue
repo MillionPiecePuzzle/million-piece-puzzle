@@ -67,14 +67,9 @@ onMounted(trap.activate);
 <style scoped>
 .scoring-backdrop {
   z-index: 60;
-  padding: 16px;
 }
 .scoring-modal {
-  width: min(440px, calc(100vw - 32px));
-  /* Four stacked blocks of prose run past a short laptop viewport in the longer
-     locales, so the shell scrolls rather than overflowing the screen. */
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  width: min(440px, 100%);
 }
 .examples {
   list-style: none;

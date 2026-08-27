@@ -114,13 +114,24 @@ onMounted(trap.activate);
   z-index: 60;
   display: grid;
   place-items: center;
+  padding: 16px;
   background: rgba(21, 20, 15, 0.32);
   backdrop-filter: blur(2px);
 }
+/* A page of ten rows plus the mode switch and the pager outgrows a short
+   viewport, so the shell takes the padded backdrop as its bound and the rows
+   scroll under a head and a pager that stay put. */
 .modal {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: 420px;
-  max-width: calc(100vw - 32px);
+  max-width: 100%;
+  max-height: 100%;
+  /* Not a scroller itself (the rows are), but a box that clips is what makes
+     the max-height above resolve against the backdrop rather than against its
+     own content. */
+  overflow: hidden;
   padding: 16px 18px 12px;
 }
 .modal-head {
@@ -169,6 +180,8 @@ onMounted(trap.activate);
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
 }
 .modal-foot {
   margin-top: 12px;

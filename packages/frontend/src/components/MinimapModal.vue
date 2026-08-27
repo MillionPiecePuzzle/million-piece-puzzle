@@ -84,9 +84,10 @@ onMounted(trap.activate);
   gap: 10px;
   /* Width the map fits in on both axes: the last term is the widest a map of
      this aspect can be while its height still clears the modal's own chrome and
-     the backdrop padding, so a short window shrinks the map instead of running
-     it off the screen. */
-  width: max(280px, min(90vw, 880px, calc((100dvh - 260px) * var(--ar))));
+     the backdrop padding, so a short window (a phone held sideways) shrinks the
+     map instead of running it off the screen. No lower bound, since any floor
+     above that term is exactly what would push it off again. */
+  width: min(100%, 880px, calc((100dvh - 200px) * var(--ar)));
   padding: 16px 18px 14px;
   background: var(--paper);
   border: 1px solid var(--line);

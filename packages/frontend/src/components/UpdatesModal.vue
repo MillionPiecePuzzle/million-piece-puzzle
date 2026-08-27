@@ -64,14 +64,9 @@ function releaseDate(at: number): string {
 <style scoped>
 .updates-backdrop {
   z-index: 110;
-  padding: 16px;
 }
 .updates-modal {
-  width: min(440px, calc(100vw - 32px));
-  /* A version's line list outgrows a short laptop viewport well before a phone
-     one, and the list only ever grows, so the shell scrolls from the start. */
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  width: min(440px, 100%);
 }
 .release {
   margin-bottom: 18px;

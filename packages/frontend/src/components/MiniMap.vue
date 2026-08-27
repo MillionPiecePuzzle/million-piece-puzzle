@@ -100,7 +100,12 @@ useRafLoop(draw);
 </script>
 
 <template>
-  <aside v-show="ready" class="panel minimap" :aria-label="t('minimap.label')">
+  <aside
+    v-show="ready"
+    class="panel minimap"
+    :style="{ '--ar': canvasAspect }"
+    :aria-label="t('minimap.label')"
+  >
     <div class="minimap-head">
       <h3>{{ t("minimap.overview") }}</h3>
       <div class="minimap-head-right">
@@ -130,7 +135,7 @@ useRafLoop(draw);
         </button>
       </div>
     </div>
-    <div class="mm-canvas" :style="{ aspectRatio: canvasAspect }">
+    <div class="mm-canvas">
       <canvas
         ref="canvasEl"
         @pointerdown="onPointerDown"
@@ -145,9 +150,13 @@ useRafLoop(draw);
 </template>
 
 <style scoped>
+/* Last cap: the room the right rail has left once the topbar, its own insets, a
+   readable leaderboard and this panel's own chrome are taken out, converted to a
+   width through the map's aspect. Same reasoning as the reference panel, so a
+   short window shrinks the map instead of pushing it off the screen. */
 .minimap {
   position: static;
-  width: min(248px, calc(50vw - 24px));
+  width: min(248px, var(--hud-rail-max), calc((100dvh - 300px) * var(--ar)));
   padding: 10px 10px 12px;
 }
 .minimap-head {
@@ -179,6 +188,7 @@ useRafLoop(draw);
 .mm-canvas {
   position: relative;
   width: 100%;
+  aspect-ratio: var(--ar);
   border-radius: 8px;
   overflow: hidden;
   background: #e9e3d3;
@@ -217,9 +227,11 @@ useRafLoop(draw);
   display: block;
 }
 
-@media (max-width: 680px) {
+/* The rail is down to this panel alone here, so the height budget drops to the
+   topbar, the tighter insets and this panel's own chrome. */
+@media (max-width: 680px), (max-height: 480px) {
   .minimap {
-    width: min(152px, calc(50vw - 20px));
+    width: min(152px, calc(50vw - 20px), calc((100dvh - 120px) * var(--ar)));
     padding: 8px 8px 9px;
   }
 }

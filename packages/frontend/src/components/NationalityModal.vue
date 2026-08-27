@@ -198,7 +198,7 @@ const { onMousedown, onClick } = useBackdropClick(onBackdrop);
   z-index: 111;
 }
 .nat-modal {
-  width: min(380px, calc(100vw - 32px));
+  width: min(380px, 100%);
 }
 .picker {
   display: flex;

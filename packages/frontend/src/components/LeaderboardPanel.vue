@@ -67,15 +67,20 @@ const panelRows = computed(() => {
       </div>
     </template>
     <p v-else class="empty">{{ t("common.noStandings") }}</p>
-  </aside>
 
-  <LeaderboardModal v-if="showModal" @close="showModal = false" />
-  <ScoringModal v-if="showScoring" @close="showScoring = false" />
+    <!-- Inside the panel rather than beside it: both modals teleport to the
+         body either way, and a single root is what lets the rail set a class on
+         this component at all. -->
+    <LeaderboardModal v-if="showModal" @close="showModal = false" />
+    <ScoringModal v-if="showScoring" @close="showScoring = false" />
+  </aside>
 </template>
 
 <style scoped>
 .leaderboard {
-  width: min(288px, calc(50vw - 24px));
+  display: flex;
+  flex-direction: column;
+  width: min(288px, var(--hud-rail-max));
   padding: 14px 14px 10px;
 }
 .lb-head {
@@ -105,6 +110,10 @@ const panelRows = computed(() => {
   height: 14px;
   display: block;
 }
+/* The rows are what give way when the rail runs short of height (see
+   PlayPage.vue .hud-shrink): the panel keeps its head and its full-board link
+   and scrolls the standings rather than running past the bottom of the
+   screen. */
 .lb-list {
   list-style: none;
   margin: 0;
@@ -112,6 +121,8 @@ const panelRows = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
 }
 .lb-foot {
   margin-top: 8px;

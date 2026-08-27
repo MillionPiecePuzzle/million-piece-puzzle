@@ -32,11 +32,11 @@ function dropTargets(): FlagDropTarget[] {
   return targets;
 }
 
-// Pointer-driven and bottom-center: the bar is off by default on a phone, where
-// the minimap already holds that edge, and the player switches it back on from
-// the options menu. Gated in JS rather than in CSS so the number keys, and the
-// rects a drag is hit-tested against, go with it. Left out rather than hidden in
-// place, since nothing is positioned against it.
+// Pointer-driven and bottom-center: the bar has no room on a compact viewport,
+// where the minimap already holds that edge, and the options menu does not offer
+// it there. Gated in JS rather than in CSS so the number keys, and the rects a
+// drag is hit-tested against, go with it. Left out rather than hidden in place,
+// since nothing is positioned against it.
 const { visiblePanels } = useDisplaySettings();
 const shown = computed(() => visiblePanels.value.flags);
 
@@ -135,15 +135,25 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Centered in the strip the two rails leave, not on the viewport: nine 51px
+   targets come to 455px, which reaches under the activity ticker and the
+   minimap well before a laptop-width screen. Bounding the box to the strip
+   (--hud-rail-max comes from .stage in PlayPage.vue) wraps the row inside it
+   instead of sliding it under either panel; the rails are capped at the same
+   width on both sides, so the bar still reads as centered. */
 .flag-bar {
   position: absolute;
-  left: 50%;
+  left: calc(16px + var(--hud-rail-max) + 12px);
+  right: calc(16px + var(--hud-rail-max) + 12px);
   bottom: 16px;
-  transform: translateX(-50%);
+  width: fit-content;
+  margin: 0 auto;
   z-index: 10;
   pointer-events: auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 3px;
   padding: 6px;
   background: rgba(255, 255, 255, 0.92);
@@ -233,29 +243,5 @@ onBeforeUnmount(() => {
   width: 24px;
   height: 24px;
   display: block;
-}
-
-/* The bar is switchable on a phone, where nine 51px targets come to 443px and
-   the stage clips both ends of it against a 375px screen. Smaller targets hold
-   the row, centered between two edge insets rather than off left:50%, since a
-   shrink-to-fit box anchored at the middle only gets half the stage to lay out
-   in and would wrap at 187px. */
-@media (max-width: 680px) {
-  .flag-bar {
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    width: fit-content;
-    margin: 0 auto;
-    transform: none;
-    gap: 2px;
-    padding: 4px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .flag-bar button {
-    width: 36px;
-    height: 36px;
-  }
 }
 </style>

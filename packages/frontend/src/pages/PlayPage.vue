@@ -17,7 +17,7 @@ import { GRID_WORLD_CELL } from "@mpp/shared";
 
 const { t } = useI18n();
 const { camera, ready } = useStageControls();
-const { visiblePanels } = useDisplaySettings();
+const { availablePanels, visiblePanels } = useDisplaySettings();
 
 // Drive the CSS hairline grid from world space: one cell is GRID_WORLD_CELL
 // world units, so the grid scales and pans with the canvas. The play zone is
@@ -42,20 +42,28 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
              other regardless of their own content-driven size (a portrait
              reference image, a long activity list, a full leaderboard, ...)
              or the viewport's height, unlike the corner-anchored absolute
-             positioning this replaced. Below the breakpoint the rails are
+             positioning this replaced. On a compact viewport the rails are
              down to the reference thumbnail and the minimap, where the board
-             needs every pixel more than a phone needs a HUD. See DECISIONS.
-             A panel the player switches off in the options menu is hidden
-             where it stands when its place in the column is what positions a
-             neighbour (the left rail, where the zoom pillar sits between the
-             other two), and simply left out when it positions nobody. -->
+             needs every pixel more than a small screen needs a HUD. See
+             DECISIONS. A panel the player switches off in the options menu is
+             hidden where it stands when its place in the column is what
+             positions a neighbour (the left rail, where the zoom pillar sits
+             between the other two), and simply left out when it positions
+             nobody. -->
         <div class="hud-rail hud-rail-left">
           <ReferencePanel :class="{ 'hud-off': !visiblePanels.reference }" />
-          <ZoomControls :class="{ 'hud-off': !visiblePanels.zoom }" />
-          <ActivityTicker :class="{ 'hud-off': !visiblePanels.activity }" />
+          <ZoomControls
+            v-if="availablePanels.includes('zoom')"
+            :class="{ 'hud-off': !visiblePanels.zoom }"
+          />
+          <ActivityTicker
+            v-if="availablePanels.includes('activity')"
+            class="hud-shrink"
+            :class="{ 'hud-off': !visiblePanels.activity }"
+          />
         </div>
         <div class="hud-rail hud-rail-right">
-          <LeaderboardPanel v-if="visiblePanels.leaderboard" />
+          <LeaderboardPanel v-if="visiblePanels.leaderboard" class="hud-shrink" />
           <div class="hud-bottom-right">
             <DevControls v-if="devButtonsEnabled" />
             <MiniMap v-if="visiblePanels.minimap" />
@@ -73,6 +81,13 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   height: 100%;
 }
 .stage {
+  /* The widest either rail can get, and the bound every panel in one caps its
+     own natural width against: the largest cap any panel carries (the activity
+     ticker's), never more than a third of the screen. A third leaves the middle
+     one too, which is what the flag bar lays itself out in (a bottom-centered
+     element being the one thing the two columns cannot place); at half the
+     screen each, the two rails would meet in the middle and leave it nothing. */
+  --hud-rail-max: min(340px, 33vw);
   position: fixed;
   inset: 52px 0 0 0;
   overflow: hidden;
@@ -105,8 +120,8 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
    with 3 children (reference/zoom/ticker) it also centers the middle one in
    whatever room is actually left between the other two, so a taller or
    shorter sibling on either side never has to be predicted or hardcoded.
-   On a phone the left rail is down to the reference panel alone, which
-   space-between leaves in its top corner.
+   On a compact viewport the left rail is down to the reference panel alone,
+   which space-between leaves in its top corner.
    pointer-events:none lets drags reach the canvas in the gaps; each panel
    (.panel, .zoom, .dev-controls) re-enables it on itself. */
 .hud-rail {
@@ -116,7 +131,21 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  /* space-between spreads the panels down a tall rail; this is the separation
+     they keep on a short one, where there is no slack left to spread. */
+  gap: 12px;
   pointer-events: none;
+}
+/* Nothing in a rail may outgrow it. The aspect-bound panels (the reference
+   thumbnail, the minimap) hold the size their own width math already fits to
+   the viewport height, so the two that hold a list are the ones that give room
+   up, scrolling their own list rather than running off the screen. */
+.hud-rail > * {
+  flex: none;
+  min-height: 0;
+}
+.hud-rail .hud-shrink {
+  flex: 0 1 auto;
 }
 .hud-rail-left {
   left: 16px;
@@ -135,11 +164,11 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   right: 16px;
   align-items: flex-end;
 }
-/* max-width mirrors every panel's own min(fixedCap, 50vw-24px) sizing: as
-   long as every element on both rails is bounded the same way, no left-rail
-   item plus right-rail item can ever together exceed the viewport width. Without
-   it this group (dev-only controls pill + minimap) has no cap of its own and
-   can run wide enough to reach into the activity ticker on the other rail.
+/* max-width holds this group to the same width the rails are bounded by, so
+   no left-rail item plus right-rail item can ever together exceed the viewport
+   width and the flag bar's own inset still clears it. Without it this group
+   (dev-only controls pill + minimap) has no cap of its own and can run wide
+   enough to reach into the activity ticker on the other rail.
    flex-wrap lets it reflow instead of overflowing once capped: DevControls is
    first in DOM/first flex line, so it is what drops to its own row above; the
    minimap, second/last, always stays the bottom-most line and keeps its
@@ -154,13 +183,19 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   align-items: flex-end;
   justify-content: flex-end;
   gap: 16px;
-  max-width: calc(50vw - 24px);
+  max-width: var(--hud-rail-max);
 }
 
-@media (max-width: 680px) {
+@media (max-width: 680px), (max-height: 480px) {
+  .stage {
+    /* No flag bar here, so nothing needs the middle third: the two corner
+       panels take the same half-viewport bound their own compact widths use. */
+    --hud-rail-max: calc(50vw - 20px);
+  }
   .hud-rail {
     top: 10px;
     bottom: 10px;
+    gap: 10px;
   }
   .hud-rail-left {
     left: 10px;

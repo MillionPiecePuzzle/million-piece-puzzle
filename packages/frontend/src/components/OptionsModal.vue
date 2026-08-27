@@ -9,7 +9,6 @@ import { useUpdatesModal } from "../composables/useUpdatesModal";
 import { useUpdatesSeen } from "../composables/useUpdatesSeen";
 import { useAuth } from "../composables/useAuth";
 import { useDisplaySettings } from "../composables/useDisplaySettings";
-import { HUD_PANEL_IDS } from "../data/displaySettings";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 import GoogleMark from "./GoogleMark.vue";
@@ -22,7 +21,13 @@ const { show: showNationality } = useNationalityModal();
 const { show: showUpdates } = useUpdatesModal();
 const { unseen: unseenUpdates } = useUpdatesSeen();
 const { user, signOut } = useAuth();
-const { settings: display, visiblePanels, setReferenceUnderlay, setPanel } = useDisplaySettings();
+const {
+  settings: display,
+  availablePanels,
+  visiblePanels,
+  setReferenceUnderlay,
+  setPanel,
+} = useDisplaySettings();
 
 const DISCORD_URL = "https://discord.gg/mB2juw55R3";
 
@@ -174,9 +179,12 @@ function openUpdates() {
             </span>
           </button>
 
+          <!-- Only the panels this viewport can hold: a screen too small for
+               the leaderboard, the ticker, the zoom pillar and the flag bar is
+               not offered a switch that would draw one over the board. -->
           <div class="panel-grid">
             <button
-              v-for="panel in HUD_PANEL_IDS"
+              v-for="panel in availablePanels"
               :key="panel"
               type="button"
               class="panel-toggle"
@@ -219,11 +227,7 @@ function openUpdates() {
   z-index: 109;
 }
 .options-modal {
-  width: min(380px, calc(100vw - 32px));
-  /* Every row plus the tips strip runs past a short phone viewport in all four
-     locales, so the shell scrolls rather than off the top and bottom of it. */
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  width: min(380px, 100%);
 }
 .modal-header {
   margin-bottom: 14px;
@@ -478,12 +482,10 @@ function openUpdates() {
   color: var(--ink);
 }
 
-/* A phone reads the whole menu in one screen: the same rows at tighter spacing,
-   not a different menu. */
-@media (max-width: 680px) {
+/* A small screen reads the whole menu in one screen: the same rows at tighter
+   spacing, not a different menu. */
+@media (max-width: 680px), (max-height: 480px) {
   .options-modal {
-    width: min(380px, calc(100vw - 20px));
-    max-height: calc(100vh - 20px);
     padding: 14px;
   }
   .modal-header {

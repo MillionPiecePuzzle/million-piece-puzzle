@@ -230,6 +230,15 @@ const progressPct = computed(() =>
   box-shadow: 0 0 0 2px var(--ground-2);
 }
 
+/* The bar is one row of three boxes that all want to grow: the pill drops the
+   total it is measured against before the flanking columns are squeezed down to
+   an ellipsis, since the bar beside it already reads as a ratio. */
+@media (max-width: 560px) {
+  .progress-pill .num span {
+    display: none;
+  }
+}
+
 @media (max-width: 420px) {
   .brand-name {
     display: none;

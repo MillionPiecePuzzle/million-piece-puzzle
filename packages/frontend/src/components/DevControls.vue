@@ -34,6 +34,8 @@ function onPlacePiece(): void {
 .dev-controls {
   pointer-events: auto;
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;

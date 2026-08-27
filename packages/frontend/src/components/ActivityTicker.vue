@@ -66,12 +66,17 @@ function lineRest(entry: ActivityEntry): string {
 
 <style scoped>
 .ticker {
-  width: min(340px, calc(50vw - 24px));
+  display: flex;
+  flex-direction: column;
+  width: min(340px, var(--hud-rail-max));
   padding: 12px 14px;
 }
 .ticker h3 {
   margin-bottom: 8px;
 }
+/* The list is what gives way when the rail runs short of height (see
+   PlayPage.vue .hud-shrink): the panel keeps its title and scrolls the entries
+   rather than running past the bottom of the screen. */
 .ticker ul {
   list-style: none;
   margin: 0;
@@ -79,6 +84,8 @@ function lineRest(entry: ActivityEntry): string {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
 }
 .ticker li {
   display: grid;

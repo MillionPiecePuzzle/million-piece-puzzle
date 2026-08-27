@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_DISPLAY_SETTINGS,
+  isPanelAvailable,
   isPanelVisible,
   parseDisplaySettings,
   type DisplaySettings,
@@ -47,24 +48,36 @@ describe("parseDisplaySettings", () => {
   });
 });
 
+describe("isPanelAvailable", () => {
+  it("keeps every panel on a full viewport and the board-first pair on a compact one", () => {
+    expect(isPanelAvailable("leaderboard", false)).toBe(true);
+    expect(isPanelAvailable("flags", false)).toBe(true);
+    expect(isPanelAvailable("reference", true)).toBe(true);
+    expect(isPanelAvailable("minimap", true)).toBe(true);
+    expect(isPanelAvailable("leaderboard", true)).toBe(false);
+    expect(isPanelAvailable("activity", true)).toBe(false);
+    expect(isPanelAvailable("zoom", true)).toBe(false);
+    expect(isPanelAvailable("flags", true)).toBe(false);
+  });
+});
+
 describe("isPanelVisible", () => {
   const untouched: DisplaySettings = { referenceUnderlay: true, panels: {} };
 
-  it("shows every panel on a wide viewport and only the board-first pair on a narrow one", () => {
-    expect(isPanelVisible(untouched, "leaderboard", true)).toBe(true);
-    expect(isPanelVisible(untouched, "flags", true)).toBe(true);
-    expect(isPanelVisible(untouched, "reference", false)).toBe(true);
-    expect(isPanelVisible(untouched, "minimap", false)).toBe(true);
-    expect(isPanelVisible(untouched, "leaderboard", false)).toBe(false);
-    expect(isPanelVisible(untouched, "zoom", false)).toBe(false);
+  it("draws every panel it has room for until the player says otherwise", () => {
+    expect(isPanelVisible(untouched, "leaderboard", false)).toBe(true);
+    expect(isPanelVisible(untouched, "flags", false)).toBe(true);
+    expect(isPanelVisible(untouched, "reference", true)).toBe(true);
+    expect(isPanelVisible(untouched, "minimap", true)).toBe(true);
   });
 
-  it("lets a stored choice override the viewport default either way", () => {
+  it("reads a stored choice back, and never over a panel this viewport cannot hold", () => {
     const chosen: DisplaySettings = {
       referenceUnderlay: true,
       panels: { leaderboard: true, minimap: false },
     };
     expect(isPanelVisible(chosen, "leaderboard", false)).toBe(true);
+    expect(isPanelVisible(chosen, "leaderboard", true)).toBe(false);
     expect(isPanelVisible(chosen, "minimap", false)).toBe(false);
     expect(isPanelVisible(chosen, "minimap", true)).toBe(false);
   });

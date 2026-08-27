@@ -142,6 +142,8 @@ onBeforeUnmount(() => {
      zone below the bar. */
   padding: clamp(24px, 5vmin, 56px);
   padding-top: calc(52px + clamp(24px, 5vmin, 56px));
+  /* Room for the caption, which hangs below the shell rather than inside it. */
+  padding-bottom: calc(10px + clamp(24px, 5vmin, 56px));
   background: rgba(21, 20, 15, 0.6);
   backdrop-filter: blur(2px);
   /* Size container so the shell can compute the largest image-ratio box that
