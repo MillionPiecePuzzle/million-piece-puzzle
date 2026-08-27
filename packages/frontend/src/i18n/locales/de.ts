@@ -129,18 +129,13 @@ const de: MessageSchema = {
   updates: {
     title: "Versionshinweise",
     v120: {
-      panels:
-        "Jedes Panel hat jetzt seinen eigenen Schalter im Bereich Anzeige in diesem Menü, sodass nur das stehen bleibt, was du brauchst.",
-      layout:
-        "Die Oberfläche passt in jeden Bildschirm, in dem sie sich öffnet, vom quer gehaltenen Handy bis zum großen Monitor.",
+      panels: "Jedes Panel hat jetzt seinen eigenen Schalter im Bereich Anzeige in diesem Menü.",
       minimap:
-        "Der Vergrößern-Knopf der Mini-Karte öffnet dieselbe Karte in lesbarer Größe, die dem Board live folgt.",
-      flagDrop:
-        "Ein Teil, das du zu einer Fahne schickst, landet jetzt auf einer wirklich freien Stelle, auch in einem Bereich des Boards, den du nie besucht hast.",
+        "Die vergrößerte Ansicht der Mini-Karte wurde überarbeitet: Sie öffnet jetzt dieselbe Karte, einfach größer.",
       notes:
         "Ein Punkt am Einstellungen-Knopf zeigt dir, dass Versionshinweise da sind, die du noch nicht gelesen hast.",
       fixes:
-        "Fehlerbehebungen, rund um festgesetzte Teile auf einer Kachelgrenze und den Fortschritt auf der Startseite.",
+        "Fehlerbehebungen: Ein Teil, das du auf eine Fahne in einem Bereich ziehst, den du in dieser Sitzung nicht besucht hast, stapelt sich nicht mehr auf der Fahne, dazu festgesetzte Teile auf einer Kachelgrenze und der Fortschritt auf der Startseite.",
     },
     v111: {
       fixes:

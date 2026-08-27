@@ -130,17 +130,13 @@ const fr: MessageSchema = {
     title: "Notes de mises à jour",
     v120: {
       panels:
-        "Chaque panneau a désormais son propre interrupteur dans la section Affichage de ce menu, pour ne garder que ceux qui vous servent.",
-      layout:
-        "L'interface s'adapte à tous les écrans, du téléphone tenu à l'horizontale au grand moniteur.",
+        "Chaque panneau a désormais son propre interrupteur dans la section Affichage de ce menu.",
       minimap:
-        "Le bouton d'agrandissement de la mini-carte ouvre la même carte à une taille lisible, qui suit le plateau en direct.",
-      flagDrop:
-        "Une pièce envoyée sur un drapeau se pose maintenant à un endroit réellement libre, même dans une zone du plateau que vous n'avez jamais visitée.",
+        "La vue agrandie de la mini-carte a été retravaillée : elle ouvre maintenant la même carte, en plus grand.",
       notes:
         "Une pastille sur le bouton des réglages signale les notes de mise à jour que vous n'avez pas encore lues.",
       fixes:
-        "Corrections de bugs, autour des pièces verrouillées à cheval sur une tuile et de la progression affichée sur la page d'accueil.",
+        "Corrections de bugs : une pièce déposée sur un drapeau d'une zone que vous n'avez pas visitée pendant cette session ne s'empile plus sur le drapeau, ainsi que les pièces verrouillées à cheval sur une tuile et la progression affichée sur la page d'accueil.",
     },
     v111: {
       fixes:

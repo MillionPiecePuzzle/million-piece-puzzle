@@ -130,17 +130,13 @@ const es: MessageSchema = {
     title: "Notas de actualización",
     v120: {
       panels:
-        "Cada panel tiene ahora su propio interruptor en la sección Visualización de este menú, para conservar solo los que usas.",
-      layout:
-        "La interfaz se adapta a cualquier pantalla en la que se abra, desde un móvil en horizontal hasta un monitor grande.",
+        "Cada panel tiene ahora su propio interruptor en la sección Visualización de este menú.",
       minimap:
-        "El botón de ampliar del minimapa abre el mismo mapa a un tamaño legible, siguiendo el tablero en directo.",
-      flagDrop:
-        "Una pieza enviada a una bandera aterriza ahora en un hueco realmente libre, incluso en una zona del tablero que nunca has visitado.",
+        "La vista ampliada del minimapa se ha rediseñado: ahora abre el mismo mapa, en grande.",
       notes:
         "Un punto en el botón de ajustes te avisa cuando hay notas de actualización que no has leído.",
       fixes:
-        "Correcciones de errores, en torno a las piezas bloqueadas a caballo entre dos casillas y al progreso que muestra la página de inicio.",
+        "Correcciones de errores: una pieza soltada sobre una bandera de una zona que no has visitado durante esta sesión ya no se amontona sobre la bandera, además de las piezas bloqueadas a caballo entre dos casillas y el progreso que muestra la página de inicio.",
     },
     v111: {
       fixes:
