@@ -82,6 +82,11 @@ export type Context = {
   // by the flag-drop landing search, which clamps its candidates to it exactly as
   // the client clamps a dragged cluster (see dropNear.ts).
   playZone: PlayZone;
+  // Manifest tile margin: how far a piece's artwork reaches past its grid cell.
+  // Not in `meta` (which is the Redis-persisted board record); read from the
+  // manifest at boot for the same landing search, whose spacing has to match the
+  // bounds the client draws a cluster with.
+  pieceMargin: number;
   // Max pieces allowed to rest in one world grid cell (one LOD tile). A non-merging
   // drop that would push the destination cell past this is rejected (see handleDrop).
   tilePieceCap: number;
@@ -836,6 +841,7 @@ async function scheduleDropNear(
         lockedPieces: ctx.lockedPieces,
         playZone: ctx.playZone,
         pieceSize: ctx.meta.pieceSize,
+        pieceMargin: ctx.pieceMargin,
         tilePieceCap: ctx.tilePieceCap,
       },
       { groupId, localAabb, size: g.size },

@@ -235,6 +235,7 @@ async function main(): Promise<void> {
     leaderboardTracker,
     leaderboardBroadcast,
     playZone,
+    pieceMargin: manifest.margin,
     tilePieceCap,
     clusterPieceCap: config.clusterPieceCap,
     broadcastMaxCells: config.broadcastMaxCells,

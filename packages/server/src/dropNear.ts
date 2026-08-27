@@ -23,6 +23,9 @@ export type DropNearIndexes = {
   lockedPieces: LockedPieceIndex;
   playZone: PlayZone;
   pieceSize: number;
+  // Tile margin from the manifest: how far past its grid cell a piece's artwork
+  // reaches on every side, which is what the client sizes a cluster by.
+  pieceMargin: number;
   tilePieceCap: number;
 };
 
@@ -42,26 +45,52 @@ export function resolveDropNearOrigin(
   atX: number,
   atY: number,
 ): { x: number; y: number } {
-  const { groupIndex, lockedPieces, playZone, pieceSize, tilePieceCap } = indexes;
+  const { groupIndex, lockedPieces, playZone, pieceSize, pieceMargin, tilePieceCap } = indexes;
   const { groupId, localAabb, size } = cluster;
   const gap = pieceSize * FLAG_DROP_GAP_PIECES;
+  // The client searches with the bounds it draws, which run one tile margin past
+  // the grid cell on every side (where a tab reaches), while both indexes here
+  // hold the grid box alone. So the cluster is grown by the margin, which is what
+  // keeps the spacing between landed pieces identical on both ends, and every
+  // occupancy query is grown by it again to stand in for the margin its
+  // neighbours' own stored boxes are missing.
+  const bounds = grow(localAabb, pieceMargin);
+  const occupied = (box: Aabb): boolean => {
+    const query = grow(box, pieceMargin);
+    return groupIndex.overlapsBox(query, groupId) || lockedPieces.overlapsBox(query);
+  };
   return findFreeOrigin({
-    bounds: localAabb,
+    bounds,
     atX: clamp(atX, playZone.minX, playZone.maxX),
     atY: clamp(atY, playZone.minY, playZone.maxY),
     gap,
     maxRing: FLAG_DROP_SEARCH_RINGS,
     clamp: (x, y) => ({
-      x: clamp(x, playZone.minX - localAabb.minX, playZone.maxX - localAabb.maxX),
-      y: clamp(y, playZone.minY - localAabb.minY, playZone.maxY - localAabb.maxY),
+      x: clamp(x, playZone.minX - bounds.minX, playZone.maxX - bounds.maxX),
+      y: clamp(y, playZone.minY - bounds.minY, playZone.maxY - bounds.maxY),
     }),
-    isClear: (box) => !groupIndex.overlapsBox(box, groupId) && !lockedPieces.overlapsBox(box),
-    // The candidate box carries the clearance gap on every side, so the tile asked
-    // is the one holding the cluster's own top-left corner: the cell handleDrop
-    // counts against the cap when it commits the drop.
+    isClear: (box) => !occupied(box),
+    // The candidate box carries the margin and the clearance gap on every side, so
+    // the tile asked is the one holding the cluster's own grid top-left corner:
+    // the cell handleDrop counts against the cap when it commits the drop.
     hasRoom: (box) =>
-      groupIndex.cellPieceCount(box.minX + gap, box.minY + gap, groupId) + size <= tilePieceCap,
+      groupIndex.cellPieceCount(
+        box.minX + gap + pieceMargin,
+        box.minY + gap + pieceMargin,
+        groupId,
+      ) +
+        size <=
+      tilePieceCap,
   });
+}
+
+function grow(box: Aabb, by: number): Aabb {
+  return {
+    minX: box.minX - by,
+    minY: box.minY - by,
+    maxX: box.maxX + by,
+    maxY: box.maxY + by,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

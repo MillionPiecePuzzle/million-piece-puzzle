@@ -520,6 +520,7 @@ function makeDropCtx() {
     leaderboardTracker: new LeaderboardTracker(dropMeta.totalPieces),
     leaderboardBroadcast: { markDirty },
     playZone: { minX: -2000, minY: -2000, maxX: 2000, maxY: 2000 },
+    pieceMargin: 20,
     tilePieceCap: 2048,
     clusterPieceCap: 20000,
   } as unknown as Context;
@@ -995,9 +996,10 @@ describe("drop_near", () => {
 
     await dispatch(ctx, client, dropNear(1000, 1000));
 
-    // One patch up: the piece plus the clearance gap on either side (100 + 30).
+    // One patch up: the piece, its tile margins and the clearance gap on either
+    // side (100 + 2 * 20 + 2 * 15).
     expect(state.groups.get(4)?.worldX).toBe(850);
-    expect(state.groups.get(4)?.worldY).toBe(720);
+    expect(state.groups.get(4)?.worldY).toBe(680);
   });
 
   it("rejects a drop_near on a group held by someone else", async () => {

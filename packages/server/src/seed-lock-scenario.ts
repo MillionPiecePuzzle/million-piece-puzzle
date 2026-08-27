@@ -291,6 +291,7 @@ async function main(): Promise<void> {
       // window against the very Mongo the run is measuring.
       leaderboardBroadcast: { markDirty: () => {} },
       playZone,
+      pieceMargin: manifest.margin,
       tilePieceCap,
       clusterPieceCap: config.clusterPieceCap,
       broadcastMaxCells: config.broadcastMaxCells,
