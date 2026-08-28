@@ -373,8 +373,8 @@ export type SRegionState = {
   // RegionGroup's worldX/worldY already does for a loose group. Always an
   // array, never absent, so the client never needs to null-check it.
   lockedPieceIds: WirePiece[];
-  // Ready server-composited tiles covering this batch's cells (see ROADMAP
-  // Phase 5 Stages 3-5): one entry per batch cell that already has a bake.
+  // Ready server-composited tiles covering this batch's cells (see DECISIONS:
+  // version-suffixed cell composites): one entry per batch cell that already has a bake.
   // Always an array, never absent, same convention as lockedPieceIds; a cell
   // absent here has no composite yet, so the client renders nothing for it
   // until a later cell_composite push reports one.
@@ -387,9 +387,10 @@ export type SRegionState = {
   coverage?: { minX: number; minY: number; maxX: number; maxY: number };
 };
 
-// One cell's server-composited locked-tile version (see ROADMAP Phase 5
-// Stage 3): rebaked from that cell's currently-locked, bordered piece tiles
-// on every lock event that touches it, cached and versioned in R2. `cellKey`
+// One cell's server-composited locked-tile version (see DECISIONS:
+// version-suffixed cell composites): rebaked from that cell's currently-locked
+// piece silhouettes on every lock event that touches it, cached and versioned
+// in R2. `cellKey`
 // is the same world-grid cell key the server's spatial indexes use
 // internally; the frontend needs no further indirection since a cell
 // position is not a solved-adjacency secret (unlike a piece id). `version`

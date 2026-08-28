@@ -445,7 +445,8 @@ export class RedisState {
     await writePipe.exec();
   }
 
-  // Persisted cell-composite bake versions (see ROADMAP Phase 5 Stage 3), read
+  // Persisted cell-composite bake versions (see DECISIONS: version-suffixed
+  // cell composites), read
   // once at boot to rebuild CellCompositeIndex, the same pattern the group
   // and locked-piece indexes already follow.
   async readCellCompositeVersions(): Promise<Map<number, number>> {

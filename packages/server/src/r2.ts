@@ -1,7 +1,7 @@
-// Thin write-only R2 client, used only by the cell compositor (see ROADMAP
-// Phase 5 Stage 3): the server's first live write path to R2, everything else
-// it does with R2 is a plain HTTPS read (the boot-time manifest fetch, and the
-// compositor's own piece-tile reads) through the public CDN domain, needing no
+// Thin write-only R2 client, used only by the cell compositor (see DECISIONS:
+// version-suffixed cell composites): the server's one live write path to R2,
+// everything else it does with R2 is a plain HTTPS read (the boot-time
+// manifest fetch) through the public CDN domain, needing no
 // credentials. R2 speaks the S3 API, so the AWS SDK is the standard client
 // (region "auto" plus a Cloudflare account endpoint), rather than hand-rolling
 // SigV4 request signing.

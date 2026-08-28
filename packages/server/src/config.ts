@@ -95,7 +95,8 @@ export type ServerConfig = {
   // density-relative cap above.
   tilePieceCapAbsolute: number;
   // Hard cap on a merge between two unlocked clusters: over this combined size,
-  // the merge is skipped and both stay separate (see ROADMAP Phase 5). Exempt
+  // the merge is skipped and both stay separate (see DECISIONS: locked pieces
+  // stop being a group). Exempt
   // when the merge anchors, since an anchored cluster dissolves into piece-level
   // locked flags rather than growing a group.
   clusterPieceCap: number;
@@ -156,12 +157,13 @@ export type ServerConfig = {
   // is configured server-side (never baked into the committed image) and only the
   // id/label reach the browser.
   adminPuzzles: AdminPuzzle[];
-  // Write-scoped R2 credentials for the cell compositor (see ROADMAP Phase 5
-  // Stage 3), the server's one live write path to R2; everything else it does
-  // with R2 is a public read needing no credentials. null (the default, and
-  // always true for local dev, which has no R2 write creds) leaves compositing
-  // inert: cells are never dirtied into useful work, the client keeps rendering
-  // every locked piece from Stage 2's per-piece path. A secret, so (like the
+  // Write-scoped R2 credentials for the cell compositor (see DECISIONS:
+  // version-suffixed cell composites), the server's one live write path to
+  // R2; everything else it does with R2 is a public read needing no
+  // credentials. null (the default, and always true for local dev, which has
+  // no R2 write creds) leaves compositing inert: cells are never dirtied into
+  // useful work, and locked pieces render as nothing at all (see DECISIONS: no
+  // compositor configured means locked pieces do not render). A secret, so (like the
   // backup sidecar's own R2 credentials) it is passed through from the Coolify
   // env, never baked into the image.
   r2Write: R2WriteConfig | null;
@@ -302,8 +304,8 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
   };
 }
 
-// R2 write credentials for the cell compositor (see ROADMAP Phase 5 Stage 3),
-// all-or-nothing: any of the three secret parts set without the others is
+// R2 write credentials for the cell compositor (see DECISIONS: version-suffixed
+// cell composites), all-or-nothing: any of the three secret parts set without the others is
 // almost certainly a misconfiguration, so it fails the boot loudly rather than
 // silently leaving compositing inert. All three unset (local dev's default,
 // which has no R2 write creds) is the normal, supported "feature off" state.

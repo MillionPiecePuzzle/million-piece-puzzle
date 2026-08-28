@@ -121,9 +121,10 @@ type GroupNode = {
 // A locked piece, flat and independent of any group: dx/dy are its grid-unit
 // offset from the frame origin (its own solved (col, row)), which doubles as
 // its absolute world position since the layer holding it sits at world (0, 0).
-// A locked piece is never individually fetched (see ROADMAP Phase 5 Stage 5:
-// the only rendering path for locked content is DziRevealLayer's reveal of
-// the reference photo pyramid); node is populated only by salvage (see
+// A locked piece is never individually fetched (see DECISIONS: DZI reveal
+// mask/seam bake, the only rendering path for locked content being
+// DziRevealLayer's reveal of the reference photo pyramid); node is populated
+// only by salvage (see
 // salvageLockedPiece), reusing a texture the local client's own drag already
 // hydrated, and freed once it leaves the keep ring. Otherwise a locked piece
 // is fully described (position, cell membership) with no geometry or
@@ -554,10 +555,10 @@ export class PuzzleStage {
   // remote): excluded from bakes and drawn live on top so a piece in hand never
   // freezes into a tile.
   private lodLayer: LodTileLayer | null = null;
-  // Server-baked locked-tile reveal (see ROADMAP Phase 5 Stage 5 and
-  // DECISIONS: DZI reveal mask and seam baked server-side via
-  // CellCompositor): the only rendering path for locked content, active at
-  // every zoom, sharing lockedPiecesLayer with any currently-salvaged node.
+  // Server-baked locked-tile reveal (see DECISIONS: DZI reveal mask and seam
+  // baked server-side via CellCompositor): the only rendering path for locked
+  // content, active at every zoom, sharing lockedPiecesLayer with any
+  // currently-salvaged node.
   // Reveals the reference DZI pyramid through a server-baked per-piece
   // silhouette mask plus a seam overlay, not a flat rectangle (see
   // dziRevealLayer.ts for how the two combine).
@@ -975,8 +976,8 @@ export class PuzzleStage {
   // world bounds (no origin translation, unlike a group, since the layer
   // holding it sits at world (0, 0)) and its spatial-index entry, for the
   // minimap overlay and the salvage bridge below. No texture is ever fetched
-  // for it (see ROADMAP Phase 5 Stage 5: DziRevealLayer's reveal is the only
-  // rendering path for locked content); node stays null unless
+  // for it (see DECISIONS: DZI reveal mask/seam bake, DziRevealLayer's reveal
+  // being the only rendering path for locked content); node stays null unless
   // salvageLockedPiece populates it. Shared by applyRegionState (streamed
   // construction) and applyAnchor (a member with no salvageable node).
   private constructLockedPiece(wp: WirePiece): LockedPieceSlot {
@@ -1417,10 +1418,10 @@ export class PuzzleStage {
     for (const c of cellComposites) this.applyCellComposite(c.cellKey, c.version);
   }
 
-  // Registers or bumps one cell's known mask/seam version (see ROADMAP Phase
-  // 5 Stage 5), shared by applyRegionState's newly-covered-cell batch and the
-  // live cell_composite push: both just report a fact to DziRevealLayer,
-  // which decides whether/when to actually fetch it. No LOD-tile
+  // Registers or bumps one cell's known mask/seam version (see DECISIONS: DZI
+  // reveal mask/seam bake), shared by applyRegionState's newly-covered-cell
+  // batch and the live cell_composite push: both just report a fact to
+  // DziRevealLayer, which decides whether/when to actually fetch it. No LOD-tile
   // invalidation needed here: the reveal renders on its own layer,
   // independent of the loose-piece baked tile above it, so a version bump
   // never needs that tile to re-bake.
@@ -1601,9 +1602,10 @@ export class PuzzleStage {
   // the flat locked layer at its frame-relative position, registering it in
   // every locked-piece index the fresh-fetch path would have. No texture
   // re-fetch, no destroy/rebuild flicker. This is the only bridge between a
-  // piece anchoring and its cell's composite catching up (see ROADMAP Phase 5
-  // Stage 5): salvagedPieceIds tracks it so reconcileSalvagedLockedPieces can
-  // free it the moment a composite tile is confirmed to cover it.
+  // piece anchoring and its cell's composite catching up (see DECISIONS: DZI
+  // reveal mask/seam bake): salvagedPieceIds tracks it so
+  // reconcileSalvagedLockedPieces can free it the moment a composite tile is
+  // confirmed to cover it.
   private salvageLockedPiece(piece: PieceNode, wp: WirePiece): void {
     const pieceSize = this.manifest?.pieceSize ?? 0;
     const margin = this.manifest?.margin ?? 0;
@@ -3270,15 +3272,15 @@ export class PuzzleStage {
     return b.maxX >= ring.minX && b.minX <= ring.maxX && b.maxY >= ring.minY && b.minY <= ring.maxY;
   }
 
-  // Per-frame reconcile for salvaged locked-piece nodes (see ROADMAP Phase 5
-  // Stage 5, salvageLockedPiece): tiny and self-limiting, so a plain walk of
-  // salvagedPieceIds every frame (rather than a spatial-index candidate pass
-  // like reconcileGroups) is simple enough. Culls each against the viewport,
-  // then frees it once it leaves the (wide) keep ring: leaving the ring
-  // means it is off-screen, so freeing it there creates no visible gap.
-  // Unlike the pre-DZI composite renderer, DziRevealLayer does not track
-  // per-piece coverage, so there is no earlier "the reveal layer already
-  // shows this piece" signal to free it on; leaving the ring is the only way
+  // Per-frame reconcile for salvaged locked-piece nodes (see DECISIONS: DZI
+  // reveal mask/seam bake, and salvageLockedPiece): tiny and self-limiting, so
+  // a plain walk of salvagedPieceIds every frame (rather than a spatial-index
+  // candidate pass like reconcileGroups) is simple enough. Culls each against
+  // the viewport, then frees it once it leaves the (wide) keep ring: leaving
+  // the ring means it is off-screen, so freeing it there creates no visible
+  // gap. DziRevealLayer tracks coverage per cell, not per piece, so there is
+  // no earlier "the reveal layer already shows this piece" signal to free it
+  // on; leaving the ring is the only way
   // one is ever freed. Never budget-evicted: unlike a group or a reveal
   // tile, there is no re-fetch to recover a salvaged node if freed early.
   private reconcileSalvagedLockedPieces(): void {
@@ -3490,7 +3492,7 @@ export class PuzzleStage {
       // case that reads it (zoomed in, region already streamed): the
       // zoom-out and not-streamed cases never touch the cell's contents.
       // Locked content has no per-piece loading signal left to contribute
-      // (see ROADMAP Phase 5 Stage 5): it renders only via DziRevealLayer,
+      // (see DECISIONS: DZI reveal mask/seam bake): it renders only via DziRevealLayer,
       // so a cell it covers just reads as loaded the instant that tile is
       // confirmed, with no separate loading badge.
       const needsScan = !this.lodActive && !(this.coverageSeen && !known);
@@ -3608,8 +3610,8 @@ export class PuzzleStage {
 
   // Re-evaluates LOD visibility for the current on-screen candidates. Used on
   // enter and after a snapshot, where many tiles change at once. Locked
-  // content has no LOD-band visibility left to refresh (see ROADMAP Phase 5
-  // Stage 5): a salvaged node only ever hides via culling (viewport, not LOD
+  // content has no LOD-band visibility left to refresh (see DECISIONS: DZI
+  // reveal mask/seam bake): a salvaged node only ever hides via culling (viewport, not LOD
   // band) or gets destroyed once it leaves the keep ring, and the reveal
   // layer's own visibility is owned entirely by DziRevealLayer's own reconcile.
   private refreshLodVisibility(): void {
@@ -3700,8 +3702,8 @@ export class PuzzleStage {
   // no re-fetch. Only covered-cold entries are evictable (their baked tiles
   // keep drawing them) and only while the LOD is active; zoomed in nothing is
   // covered, so the whole window stays resident. Locked pieces and the DZI
-  // reveal layer are no longer part of this budget (see ROADMAP Phase 5
-  // Stage 5): DziRevealLayer runs its own byte-weighted eviction, and a
+  // reveal layer are not part of this budget (see DECISIONS: DZI reveal
+  // mask/seam bake): DziRevealLayer runs its own byte-weighted eviction, and a
   // salvaged locked-piece node is freed only by reconcileSalvagedLockedPieces,
   // never by budget pressure (there is no re-fetch to recover one evicted
   // early).
@@ -3743,7 +3745,7 @@ export class PuzzleStage {
   // gliding), the frame, the backdrop, the tile layer itself,
   // lockedPiecesLayer and underlayLayer are excluded; non-tile clusters clip
   // out of the texture, so only this tile's loose clusters contribute. Locked
-  // content is never baked in (see ROADMAP Phase 5 Stage 5): it renders on
+  // content is never baked in (see DECISIONS: DZI reveal mask/seam bake): it renders on
   // its own layer beneath this one, always visible through the transparent
   // parts of the resulting texture, so excluding lockedPiecesLayer here is
   // what keeps it from being captured into this tile too. underlayLayer holds

@@ -1,4 +1,5 @@
-// Debounced per-cell compositing queue (see ROADMAP Phase 5 Stage 3). A lock
+// Debounced per-cell compositing queue (see DECISIONS: per-cell compositing runs
+// on a debounced dirty-cell queue). A lock
 // event marks its cell(s) dirty; a single background loop drains dirty cells
 // one at a time, so a burst touching the same cell (a busy area filling in,
 // or the dev force-complete shortcut re-dirtying the whole board at once)
@@ -135,11 +136,11 @@ export class CellCompositor {
               (e as Error).message,
             );
           } else {
-            // Logged and dropped for good, the genuine last resort: since
-            // CompositeTileLayer replaced the per-piece fallback (see
-            // DECISIONS), a cell that never gets a composite renders
-            // nothing, not degraded content, so this can no longer be
-            // accepted as a steady state the way it once was. A later lock
+            // Logged and dropped for good, the genuine last resort: the
+            // server-composited reveal is the only rendering path for locked
+            // content (see DECISIONS: DZI reveal mask/seam bake), so a cell
+            // that never gets a composite renders nothing, not degraded
+            // content, and this cannot be a steady state. A later lock
             // event touching this cell still gets its own fresh
             // CELL_BAKE_MAX_ATTEMPTS budget; a fully-locked cell with none
             // left needs a force-complete or admin resweep to try again.

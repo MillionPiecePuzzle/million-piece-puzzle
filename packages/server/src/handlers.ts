@@ -111,9 +111,9 @@ export type Context = {
   // Poll interval (ms) while a paced region_state stream waits for
   // bufferedAmount to clear.
   regionStreamPollIntervalMs: number;
-  // Read model for server-composited per-cell locked tiles (see ROADMAP Phase
-  // 5 Stage 3): which cells have a bake and at which version, so region_state
-  // can point a client at one instead of the flat per-piece fallback. Optional
+  // Read model for server-composited per-cell locked tiles (see DECISIONS:
+  // version-suffixed cell composites): which cells have a bake and at which
+  // version, so region_state can point a client at one. Optional
   // because a deployment with no R2 write credentials never constructs a
   // compositor (see index.ts), leaving the whole feature inert; every reader
   // uses optional chaining, so region_state stays valid either way.
@@ -386,8 +386,8 @@ async function streamRegionState(
     // Locked pieces in this batch's cells, flat (never grouped): a pure
     // in-memory bitset lookup, no Redis read needed (see LockedPieceIndex).
     const lockedGridIds = ctx.lockedPieces.collect(batch.cells);
-    // Ready server-composited tiles covering this batch's cells (see ROADMAP
-    // Phase 5 Stage 5), absent entirely when no compositor is wired. A cell
+    // Ready server-composited tiles covering this batch's cells (see DECISIONS:
+    // DZI reveal mask/seam bake), absent entirely when no compositor is wired. A cell
     // with no bake yet is simply omitted.
     const cellComposites = ctx.cellComposites
       ? collectRegionCellComposites(ctx.cellComposites, batch.cells)
@@ -647,7 +647,8 @@ async function applyMerge(
     await ctx.state.lockPieces(allPieces);
     ctx.lockedPieces.lock(allPieces);
     // Every cell one of these newly-locked pieces reaches into needs a fresh
-    // composite bake (see ROADMAP Phase 5 Stage 3); a Set dedupes the common
+    // composite bake (see DECISIONS: per-cell compositing runs on a debounced
+    // dirty-cell queue); a Set dedupes the common
     // case of several pieces in this merge sharing a cell. Skipped entirely
     // (not just a no-op call) when no compositor is wired, the common case for
     // any deployment with no R2 write credentials configured.

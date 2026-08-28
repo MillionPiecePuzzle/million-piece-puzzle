@@ -1187,7 +1187,8 @@ describe("group index maintenance", () => {
     // A locked piece has no group, so it is not in the group index...
     expect(ctx.groupIndex.cellOf(4)).toBeUndefined();
     // ...but it is now findable through the locked-piece index instead, closing
-    // the resync gap Stage 1 alone left open (see DECISIONS). Indexed by its
+    // the resync gap the group index alone left open (see DECISIONS: locked-piece
+    // delivery via a bitset). Indexed by its
     // canonical solved cell (row 1, col 1 on this 3x3 grid, i.e. world (100,
     // 100)), not the near-origin point it was dropped at.
     expect(ctx.lockedPieces.isLocked(4)).toBe(true);
