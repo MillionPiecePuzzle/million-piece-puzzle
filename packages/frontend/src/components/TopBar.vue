@@ -49,11 +49,7 @@ const progressPct = computed(() =>
 
     <div class="top-right">
       <div v-if="user && user.pseudo" class="presence">
-        <span
-          v-if="user.country"
-          class="flag"
-          :title="countryName(user.country)"
-        >
+        <span v-if="user.country" class="flag" :title="countryName(user.country)">
           <img
             :src="flagUrl(user.country)"
             :alt="countryName(user.country)"
