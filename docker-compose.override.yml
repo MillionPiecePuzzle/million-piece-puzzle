@@ -72,3 +72,12 @@ services:
   backup:
     environment:
       MPP_BACKUP_ENABLED: "0"
+
+# On the VPS the sidecar attaches to the Umami and Coolify stacks' own networks.
+# Neither exists on a dev machine, and an external network that is missing fails
+# the whole `docker compose up`, so create them locally as empty networks instead.
+networks:
+  umami:
+    external: false
+  coolify:
+    external: false

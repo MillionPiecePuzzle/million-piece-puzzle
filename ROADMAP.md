@@ -80,9 +80,9 @@ Three server-side fixes closed the release. A locked piece straddling a world-gr
 
 ## v1.3.0
 
-**Exit criterion**: to be defined when the first task lands here.
+**Exit criterion**: everything below is deployed and verified in prod.
 
-Open and empty. Promote a backlog item into this section to start it.
+- [~] `infra-deploy`: off-host backups reach R2, and cover the whole host rather than the game alone. Exit criterion: one sidecar pass uploads `mongo`, `redis`, `umami`, `coolify-db` and `coolify-data` to `mpp-backups`, and the prune keeps the newest 3 of each kind. The Coolify service env needs the rolled R2 keys and `MPP_BACKUP_UMAMI_URL` before the redeploy, or the pass still fails.
 
 ---
 
