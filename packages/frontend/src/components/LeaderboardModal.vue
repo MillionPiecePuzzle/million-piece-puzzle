@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { toCountryRows, toLeaderboardRows } from "../data/leaderboard";
+import { useCountryNames } from "../i18n/countryNames";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 import LeaderboardRow from "./LeaderboardRow.vue";
@@ -11,6 +12,7 @@ const { t } = useI18n();
 const emit = defineEmits<{ close: [] }>();
 
 const { leaderboard, userId } = usePuzzleSession();
+const { countryName } = useCountryNames();
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
 const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
@@ -21,7 +23,7 @@ const mode = ref<Mode>("people");
 const rows = computed(() =>
   mode.value === "people"
     ? toLeaderboardRows(leaderboard.value, userId.value)
-    : toCountryRows(leaderboard.value, userId.value),
+    : toCountryRows(leaderboard.value, userId.value, countryName),
 );
 
 const PAGE_SIZE = 10;

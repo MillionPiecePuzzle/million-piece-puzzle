@@ -8,10 +8,12 @@ import { useAuth } from "../composables/useAuth";
 import { useOptionsModal } from "../composables/useOptionsModal";
 import { useUpdatesSeen } from "../composables/useUpdatesSeen";
 import { useLocaleFormat } from "../i18n/format";
+import { useCountryNames } from "../i18n/countryNames";
 import { flagUrl } from "../data/flags";
 
 const { t } = useI18n();
 const { formatNumber } = useLocaleFormat();
+const { countryName } = useCountryNames();
 const { totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
 const { show: showOptions } = useOptionsModal();
@@ -50,9 +52,14 @@ const progressPct = computed(() =>
         <span
           v-if="user.country"
           class="flag"
-          :title="t('topbar.nationalityTitle', { code: user.country.toUpperCase() })"
+          :title="countryName(user.country)"
         >
-          <img :src="flagUrl(user.country)" :alt="user.country" width="18" height="18" />
+          <img
+            :src="flagUrl(user.country)"
+            :alt="countryName(user.country)"
+            width="18"
+            height="18"
+          />
         </span>
         <span class="pseudo" :title="t('topbar.signedInAs', { pseudo: user.pseudo })">
           {{ user.pseudo }}

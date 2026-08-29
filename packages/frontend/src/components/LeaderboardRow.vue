@@ -2,6 +2,7 @@
 import { useI18n } from "vue-i18n";
 import type { LeaderboardRow } from "../data/leaderboard";
 import { useLocaleFormat } from "../i18n/format";
+import { useCountryNames } from "../i18n/countryNames";
 import { flagUrl } from "../data/flags";
 
 const props = withDefaults(
@@ -14,6 +15,7 @@ const props = withDefaults(
 
 const { t } = useI18n();
 const { formatNumber } = useLocaleFormat();
+const { countryName } = useCountryNames();
 </script>
 
 <template>
@@ -27,8 +29,8 @@ const { formatNumber } = useLocaleFormat();
       v-if="props.row.country"
       class="av av-flag"
       :src="flagUrl(props.row.country)"
-      :alt="props.row.country"
-      :title="props.row.country.toUpperCase()"
+      :alt="countryName(props.row.country)"
+      :title="countryName(props.row.country)"
       width="22"
       height="22"
     />

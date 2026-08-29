@@ -55,7 +55,6 @@ const fr: MessageSchema = {
   },
   topbar: {
     puzzleProgress: "Progression du puzzle",
-    nationalityTitle: "Nationalité : {code}",
     signedInAs: "Connecté en tant que {pseudo}",
     options: "Paramètres",
     optionsNew: "Paramètres, nouvelles notes de mises à jour",

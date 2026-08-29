@@ -55,7 +55,6 @@ const es: MessageSchema = {
   },
   topbar: {
     puzzleProgress: "Progreso del puzle",
-    nationalityTitle: "Nacionalidad: {code}",
     signedInAs: "Conectado como {pseudo}",
     options: "Ajustes",
     optionsNew: "Ajustes, nuevas notas de actualización",

@@ -53,7 +53,6 @@ const en = {
   },
   topbar: {
     puzzleProgress: "Puzzle progress",
-    nationalityTitle: "Nationality: {code}",
     signedInAs: "Signed in as {pseudo}",
     options: "Settings",
     optionsNew: "Settings, new update notes",

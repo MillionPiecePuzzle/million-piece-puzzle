@@ -1,13 +1,7 @@
 // Real leaderboard data: server LeaderboardEntry values (userId + piece count)
 // turned into the display rows consumed by LeaderboardRow.vue and the panels.
 
-import {
-  COUNTRIES,
-  INTERNATIONAL,
-  LEADERBOARD_LIMIT,
-  compareStandings,
-  type LeaderboardEntry,
-} from "@mpp/shared";
+import { LEADERBOARD_LIMIT, compareStandings, type LeaderboardEntry } from "@mpp/shared";
 
 export type LeaderboardRow = {
   rank: number;
@@ -100,15 +94,16 @@ export function toLeaderboardRows(
   });
 }
 
-const countryNames = new Map([...COUNTRIES, INTERNATIONAL].map((c) => [c.code, c.name]));
-
 // Fold the per-person standings into a per-country ranking: every contributor
 // with a country adds their pieces to that country's total, ranked by pieces.
 // Entries without a country are omitted (no flag, no bucket). The local user's
-// country is flagged so the modal can highlight it like their own row.
+// country is flagged so the modal can highlight it like their own row. The
+// label comes from the caller (i18n/countryNames) so the ranking reads in the
+// active UI locale; ties still break on the code, which no locale reorders.
 export function toCountryRows(
   entries: LeaderboardEntry[],
   myUserId: string | null,
+  countryName: (code: string) => string,
 ): LeaderboardRow[] {
   const myCountry = entries.find((e) => e.userId === myUserId)?.country ?? null;
   const totals = new Map<string, number>();
@@ -120,7 +115,7 @@ export function toCountryRows(
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([code, pieces], i) => ({
       rank: i + 1,
-      name: countryNames.get(code) ?? code.toUpperCase(),
+      name: countryName(code),
       initials: code.toUpperCase(),
       color: palette[i % palette.length]!,
       country: code,

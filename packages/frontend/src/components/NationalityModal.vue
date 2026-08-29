@@ -8,31 +8,25 @@ import { useAuth } from "../composables/useAuth";
 import { useMode } from "../composables/useMode";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
-import { LOCALE_TAGS, type AppLocale } from "../i18n";
+import { useCountryNames } from "../i18n/countryNames";
 import { flagUrl } from "../data/flags";
 
-const { t, locale } = useI18n();
+const { t } = useI18n();
+const { countryName, localeTag } = useCountryNames();
 const { open, mode, hide } = useNationalityModal();
 const { show: showPseudo } = usePseudoModal();
 const { user, submitCountry, createGuest, guestPseudo } = useAuth();
 const { setMode } = useMode();
 
-// Localize country labels from their code, falling back to the dataset's English
-// name for any code Intl does not recognize as a region.
-const regionNames = computed(() => {
-  try {
-    return new Intl.DisplayNames([LOCALE_TAGS[locale.value as AppLocale]], { type: "region" });
-  } catch {
-    return null;
-  }
+// Ordered on the localized label rather than on the dataset's English order,
+// which no longer matches what the list reads: "Germany" is "Allemagne" in
+// French and belongs at the top there, not between Georgia and Ghana.
+const options = computed(() => {
+  const collator = new Intl.Collator(localeTag.value);
+  return COUNTRIES.map((c) => ({ code: c.code, label: countryName(c.code) })).sort((a, b) =>
+    collator.compare(a.label, b.label),
+  );
 });
-function countryName(country: { code: string; name: string }): string {
-  try {
-    return regionNames.value?.of(country.code.toUpperCase()) ?? country.name;
-  } catch {
-    return country.name;
-  }
-}
 
 const draft = ref("");
 const error = ref<string | null>(null);
@@ -40,6 +34,9 @@ const saving = ref(false);
 const selectEl = ref<HTMLSelectElement | null>(null);
 const shellEl = ref<HTMLElement | null>(null);
 
+const previewLabel = computed(() =>
+  draft.value ? countryName(draft.value) : t("nationality.noCountry"),
+);
 const valid = computed(() => draft.value !== "");
 const dismissible = computed(() => mode.value === "edit");
 // Onboarding (guest or forced) has no existing country to fall back on, so it
@@ -161,7 +158,8 @@ const { onMousedown, onClick } = useBackdropClick(onBackdrop);
           <img
             class="preview"
             :src="flagUrl(draft || null)"
-            :alt="draft || t('nationality.noCountry')"
+            :alt="previewLabel"
+            :title="previewLabel"
             width="28"
             height="28"
           />
@@ -174,8 +172,8 @@ const { onMousedown, onClick } = useBackdropClick(onBackdrop);
           >
             <option value="" disabled>{{ t("nationality.selectPlaceholder") }}</option>
             <option :value="INTERNATIONAL.code">{{ t("nationality.international") }}</option>
-            <option v-for="c in COUNTRIES" :key="c.code" :value="c.code">
-              {{ countryName(c) }}
+            <option v-for="c in options" :key="c.code" :value="c.code">
+              {{ c.label }}
             </option>
           </select>
         </div>
