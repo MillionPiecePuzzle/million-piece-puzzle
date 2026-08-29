@@ -4,12 +4,12 @@ const en = {
     saving: "Saving...",
     close: "Close",
     skip: "Skip",
-    leaderboard: "Leaderboard",
+    leaderboard: "Contributors",
     activity: "Activity",
     noActivity: "No activity yet.",
-    noStandings: "No standings yet.",
+    noStandings: "No contributions yet.",
     saveError: "Could not save, try again.",
-    fullBoard: "full board",
+    fullBoard: "full list",
   },
   time: {
     justNow: "just now",
@@ -31,7 +31,7 @@ const en = {
     completed: "COMPLETED",
     solvedIn: "solved in {duration}",
     liveActivity: "Live activity",
-    noStandingsFinal: "No standings recorded.",
+    noStandingsFinal: "No contributions recorded.",
     someone: "Someone",
     placed: "placed {pieces}",
     connected: "connected {pieces}",
@@ -105,7 +105,7 @@ const en = {
         reference: "Reference",
         zoom: "Zoom",
         activity: "Activity",
-        leaderboard: "Leaderboard",
+        leaderboard: "Contributors",
         minimap: "Minimap",
         flags: "Flags",
       },
@@ -145,14 +145,14 @@ const en = {
       underlay:
         "Show the source photo faintly under the board, from the Display section of this menu.",
       standings:
-        "The standings move on every snap, not only when a cluster locks onto the frame, and your own row is always shown.",
+        "The contributors list moves on every snap, not only when a cluster locks onto the frame, and your own row is always shown.",
       account:
         "Signing in with Google turns your guest into a permanent account, and you can sign back into it from another browser.",
       maintenance:
         "A server restart shows a maintenance screen instead of a connection error, and comes back on its own once the puzzle is up again.",
       mobile:
         "On a phone the interface keeps only the reference and the minimap, and leaves the screen to the board.",
-      help: "This menu carries tips, and the leaderboard explains how points are counted.",
+      help: "This menu carries tips, and the contributors panel explains how pieces are counted.",
     },
     v100: {
       launch:
@@ -175,8 +175,8 @@ const en = {
   nationality: {
     titleEdit: "Change your nationality",
     titleNew: "Choose your nationality",
-    ledeEdit: "Pick a new country. Its flag is shown next to your pseudo in the leaderboard.",
-    ledeNew: "Pick your country. Its flag is shown next to your pseudo in the leaderboard.",
+    ledeEdit: "Pick a new country. Its flag is shown next to your pseudo in the contributors list.",
+    ledeNew: "Pick your country. Its flag is shown next to your pseudo in the contributors list.",
     selectLabel: "Country",
     selectPlaceholder: "Select your country...",
     international: "International",
@@ -185,8 +185,8 @@ const en = {
     cooldown: "You already changed your country recently. Try again in {hours}h.",
   },
   leaderboardModal: {
-    label: "Full leaderboard",
-    rankingMode: "Ranking mode",
+    label: "All contributors",
+    rankingMode: "View mode",
     people: "People",
     countries: "Countries",
     prev: "prev",
@@ -195,17 +195,17 @@ const en = {
   scoring: {
     open: "How pieces are counted",
     title: "How pieces are counted",
-    lede: "Every piece on the board is worth one point. It is credited once, to the first player who snaps it into place.",
+    lede: "Every piece on the board counts once, for the first person who snaps it into place.",
     snapTwo:
-      "You snap two loose pieces together: one point, not two. The other piece's point is set aside for whoever locks that cluster into the board.",
+      "You snap two loose pieces together: that is one piece counted, not two. The other one is set aside for whoever locks that cluster into the board.",
     snapCluster:
-      "You drag a 30-piece cluster onto another one: the 29 already credited do not count twice, so you take the one nobody had ever snapped.",
+      "You drag a 30-piece cluster onto another one: the 29 already counted do not count twice, so you get the one nobody had ever snapped.",
     mismatchTitle: "Why it does not match the progress bar",
     mismatchBody:
-      "The leaderboard credits a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place: the two numbers are not meant to be equal.",
+      "The contributors list counts a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place: the two numbers are not meant to be equal.",
     fairTitle: "It adds up",
     fairBody:
-      "This is what keeps the standings fair. It also means that, once the last piece is placed, they add up to exactly {total} pieces.",
+      "This is what keeps every piece counted exactly once. It also means that, once the last piece is placed, the counts add up to exactly {total} pieces.",
   },
   activityPanel: {
     placedLine: "placed {object}",
@@ -247,7 +247,7 @@ const en = {
     complete: "Complete",
     assembled: "Puzzle assembled.",
     piecesPlaced: "{n} piece placed. | {n} pieces placed.",
-    topContributors: "Top contributors",
+    topContributors: "Contributors",
     summary: "Summary",
     hideSummary: "Hide summary",
     showSummary: "Show summary",
@@ -294,10 +294,10 @@ const en = {
     discord: "Discord server",
     collectedHead: "Data collected",
     collectedBody:
-      "Joining the board creates a guest account: a unique user identifier, the pseudo you choose, and the country you select during onboarding, no email required. If you sign in with Google to keep your contributions under one identity, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the leaderboard. Technical logs (IP address, browser) are processed by the host for security and reliability.",
+      "Joining the board creates a guest account: a unique user identifier, the pseudo you choose, and the country you select during onboarding, no email required. If you sign in with Google to keep your contributions under one identity, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the contributors list. Technical logs (IP address, browser) are processed by the host for security and reliability.",
     purposesHead: "Purposes",
     purposesBody:
-      "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the leaderboard. No data is sold or used for advertising.",
+      "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the contributors list. No data is sold or used for advertising.",
     processorsHead: "Sub-processors",
     processorsBody:
       "The service relies on Google (sign-in), Cloudflare (frontend hosting, asset storage and delivery) and OVH (the server hosting the game backend, including its self-hosted analytics). These providers may process data outside the European Union under their own protection frameworks. No third-party tracking or analytics service is used.",

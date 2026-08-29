@@ -85,6 +85,7 @@ Three server-side fixes closed the release. A locked piece straddling a world-gr
 - [x] `frontend-shell`: a nationality flag names its country, in the reader's language. Exit criterion: every flag occurrence (leaderboard people and country rankings, the topbar presence, the nationality picker's preview) carries a tooltip with the localized country name, the country ranking and the picker read in the active locale, and the picker is ordered on the localized name.
 - [x] `frontend-shell`: the leaderboard modal's people/countries switch is as wide as its two buttons again. Exit criterion: the switch hugs its buttons instead of stretching to the shell width, which it has done since the modal shell became a flex column.
 - [~] `infra-deploy`: off-host backups reach R2, and cover the whole host rather than the game alone. Exit criterion: one sidecar pass uploads `mongo`, `redis`, `umami`, `coolify-db` and `coolify-data` to `mpp-backups`, and the prune keeps the newest 3 of each kind. The Coolify service env needs the rolled R2 keys and `MPP_BACKUP_UMAMI_URL` before the redeploy, or the pass still fails.
+- [x] `frontend-shell`: the standings read as a contributors list, not as a competition. Exit criterion: no user-facing string in the four locales calls it a leaderboard, a ranking, a score or a point, the panel, its modal, the counting explainer, the nationality lede, the update notes and the privacy page all speak of contributors and of pieces counted once, and the rank column and its top-three emphasis are left as they are.
 
 ---
 

@@ -6,12 +6,12 @@ const fr: MessageSchema = {
     saving: "Enregistrement...",
     close: "Fermer",
     skip: "Passer",
-    leaderboard: "Classement",
+    leaderboard: "Contributeurs",
     activity: "Activité",
     noActivity: "Aucune activité pour l'instant.",
-    noStandings: "Aucun classement pour l'instant.",
+    noStandings: "Aucune contribution pour l'instant.",
     saveError: "Impossible d'enregistrer, réessayez.",
-    fullBoard: "tableau complet",
+    fullBoard: "liste complète",
   },
   time: {
     justNow: "à l'instant",
@@ -33,7 +33,7 @@ const fr: MessageSchema = {
     completed: "TERMINÉ",
     solvedIn: "résolu en {duration}",
     liveActivity: "Activité en direct",
-    noStandingsFinal: "Aucun classement enregistré.",
+    noStandingsFinal: "Aucune contribution enregistrée.",
     someone: "Quelqu'un",
     placed: "a placé {pieces}",
     connected: "a relié {pieces}",
@@ -107,7 +107,7 @@ const fr: MessageSchema = {
         reference: "Référence",
         zoom: "Zoom",
         activity: "Activité",
-        leaderboard: "Classement",
+        leaderboard: "Contributeurs",
         minimap: "Mini-carte",
         flags: "Drapeaux",
       },
@@ -149,14 +149,14 @@ const fr: MessageSchema = {
       underlay:
         "Affichez l'image source en transparence sous le plateau, depuis la section Affichage de ce menu.",
       standings:
-        "Le classement bouge à chaque assemblage, et plus seulement quand un groupe se verrouille sur le cadre. Votre ligne y est toujours visible.",
+        "La liste des contributeurs bouge à chaque assemblage, et plus seulement quand un groupe se verrouille sur le cadre. Votre ligne y est toujours visible.",
       account:
         "Se connecter avec Google transforme votre compte invité en compte permanent, que vous pouvez retrouver depuis un autre navigateur.",
       maintenance:
         "Un redémarrage du serveur affiche un écran de maintenance au lieu d'une erreur de connexion, et revient tout seul dès que le puzzle est de retour.",
       mobile:
         "Sur téléphone, l'interface ne garde que la référence et la mini-carte, et laisse l'écran au plateau.",
-      help: "Ce menu propose des astuces, et le classement explique comment les points sont comptés.",
+      help: "Ce menu propose des astuces, et le panneau des contributeurs explique comment les pièces sont comptées.",
     },
     v100: {
       launch:
@@ -182,9 +182,9 @@ const fr: MessageSchema = {
     titleEdit: "Changer de nationalité",
     titleNew: "Choisissez votre nationalité",
     ledeEdit:
-      "Choisissez un nouveau pays. Son drapeau est affiché à côté de votre pseudo dans le classement.",
+      "Choisissez un nouveau pays. Son drapeau est affiché à côté de votre pseudo dans la liste des contributeurs.",
     ledeNew:
-      "Choisissez votre pays. Son drapeau est affiché à côté de votre pseudo dans le classement.",
+      "Choisissez votre pays. Son drapeau est affiché à côté de votre pseudo dans la liste des contributeurs.",
     selectLabel: "Pays",
     selectPlaceholder: "Sélectionnez votre pays...",
     international: "International",
@@ -193,8 +193,8 @@ const fr: MessageSchema = {
     cooldown: "Vous avez déjà changé de pays récemment. Réessayez dans {hours} h.",
   },
   leaderboardModal: {
-    label: "Classement complet",
-    rankingMode: "Mode de classement",
+    label: "Tous les contributeurs",
+    rankingMode: "Mode d'affichage",
     people: "Personnes",
     countries: "Pays",
     prev: "préc.",
@@ -203,17 +203,17 @@ const fr: MessageSchema = {
   scoring: {
     open: "Comment les pièces sont comptées",
     title: "Comment les pièces sont comptées",
-    lede: "Chaque pièce du plateau vaut un point. Il est crédité une seule fois, au premier joueur qui l'emboîte.",
+    lede: "Chaque pièce du plateau est comptée une seule fois, pour la première personne qui l'emboîte.",
     snapTwo:
-      "Vous emboîtez deux pièces libres : un point, pas deux. Le point de l'autre pièce est mis de côté pour celui qui verrouillera ce groupe dans le plateau.",
+      "Vous emboîtez deux pièces libres : cela compte une pièce, pas deux. L'autre est mise de côté pour la personne qui verrouillera ce groupe dans le plateau.",
     snapCluster:
-      "Vous glissez un groupe de 30 pièces sur un autre : les 29 déjà créditées ne comptent pas deux fois, vous prenez celle que personne n'avait jamais emboîtée.",
+      "Vous glissez un groupe de 30 pièces sur un autre : les 29 déjà comptées ne comptent pas deux fois, vous obtenez celle que personne n'avait jamais emboîtée.",
     mismatchTitle: "Pourquoi le total ne colle pas à la barre de progression",
     mismatchBody:
-      "Le classement crédite une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive : les deux nombres n'ont pas vocation à être égaux.",
+      "La liste des contributeurs compte une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive : les deux nombres n'ont pas vocation à être égaux.",
     fairTitle: "Le compte tombe juste",
     fairBody:
-      "Ce système permet de garder un classement équitable. Il permettra aussi, quand la dernière pièce sera posée, de comptabiliser exactement {total} pièces.",
+      "Ce système garantit que chaque pièce est comptée exactement une fois. Il permettra aussi, quand la dernière pièce sera posée, de comptabiliser exactement {total} pièces.",
   },
   activityPanel: {
     placedLine: "a placé {object}",
@@ -256,7 +256,7 @@ const fr: MessageSchema = {
     complete: "Terminé",
     assembled: "Puzzle assemblé.",
     piecesPlaced: "{n} pièce placée. | {n} pièces placées.",
-    topContributors: "Meilleurs contributeurs",
+    topContributors: "Contributeurs",
     summary: "Récapitulatif",
     hideSummary: "Masquer le récapitulatif",
     showSummary: "Afficher le récapitulatif",
@@ -303,10 +303,10 @@ const fr: MessageSchema = {
     discord: "serveur Discord",
     collectedHead: "Données collectées",
     collectedBody:
-      "Rejoindre le plateau crée un compte invité : un identifiant utilisateur unique, le pseudo que vous choisissez et le pays que vous sélectionnez lors de l'inscription, sans adresse e-mail requise. Si vous vous connectez avec Google pour conserver vos contributions sous une seule identité, votre adresse e-mail et votre nom Google sont également enregistrés. Vos contributions (les pièces que vous avez placées et à quel moment) sont enregistrées et affichées publiquement dans le fil d'activité et le classement. Les journaux techniques (adresse IP, navigateur) sont traités par l'hébergeur à des fins de sécurité et de fiabilité.",
+      "Rejoindre le plateau crée un compte invité : un identifiant utilisateur unique, le pseudo que vous choisissez et le pays que vous sélectionnez lors de l'inscription, sans adresse e-mail requise. Si vous vous connectez avec Google pour conserver vos contributions sous une seule identité, votre adresse e-mail et votre nom Google sont également enregistrés. Vos contributions (les pièces que vous avez placées et à quel moment) sont enregistrées et affichées publiquement dans le fil d'activité et la liste des contributeurs. Les journaux techniques (adresse IP, navigateur) sont traités par l'hébergeur à des fins de sécurité et de fiabilité.",
     purposesHead: "Finalités",
     purposesBody:
-      "Les données ne servent qu'à faire fonctionner le jeu : vous authentifier, sauvegarder votre progression, attribuer les pièces placées et afficher le classement. Aucune donnée n'est vendue ni utilisée à des fins publicitaires.",
+      "Les données ne servent qu'à faire fonctionner le jeu : vous authentifier, sauvegarder votre progression, attribuer les pièces placées et afficher la liste des contributeurs. Aucune donnée n'est vendue ni utilisée à des fins publicitaires.",
     processorsHead: "Sous-traitants",
     processorsBody:
       "Le service s'appuie sur Google (connexion), Cloudflare (hébergement du frontend, stockage et diffusion des ressources) et OVH (le serveur hébergeant le backend du jeu, y compris ses statistiques auto-hébergées). Ces prestataires peuvent traiter des données en dehors de l'Union européenne, dans le cadre de leurs propres dispositifs de protection. Aucun service tiers de suivi ou d'analyse n'est utilisé.",

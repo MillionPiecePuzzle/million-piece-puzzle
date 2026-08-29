@@ -6,12 +6,12 @@ const de: MessageSchema = {
     saving: "Speichern...",
     close: "Schließen",
     skip: "Überspringen",
-    leaderboard: "Rangliste",
+    leaderboard: "Mitwirkende",
     activity: "Aktivität",
     noActivity: "Noch keine Aktivität.",
-    noStandings: "Noch keine Platzierungen.",
+    noStandings: "Noch keine Beiträge.",
     saveError: "Speichern fehlgeschlagen, bitte erneut versuchen.",
-    fullBoard: "ganze Tabelle",
+    fullBoard: "ganze Liste",
   },
   time: {
     justNow: "gerade eben",
@@ -33,7 +33,7 @@ const de: MessageSchema = {
     completed: "ABGESCHLOSSEN",
     solvedIn: "gelöst in {duration}",
     liveActivity: "Live-Aktivität",
-    noStandingsFinal: "Keine Platzierungen erfasst.",
+    noStandingsFinal: "Keine Beiträge erfasst.",
     someone: "Jemand",
     placed: "hat {pieces} platziert",
     connected: "hat {pieces} verbunden",
@@ -107,7 +107,7 @@ const de: MessageSchema = {
         reference: "Referenz",
         zoom: "Zoom",
         activity: "Aktivität",
-        leaderboard: "Rangliste",
+        leaderboard: "Mitwirkende",
         minimap: "Minikarte",
         flags: "Fahnen",
       },
@@ -148,14 +148,14 @@ const de: MessageSchema = {
       underlay:
         "Zeig das Originalfoto schwach unter dem Board an, über den Bereich Anzeige in diesem Menü.",
       standings:
-        "Die Rangliste bewegt sich bei jedem Zusammenfügen, nicht mehr nur beim Einrasten am Rahmen. Deine eigene Zeile ist immer sichtbar.",
+        "Die Liste der Mitwirkenden bewegt sich bei jedem Zusammenfügen, nicht mehr nur beim Einrasten am Rahmen. Deine eigene Zeile ist immer sichtbar.",
       account:
         "Die Anmeldung mit Google macht aus deinem Gastkonto ein dauerhaftes Konto, das du auch von einem anderen Browser aus wieder erreichst.",
       maintenance:
         "Ein Neustart des Servers zeigt einen Wartungshinweis statt eines Verbindungsfehlers und kommt von selbst zurück, sobald das Puzzle wieder da ist.",
       mobile:
         "Auf dem Handy behält die Oberfläche nur die Referenz und die Mini-Karte und überlässt dem Board den Bildschirm.",
-      help: "Dieses Menü enthält Tipps, und die Rangliste erklärt, wie Punkte gezählt werden.",
+      help: "Dieses Menü enthält Tipps, und die Liste der Mitwirkenden erklärt, wie Teile gezählt werden.",
     },
     v100: {
       launch:
@@ -182,9 +182,9 @@ const de: MessageSchema = {
     titleEdit: "Nationalität ändern",
     titleNew: "Wähle deine Nationalität",
     ledeEdit:
-      "Wähle ein neues Land. Seine Flagge wird in der Rangliste neben deinem Pseudonym angezeigt.",
+      "Wähle ein neues Land. Seine Flagge wird in der Liste der Mitwirkenden neben deinem Pseudonym angezeigt.",
     ledeNew:
-      "Wähle dein Land. Seine Flagge wird in der Rangliste neben deinem Pseudonym angezeigt.",
+      "Wähle dein Land. Seine Flagge wird in der Liste der Mitwirkenden neben deinem Pseudonym angezeigt.",
     selectLabel: "Land",
     selectPlaceholder: "Wähle dein Land...",
     international: "International",
@@ -193,8 +193,8 @@ const de: MessageSchema = {
     cooldown: "Du hast dein Land bereits vor Kurzem geändert. Versuch es in {hours} Std. erneut.",
   },
   leaderboardModal: {
-    label: "Vollständige Rangliste",
-    rankingMode: "Ranglistenmodus",
+    label: "Alle Mitwirkenden",
+    rankingMode: "Ansichtsmodus",
     people: "Personen",
     countries: "Länder",
     prev: "zurück",
@@ -203,17 +203,17 @@ const de: MessageSchema = {
   scoring: {
     open: "Wie Teile gezählt werden",
     title: "Wie Teile gezählt werden",
-    lede: "Jedes Teil auf dem Brett ist einen Punkt wert. Er wird einmal gutgeschrieben, an den ersten Spieler, der es einrastet.",
+    lede: "Jedes Teil auf dem Brett wird einmal gezählt, für die erste Person, die es einrastet.",
     snapTwo:
-      "Du rastest zwei lose Teile zusammen: ein Punkt, nicht zwei. Der Punkt des anderen Teils bleibt für den zurückgelegt, der diesen Verbund im Brett verriegelt.",
+      "Du rastest zwei lose Teile zusammen: das zählt ein Teil, nicht zwei. Das andere bleibt für die Person zurückgelegt, die diesen Verbund im Brett verriegelt.",
     snapCluster:
-      "Du ziehst einen 30-Teile-Verbund auf einen anderen: die 29 bereits gutgeschriebenen zählen nicht doppelt, du bekommst das eine, das noch nie jemand eingerastet hat.",
+      "Du ziehst einen 30-Teile-Verbund auf einen anderen: die 29 bereits gezählten zählen nicht doppelt, du bekommst das eine, das noch nie jemand eingerastet hat.",
     mismatchTitle: "Warum das nicht zum Fortschrittsbalken passt",
     mismatchBody:
-      "Die Rangliste schreibt ein Teil in dem Moment gut, in dem es einrastet, egal wo auf dem Brett. Der Fortschrittsbalken zählt nur die Teile, die an ihrem endgültigen Platz verriegelt sind: die beiden Zahlen sollen gar nicht gleich sein.",
+      "Die Liste der Mitwirkenden zählt ein Teil in dem Moment, in dem es einrastet, egal wo auf dem Brett. Der Fortschrittsbalken zählt nur die Teile, die an ihrem endgültigen Platz verriegelt sind: die beiden Zahlen sollen gar nicht gleich sein.",
     fairTitle: "Am Ende geht es auf",
     fairBody:
-      "Dieses System hält die Rangliste fair. Und es sorgt dafür, dass sie genau {total} Teile ergibt, sobald das letzte Teil gesetzt ist.",
+      "Dieses System sorgt dafür, dass jedes Teil genau einmal gezählt wird. Und dafür, dass die Zählungen genau {total} Teile ergeben, sobald das letzte Teil gesetzt ist.",
   },
   activityPanel: {
     placedLine: "hat {object} platziert",
@@ -257,7 +257,7 @@ const de: MessageSchema = {
     complete: "Fertig",
     assembled: "Puzzle zusammengesetzt.",
     piecesPlaced: "{n} Teil platziert. | {n} Teile platziert.",
-    topContributors: "Top-Mitwirkende",
+    topContributors: "Mitwirkende",
     summary: "Zusammenfassung",
     hideSummary: "Zusammenfassung ausblenden",
     showSummary: "Zusammenfassung anzeigen",
@@ -304,10 +304,10 @@ const de: MessageSchema = {
     discord: "Discord-Server",
     collectedHead: "Erfasste Daten",
     collectedBody:
-      "Der Eintritt ins Spielfeld legt ein Gastkonto an: eine eindeutige Benutzerkennung, das von dir gewählte Pseudonym und das beim Onboarding ausgewählte Land, ohne dass eine E-Mail-Adresse erforderlich ist. Wenn du dich mit Google anmeldest, um deine Beiträge unter einer einzigen Identität zu behalten, werden auch deine E-Mail-Adresse und dein Name von Google gespeichert. Deine Beiträge (welche Teile du platziert hast und wann) werden erfasst und für den Aktivitäts-Feed und die Rangliste öffentlich angezeigt. Technische Protokolle (IP-Adresse, Browser) werden vom Hoster aus Gründen der Sicherheit und Zuverlässigkeit verarbeitet.",
+      "Der Eintritt ins Spielfeld legt ein Gastkonto an: eine eindeutige Benutzerkennung, das von dir gewählte Pseudonym und das beim Onboarding ausgewählte Land, ohne dass eine E-Mail-Adresse erforderlich ist. Wenn du dich mit Google anmeldest, um deine Beiträge unter einer einzigen Identität zu behalten, werden auch deine E-Mail-Adresse und dein Name von Google gespeichert. Deine Beiträge (welche Teile du platziert hast und wann) werden erfasst und für den Aktivitäts-Feed und die Liste der Mitwirkenden öffentlich angezeigt. Technische Protokolle (IP-Adresse, Browser) werden vom Hoster aus Gründen der Sicherheit und Zuverlässigkeit verarbeitet.",
     purposesHead: "Zwecke",
     purposesBody:
-      "Die Daten werden ausschließlich zum Betrieb des Spiels verwendet: um dich zu authentifizieren, deinen Fortschritt zu speichern, platzierte Teile zuzuordnen und die Rangliste anzuzeigen. Es werden keine Daten verkauft oder für Werbung verwendet.",
+      "Die Daten werden ausschließlich zum Betrieb des Spiels verwendet: um dich zu authentifizieren, deinen Fortschritt zu speichern, platzierte Teile zuzuordnen und die Liste der Mitwirkenden anzuzeigen. Es werden keine Daten verkauft oder für Werbung verwendet.",
     processorsHead: "Auftragsverarbeiter",
     processorsBody:
       "Der Dienst nutzt Google (Anmeldung), Cloudflare (Frontend-Hosting, Speicherung und Auslieferung der Assets) und OVH (den Server, der das Spiel-Backend hostet, einschließlich seiner selbst gehosteten Analyse). Diese Anbieter können Daten außerhalb der Europäischen Union im Rahmen ihrer eigenen Schutzmechanismen verarbeiten. Es wird kein Drittanbieter-Dienst für Tracking oder Analyse eingesetzt.",
