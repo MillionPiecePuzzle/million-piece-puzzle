@@ -60,6 +60,16 @@ onMounted(() => {
     // the PixiJS stage's WebGL context, and the webgl drawer's tile texture
     // uploads fail (blank viewer) under that contention.
     drawer: "canvas",
+    // CORS on every tile request, though nothing here reads a pixel back. The
+    // board streams this same pyramid, at the same URLs (dziRevealLayer.ts),
+    // through `fetch`, which WebGL leaves no choice but to make a CORS request.
+    // R2 answers a request carrying no Origin with no
+    // Access-Control-Allow-Origin and, decisively, no Vary: Origin, so the
+    // browser replays that cached response to the board's CORS fetch for the
+    // whole max-age: one plain <img> here and the board cannot load that tile
+    // for hours, falling back to its blurry base level over the area the
+    // player just examined.
+    crossOriginPolicy: "Anonymous",
   });
   viewer.addHandler("open", () => fit(true));
   viewer.open(dziUrlFor(props.manifest) as unknown as OpenSeadragon.TileSourceSpecifier);

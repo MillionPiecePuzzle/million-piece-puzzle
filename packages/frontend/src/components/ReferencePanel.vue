@@ -49,6 +49,13 @@ onMounted(() => {
     // shares the page with the PixiJS stage's WebGL context, and the webgl
     // drawer's tile texture uploads fail (blank panel) under that contention.
     drawer: "canvas",
+    // Same CORS requirement as the enlarged view, and for the same cache reason
+    // (see ReferenceModal.vue). This thumbnail is small enough that the levels
+    // it asks for sit four below the coarsest the board ever asks for, so it
+    // poisons nothing today; it shares one pyramid and one browser cache with
+    // the board all the same, and a wider thumbnail would close that gap in
+    // silence.
+    crossOriginPolicy: "Anonymous",
   });
   watch(
     state,
