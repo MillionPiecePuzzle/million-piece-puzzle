@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import type { ActivityItem, LeaderboardEntry } from "@mpp/shared";
@@ -14,8 +14,12 @@ import {
   backendRetryDelayMs,
   interestedUrl,
   loadLanding,
+  loadLive,
+  reloadLanding,
+  LIVE_POLL_INTERVAL_MS,
   type InterestState,
   type LandingData,
+  type LiveData,
 } from "../data/landing";
 import { toContributorsRows } from "../data/contributors";
 
@@ -41,11 +45,17 @@ const completion = ref<{ at: number; startedAt: number } | null>(null);
 // empty board with a Play button that leads nowhere.
 const unavailable = ref(false);
 
+// False until GET /landing has answered or failed. The phase is unknown until
+// then: eventStartsAt starts at 0, which reads as "not launched", so rendering
+// before the answer shows a running board its pre-launch countdown.
+const loaded = ref(false);
+
 // Before the start the landing counts down; once the board is done it shows the
 // recap; in between it shows live progress. Completion wins over the timer so a
 // finished puzzle never falls back to the countdown.
 const { launched, scheduled, parts } = useCountdown(eventStartsAt);
-const phase = computed<"scheduled" | "live" | "completed">(() => {
+const phase = computed<"unknown" | "scheduled" | "live" | "completed">(() => {
+  if (!loaded.value) return "unknown";
   if (status.value === "completed") return "completed";
   return launched.value ? "live" : "scheduled";
 });
@@ -162,6 +172,7 @@ function applyLanding(data: LandingData): void {
 // are cached, so retrying it is also how the page notices the server is back.
 async function refresh(): Promise<void> {
   const data = await loadLanding();
+  loaded.value = true;
   if (!data) {
     unavailable.value = true;
     retryTimer = setTimeout(() => void refresh(), backendRetryDelayMs());
@@ -171,6 +182,60 @@ async function refresh(): Promise<void> {
   applyLanding(data);
 }
 
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function applyLive(data: LiveData): void {
+  progress.value = data.progress;
+  leaderboard.value = data.leaderboard;
+  activity.value = data.activity;
+}
+
+async function poll(): Promise<void> {
+  // A backgrounded tab reads nothing: the figures it would collect are the ones
+  // it re-reads on the way back into view.
+  if (document.visibilityState !== "visible") return;
+  const data = await loadLive();
+  // A failed poll keeps what is on screen. Deciding the server is down stays
+  // the job of the initial GET /landing and its own retry.
+  if (!data) return;
+  if (data.status === "completed") {
+    // The board finished while this page was open. The recap lives on /landing
+    // alone (the event span, and standings deeper than this poll carries), so
+    // read it once more and stop: nothing moves on a finished board.
+    stopPolling();
+    void reloadLanding().then((landing) => {
+      if (landing) applyLanding(landing);
+    });
+    return;
+  }
+  applyLive(data);
+}
+
+function startPolling(): void {
+  if (pollTimer !== null) return;
+  pollTimer = setInterval(() => void poll(), LIVE_POLL_INTERVAL_MS);
+  document.addEventListener("visibilitychange", onVisible);
+}
+
+function stopPolling(): void {
+  if (pollTimer !== null) clearInterval(pollTimer);
+  pollTimer = null;
+  document.removeEventListener("visibilitychange", onVisible);
+}
+
+function onVisible(): void {
+  if (document.visibilityState === "visible") void poll();
+}
+
+// Only a live board is worth polling: before the start the countdown runs on the
+// client alone, and a finished one no longer moves. This also covers the
+// crossing, where a landing left open since before the start starts polling on
+// the tick that launches it.
+watch(phase, (value) => {
+  if (value === "live") startPolling();
+  else stopPolling();
+});
+
 onMounted(() => {
   interested.value = cachedInterested();
   void refresh();
@@ -178,6 +243,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (retryTimer !== null) clearTimeout(retryTimer);
+  stopPolling();
 });
 </script>
 
@@ -196,7 +262,9 @@ onUnmounted(() => {
         <h1>Million Piece Puzzle</h1>
         <p class="tagline">{{ t("landing.tagline") }}</p>
 
-        <div v-if="unavailable" class="hero-feature unavailable">
+        <div v-if="phase === 'unknown'" class="hero-feature phase-unknown" aria-hidden="true"></div>
+
+        <div v-else-if="unavailable" class="hero-feature unavailable">
           <p class="unavailable-heading">{{ t("maintenance.heading") }}</p>
           <p class="unavailable-body">{{ t("maintenance.body") }}</p>
         </div>
@@ -233,7 +301,7 @@ onUnmounted(() => {
 
         <div v-if="!unavailable" class="actions">
           <button
-            v-if="phase !== 'scheduled'"
+            v-if="phase === 'live' || phase === 'completed'"
             type="button"
             class="cta primary"
             @click="enterBoard"
@@ -241,7 +309,7 @@ onUnmounted(() => {
             {{ t("landing.enterBoard") }}
           </button>
           <button
-            v-else-if="!interested"
+            v-else-if="phase === 'scheduled' && !interested"
             type="button"
             class="cta primary"
             :disabled="submitting"
@@ -374,6 +442,13 @@ h1 {
   margin-bottom: 40px;
   width: 100%;
 }
+/* Holds the phase block's height while the first GET /landing is in flight. The
+   figure mirrors the progress block (its own clamp plus the fixed chrome under
+   it), the phase the board sits in for the whole event, so the hero does not
+   move when the answer lands. */
+.phase-unknown {
+  min-height: calc(clamp(36px, 7vw, 60px) + 46px);
+}
 .progress {
   display: flex;
   flex-direction: column;
@@ -467,6 +542,9 @@ h1 {
   flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
+  /* One CTA's height, held while the phase is unknown so the button does not
+     push the rest of the hero down when it appears. */
+  min-height: 44px;
 }
 .cta {
   padding: 12px 22px;

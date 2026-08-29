@@ -44,6 +44,7 @@ import { unpackCellKey } from "./worldGrid.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
 import { KeyframePublisher } from "./keyframe.js";
+import { LiveFigures } from "./liveFigures.js";
 import { LeaderboardBroadcaster } from "./leaderboardBroadcast.js";
 import {
   buildAuthConfig,
@@ -315,6 +316,19 @@ async function main(): Promise<void> {
   lifecycle.attachKeyframePublisher(keyframePublisher);
   keyframePublisher.start();
 
+  // The landing's poll reads this instead of the keyframe snapshot: same sources,
+  // but rebuilt on a seconds-scale window rather than the snapshot's minutes, and
+  // with no minimap broadcast riding on it. It carries the six contributors and
+  // six placements the landing renders, so a rebuild stays two bounded Mongo
+  // reads and one Redis scalar.
+  const liveFigures = new LiveFigures(config.liveTtlMs, {
+    totalPieces: () => ctx.meta.totalPieces,
+    status: () => ctx.meta.status,
+    lockedCount: () => state.getLockedCount(),
+    leaderboard: (limit) => mongo.attachProfiles(leaderboardTracker.top(limit)),
+    activity: (limit) => mongo.recentMerges(ctx.puzzleId, limit),
+  });
+
   // Admin puzzle switch: the configured list plus the currently-running puzzle
   // (always selectable so a switch can be reverted), each mapped to its seed. The
   // seed never leaves the server; only id/label reach the browser.
@@ -421,6 +435,7 @@ async function main(): Promise<void> {
       config.publicRateMax,
       config.publicRateWindowSec,
     ),
+    liveLimiter: new RedisFixedWindow(redis, "live", config.liveRateMax, config.liveRateWindowSec),
     queueLimiter: new RedisFixedWindow(
       redis,
       "queue",
@@ -450,6 +465,8 @@ async function main(): Promise<void> {
         activity: snap.activity,
       };
     },
+    liveFigures: () => liveFigures.read(),
+    liveEdgeTtlSec: config.liveEdgeTtlSec,
     puzzleStatus: () => ctx.meta.status,
     puzzleSpan: () => mongo.puzzleSpan(ctx.puzzleId),
     appOrigin: config.appOrigin,

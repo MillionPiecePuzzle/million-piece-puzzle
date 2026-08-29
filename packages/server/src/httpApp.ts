@@ -11,6 +11,7 @@ import type {
   ActivityItem,
   LandingResponse,
   LeaderboardEntry,
+  LiveResponse,
   QueueStatusResponse,
   QueueTicketResponse,
 } from "@mpp/shared";
@@ -101,6 +102,7 @@ export type CreateAppDeps = {
   authLimiter: RedisFixedWindow;
   signupLimiter: RedisFixedWindow;
   publicLimiter: RedisFixedWindow;
+  liveLimiter: RedisFixedWindow;
   queueLimiter: RedisFixedWindow;
   admission: AdmissionGate;
   interested: InterestedStore;
@@ -108,6 +110,9 @@ export type CreateAppDeps = {
   // reflected on the next landing request without a restart.
   eventStartsAt: () => number;
   landingSnapshot: () => LandingSnapshot | null;
+  // GET /live's body, rebuilt behind its own short window (see LiveFigures).
+  liveFigures: () => Promise<LiveResponse | null>;
+  liveEdgeTtlSec: number;
   puzzleStatus: () => "active" | "completed";
   puzzleSpan: () => Promise<{ firstAt: number; lastAt: number } | null>;
   appOrigin: string;
@@ -144,6 +149,12 @@ export function createApp(deps: CreateAppDeps): Express {
     "/interested",
     makeInterestedHandler({ interested: deps.interested, devEnabled: deps.devEnabled }),
   );
+
+  // The landing's poll. Its own per-IP window, sized for a polling reader rather
+  // than for the one-shot GET /landing, and its own path so an edge caching it
+  // never sees the per-IP fields the other two carry.
+  app.all("/live", makePublicGuard(deps.liveLimiter, deps.devEnabled));
+  app.get("/live", makeLiveHandler({ figures: deps.liveFigures, edgeTtlSec: deps.liveEdgeTtlSec }));
 
   // Admission queue: anonymous, wildcard-CORS, never cached. Its own per-IP guard
   // (sized for a waiting client's poll cadence) runs first; the ticket request and
@@ -335,6 +346,39 @@ const PUBLIC_NO_STORE = {
   "Access-Control-Allow-Origin": "*",
   "Cache-Control": "no-store",
 } as const;
+
+// GET /live answers the same body to every reader, so alone among the public
+// routes it is cacheable. max-age=0 keeps the browser asking on its own poll
+// cadence while s-maxage lets a shared cache in front of the origin absorb the
+// window. Cloudflare does not cache JSON on response headers alone, so the edge
+// only holds this once a Cache Rule marks the path eligible (see DECISIONS: the
+// landing's live figures ride a cacheable global route).
+function publicEdgeCache(ttlSec: number) {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": `public, max-age=0, s-maxage=${ttlSec}`,
+  };
+}
+
+export type LiveDeps = {
+  figures: () => Promise<LiveResponse | null>;
+  edgeTtlSec: number;
+};
+
+// GET /live: the global figures an open landing polls, and nothing per-visitor.
+// 503 (uncached) until the first build succeeds or while every rebuild fails,
+// which the client reads as "keep what you already have" rather than as an
+// outage: the maintenance screen stays the job of GET /landing.
+export function makeLiveHandler(deps: LiveDeps) {
+  return async (_req: Request, res: Response): Promise<void> => {
+    const body = await deps.figures();
+    if (!body) {
+      res.status(503).set(PUBLIC_NO_STORE).json({ error: "unavailable" });
+      return;
+    }
+    res.status(200).set(publicEdgeCache(deps.edgeTtlSec)).json(body);
+  };
+}
 
 export type LandingDeps = {
   interested: InterestedStore;

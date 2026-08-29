@@ -148,6 +148,19 @@ export type ServerConfig = {
   // flood, not on a NAT of honest viewers.
   publicRateMax: number;
   publicRateWindowSec: number;
+  // Per-IP fixed window on GET /live, the route an open landing polls. Sized for
+  // a poller rather than for a page load, so it holds a NAT of readers polling
+  // at the client's cadence; an edge caching the route keeps most of them off
+  // this window entirely, since a cache hit never reaches the origin.
+  liveRateMax: number;
+  liveRateWindowSec: number;
+  // Floor between two rebuilds of GET /live's body (see liveFigures.ts). The
+  // origin pays one rebuild per window however many readers poll.
+  liveTtlMs: number;
+  // The `s-maxage` GET /live answers with: how long a shared cache in front of
+  // the origin may serve one body. Only takes effect once a Cloudflare Cache
+  // Rule marks the path eligible, JSON not being cached on headers alone.
+  liveEdgeTtlSec: number;
   // Shared password for the direct-URL admin page (Basic auth). Empty (the
   // default) leaves the /admin routes unmounted entirely, so the page is opt-in
   // per deployment. A secret, so it is passed through from the Coolify env, never
@@ -298,6 +311,10 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     signupWindowSec: int("MPP_SIGNUP_WINDOW_SEC", 3600),
     publicRateMax: int("MPP_PUBLIC_RATE_MAX", 120),
     publicRateWindowSec: int("MPP_PUBLIC_RATE_WINDOW_SEC", 60),
+    liveRateMax: int("MPP_LIVE_RATE_MAX", 300),
+    liveRateWindowSec: int("MPP_LIVE_RATE_WINDOW_SEC", 60),
+    liveTtlMs: int("MPP_LIVE_TTL_MS", 2000),
+    liveEdgeTtlSec: int("MPP_LIVE_EDGE_TTL_SEC", 10),
     adminPassword: str("MPP_ADMIN_PASSWORD", ""),
     adminPuzzles: parseAdminPuzzles(process.env.MPP_ADMIN_PUZZLES),
     r2Write: parseR2WriteConfig(),

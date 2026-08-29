@@ -437,6 +437,19 @@ export type LandingResponse = {
   completion?: { at: number; startedAt: number };
 };
 
+// HTTP response for GET /live: the figures the landing polls while it is open,
+// and nothing else. Deliberately global: no per-visitor field, so one response is
+// correct for every reader and an edge can serve it from cache (see DECISIONS:
+// the landing's live figures ride a cacheable global route). `status` is carried
+// so a poller notices a board that has just been completed; the recap itself
+// still comes from GET /landing.
+export type LiveResponse = {
+  status: "active" | "completed";
+  progress: { locked: number; total: number };
+  leaderboard: LeaderboardEntry[];
+  activity: ActivityItem[];
+};
+
 // Admission queue (see DECISIONS: admission queue). A client requests a ticket,
 // then either connects immediately with the grant or polls status until a slot
 // frees. `ready` carries the one-time grant for the WS `?grant=` query; `queued`
