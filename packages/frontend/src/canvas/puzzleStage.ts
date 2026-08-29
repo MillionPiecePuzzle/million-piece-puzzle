@@ -1854,8 +1854,9 @@ export class PuzzleStage {
     // transparent tab margin, corners, and the gaps between a cluster's pieces, so
     // the top piece can fully cover an opaque neighbour beneath it. Re-resolve
     // against every cluster overlapping the point and grab the topmost one whose
-    // opaque silhouette is actually under the pointer. None means the pointer sits
-    // on a transparent gap: let the press bubble to the stage, which starts a pan.
+    // opaque silhouette is actually under the pointer. None means this press is not
+    // a grab (a transparent gap, or the overview-only LOD band): let it bubble to
+    // the stage, which pans and, on a double press, puts a carried cluster down.
     const target = this.grabTargetAt(world.x, world.y, node);
     if (!target) return;
     ev.stopPropagation();
@@ -1885,7 +1886,13 @@ export class PuzzleStage {
     this.callbacks.onGrab(target.id);
   }
 
-  // Topmost grabbable cluster whose opaque silhouette covers the world point.
+  // Topmost grabbable cluster whose opaque silhouette covers the world point, or
+  // null while the LOD is active: the band is overview-only by design (see
+  // DECISIONS.md, tiled zoom-out LOD), and this guard is the only thing that
+  // enforces it. Hiding the covered clusters does not, on two counts: a cluster
+  // the LOD deliberately keeps live (held by a peer, or in a cell the bake has
+  // not filled yet) is hit-tested like any other, and the fall-through below
+  // resolves against the spatial index, which has no notion of a hidden cluster.
   // `hit` is the cluster Pixi delivered the press to (topmost by tile rect); when
   // its own silhouette covers the point it is by definition the topmost grabbable
   // and wins immediately. Otherwise fall through to the clusters beneath it,
@@ -1894,6 +1901,7 @@ export class PuzzleStage {
   // locked piece is never a candidate here at all: it lives outside groupGrid
   // entirely (see lockedPieceGrid), not merely filtered out.
   private grabTargetAt(worldX: number, worldY: number, hit: GroupNode): GroupNode | null {
+    if (this.lodActive) return null;
     if (this.pointerOnPiece(hit, worldX, worldY)) return hit;
     const layer = this.unlockedLayer;
     if (!layer) return null;
@@ -3623,10 +3631,9 @@ export class PuzzleStage {
 
   // Gapless fill: while the LOD is active a non-held cluster renders live until
   // every tile it occupies is baked, then hides (the tiles draw it). Held
-  // clusters always render live on top. Hiding a cluster also makes it
-  // non-interactive (Pixi skips hit-testing an invisible container), so no grab
-  // can start below LOD_ENTER_ZOOM: the active band is overview-only by design
-  // (see DECISIONS.md, tiled zoom-out LOD).
+  // clusters always render live on top. Visibility carries no grab rule: the
+  // clusters left live here stay interactive like any other, so the
+  // overview-only band is enforced in grabTargetAt, not by this hiding.
   private applyGroupLodVisibility(node: GroupNode): void {
     const live = this.isLive(node.id) || !this.allCellsReady(node.id);
     node.container.visible = live;
