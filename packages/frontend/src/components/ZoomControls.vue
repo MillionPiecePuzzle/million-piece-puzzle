@@ -69,7 +69,7 @@ const { controls, zoomPercent } = useStageControls();
 
 <style scoped>
 /* Vertically centered in whatever room the rail's space-between leaves
-   between the reference panel above and the activity ticker below (see
+   between the reference panel above and the activity panel below (see
    PlayPage.vue .hud-rail-left), not the stage's own true center. */
 .zoom {
   /* Matches the HUD z-index convention in base.css .panel: without it this

@@ -15,7 +15,7 @@ import { WS_CLOSE_SERVICE_RESTART } from "@mpp/shared";
 import type { InitialGroupSpec } from "../canvas/puzzleStage";
 import { PuzzleWsClient, type WsCloseInfo } from "../canvas/wsClient";
 import { backendReachable, backendRetryDelayMs } from "../data/landing";
-import { mergeLeaderboardDelta } from "../data/leaderboard";
+import { mergeLeaderboardDelta } from "../data/contributors";
 import { manifestUrlFor } from "../data/manifestUrl";
 import { queueStatusUrl, queueTicketUrl } from "../data/queueUrl";
 import { useMode } from "./useMode";

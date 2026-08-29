@@ -1,4 +1,4 @@
-import type { MinimapSnapshot } from "./puzzleStage";
+import type { OverviewSnapshot } from "./puzzleStage";
 
 // Server-computed density grid: the global overview, decoupled from the
 // (partial) local board. Loose cells in a light ink, locked cells darker on
@@ -12,7 +12,7 @@ import type { MinimapSnapshot } from "./puzzleStage";
 // laid out for the target canvas. See DECISIONS.
 export function paintDensityGrid(
   ctx: CanvasRenderingContext2D,
-  snap: MinimapSnapshot,
+  snap: OverviewSnapshot,
   toX: (wx: number) => number,
   toY: (wy: number) => number,
   scale: number,

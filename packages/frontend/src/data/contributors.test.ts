@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { LeaderboardEntry } from "@mpp/shared";
 import { LEADERBOARD_LIMIT } from "@mpp/shared";
-import { mergeLeaderboardDelta, toPersonalRow } from "./leaderboard";
+import { mergeLeaderboardDelta, toPersonalRow } from "./contributors";
 
 function entry(userId: string, pieces: number): LeaderboardEntry {
   return { userId, pieces, pseudo: userId, country: null };

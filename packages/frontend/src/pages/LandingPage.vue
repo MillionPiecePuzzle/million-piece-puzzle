@@ -6,7 +6,7 @@ import type { ActivityItem, LeaderboardEntry } from "@mpp/shared";
 import BrandMark from "../components/BrandMark.vue";
 import CountdownTimer from "../components/CountdownTimer.vue";
 import LanguageSwitcher from "../components/LanguageSwitcher.vue";
-import LeaderboardRow from "../components/LeaderboardRow.vue";
+import ContributorsRow from "../components/ContributorsRow.vue";
 import { useCountdown } from "../composables/useCountdown";
 import { useRelativeTime } from "../composables/useRelativeTime";
 import { flooredPercent, useLocaleFormat } from "../i18n/format";
@@ -17,7 +17,7 @@ import {
   type InterestState,
   type LandingData,
 } from "../data/landing";
-import { toLeaderboardRows } from "../data/leaderboard";
+import { toContributorsRows } from "../data/contributors";
 
 const router = useRouter();
 const { t } = useI18n();
@@ -66,8 +66,8 @@ const progressPctLabel = computed(() =>
 );
 
 // Anonymous viewer, so no "you" row to highlight: pass a null user id.
-const liveLeaders = computed(() => toLeaderboardRows(leaderboard.value, null).slice(0, 6));
-const finalLeaders = computed(() => toLeaderboardRows(leaderboard.value, null).slice(0, 10));
+const liveLeaders = computed(() => toContributorsRows(leaderboard.value, null).slice(0, 6));
+const finalLeaders = computed(() => toContributorsRows(leaderboard.value, null).slice(0, 10));
 
 const activityLines = computed(() =>
   activity.value.map((item) => ({
@@ -267,12 +267,12 @@ onUnmounted(() => {
               <span class="ts">{{ relativeTime(line.at) }}</span>
             </li>
           </ul>
-          <p v-else class="empty">{{ t("common.noActivity") }}</p>
+          <p v-else class="empty">{{ t("activity.empty") }}</p>
         </div>
         <div class="board-card">
-          <h3>{{ t("common.leaderboard") }}</h3>
-          <ol v-if="liveLeaders.length > 0" class="lb-list">
-            <LeaderboardRow
+          <h3>{{ t("contributors.title") }}</h3>
+          <ol v-if="liveLeaders.length > 0" class="contributors-list">
+            <ContributorsRow
               v-for="row in liveLeaders"
               :key="row.rank"
               :row="row"
@@ -280,14 +280,14 @@ onUnmounted(() => {
               :show-you-tag="false"
             />
           </ol>
-          <p v-else class="empty">{{ t("common.noStandings") }}</p>
+          <p v-else class="empty">{{ t("contributors.empty") }}</p>
         </div>
       </section>
 
       <section v-else-if="phase === 'completed'" class="final-board board-card">
-        <h3>{{ t("common.leaderboard") }}</h3>
-        <ol v-if="finalLeaders.length > 0" class="lb-list">
-          <LeaderboardRow
+        <h3>{{ t("contributors.title") }}</h3>
+        <ol v-if="finalLeaders.length > 0" class="contributors-list">
+          <ContributorsRow
             v-for="row in finalLeaders"
             :key="row.rank"
             :row="row"
@@ -549,7 +549,7 @@ h1 {
   color: var(--ink-4);
   white-space: nowrap;
 }
-.lb-list {
+.contributors-list {
   list-style: none;
   margin: 0;
   padding: 0;

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import type { LeaderboardRow } from "../data/leaderboard";
+import type { ContributorsRow } from "../data/contributors";
 import { useLocaleFormat } from "../i18n/format";
 import { useCountryNames } from "../i18n/countryNames";
 import { flagUrl } from "../data/flags";
 
 const props = withDefaults(
-  defineProps<{ row: LeaderboardRow; rankWidth?: string; showYouTag?: boolean }>(),
+  defineProps<{ row: ContributorsRow; rankWidth?: string; showYouTag?: boolean }>(),
   {
     rankWidth: "22px",
     showYouTag: true,
@@ -20,7 +20,7 @@ const { countryName } = useCountryNames();
 
 <template>
   <li
-    class="lb-row"
+    class="contributors-row"
     :class="{ you: props.row.you }"
     :style="{ gridTemplateColumns: `${props.rankWidth} var(--av-w, 22px) 1fr auto` }"
   >
@@ -37,24 +37,26 @@ const { countryName } = useCountryNames();
     <span v-else class="av" :style="{ background: props.row.color }">{{ props.row.initials }}</span>
     <span class="nm">
       <span class="nm-text">{{ props.row.name }}</span>
-      <span v-if="props.row.you && props.showYouTag" class="you-tag">{{ t("row.you") }}</span>
-      <span v-else-if="props.row.online" class="live-dot" :title="t('row.online')"></span>
+      <span v-if="props.row.you && props.showYouTag" class="you-tag">{{
+        t("contributors.you")
+      }}</span>
+      <span v-else-if="props.row.online" class="live-dot" :title="t('contributors.online')"></span>
     </span>
     <span class="pc"
-      >{{ formatNumber(props.row.pieces) }}<small> {{ t("row.pcs") }}</small></span
+      >{{ formatNumber(props.row.pieces) }}<small> {{ t("contributors.pcs") }}</small></span
     >
   </li>
 </template>
 
 <style scoped>
-.lb-row {
+.contributors-row {
   display: grid;
   align-items: center;
   gap: 10px;
   padding: 7px 6px;
   border-radius: var(--radius-row);
 }
-.lb-row.you {
+.contributors-row.you {
   background: rgba(213, 135, 90, 0.1);
   outline: 1px solid rgba(213, 135, 90, 0.25);
 }
@@ -116,7 +118,7 @@ const { countryName } = useCountryNames();
 }
 
 @media (max-width: 680px) {
-  .lb-row {
+  .contributors-row {
     --av-w: 18px;
     gap: 6px;
     padding: 6px 5px;

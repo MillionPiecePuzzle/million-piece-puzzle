@@ -33,7 +33,7 @@ function dropTargets(): FlagDropTarget[] {
 }
 
 // Pointer-driven and bottom-center: the bar has no room on a compact viewport,
-// where the minimap already holds that edge, and the options menu does not offer
+// where the overview already holds that edge, and the options menu does not offer
 // it there. Gated in JS rather than in CSS so the number keys, and the rects a
 // drag is hit-tested against, go with it. Left out rather than hidden in place,
 // since nothing is positioned against it.
@@ -136,8 +136,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* Centered in the strip the two rails leave, not on the viewport: nine 51px
-   targets come to 455px, which reaches under the activity ticker and the
-   minimap well before a laptop-width screen. Bounding the box to the strip
+   targets come to 455px, which reaches under the activity panel and the
+   overview well before a laptop-width screen. Bounding the box to the strip
    (--hud-rail-max comes from .stage in PlayPage.vue) wraps the row inside it
    instead of sliding it under either panel; the rails are capped at the same
    width on both sides, so the bar still reads as centered. */

@@ -26,7 +26,7 @@ function indefiniteArticle(n: number): string {
 // The English indefinite article is passed to the message and ignored by locales
 // whose cluster phrase carries a fixed article.
 function cluster(count: number): string {
-  return t("activityPanel.cluster", { article: indefiniteArticle(count), n: formatNumber(count) });
+  return t("activity.cluster", { article: indefiniteArticle(count), n: formatNumber(count) });
 }
 
 // A place reports the placed group (one piece or an N-piece cluster). A snap
@@ -34,9 +34,9 @@ function cluster(count: number): string {
 // together", anything larger reads as the cluster it formed.
 function objectPhrase(entry: ActivityEntry): string {
   if (entry.kind === "snap") {
-    return entry.count === 2 ? t("activityPanel.twoPieces") : cluster(entry.count);
+    return entry.count === 2 ? t("activity.twoPieces") : cluster(entry.count);
   }
-  return entry.count === 1 ? t("activityPanel.piece") : cluster(entry.count);
+  return entry.count === 1 ? t("activity.piece") : cluster(entry.count);
 }
 
 // The whole verb-plus-object phrase comes from one message so each language can
@@ -44,14 +44,14 @@ function objectPhrase(entry: ActivityEntry): string {
 function lineRest(entry: ActivityEntry): string {
   const object = objectPhrase(entry);
   return entry.kind === "place"
-    ? t("activityPanel.placedLine", { object })
-    : t("activityPanel.connectedLine", { object });
+    ? t("activity.placedLine", { object })
+    : t("activity.connectedLine", { object });
 }
 </script>
 
 <template>
-  <aside class="panel ticker">
-    <h3>{{ t("common.activity") }}</h3>
+  <aside class="panel activity">
+    <h3>{{ t("activity.title") }}</h3>
     <ul v-if="activity.length > 0">
       <li v-for="entry in activity" :key="entry.id">
         <span class="msg"
@@ -60,24 +60,24 @@ function lineRest(entry: ActivityEntry): string {
         <span class="ts">{{ relativeTime(entry.at) }}</span>
       </li>
     </ul>
-    <p v-else class="empty">{{ t("common.noActivity") }}</p>
+    <p v-else class="empty">{{ t("activity.empty") }}</p>
   </aside>
 </template>
 
 <style scoped>
-.ticker {
+.activity {
   display: flex;
   flex-direction: column;
   width: min(340px, var(--hud-rail-max));
   padding: 12px 14px;
 }
-.ticker h3 {
+.activity h3 {
   margin-bottom: 8px;
 }
 /* The list is what gives way when the rail runs short of height (see
    PlayPage.vue .hud-shrink): the panel keeps its title and scrolls the entries
    rather than running past the bottom of the screen. */
-.ticker ul {
+.activity ul {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -87,7 +87,7 @@ function lineRest(entry: ActivityEntry): string {
   min-height: 0;
   overflow-y: auto;
 }
-.ticker li {
+.activity li {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;

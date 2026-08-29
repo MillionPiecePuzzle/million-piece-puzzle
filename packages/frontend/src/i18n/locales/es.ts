@@ -6,12 +6,7 @@ const es: MessageSchema = {
     saving: "Guardando...",
     close: "Cerrar",
     skip: "Omitir",
-    leaderboard: "Colaboradores",
-    activity: "Actividad",
-    noActivity: "Aún no hay actividad.",
-    noStandings: "Aún no hay contribuciones.",
     saveError: "No se pudo guardar, inténtalo de nuevo.",
-    fullBoard: "lista completa",
   },
   time: {
     justNow: "ahora mismo",
@@ -72,10 +67,9 @@ const es: MessageSchema = {
     fitToView: "Ajustar a la vista",
     credits: "Ver los créditos de la imagen",
   },
-  minimap: {
-    overview: "Vista general",
+  overview: {
+    title: "Vista general",
     online: "{n} en línea",
-    label: "Minimapa",
     enlarge: "Ampliar la vista general",
   },
   auth: {
@@ -107,8 +101,8 @@ const es: MessageSchema = {
         reference: "Referencia",
         zoom: "Zoom",
         activity: "Actividad",
-        leaderboard: "Colaboradores",
-        minimap: "Minimapa",
+        contributors: "Colaboradores",
+        overview: "Vista general",
         flags: "Banderas",
       },
     },
@@ -122,7 +116,7 @@ const es: MessageSchema = {
       "Haz doble clic en una pieza para pegarla al cursor y doble clic otra vez para soltarla.",
     flags: "Usa las banderas para moverte fácilmente por el lienzo.",
     flagDrop: "Arrastra una pieza hasta una bandera de la barra para enviársela.",
-    minimap: "Haz clic en cualquier punto del minimapa para mover la vista allí.",
+    overview: "Haz clic en cualquier punto de la vista general para mover la vista allí.",
     reference: "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza.",
   },
   updates: {
@@ -130,8 +124,8 @@ const es: MessageSchema = {
     v120: {
       panels:
         "Cada panel tiene ahora su propio interruptor en la sección Visualización de este menú.",
-      minimap:
-        "La vista ampliada del minimapa se ha rediseñado: ahora abre el mismo mapa, en grande.",
+      overview:
+        "La vista ampliada de la vista general se ha rediseñado: ahora abre el mismo mapa, en grande.",
       notes:
         "Un punto en el botón de ajustes te avisa cuando hay notas de actualización que no has leído.",
       fixes:
@@ -155,7 +149,7 @@ const es: MessageSchema = {
       maintenance:
         "Un reinicio del servidor muestra una pantalla de mantenimiento en lugar de un error de conexión, y vuelve solo en cuanto el puzle está de nuevo disponible.",
       mobile:
-        "En el móvil la interfaz solo conserva la referencia y el minimapa, y deja la pantalla al tablero.",
+        "En el móvil la interfaz solo conserva la referencia y la vista general, y deja la pantalla al tablero.",
       help: "Este menú incluye consejos, y el panel de colaboradores explica cómo se cuentan las piezas.",
     },
     v100: {
@@ -191,13 +185,19 @@ const es: MessageSchema = {
     cooldownHint: "Puedes cambiar tu país una vez cada {hours} horas.",
     cooldown: "Ya cambiaste tu país hace poco. Vuelve a intentarlo en {hours} h.",
   },
-  leaderboardModal: {
-    label: "Todos los colaboradores",
-    rankingMode: "Modo de visualización",
+  contributors: {
+    title: "Colaboradores",
+    empty: "Aún no hay contribuciones.",
+    full: "lista completa",
+    all: "Todos los colaboradores",
+    viewMode: "Modo de visualización",
     people: "Personas",
     countries: "Países",
     prev: "ant.",
     next: "sig.",
+    pcs: "pzs",
+    you: "tú",
+    online: "en línea",
   },
   scoring: {
     open: "Cómo se cuentan las piezas",
@@ -214,7 +214,9 @@ const es: MessageSchema = {
     fairBody:
       "Este sistema garantiza que cada pieza se cuente exactamente una vez. También hace que, una vez colocada la última pieza, sume exactamente {total} piezas.",
   },
-  activityPanel: {
+  activity: {
+    title: "Actividad",
+    empty: "Aún no hay actividad.",
     placedLine: "colocó {object}",
     connectedLine: "conectó {object}",
     piece: "una pieza",
@@ -282,11 +284,6 @@ const es: MessageSchema = {
       white: "Blanco",
       black: "Negro",
     },
-  },
-  row: {
-    pcs: "pzs",
-    you: "tú",
-    online: "en línea",
   },
   legalDoc: {
     back: "Volver al inicio",

@@ -3,9 +3,9 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAuth } from "../composables/useAuth";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
-import { toLeaderboardRows, toPersonalRow } from "../data/leaderboard";
-import LeaderboardModal from "./LeaderboardModal.vue";
-import LeaderboardRow from "./LeaderboardRow.vue";
+import { toContributorsRows, toPersonalRow } from "../data/contributors";
+import ContributorsModal from "./ContributorsModal.vue";
+import ContributorsRow from "./ContributorsRow.vue";
 import ScoringModal from "./ScoringModal.vue";
 
 const { t } = useI18n();
@@ -20,7 +20,7 @@ const showScoring = ref(false);
 // the server sends them instead, so a contributor ranked 4000th still watches
 // their own count move.
 const panelRows = computed(() => {
-  const rows = toLeaderboardRows(leaderboard.value, userId.value);
+  const rows = toContributorsRows(leaderboard.value, userId.value);
   const top = rows.slice(0, 6);
   const youIndex = rows.findIndex((r) => r.you);
   if (youIndex >= 6) return [...top, ...rows.slice(youIndex, youIndex + 2)];
@@ -39,9 +39,9 @@ const panelRows = computed(() => {
 </script>
 
 <template>
-  <aside class="panel leaderboard">
-    <div class="lb-head">
-      <h3>{{ t("common.leaderboard") }}</h3>
+  <aside class="panel contributors">
+    <div class="contributors-head">
+      <h3>{{ t("contributors.title") }}</h3>
       <button
         type="button"
         class="info"
@@ -57,33 +57,33 @@ const panelRows = computed(() => {
       </button>
     </div>
     <template v-if="panelRows.length > 0">
-      <ol class="lb-list">
-        <LeaderboardRow v-for="row in panelRows" :key="row.rank" :row="row" rank-width="18px" />
+      <ol class="contributors-list">
+        <ContributorsRow v-for="row in panelRows" :key="row.rank" :row="row" rank-width="18px" />
       </ol>
-      <div class="lb-foot">
+      <div class="contributors-foot">
         <button type="button" class="full-board" @click="showModal = true">
-          {{ t("common.fullBoard") }}
+          {{ t("contributors.full") }}
         </button>
       </div>
     </template>
-    <p v-else class="empty">{{ t("common.noStandings") }}</p>
+    <p v-else class="empty">{{ t("contributors.empty") }}</p>
 
     <!-- Inside the panel rather than beside it: both modals teleport to the
          body either way, and a single root is what lets the rail set a class on
          this component at all. -->
-    <LeaderboardModal v-if="showModal" @close="showModal = false" />
+    <ContributorsModal v-if="showModal" @close="showModal = false" />
     <ScoringModal v-if="showScoring" @close="showScoring = false" />
   </aside>
 </template>
 
 <style scoped>
-.leaderboard {
+.contributors {
   display: flex;
   flex-direction: column;
   width: min(288px, var(--hud-rail-max));
   padding: 14px 14px 10px;
 }
-.lb-head {
+.contributors-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -114,7 +114,7 @@ const panelRows = computed(() => {
    PlayPage.vue .hud-shrink): the panel keeps its head and its full-board link
    and scrolls the standings rather than running past the bottom of the
    screen. */
-.lb-list {
+.contributors-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -124,7 +124,7 @@ const panelRows = computed(() => {
   min-height: 0;
   overflow-y: auto;
 }
-.lb-foot {
+.contributors-foot {
   margin-top: 8px;
   padding-top: 10px;
   border-top: 1px dashed var(--line);

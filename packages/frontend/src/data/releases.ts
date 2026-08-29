@@ -6,7 +6,7 @@ export const RELEASES = [
     at: Date.UTC(2026, 7, 27),
     lines: [
       "updates.v120.panels",
-      "updates.v120.minimap",
+      "updates.v120.overview",
       "updates.v120.notes",
       "updates.v120.fixes",
     ],

@@ -49,27 +49,27 @@ export type Mode = "pending" | "contributor";
 // drop broadcasts to this client. Also drives client-side frustum culling.
 export type ViewportRect = Viewport;
 
-// One piece reduced to a point for the minimap: its world center and whether
+// One piece reduced to a point for the overview: its world center and whether
 // its cluster is locked to the frame.
-export type MinimapPiece = { x: number; y: number; locked: boolean };
+export type OverviewPiece = { x: number; y: number; locked: boolean };
 
 // A group as build()'s initial pass needs it: always empty in practice, since
 // welcome carries no board (groups stream in later via applyRegionState), kept
 // only so the pass has something typed to iterate.
 export type InitialGroupSpec = { id: number; worldX: number; worldY: number };
 
-// Everything the minimap needs to draw, pulled from the stage on demand. `grid`
+// Everything the overview needs to draw, pulled from the stage on demand. `grid`
 // is the server-computed global density overview (decoupled from the now-partial
 // local board); `pieces` is the live overlay of the locally known groups (the
 // visited regions the client has fresh positions for), drawn on top to refine the
 // coarse grid. Null grid degrades to the overlay alone until one arrives.
-export type MinimapSnapshot = {
+export type OverviewSnapshot = {
   playZone: PlayZone;
   frame: { w: number; h: number };
   grid: MinimapGrid | null;
-  pieces: MinimapPiece[];
+  pieces: OverviewPiece[];
   // Server-grid cell indices (row * cols + col) the client knows live: the cells
-  // its visited groups fall in. The minimap skips the server density for these so
+  // its visited groups fall in. The overview skips the server density for these so
   // the stale global count never shows under a region the live overlay covers.
   knownCells: Set<number>;
   viewport: Viewport | null;
@@ -101,7 +101,7 @@ type GroupNode = {
   // Membership: the piece ids this group owns, each mapped to its (dx, dy) offset
   // from the group anchor. Maintained independently of whether textures and nodes
   // are built, so the group is fully described while dehydrated: the offsets drive
-  // localBounds, container placement, and the minimap with no geometry or seed.
+  // localBounds, container placement, and the overview with no geometry or seed.
   members: Map<number, PieceOffset>;
   // Built piece nodes, present only for pieces currently hydrated. A dehydrated
   // group has an empty array and an empty container.
@@ -356,7 +356,7 @@ export class PuzzleStage {
   // its one piece's id), so this is a separate map, never merged with `groups`.
   private lockedPieces = new Map<number, LockedPieceSlot>();
   // Spatial index over the same LOD tile grid as groupGrid, for the
-  // loading-cell scan and the minimap overlay to find locked pieces per cell
+  // loading-cell scan and the overview overlay to find locked pieces per cell
   // the same way groupGrid finds groups.
   private lockedPieceGrid = new GroupGrid(LOD_TILE_WORLD);
   // Locked pieces currently rendered via a salvaged node (see
@@ -611,8 +611,8 @@ export class PuzzleStage {
   // cover up over the progressive fill instead of an eager whole-board fetch.
   private manifest: ImageManifest | null = null;
   private textureBase = "";
-  // Latest server-computed minimap density grid (the periodic WS `minimap` message
-  // and one on join). The minimap renders this global overview plus a live overlay
+  // Latest server-computed density grid (the periodic WS `minimap` message and one
+  // on join). The overview renders this global density plus a live overlay
   // of the locally known groups, so it stays complete while the local board is
   // partial.
   private minimapGrid: MinimapGrid | null = null;
@@ -670,8 +670,8 @@ export class PuzzleStage {
     this.broadcastMaxCells = maxCells;
   }
 
-  // Store the latest server minimap grid (the WS `minimap` message). The minimap
-  // panel reads it via the next getMinimapSnapshot.
+  // Store the latest server density grid (the WS `minimap` message, which keeps the
+  // wire's own name). The overview panel reads it via the next getOverviewSnapshot.
   setMinimapGrid(grid: MinimapGrid): void {
     this.minimapGrid = grid;
   }
@@ -975,7 +975,7 @@ export class PuzzleStage {
   // Build one locked-piece slot from its frame-relative offset: its absolute
   // world bounds (no origin translation, unlike a group, since the layer
   // holding it sits at world (0, 0)) and its spatial-index entry, for the
-  // minimap overlay and the salvage bridge below. No texture is ever fetched
+  // overview overlay and the salvage bridge below. No texture is ever fetched
   // for it (see DECISIONS: DZI reveal mask/seam bake, DziRevealLayer's reveal
   // being the only rendering path for locked content); node stays null unless
   // salvageLockedPiece populates it. Shared by applyRegionState (streamed
@@ -2620,7 +2620,7 @@ export class PuzzleStage {
     this.centerOn(this.worldSize.w / 2, this.worldSize.h / 2);
   }
 
-  // Minimap navigation: center the camera on a world point picked from the
+  // Overview navigation: center the camera on a world point picked from the
   // overview. The shared clamp pulls an out-of-bounds pick back to the nearest
   // in-bounds framing.
   centerOnWorld(worldX: number, worldY: number): void {
@@ -2642,7 +2642,7 @@ export class PuzzleStage {
     this.zoomBy(1 / 1.25);
   }
 
-  getMinimapSnapshot(): MinimapSnapshot | null {
+  getOverviewSnapshot(): OverviewSnapshot | null {
     if (!this.playZone || !this.worldSize || !this.manifest) return null;
     // The global overview is the server `grid`; on top, an overlay of the locally
     // known groups (the visited regions, bounded by the partial board, not the
@@ -2652,7 +2652,7 @@ export class PuzzleStage {
     const { pieceSize } = this.manifest;
     const half = pieceSize / 2;
     const grid = this.minimapGrid;
-    const pieces: MinimapPiece[] = [];
+    const pieces: OverviewPiece[] = [];
     // Density cells the live overlay supersedes. Keyed off the authoritative
     // coverage (the LOD cells the client has streamed), not the cells that happen
     // to hold a piece right now: once a region is loaded the client owns its live
@@ -2787,7 +2787,7 @@ export class PuzzleStage {
   }
 
   // A carried cluster is otherwise only re-placed by a pointer move, so a camera
-  // change that is not one (a flag or minimap jump, fit/center, the zoom buttons)
+  // change that is not one (a flag or overview jump, fit/center, the zoom buttons)
   // would leave it at its old world spot. Re-glue it to the screen point it was
   // last seen floating at, and do it before reconcile: residency runs there, and a
   // cluster still sitting where the view no longer looks is outside the keep ring,
@@ -3539,7 +3539,7 @@ export class PuzzleStage {
   // viewport via region_state: a scoped viewport waits for the coverage ack
   // and for every in-zone cell to be acked known; a global-subscriber viewport
   // (too large to scope) receives no region_state by design, so there is nothing
-  // to wait for (the minimap carries its overview).
+  // to wait for (the overview carries it meanwhile).
   private viewportStreamSettled(): boolean {
     if (this.mode !== "contributor") return true;
     if (this.viewportIsGlobalSubscriber()) return true;

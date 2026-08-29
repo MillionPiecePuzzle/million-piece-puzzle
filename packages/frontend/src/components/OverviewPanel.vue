@@ -6,15 +6,15 @@ import {
   drawOverview,
   overviewAspect,
   type MapTransform,
-} from "../canvas/minimapView";
-import { useMinimap } from "../composables/useMinimap";
+} from "../canvas/overviewView";
+import { useOverview } from "../composables/useOverview";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useRafLoop } from "../composables/useRafLoop";
-import MinimapModal from "./MinimapModal.vue";
+import OverviewModal from "./OverviewModal.vue";
 
 const { t } = useI18n();
-const { source, navigate } = useMinimap();
+const { source, navigate } = useOverview();
 const { flags } = useBoardFlags();
 const { onlineCount } = usePuzzleSession();
 const canvasEl = ref<HTMLCanvasElement | null>(null);
@@ -37,7 +37,7 @@ function draw(): void {
   // view only opens from a panel that is already showing.
   if (enlarged.value) return;
 
-  // The minimap stays hidden until the stage has a play zone, so it never
+  // The overview stays hidden until the stage has a play zone, so it never
   // shows a placeholder shape that would resize once real data arrives.
   const snap = source.value?.() ?? null;
   ready.value = snap !== null;
@@ -102,17 +102,17 @@ useRafLoop(draw);
 <template>
   <aside
     v-show="ready"
-    class="panel minimap"
+    class="panel overview"
     :style="{ '--ar': canvasAspect }"
-    :aria-label="t('minimap.label')"
+    :aria-label="t('overview.title')"
   >
-    <div class="minimap-head">
-      <h3>{{ t("minimap.overview") }}</h3>
-      <div class="minimap-head-right">
+    <div class="overview-head">
+      <h3>{{ t("overview.title") }}</h3>
+      <div class="overview-head-right">
         <span
           v-if="onlineCount >= 2"
           class="online-count"
-          :title="t('minimap.online', { n: onlineCount })"
+          :title="t('overview.online', { n: onlineCount })"
         >
           <span class="online-dot" aria-hidden="true"></span>
           {{ onlineCount }}
@@ -121,7 +121,7 @@ useRafLoop(draw);
           type="button"
           class="expand"
           :disabled="!ready"
-          :aria-label="t('minimap.enlarge')"
+          :aria-label="t('overview.enlarge')"
           @click="enlarged = true"
         >
           <svg viewBox="0 0 16 16" fill="none">
@@ -135,7 +135,7 @@ useRafLoop(draw);
         </button>
       </div>
     </div>
-    <div class="mm-canvas">
+    <div class="overview-canvas">
       <canvas
         ref="canvasEl"
         @pointerdown="onPointerDown"
@@ -146,27 +146,27 @@ useRafLoop(draw);
     </div>
   </aside>
 
-  <MinimapModal v-if="enlarged" @close="enlarged = false" />
+  <OverviewModal v-if="enlarged" @close="enlarged = false" />
 </template>
 
 <style scoped>
 /* Last cap: the room the right rail has left once the topbar, its own insets, a
-   readable leaderboard and this panel's own chrome are taken out, converted to a
+   readable contributors list and this panel's own chrome are taken out, converted to a
    width through the map's aspect. Same reasoning as the reference panel, so a
    short window shrinks the map instead of pushing it off the screen. */
-.minimap {
+.overview {
   position: static;
   width: min(248px, var(--hud-rail-max), calc((100dvh - 300px) * var(--ar)));
   padding: 10px 10px 12px;
 }
-.minimap-head {
+.overview-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
   padding: 0 4px;
 }
-.minimap-head-right {
+.overview-head-right {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -185,7 +185,7 @@ useRafLoop(draw);
   background: #34a853;
   flex: none;
 }
-.mm-canvas {
+.overview-canvas {
   position: relative;
   width: 100%;
   aspect-ratio: var(--ar);
@@ -194,7 +194,7 @@ useRafLoop(draw);
   background: #e9e3d3;
   border: 1px solid var(--line-2);
 }
-.mm-canvas canvas {
+.overview-canvas canvas {
   display: block;
   width: 100%;
   height: 100%;
@@ -230,7 +230,7 @@ useRafLoop(draw);
 /* The rail is down to this panel alone here, so the height budget drops to the
    topbar, the tighter insets and this panel's own chrome. */
 @media (max-width: 680px), (max-height: 480px) {
-  .minimap {
+  .overview {
     width: min(152px, calc(50vw - 20px), calc((100dvh - 120px) * var(--ar)));
     padding: 8px 8px 9px;
   }

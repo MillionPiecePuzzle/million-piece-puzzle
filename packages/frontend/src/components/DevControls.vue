@@ -29,8 +29,8 @@ function onPlacePiece(): void {
 
 <style scoped>
 /* Positioned by the .hud-bottom-right flex row in PlayPage.vue, which puts
-   it left of the minimap in DOM order; no offset needs to track the
-   minimap's own width anymore. */
+   it left of the overview in DOM order; no offset needs to track the
+   overview's own width anymore. */
 .dev-controls {
   pointer-events: auto;
   display: inline-flex;

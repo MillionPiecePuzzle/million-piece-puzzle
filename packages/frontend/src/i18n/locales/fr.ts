@@ -6,12 +6,7 @@ const fr: MessageSchema = {
     saving: "Enregistrement...",
     close: "Fermer",
     skip: "Passer",
-    leaderboard: "Contributeurs",
-    activity: "Activité",
-    noActivity: "Aucune activité pour l'instant.",
-    noStandings: "Aucune contribution pour l'instant.",
     saveError: "Impossible d'enregistrer, réessayez.",
-    fullBoard: "liste complète",
   },
   time: {
     justNow: "à l'instant",
@@ -72,10 +67,9 @@ const fr: MessageSchema = {
     fitToView: "Ajuster à la vue",
     credits: "Voir les crédits de l'image",
   },
-  minimap: {
-    overview: "Aperçu",
+  overview: {
+    title: "Aperçu",
     online: "{n} en ligne",
-    label: "Mini-carte",
     enlarge: "Agrandir l'aperçu",
   },
   auth: {
@@ -107,8 +101,8 @@ const fr: MessageSchema = {
         reference: "Référence",
         zoom: "Zoom",
         activity: "Activité",
-        leaderboard: "Contributeurs",
-        minimap: "Mini-carte",
+        contributors: "Contributeurs",
+        overview: "Aperçu",
         flags: "Drapeaux",
       },
     },
@@ -122,7 +116,7 @@ const fr: MessageSchema = {
       "Double-cliquez sur une pièce pour la coller à votre curseur, double-cliquez à nouveau pour la déposer.",
     flags: "Utilisez les drapeaux pour vous déplacer facilement sur le plateau.",
     flagDrop: "Faites glisser une pièce sur un drapeau de la barre pour l'envoyer là-bas.",
-    minimap: "Cliquez n'importe où sur la mini-carte pour y déplacer la vue.",
+    overview: "Cliquez n'importe où sur l'aperçu pour y déplacer la vue.",
     reference: "Ouvrez l'image de référence et zoomez pour trouver où va une pièce.",
   },
   updates: {
@@ -130,8 +124,8 @@ const fr: MessageSchema = {
     v120: {
       panels:
         "Chaque panneau a désormais son propre interrupteur dans la section Affichage de ce menu.",
-      minimap:
-        "La vue agrandie de la mini-carte a été retravaillée : elle ouvre maintenant la même carte, en plus grand.",
+      overview:
+        "La vue agrandie de l'aperçu a été retravaillée : elle ouvre maintenant la même carte, en plus grand.",
       notes:
         "Une pastille sur le bouton des réglages signale les notes de mise à jour que vous n'avez pas encore lues.",
       fixes:
@@ -155,7 +149,7 @@ const fr: MessageSchema = {
       maintenance:
         "Un redémarrage du serveur affiche un écran de maintenance au lieu d'une erreur de connexion, et revient tout seul dès que le puzzle est de retour.",
       mobile:
-        "Sur téléphone, l'interface ne garde que la référence et la mini-carte, et laisse l'écran au plateau.",
+        "Sur téléphone, l'interface ne garde que la référence et l'aperçu, et laisse l'écran au plateau.",
       help: "Ce menu propose des astuces, et le panneau des contributeurs explique comment les pièces sont comptées.",
     },
     v100: {
@@ -192,13 +186,19 @@ const fr: MessageSchema = {
     cooldownHint: "Vous pouvez changer de pays une fois toutes les {hours} heures.",
     cooldown: "Vous avez déjà changé de pays récemment. Réessayez dans {hours} h.",
   },
-  leaderboardModal: {
-    label: "Tous les contributeurs",
-    rankingMode: "Mode d'affichage",
+  contributors: {
+    title: "Contributeurs",
+    empty: "Aucune contribution pour l'instant.",
+    full: "liste complète",
+    all: "Tous les contributeurs",
+    viewMode: "Mode d'affichage",
     people: "Personnes",
     countries: "Pays",
     prev: "préc.",
     next: "suiv.",
+    pcs: "pcs",
+    you: "vous",
+    online: "en ligne",
   },
   scoring: {
     open: "Comment les pièces sont comptées",
@@ -215,7 +215,9 @@ const fr: MessageSchema = {
     fairBody:
       "Ce système garantit que chaque pièce est comptée exactement une fois. Il permettra aussi, quand la dernière pièce sera posée, de comptabiliser exactement {total} pièces.",
   },
-  activityPanel: {
+  activity: {
+    title: "Activité",
+    empty: "Aucune activité pour l'instant.",
     placedLine: "a placé {object}",
     connectedLine: "a relié {object}",
     piece: "une pièce",
@@ -283,11 +285,6 @@ const fr: MessageSchema = {
       white: "Blanc",
       black: "Noir",
     },
-  },
-  row: {
-    pcs: "pcs",
-    you: "vous",
-    online: "en ligne",
   },
   legalDoc: {
     back: "Retour à l'accueil",

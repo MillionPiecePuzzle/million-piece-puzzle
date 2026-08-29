@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { MIN_OVERVIEW_ASPECT, drawOverview, overviewAspect } from "../canvas/minimapView";
-import { useMinimap } from "../composables/useMinimap";
+import { MIN_OVERVIEW_ASPECT, drawOverview, overviewAspect } from "../canvas/overviewView";
+import { useOverview } from "../composables/useOverview";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useRafLoop } from "../composables/useRafLoop";
 import { useFocusTrap } from "../composables/useFocusTrap";
@@ -10,7 +10,7 @@ import { useBackdropClick } from "../composables/useBackdropClick";
 
 const { t } = useI18n();
 const emit = defineEmits<{ close: [] }>();
-const { source } = useMinimap();
+const { source } = useOverview();
 const { flags } = useBoardFlags();
 
 const canvasEl = ref<HTMLCanvasElement | null>(null);
@@ -20,7 +20,7 @@ const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
 
 const shellAspect = ref(MIN_OVERVIEW_ASPECT);
 
-// The minimap panel's own map at a size that can be read rather than only aimed
+// The overview panel's own map at a size that can be read rather than only aimed
 // at. Same painter, same per-frame cadence, so the frustum, the flags and the
 // piece dots track the board here exactly as they do in the panel. Nothing here
 // takes a pointer: the panel stays the one place a press moves the camera.
@@ -48,13 +48,13 @@ onMounted(trap.activate);
         class="shell"
         role="dialog"
         aria-modal="true"
-        :aria-label="t('minimap.overview')"
+        :aria-label="t('overview.title')"
         :style="{ '--ar': shellAspect }"
       >
         <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
           &times;
         </button>
-        <h3 class="title">{{ t("minimap.overview") }}</h3>
+        <h3 class="title">{{ t("overview.title") }}</h3>
         <div class="map-wrap">
           <canvas ref="canvasEl"></canvas>
         </div>

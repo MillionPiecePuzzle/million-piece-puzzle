@@ -1,7 +1,7 @@
 import type { BoardFlag } from "../data/boardFlags";
 import { drawFlagMarkers } from "./flagMarker";
-import { paintDensityGrid } from "./minimapDensity";
-import type { MinimapSnapshot } from "./puzzleStage";
+import { paintDensityGrid } from "./overviewDensity";
+import type { OverviewSnapshot } from "./puzzleStage";
 
 // Canvas->world mapping a paint produced, captured so a pointer press can invert
 // it without recomputing the layout.
@@ -26,7 +26,7 @@ const OUTSIDE_FILL = "#ada99e";
 export const MIN_OVERVIEW_ASPECT = 1;
 const MAX_OVERVIEW_ASPECT = 2;
 
-function mapSize(snap: MinimapSnapshot): { w: number; h: number; margin: number } | null {
+function mapSize(snap: OverviewSnapshot): { w: number; h: number; margin: number } | null {
   const zone = snap.playZone;
   const zoneW = zone.maxX - zone.minX;
   const zoneH = zone.maxY - zone.minY;
@@ -37,7 +37,7 @@ function mapSize(snap: MinimapSnapshot): { w: number; h: number; margin: number 
 
 // Read before painting, so a view sets its element's shape (and appears at that
 // shape) without waiting for a frame where the canvas already has a size.
-export function overviewAspect(snap: MinimapSnapshot): number | null {
+export function overviewAspect(snap: OverviewSnapshot): number | null {
   const map = mapSize(snap);
   if (!map) return null;
   return Math.min(MAX_OVERVIEW_ASPECT, Math.max(MIN_OVERVIEW_ASPECT, map.w / map.h));
@@ -45,11 +45,11 @@ export function overviewAspect(snap: MinimapSnapshot): number | null {
 
 // Repaints the whole canvas from a fresh stage snapshot: cheap at alpha scale (a
 // few thousand fillRects) and keeps the frustum tracking pan and zoom with no
-// extra plumbing. Both minimap views share it, so the enlarged one is the panel's
+// extra plumbing. Both overview views share it, so the enlarged one is the panel's
 // own map at a bigger size rather than a second drawing that can drift from it.
 export function drawOverview(
   canvas: HTMLCanvasElement,
-  snap: MinimapSnapshot,
+  snap: OverviewSnapshot,
   flags: readonly BoardFlag[],
 ): MapTransform | null {
   const map = mapSize(snap);
@@ -84,7 +84,7 @@ export function drawOverview(
 
   // Local known-region overlay (drawn further below) takes precedence over
   // this, so a stale server count never shows under a region the client knows
-  // fresh. See minimapDensity.ts.
+  // fresh. See overviewDensity.ts.
   paintDensityGrid(ctx, snap, toX, toY, scale);
 
   // Puzzle frame.

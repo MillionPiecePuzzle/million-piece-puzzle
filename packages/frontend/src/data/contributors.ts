@@ -1,9 +1,10 @@
-// Real leaderboard data: server LeaderboardEntry values (userId + piece count)
-// turned into the display rows consumed by LeaderboardRow.vue and the panels.
+// The contributors list, built from the server leaderboard feed: LeaderboardEntry
+// values (userId + piece count) turned into the display rows ContributorsRow.vue
+// and the panels render. The wire feed keeps its own name (see DECISIONS).
 
 import { LEADERBOARD_LIMIT, compareStandings, type LeaderboardEntry } from "@mpp/shared";
 
-export type LeaderboardRow = {
+export type ContributorsRow = {
   rank: number;
   name: string;
   initials: string;
@@ -60,7 +61,7 @@ export function mergeLeaderboardDelta(
 export function toPersonalRow(
   standing: { pieces: number; rank: number },
   profile: { userId: string; pseudo: string | null; country: string | null },
-): LeaderboardRow {
+): ContributorsRow {
   const name = displayName({ userId: profile.userId, pseudo: profile.pseudo });
   return {
     rank: standing.rank,
@@ -74,10 +75,10 @@ export function toPersonalRow(
   };
 }
 
-export function toLeaderboardRows(
+export function toContributorsRows(
   entries: LeaderboardEntry[],
   myUserId: string | null,
-): LeaderboardRow[] {
+): ContributorsRow[] {
   return entries.map((entry, i) => {
     const you = entry.userId === myUserId;
     const name = displayName(entry);
@@ -104,7 +105,7 @@ export function toCountryRows(
   entries: LeaderboardEntry[],
   myUserId: string | null,
   countryName: (code: string) => string,
-): LeaderboardRow[] {
+): ContributorsRow[] {
   const myCountry = entries.find((e) => e.userId === myUserId)?.country ?? null;
   const totals = new Map<string, number>();
   for (const entry of entries) {

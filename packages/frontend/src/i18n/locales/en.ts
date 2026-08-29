@@ -4,12 +4,7 @@ const en = {
     saving: "Saving...",
     close: "Close",
     skip: "Skip",
-    leaderboard: "Contributors",
-    activity: "Activity",
-    noActivity: "No activity yet.",
-    noStandings: "No contributions yet.",
     saveError: "Could not save, try again.",
-    fullBoard: "full list",
   },
   time: {
     justNow: "just now",
@@ -70,10 +65,9 @@ const en = {
     fitToView: "Fit to view",
     credits: "View image credits",
   },
-  minimap: {
-    overview: "Overview",
+  overview: {
+    title: "Overview",
     online: "{n} online",
-    label: "Minimap",
     enlarge: "Enlarge the overview",
   },
   auth: {
@@ -105,8 +99,8 @@ const en = {
         reference: "Reference",
         zoom: "Zoom",
         activity: "Activity",
-        leaderboard: "Contributors",
-        minimap: "Minimap",
+        contributors: "Contributors",
+        overview: "Overview",
         flags: "Flags",
       },
     },
@@ -119,15 +113,15 @@ const en = {
     carry: "Double-click a piece to stick it to your cursor, double-click again to drop it.",
     flags: "Use flags to easily move around the canvas.",
     flagDrop: "Drag a piece onto a flag in the bar to send it over there.",
-    minimap: "Click anywhere on the minimap to move the view there.",
+    overview: "Click anywhere on the overview to move the view there.",
     reference: "Open the reference image and zoom in to find where a piece belongs.",
   },
   updates: {
     title: "Update notes",
     v120: {
       panels: "Every panel now has its own switch in the Display section of this menu.",
-      minimap:
-        "The minimap's enlarged view has been reworked: it now opens the same map, simply bigger.",
+      overview:
+        "The overview's enlarged view has been reworked: it now opens the same map, simply bigger.",
       notes:
         "A dot on the settings button tells you when update notes have arrived that you have not read.",
       fixes:
@@ -151,7 +145,7 @@ const en = {
       maintenance:
         "A server restart shows a maintenance screen instead of a connection error, and comes back on its own once the puzzle is up again.",
       mobile:
-        "On a phone the interface keeps only the reference and the minimap, and leaves the screen to the board.",
+        "On a phone the interface keeps only the reference and the overview, and leaves the screen to the board.",
       help: "This menu carries tips, and the contributors panel explains how pieces are counted.",
     },
     v100: {
@@ -184,13 +178,19 @@ const en = {
     cooldownHint: "You can change your country once every {hours} hours.",
     cooldown: "You already changed your country recently. Try again in {hours}h.",
   },
-  leaderboardModal: {
-    label: "All contributors",
-    rankingMode: "View mode",
+  contributors: {
+    title: "Contributors",
+    empty: "No contributions yet.",
+    full: "full list",
+    all: "All contributors",
+    viewMode: "View mode",
     people: "People",
     countries: "Countries",
     prev: "prev",
     next: "next",
+    pcs: "pcs",
+    you: "you",
+    online: "online",
   },
   scoring: {
     open: "How pieces are counted",
@@ -207,7 +207,9 @@ const en = {
     fairBody:
       "This is what keeps every piece counted exactly once. It also means that, once the last piece is placed, the counts add up to exactly {total} pieces.",
   },
-  activityPanel: {
+  activity: {
+    title: "Activity",
+    empty: "No activity yet.",
     placedLine: "placed {object}",
     connectedLine: "connected {object}",
     piece: "a piece",
@@ -274,11 +276,6 @@ const en = {
       white: "White",
       black: "Black",
     },
-  },
-  row: {
-    pcs: "pcs",
-    you: "you",
-    online: "online",
   },
   legalDoc: {
     back: "Back to home",

@@ -6,12 +6,7 @@ const de: MessageSchema = {
     saving: "Speichern...",
     close: "Schließen",
     skip: "Überspringen",
-    leaderboard: "Mitwirkende",
-    activity: "Aktivität",
-    noActivity: "Noch keine Aktivität.",
-    noStandings: "Noch keine Beiträge.",
     saveError: "Speichern fehlgeschlagen, bitte erneut versuchen.",
-    fullBoard: "ganze Liste",
   },
   time: {
     justNow: "gerade eben",
@@ -72,10 +67,9 @@ const de: MessageSchema = {
     fitToView: "An Ansicht anpassen",
     credits: "Bildnachweise anzeigen",
   },
-  minimap: {
-    overview: "Übersicht",
+  overview: {
+    title: "Übersicht",
     online: "{n} online",
-    label: "Minikarte",
     enlarge: "Übersicht vergrößern",
   },
   auth: {
@@ -107,8 +101,8 @@ const de: MessageSchema = {
         reference: "Referenz",
         zoom: "Zoom",
         activity: "Aktivität",
-        leaderboard: "Mitwirkende",
-        minimap: "Minikarte",
+        contributors: "Mitwirkende",
+        overview: "Übersicht",
         flags: "Fahnen",
       },
     },
@@ -122,15 +116,15 @@ const de: MessageSchema = {
       "Doppelklicke auf ein Teil, um es an den Cursor zu heften, und noch einmal, um es abzulegen.",
     flags: "Nutze Fahnen, um dich einfach auf dem Board zu bewegen.",
     flagDrop: "Zieh ein Teil auf eine Fahne in der Leiste, um es dorthin zu schicken.",
-    minimap: "Klicke irgendwo auf die Mini-Karte, um die Ansicht dorthin zu bewegen.",
+    overview: "Klicke irgendwo auf die Übersicht, um die Ansicht dorthin zu bewegen.",
     reference: "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört.",
   },
   updates: {
     title: "Versionshinweise",
     v120: {
       panels: "Jedes Panel hat jetzt seinen eigenen Schalter im Bereich Anzeige in diesem Menü.",
-      minimap:
-        "Die vergrößerte Ansicht der Mini-Karte wurde überarbeitet: Sie öffnet jetzt dieselbe Karte, einfach größer.",
+      overview:
+        "Die vergrößerte Ansicht der Übersicht wurde überarbeitet: Sie öffnet jetzt dieselbe Karte, einfach größer.",
       notes:
         "Ein Punkt am Einstellungen-Knopf zeigt dir, dass Versionshinweise da sind, die du noch nicht gelesen hast.",
       fixes:
@@ -154,7 +148,7 @@ const de: MessageSchema = {
       maintenance:
         "Ein Neustart des Servers zeigt einen Wartungshinweis statt eines Verbindungsfehlers und kommt von selbst zurück, sobald das Puzzle wieder da ist.",
       mobile:
-        "Auf dem Handy behält die Oberfläche nur die Referenz und die Mini-Karte und überlässt dem Board den Bildschirm.",
+        "Auf dem Handy behält die Oberfläche nur die Referenz und die Übersicht und überlässt dem Board den Bildschirm.",
       help: "Dieses Menü enthält Tipps, und die Liste der Mitwirkenden erklärt, wie Teile gezählt werden.",
     },
     v100: {
@@ -192,13 +186,19 @@ const de: MessageSchema = {
     cooldownHint: "Du kannst dein Land nur alle {hours} Stunden ändern.",
     cooldown: "Du hast dein Land bereits vor Kurzem geändert. Versuch es in {hours} Std. erneut.",
   },
-  leaderboardModal: {
-    label: "Alle Mitwirkenden",
-    rankingMode: "Ansichtsmodus",
+  contributors: {
+    title: "Mitwirkende",
+    empty: "Noch keine Beiträge.",
+    full: "ganze Liste",
+    all: "Alle Mitwirkenden",
+    viewMode: "Ansichtsmodus",
     people: "Personen",
     countries: "Länder",
     prev: "zurück",
     next: "weiter",
+    pcs: "Tle",
+    you: "du",
+    online: "online",
   },
   scoring: {
     open: "Wie Teile gezählt werden",
@@ -215,7 +215,9 @@ const de: MessageSchema = {
     fairBody:
       "Dieses System sorgt dafür, dass jedes Teil genau einmal gezählt wird. Und dafür, dass die Zählungen genau {total} Teile ergeben, sobald das letzte Teil gesetzt ist.",
   },
-  activityPanel: {
+  activity: {
+    title: "Aktivität",
+    empty: "Noch keine Aktivität.",
     placedLine: "hat {object} platziert",
     connectedLine: "hat {object} verbunden",
     piece: "ein Teil",
@@ -284,11 +286,6 @@ const de: MessageSchema = {
       white: "Weiß",
       black: "Schwarz",
     },
-  },
-  row: {
-    pcs: "Tle",
-    you: "du",
-    online: "online",
   },
   legalDoc: {
     back: "Zurück zur Startseite",
