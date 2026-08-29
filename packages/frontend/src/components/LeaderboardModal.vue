@@ -153,6 +153,10 @@ onMounted(trap.activate);
 }
 .seg {
   display: inline-flex;
+  /* The shell is a flex column, which blockifies its children and stretches
+     them across the cross axis, so the switch needs to opt out of the stretch
+     to stay as wide as its two buttons. */
+  align-self: flex-start;
   margin-bottom: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-btn);
