@@ -6,7 +6,7 @@ A community-built online jigsaw puzzle: **1,000,000 pieces** on a single shared 
 
 ## Status
 
-v1.2.0 is out: production serves the 1,000,000-piece `earth-mosaic` board ahead of the public event. Work is tracked in [ROADMAP.md](ROADMAP.md).
+v1.3.0 is out: production serves the 1,000,000-piece `earth-mosaic` board ahead of the public event. Work is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## How it works
 
