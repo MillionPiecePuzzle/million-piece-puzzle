@@ -1,9 +1,13 @@
 import type { ActivityItem, LeaderboardEntry, LiveResponse } from "@mpp/shared";
 
-// What the landing shows while the board is live: six contributors and six
-// placements. Small on purpose, the body is polled every few seconds by every
-// open landing, and the page renders exactly this many.
-export const LIVE_FIGURES_LIMIT = 6;
+// What the landing shows while the board is live: six contributors and ten
+// placements. The two depths differ because the two cards sit side by side and
+// stretch to the taller one: a contributor row is 36px tall against an activity
+// line's 16px, so six placements left a third of that card empty. Small on
+// purpose all the same, the body is polled every few seconds by every open
+// landing, and the page renders exactly this many.
+export const LIVE_CONTRIBUTORS_LIMIT = 6;
+export const LIVE_ACTIVITY_LIMIT = 10;
 
 export type LiveFiguresSource = {
   totalPieces: () => number;
@@ -47,8 +51,8 @@ export class LiveFigures {
     try {
       const [locked, leaderboard, activity] = await Promise.all([
         this.source.lockedCount(),
-        this.source.leaderboard(LIVE_FIGURES_LIMIT),
-        this.source.activity(LIVE_FIGURES_LIMIT),
+        this.source.leaderboard(LIVE_CONTRIBUTORS_LIMIT),
+        this.source.activity(LIVE_ACTIVITY_LIMIT),
       ]);
       this.cached = {
         status: this.source.status(),

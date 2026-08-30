@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ActivityItem, LeaderboardEntry } from "@mpp/shared";
-import { LiveFigures, LIVE_FIGURES_LIMIT, type LiveFiguresSource } from "./liveFigures.js";
+import {
+  LiveFigures,
+  LIVE_ACTIVITY_LIMIT,
+  LIVE_CONTRIBUTORS_LIMIT,
+  type LiveFiguresSource,
+} from "./liveFigures.js";
 
 const entries: LeaderboardEntry[] = [{ userId: "u1", pseudo: "Alice", country: "fr", pieces: 3 }];
 const items: ActivityItem[] = [
@@ -48,8 +53,8 @@ describe("LiveFigures", () => {
   it("asks both sources for exactly what the landing renders", async () => {
     const source = makeSource();
     await new LiveFigures(2000, source).read();
-    expect(source.leaderboard).toHaveBeenCalledWith(LIVE_FIGURES_LIMIT);
-    expect(source.activity).toHaveBeenCalledWith(LIVE_FIGURES_LIMIT);
+    expect(source.leaderboard).toHaveBeenCalledWith(LIVE_CONTRIBUTORS_LIMIT);
+    expect(source.activity).toHaveBeenCalledWith(LIVE_ACTIVITY_LIMIT);
   });
 
   it("serves the memo inside the window and rebuilds past it", async () => {

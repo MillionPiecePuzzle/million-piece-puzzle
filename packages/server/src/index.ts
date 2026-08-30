@@ -25,7 +25,7 @@ import { dispatch, type Context } from "./handlers.js";
 import { GroupQueue } from "./queue.js";
 import { releaseHeldGroups, sweepStaleHolds } from "./holds.js";
 import { sleep } from "./regionStream.js";
-import { ACTIVITY_BACKFILL_LIMIT, PuzzleLifecycle } from "./lifecycle.js";
+import { PuzzleLifecycle } from "./lifecycle.js";
 import {
   initPuzzleIfEmpty,
   playZoneForManifest,
@@ -44,7 +44,7 @@ import { unpackCellKey } from "./worldGrid.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
 import { KeyframePublisher } from "./keyframe.js";
-import { LiveFigures } from "./liveFigures.js";
+import { LiveFigures, LIVE_ACTIVITY_LIMIT } from "./liveFigures.js";
 import { LeaderboardBroadcaster } from "./leaderboardBroadcast.js";
 import {
   buildAuthConfig,
@@ -305,7 +305,10 @@ async function main(): Promise<void> {
     status: () => ctx.meta.status,
     getLockedCount: () => state.getLockedCount(),
     leaderboard: () => mongo.attachProfiles(leaderboardTracker.top(LEADERBOARD_LIMIT)),
-    activity: () => mongo.recentMerges(ctx.puzzleId, ACTIVITY_BACKFILL_LIMIT),
+    // The landing alone reads this feed (the in-game ticker is seeded on the
+    // socket instead, see lifecycle.sendWelcome), so it is cut to the landing's
+    // own depth rather than the ticker's.
+    activity: () => mongo.recentMerges(ctx.puzzleId, LIVE_ACTIVITY_LIMIT),
     minimapGrid: () => minimapGrid.snapshot(),
   });
   // Broadcast the minimap grid to contributors after each regenerate (periodic
@@ -320,7 +323,7 @@ async function main(): Promise<void> {
   // The landing's poll reads this instead of the keyframe snapshot: same sources,
   // but rebuilt on a seconds-scale window rather than the snapshot's minutes, and
   // with no minimap broadcast riding on it. It carries the six contributors and
-  // six placements the landing renders, so a rebuild stays two bounded Mongo
+  // ten placements the landing renders, so a rebuild stays two bounded Mongo
   // reads and one Redis scalar.
   const liveFigures = new LiveFigures(config.liveTtlMs, {
     totalPieces: () => ctx.meta.totalPieces,
