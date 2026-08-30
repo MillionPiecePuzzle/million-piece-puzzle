@@ -7,6 +7,15 @@ services:
     volumes:
       - redis-data:/data
     command: ["redis-server", "--appendonly", "yes"]
+    # Coolify's own Redis answers to the alias `redis` on the `coolify` network,
+    # so any container joining that network resolves the bare name to Coolify's
+    # instance rather than to this one. The backup sidecar joins it, so it needs a
+    # name only this service holds; the plain `redis` alias stays for the server,
+    # which is on the app network alone and cannot hit the collision.
+    networks:
+      default:
+        aliases:
+          - mpp-redis
 
   mongo:
     image: mongo:7
@@ -106,7 +115,11 @@ services:
     volumes:
       - /data/coolify:/host/coolify:ro
     environment:
-      MPP_REDIS_URL: "redis://redis:6379"
+      # `mpp-redis`, not `redis`: this container joins the `coolify` network, where
+      # Coolify's own password-protected Redis holds the `redis` alias and wins the
+      # lookup, which fails the RDB pull with NOAUTH. `mongo` needs no such alias,
+      # nothing on the joined networks answers to it.
+      MPP_REDIS_URL: "redis://mpp-redis:6379"
       MPP_MONGO_URL: "mongodb://mongo:27017"
       MPP_MONGO_DB: "mpp"
       # Cadence and retention: non-secret, baked here as the prod source.
