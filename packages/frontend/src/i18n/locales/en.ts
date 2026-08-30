@@ -63,6 +63,7 @@ const en = {
     openEnlarged: "Open enlarged reference",
     image: "Reference image",
     fitToView: "Fit to view",
+    aim: "Click the photo to move the board there (or Ctrl-click at any time)",
     credits: "View image credits",
   },
   overview: {

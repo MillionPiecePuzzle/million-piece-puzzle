@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { MIN_OVERVIEW_ASPECT, drawOverview, overviewAspect } from "../canvas/overviewView";
 import { useOverview } from "../composables/useOverview";
+import { useOverviewPointer } from "../composables/useOverviewPointer";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useRafLoop } from "../composables/useRafLoop";
 import { useFocusTrap } from "../composables/useFocusTrap";
@@ -20,10 +21,13 @@ const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
 
 const shellAspect = ref(MIN_OVERVIEW_ASPECT);
 
-// The overview panel's own map at a size that can be read rather than only aimed
-// at. Same painter, same per-frame cadence, so the frustum, the flags and the
-// piece dots track the board here exactly as they do in the panel. Nothing here
-// takes a pointer: the panel stays the one place a press moves the camera.
+const { captureTransform, onPointerDown, onPointerMove, onPointerUp } =
+  useOverviewPointer(canvasEl);
+
+// The overview panel's own map at a size that can be read and aimed at. Same
+// painter, same per-frame cadence and the same press-and-sweep camera jump, so
+// the frustum, the flags and the piece dots track the board here exactly as they
+// do in the panel, including under the player's own aim.
 function draw(): void {
   const snap = source.value?.() ?? null;
   if (!snap) return;
@@ -32,7 +36,7 @@ function draw(): void {
   shellAspect.value = aspect;
   const canvas = canvasEl.value;
   if (!canvas) return;
-  drawOverview(canvas, snap, flags.value);
+  captureTransform(drawOverview(canvas, snap, flags.value));
 }
 
 useRafLoop(draw);
@@ -56,7 +60,13 @@ onMounted(trap.activate);
         </button>
         <h3 class="title">{{ t("overview.title") }}</h3>
         <div class="map-wrap">
-          <canvas ref="canvasEl"></canvas>
+          <canvas
+            ref="canvasEl"
+            @pointerdown="onPointerDown"
+            @pointermove="onPointerMove"
+            @pointerup="onPointerUp"
+            @pointercancel="onPointerUp"
+          ></canvas>
         </div>
       </div>
     </div>
@@ -110,6 +120,10 @@ onMounted(trap.activate);
   display: block;
   width: 100%;
   height: 100%;
+  /* Plain arrow rather than a grab hand: the press aims the camera at a point
+     instead of picking the map up, and the arrow's tip is what aims it. */
+  cursor: default;
+  touch-action: none;
 }
 .close {
   position: absolute;

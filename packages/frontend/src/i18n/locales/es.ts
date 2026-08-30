@@ -65,6 +65,7 @@ const es: MessageSchema = {
     openEnlarged: "Abrir la referencia ampliada",
     image: "Imagen de referencia",
     fitToView: "Ajustar a la vista",
+    aim: "Hacer clic en la foto para llevar el tablero ahí (o Ctrl-clic en cualquier momento)",
     credits: "Ver los créditos de la imagen",
   },
   overview: {

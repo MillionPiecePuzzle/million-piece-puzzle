@@ -65,6 +65,7 @@ const fr: MessageSchema = {
     openEnlarged: "Ouvrir la référence agrandie",
     image: "Image de référence",
     fitToView: "Ajuster à la vue",
+    aim: "Cliquer sur la photo pour y amener le plateau (ou Ctrl-clic à tout moment)",
     credits: "Voir les crédits de l'image",
   },
   overview: {

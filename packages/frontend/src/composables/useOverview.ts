@@ -6,8 +6,9 @@ import type { OverviewSnapshot } from "../canvas/puzzleStage";
 // updates, so per-frame piece positions never go through Vue reactivity.
 export type OverviewSource = () => OverviewSnapshot | null;
 
-// Push side: the panel asks the camera to center a world point picked from the
-// overview (click or drag), so the panel stays a thin view over the stage.
+// Push side: a view asks the camera to center a world point the player picked on
+// it (an overview press or sweep, an aimed click on the enlarged reference), so
+// every such view stays thin over the stage.
 export type OverviewNavigate = (worldX: number, worldY: number) => void;
 
 const source = shallowRef<OverviewSource | null>(null);

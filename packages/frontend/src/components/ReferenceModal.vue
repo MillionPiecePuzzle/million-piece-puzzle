@@ -4,6 +4,7 @@ import OpenSeadragon from "openseadragon";
 import { useI18n } from "vue-i18n";
 import type { ImageManifest } from "@mpp/shared";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
+import { useOverview } from "../composables/useOverview";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 
@@ -15,6 +16,10 @@ const host = ref<HTMLDivElement | null>(null);
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
 const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
+const { navigate } = useOverview();
+// Armed from the control pillar, so the gesture is discoverable without the
+// modifier. Ctrl (or Cmd) does the same thing whether it is armed or not.
+const aiming = ref(false);
 let viewer: OpenSeadragon.Viewer | null = null;
 
 const aspectRatio = computed(() => `${props.manifest.source.width / props.manifest.source.height}`);
@@ -28,6 +33,33 @@ function zoomBy(factor: number): void {
   if (!vp) return;
   vp.zoomBy(factor);
   vp.applyConstraints();
+}
+
+// The pyramid is the cropped source (`cols * pieceSize` by `rows * pieceSize`),
+// so it maps 1:1 onto the puzzle frame and an image pixel names a world point.
+function worldAt(position: OpenSeadragon.Point): { x: number; y: number } | null {
+  const vp = viewer?.viewport;
+  if (!vp) return null;
+  const image = vp.viewerElementToImageCoordinates(position);
+  const { rows, cols, pieceSize, source } = props.manifest;
+  return {
+    x: (image.x / source.width) * cols * pieceSize,
+    y: (image.y / source.height) * rows * pieceSize,
+  };
+}
+
+// Aim the board from the photo: the click moves the camera instead of zooming
+// the viewer, and leaves the modal open, so the photo stays there to aim from
+// again rather than costing a reopen per jump.
+function onAimedClick(event: OpenSeadragon.CanvasClickEvent): void {
+  const mouse = event.originalEvent as MouseEvent;
+  if (!event.quick || !(aiming.value || mouse.ctrlKey || mouse.metaKey)) return;
+  // Set before the world lookup can fail: an aimed click never falls through to
+  // the viewer's own click-to-zoom.
+  event.preventDefaultAction = true;
+  const world = worldAt(event.position);
+  if (!world) return;
+  navigate.value?.(world.x, world.y);
 }
 
 // Rest at the maximum zoom-out (minZoomImageRatio below) so the image sits
@@ -72,6 +104,7 @@ onMounted(() => {
     crossOriginPolicy: "Anonymous",
   });
   viewer.addHandler("open", () => fit(true));
+  viewer.addHandler("canvas-click", onAimedClick);
   viewer.open(dziUrlFor(props.manifest) as unknown as OpenSeadragon.TileSourceSpecifier);
   trap.activate();
 });
@@ -96,7 +129,7 @@ onBeforeUnmount(() => {
         <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
           &times;
         </button>
-        <div ref="host" class="osd-large" />
+        <div ref="host" class="osd-large" :class="{ aiming }" />
         <div class="zoom">
           <button type="button" :aria-label="t('zoom.in')" @click="zoomBy(1.4)">
             <svg class="ic" viewBox="0 0 16 16" fill="none">
@@ -117,6 +150,23 @@ onBeforeUnmount(() => {
             <svg class="ic" viewBox="0 0 16 16" fill="none">
               <path
                 d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            :aria-label="t('reference.aim')"
+            :title="t('reference.aim')"
+            :aria-pressed="aiming"
+            @click="aiming = !aiming"
+          >
+            <svg class="ic" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="3.1" stroke="currentColor" stroke-width="1.4" />
+              <path
+                d="M8 1.4v2.5M8 12.1v2.5M1.4 8h2.5M12.1 8h2.5"
                 stroke="currentColor"
                 stroke-width="1.4"
                 stroke-linecap="round"
@@ -171,6 +221,10 @@ onBeforeUnmount(() => {
   max-height: 100%;
   /* No overflow clip here: the caption is anchored just below the shell and must
      escape it. The image clip lives on .osd-large instead. */
+}
+.osd-large.aiming {
+  /* Inherited by the viewer's own elements, which set no cursor of their own. */
+  cursor: crosshair;
 }
 .osd-large {
   width: 100%;
@@ -242,11 +296,21 @@ onBeforeUnmount(() => {
   color: var(--ink-2);
   border-bottom: 1px solid var(--line-2);
 }
+/* The hover and armed fills reach the pillar's own corners, so the end buttons
+   carry its radius rather than painting a square over it. */
+.zoom button:first-child {
+  border-radius: 12px 12px 0 0;
+}
 .zoom button:last-child {
   border-bottom: none;
+  border-radius: 0 0 12px 12px;
 }
 .zoom button:hover {
   background: var(--paper-2);
+}
+.zoom button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .ic {
   width: 16px;

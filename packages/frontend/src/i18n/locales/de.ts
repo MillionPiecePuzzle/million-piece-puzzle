@@ -65,6 +65,7 @@ const de: MessageSchema = {
     openEnlarged: "Vergrößerte Referenz öffnen",
     image: "Referenzbild",
     fitToView: "An Ansicht anpassen",
+    aim: "Auf das Foto klicken, um das Spielfeld dorthin zu bewegen (oder jederzeit Strg-Klick)",
     credits: "Bildnachweise anzeigen",
   },
   overview: {
