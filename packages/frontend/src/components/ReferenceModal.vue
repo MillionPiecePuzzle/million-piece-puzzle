@@ -35,6 +35,21 @@ function zoomBy(factor: number): void {
   vp.applyConstraints();
 }
 
+// Empty viewer kept on every side of the image, as a fraction of the viewer's own
+// size. It is the viewport's margin rather than a zoom-out overshoot, so it is
+// there at every zoom: a pan stops with the band showing past the image edge
+// instead of running that edge flush against the modal, where there is nothing
+// left to read it against.
+const EDGE_BAND = 0.05;
+
+function applyEdgeBand(): void {
+  const el = host.value;
+  if (!viewer || !el) return;
+  const x = el.clientWidth * EDGE_BAND;
+  const y = el.clientHeight * EDGE_BAND;
+  viewer.viewport.setMargins({ left: x, right: x, top: y, bottom: y });
+}
+
 // The pyramid is the cropped source (`cols * pieceSize` by `rows * pieceSize`),
 // so it maps 1:1 onto the puzzle frame and an image pixel names a world point.
 function worldAt(position: OpenSeadragon.Point): { x: number; y: number } | null {
@@ -62,13 +77,10 @@ function onAimedClick(event: OpenSeadragon.CanvasClickEvent): void {
   navigate.value?.(world.x, world.y);
 }
 
-// Rest at the maximum zoom-out (minZoomImageRatio below) so the image sits
-// inside the viewer with a visible border all around, rather than filling it.
+// The home fit is already inset by the margins, and minZoomImageRatio pins the
+// zoom floor to it, so this is both the rest position and the zoom-out limit.
 function fit(immediate = false): void {
-  const vp = viewer?.viewport;
-  if (!vp) return;
-  vp.goHome(true);
-  vp.zoomTo(vp.getMinZoom(), undefined, immediate);
+  viewer?.viewport.goHome(immediate);
 }
 
 onMounted(() => {
@@ -76,6 +88,8 @@ onMounted(() => {
   viewer = OpenSeadragon({
     element: host.value,
     showNavigationControl: false,
+    // The whole margin-inset viewport must stay covered by the image, which is
+    // what turns the margins into a hard pan limit rather than a home framing.
     visibilityRatio: 1,
     // Keep the image fitted inside the modal and snap to that fit the moment it
     // loads, so the reference always opens centered.
@@ -86,7 +100,9 @@ onMounted(() => {
     constrainDuringPan: true,
     animationTime: 0.4,
     springStiffness: 10,
-    minZoomImageRatio: 0.9,
+    // The margins already hold the image off the modal edges, so the zoom floor
+    // is the fitted view itself rather than a further step out of it.
+    minZoomImageRatio: 1,
     maxZoomPixelRatio: 2,
     // Context2d drawer rather than the default WebGL one: the page already runs
     // the PixiJS stage's WebGL context, and the webgl drawer's tile texture
@@ -103,6 +119,8 @@ onMounted(() => {
     // player just examined.
     crossOriginPolicy: "Anonymous",
   });
+  applyEdgeBand();
+  viewer.addHandler("resize", applyEdgeBand);
   viewer.addHandler("open", () => fit(true));
   viewer.addHandler("canvas-click", onAimedClick);
   viewer.open(dziUrlFor(props.manifest) as unknown as OpenSeadragon.TileSourceSpecifier);
