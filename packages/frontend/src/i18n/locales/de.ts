@@ -122,6 +122,16 @@ const de: MessageSchema = {
   },
   updates: {
     title: "Versionshinweise",
+    v130: {
+      jump: "Die vergrößerte Übersicht und das vergrößerte Referenzfoto bewegen jetzt das Board: Klick auf die Karte, um dorthin zu springen, und auf dem Foto bringt der Fadenkreuz-Knopf, oder Strg-Klick, das Board zu dem, was du gerade ansiehst.",
+      countries:
+        "Jede Fahne nennt jetzt ihr Land in deiner Sprache, in der Liste der Mitwirkenden, in der oberen Leiste und in der Länderauswahl.",
+      home: "Die Zahlen auf der Startseite bewegen sich jetzt von selbst: gesetzte Teile, Mitwirkende und die letzten Aktivitäten aktualisieren sich, während die Seite offen bleibt.",
+      snapping:
+        "Ein Teil, das unter einem Stapel begraben liegt, ist kein Andockpunkt mehr: Teile auf einer Stelle zu stapeln erzwingt kein Zusammenfügen mehr. Das Teil bleibt liegen, wo du es abgelegt hast, und eine Meldung erklärt dir warum.",
+      fixes:
+        "Fehlerbehebungen: Das Referenzfoto hindert das Board nicht mehr daran, den gerade angesehenen Bereich zu laden, ein Klick bei weit herausgezoomter Ansicht verschiebt die Ansicht statt ein Teil zu greifen, der Rand des Boards stoppt die Kamera dort, wo er sichtbar wird, und die obere Leiste auf dem Handy zeigt dein Pseudonym und den vollständigen Zählerstand.",
+    },
     v120: {
       panels: "Jedes Panel hat jetzt seinen eigenen Schalter im Bereich Anzeige in diesem Menü.",
       overview:
