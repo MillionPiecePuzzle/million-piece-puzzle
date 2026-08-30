@@ -167,9 +167,9 @@ Revisit when: 1M runtime smoothness is verified (ROADMAP, closed). Standing limi
 
 ### 2026-05-21, frontend-canvas, play-zone hard limits
 
-Choice: the board is bounded by a play zone computed once server-side (AABB of the frame and every scattered piece, widened by 50%, grid-snapped) and sent in `welcome`; camera and held pieces are clamped to it client-side.
-Why: a per-client computation would drift as pieces move inward while solving, giving late joiners a smaller zone than early ones; computing it once server-side from the seed keeps every client's bound identical.
-Revisit when: never scheduled; still no server-side position validation, so a malicious client can send out-of-zone positions and nothing on the server rejects them. Accepted as a standing gap, not queued for a fix.
+Choice: the board is bounded by a play zone computed once server-side (AABB of the frame and every scattered piece, widened by 50%, grid-snapped) and sent in `welcome`; camera and held pieces are clamped to it client-side, and `handleDrop` clamps the origin it persists to the same zone before anything reads it.
+Why: a per-client computation would drift as pieces move inward while solving, giving late joiners a smaller zone than early ones; computing it once server-side from the seed keeps every client's bound identical. The server clamp is what makes the zone an invariant rather than a client convention: a drop is the only path that writes a position and the wire check on its coordinates is finiteness alone, so without it a forged drop could rest a cluster where no camera reaches and no viewport streams it, and far enough out that the world-grid cell key stops packing collision-free. It clamps rather than bounces because the client applies the same body-aware formula to its own input (with the tile margin on top, so its range is the narrower one), which makes the clamp a no-op on every honest drop.
+Revisit when: a transient position ever becomes persistent. Drags are broadcast-only today, so the drop clamp covers every write.
 
 ### 2026-05-23, image-pipeline, reference image as a Deep Zoom pyramid
 

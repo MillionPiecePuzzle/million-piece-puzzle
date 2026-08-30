@@ -21,7 +21,7 @@ import {
 } from "./cellComposite.js";
 import { detectSnap, type SnapCover } from "./snap.js";
 import { resolveDropNearOrigin } from "./dropNear.js";
-import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
+import { localAabbForPieces, worldAabbFor, type Aabb } from "./worldGrid.js";
 import { batchEnteredCells, sleep } from "./regionStream.js";
 import {
   type WireContext,
@@ -164,6 +164,27 @@ function isValidGroupId(value: unknown, totalPieces: number): boolean {
 
 function isFiniteCoord(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+// The origin a cluster of this local AABB can rest at with none of its pieces
+// outside the play zone: the same constraint the client applies to its own drag
+// input and dropNear applies to a flag landing. A group with no stored AABB
+// (worldAabbFor's zero-size fallback) clamps its bare origin point.
+function clampOriginToPlayZone(
+  zone: PlayZone,
+  local: Aabb | null | undefined,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  const body = worldAabbFor(local, 0, 0);
+  return {
+    x: clamp(x, zone.minX - body.minX, zone.maxX - body.maxX),
+    y: clamp(y, zone.minY - body.minY, zone.maxY - body.maxY),
+  };
 }
 
 export async function handleHello(ctx: Context, client: Client, msg: CHello): Promise<void> {
@@ -454,6 +475,16 @@ export async function handleDrop(
     err(ctx, client, "not_held", `group ${groupId} not held by you`);
     return;
   }
+
+  // A drop is the only path that persists a position, and the wire only proves
+  // its coordinates are finite. The client clamps its own drag input to the play
+  // zone before sending, so this moves nothing an honest client asks for; what it
+  // closes is a forged drop parking a cluster arbitrarily far off the board,
+  // where no camera can reach it, no viewport ever streams it, and the world
+  // grid's cell key packing stops being collision-free.
+  const dropAt = clampOriginToPlayZone(ctx.playZone, g.localAabb, originX, originY);
+  originX = dropAt.x;
+  originY = dropAt.y;
 
   // The pre-drag resting origin (drags are transient and never persisted, so
   // Redis still holds it), kept as the rollback target if the drop is rejected.

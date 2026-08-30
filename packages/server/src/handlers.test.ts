@@ -4,6 +4,7 @@ import type { Context } from "./handlers.js";
 import { Hub, type Client } from "./hub.js";
 import type { PuzzleMeta } from "./state.js";
 import {
+  computePlayZone,
   LeaderboardTracker,
   MinimapGridTracker,
   WORLD_TILE_SIZE,
@@ -492,6 +493,10 @@ const dropMeta: PuzzleMeta = {
 // Body extent of an index payload: a square this many world units across.
 const box = (across: number) => ({ width: across, height: across });
 
+// The bound handleDrop clamps a drop into. Wide enough that every fixture drop
+// below rests where it was aimed; only the forged-coordinate test is clamped.
+const dropPlayZone: PlayZone = { minX: -2000, minY: -2000, maxX: 2000, maxY: 2000 };
+
 function makeDropCtx() {
   const send = vi.fn();
   const broadcast = vi.fn();
@@ -519,7 +524,7 @@ function makeDropCtx() {
     minimapGrid: testMinimapGrid(dropMeta.gridCols, dropMeta.pieceSize),
     leaderboardTracker: new LeaderboardTracker(dropMeta.totalPieces),
     leaderboardBroadcast: { markDirty },
-    playZone: { minX: -2000, minY: -2000, maxX: 2000, maxY: 2000 },
+    playZone: dropPlayZone,
     pieceMargin: 20,
     tilePieceCap: 2048,
     clusterPieceCap: 20000,
@@ -580,6 +585,20 @@ describe("handleDrop", () => {
     const c = { userId: "u1", held: new Set<number>([4]) } as unknown as Client;
     await handleDrop(ctx, c, 4, 500, 500);
     expect(c.held.has(4)).toBe(false);
+  });
+
+  it("clamps a drop outside the play zone back into it", async () => {
+    const { ctx, state } = makeDropCtx();
+    state.place(dropped(4, 500, 500), [4]);
+
+    // Only a forged drop reaches this: the client clamps its own drag input, and
+    // the wire check on a drop's coordinates is finiteness alone.
+    await handleDrop(ctx, client, 4, 1e12, -1e12);
+
+    expect(state.groups.get(4)).toMatchObject({ worldX: 2000, worldY: -2000 });
+    // Keyed by the clamped rest, so the cell stays in the range the world-grid
+    // key packing is collision-free over (cell 0,-1 at cellSize 2048).
+    expect(ctx.groupIndex.cellOf(4)).toBe(cellKey(0, -1));
   });
 
   it("rejects a non-merging drop that would overflow the destination tile", async () => {
@@ -861,6 +880,11 @@ describe("handleDrop", () => {
       minimapGrid: testMinimapGrid(bigMeta.gridCols, bigMeta.pieceSize),
       leaderboardTracker: new LeaderboardTracker(bigMeta.totalPieces),
       leaderboardBroadcast: { markDirty: vi.fn() },
+      playZone: computePlayZone(
+        bigMeta.gridCols * bigMeta.pieceSize,
+        bigMeta.gridRows * bigMeta.pieceSize,
+        [],
+      ),
       tilePieceCap: 2048,
       clusterPieceCap: 20000,
       snapCoverMax: 5,
@@ -950,6 +974,7 @@ describe("handleDrop", () => {
       minimapGrid: testMinimapGrid(onePieceMeta.gridCols, onePieceMeta.pieceSize),
       leaderboardTracker: new LeaderboardTracker(onePieceMeta.totalPieces),
       leaderboardBroadcast: { markDirty },
+      playZone: dropPlayZone,
       lifecycle: { markCompleted },
     } as unknown as Context;
     state.place(dropped(0, 2, 2), [0]);
@@ -1149,11 +1174,11 @@ describe("group index maintenance", () => {
     ctx.groupIndex.set(4, 500, 500, { originX: 500, originY: 500, size: 1, ...box(100) });
     const oldCell = cellAt(500, 500);
 
-    await handleDrop(ctx, client, 4, 50000, 50000);
+    await handleDrop(ctx, client, 4, -1500, -1500);
 
     expect(ctx.groupIndex.collect([oldCell])).toEqual([]);
-    expect(ctx.groupIndex.collect([cellAt(50000, 50000)])).toEqual([
-      { groupId: 4, worldX: 50000, worldY: 50000, size: 1 },
+    expect(ctx.groupIndex.collect([cellAt(-1500, -1500)])).toEqual([
+      { groupId: 4, worldX: -1500, worldY: -1500, size: 1 },
     ]);
   });
 
