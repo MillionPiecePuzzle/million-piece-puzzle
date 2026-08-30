@@ -115,17 +115,18 @@ const en = {
     flags: "Use flags to easily move around the canvas.",
     flagDrop: "Drag a piece onto a flag in the bar to send it over there.",
     overview: "Click anywhere on the overview to move the view there.",
-    reference: "Open the reference image and zoom in to find where a piece belongs.",
+    reference:
+      "Open the reference image and zoom in to find where a piece belongs, then Ctrl-click it to bring the board there.",
   },
   updates: {
     title: "Update notes",
     v130: {
       jump: "The enlarged overview and the enlarged reference photo now move the board: click the map to go there, and on the photo use the crosshair button, or Ctrl-click, to bring the board to what you are looking at.",
+      contributors:
+        "The panel listing players is now called Contributors, and the wording around it followed.",
       countries:
         "Every flag now names its country in your language, in the contributors list, in the top bar and in the country picker.",
       home: "The home page figures now move on their own: the pieces placed, the contributors and the latest activity update while the page stays open.",
-      snapping:
-        "A piece buried under a pile can no longer be snapped onto, so stacking pieces on one spot no longer forces a join; the piece stays where you dropped it and a message tells you why.",
       fixes:
         "Bug fixes: the reference photo no longer keeps the board from loading the area you just looked at, a click when zoomed far out pans instead of grabbing a piece, the board's edge stops the view where it becomes visible, and a phone-width top bar shows your pseudo and the full count.",
     },

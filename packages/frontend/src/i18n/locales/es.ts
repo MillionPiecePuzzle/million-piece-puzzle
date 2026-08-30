@@ -118,17 +118,18 @@ const es: MessageSchema = {
     flags: "Usa las banderas para moverte fácilmente por el lienzo.",
     flagDrop: "Arrastra una pieza hasta una bandera de la barra para enviársela.",
     overview: "Haz clic en cualquier punto de la vista general para mover la vista allí.",
-    reference: "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza.",
+    reference:
+      "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza, luego haz Ctrl-clic en ella para llevar el tablero ahí.",
   },
   updates: {
     title: "Notas de actualización",
     v130: {
       jump: "La vista ampliada de la vista general y la foto de referencia ampliada ahora mueven el tablero: haz clic en el mapa para ir allí, y en la foto usa el botón de mira, o Ctrl-clic, para llevar el tablero a lo que estás mirando.",
+      contributors:
+        "El panel que lista a los jugadores se llama ahora Colaboradores, y las formulaciones a su alrededor han seguido el mismo camino.",
       countries:
         "Cada bandera nombra ahora su país en tu idioma, en la lista de colaboradores, en la barra superior y en el selector de país.",
       home: "Las cifras de la página de inicio se mueven ahora solas: las piezas colocadas, los colaboradores y la actividad reciente se actualizan mientras la página sigue abierta.",
-      snapping:
-        "Una pieza enterrada bajo un montón ya no sirve de punto de encaje: amontonar piezas en un mismo sitio ya no fuerza una unión. La pieza se queda donde la soltaste y un mensaje te explica por qué.",
       fixes:
         "Correcciones de errores: la foto de referencia ya no impide que el tablero cargue la zona que acabas de mirar, un clic con el zoom muy alejado desplaza la vista en lugar de agarrar una pieza, el borde del tablero detiene la cámara donde se vuelve visible, y la barra superior en móvil muestra tu pseudónimo y el recuento completo.",
     },

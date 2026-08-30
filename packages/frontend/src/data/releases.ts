@@ -6,9 +6,9 @@ export const RELEASES = [
     at: Date.UTC(2026, 7, 30),
     lines: [
       "updates.v130.jump",
+      "updates.v130.contributors",
       "updates.v130.countries",
       "updates.v130.home",
-      "updates.v130.snapping",
       "updates.v130.fixes",
     ],
   },

@@ -118,17 +118,18 @@ const fr: MessageSchema = {
     flags: "Utilisez les drapeaux pour vous déplacer facilement sur le plateau.",
     flagDrop: "Faites glisser une pièce sur un drapeau de la barre pour l'envoyer là-bas.",
     overview: "Cliquez n'importe où sur l'aperçu pour y déplacer la vue.",
-    reference: "Ouvrez l'image de référence et zoomez pour trouver où va une pièce.",
+    reference:
+      "Ouvrez l'image de référence et zoomez pour trouver où va une pièce, puis Ctrl-cliquez dessus pour y amener le plateau.",
   },
   updates: {
     title: "Notes de mises à jour",
     v130: {
       jump: "La vue agrandie de l'aperçu et la photo de référence agrandie déplacent maintenant le plateau : cliquez sur la carte pour vous y rendre, et sur la photo utilisez le bouton en forme de viseur, ou Ctrl-clic, pour amener le plateau sur ce que vous regardez.",
+      contributors:
+        "Le panneau qui liste les joueurs s'appelle désormais Contributeurs, et les formulations autour ont suivi.",
       countries:
         "Chaque drapeau nomme désormais son pays dans votre langue, dans la liste des contributeurs, dans la barre du haut et dans le sélecteur de pays.",
       home: "Les chiffres de la page d'accueil bougent maintenant tout seuls : les pièces posées, les contributeurs et l'activité récente se mettent à jour pendant que la page reste ouverte.",
-      snapping:
-        "Une pièce enfouie sous un tas ne sert plus de point d'accroche : empiler des pièces au même endroit ne force plus un assemblage. La pièce reste là où vous l'avez déposée et un message vous explique pourquoi.",
       fixes:
         "Corrections de bugs : la photo de référence n'empêche plus le plateau de charger la zone que vous venez de regarder, un clic en zoom très large déplace la vue au lieu d'attraper une pièce, le bord du plateau arrête la caméra là où il devient visible, et la barre du haut sur téléphone affiche votre pseudo et le compte complet.",
     },
