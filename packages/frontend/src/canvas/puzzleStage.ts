@@ -215,8 +215,10 @@ const EDGE_PAN_MARGIN = 56;
 const EDGE_PAN_MAX_SPEED = 1100;
 
 // The camera may travel one padding ring past the play zone; pieces stay
-// strictly inside it.
-const PLAY_ZONE_PADDING_FRACTION = 0.04;
+// strictly inside it. The ring is a fraction of the viewport, not of the zone,
+// so the board's edge comes to rest just inside the screen at every zoom instead
+// of drifting a board-sized margin out of sight on a large board.
+const PLAY_ZONE_PADDING_FRACTION = 0.12;
 const BACKDROP_COLOR = 0x15140f;
 const BACKDROP_ALPHA = 0.3;
 // Coarse checkerboard painted over the out-of-bounds fill, a deliberately
@@ -1020,23 +1022,18 @@ export class PuzzleStage {
     piece.container.y = offset.dy * pieceSize;
   }
 
-  private playZonePadding(): number {
-    if (!this.playZone) return 0;
-    const w = this.playZone.maxX - this.playZone.minX;
-    const h = this.playZone.maxY - this.playZone.minY;
-    return Math.max(w, h) * PLAY_ZONE_PADDING_FRACTION;
-  }
-
   // Dark fill over everything outside the play zone, then a coarse checker on
   // top so the out-of-bounds area reads as a distinct motif from the fine grid
   // inside. The zone interior is left unpainted so the light stage backdrop
-  // shows through. The fill reaches far enough to cover the screen even fully
-  // zoomed out with the zone smaller than the viewport.
+  // shows through. The fill reaches one full viewport at MIN_ZOOM past the zone,
+  // which covers every world point the camera clamp can bring on screen on
+  // either of its branches: a padding ring on a board larger than the viewport,
+  // half a viewport on a board smaller than it.
   private redrawBackdrop(): void {
     if (!this.backdrop || !this.playZone || !this.app) return;
     const zone = this.playZone;
     const screen = this.app.renderer.screen;
-    const reach = (screen.width + screen.height) / MIN_ZOOM;
+    const reach = Math.max(screen.width, screen.height) / MIN_ZOOM;
     const oMinX = zone.minX - reach;
     const oMinY = zone.minY - reach;
     const oMaxX = zone.maxX + reach;
@@ -2608,16 +2605,20 @@ export class PuzzleStage {
     };
   }
 
-  // Fit the whole play zone, plus its padding ring, into the viewport and
-  // center on it. Zoom is clamped to MIN_ZOOM, so a large board stays partly
-  // off-screen rather than zooming out past the limit.
+  // Fit the whole play zone into the viewport and center on it, leaving the
+  // padding ring showing on each side. Zoom is clamped to MIN_ZOOM, so a large
+  // board stays partly off-screen rather than zooming out past the limit.
   fitView(): void {
     if (!this.app || !this.playZone) return;
     const screen = this.app.renderer.screen;
-    const pad = this.playZonePadding();
-    const w = this.playZone.maxX - this.playZone.minX + pad * 2;
-    const h = this.playZone.maxY - this.playZone.minY + pad * 2;
-    this.camera.zoom = clamp(Math.min(screen.width / w, screen.height / h), MIN_ZOOM, MAX_ZOOM);
+    const room = 1 - 2 * PLAY_ZONE_PADDING_FRACTION;
+    const w = this.playZone.maxX - this.playZone.minX;
+    const h = this.playZone.maxY - this.playZone.minY;
+    this.camera.zoom = clamp(
+      Math.min((screen.width * room) / w, (screen.height * room) / h),
+      MIN_ZOOM,
+      MAX_ZOOM,
+    );
     this.centerOn(
       (this.playZone.minX + this.playZone.maxX) / 2,
       (this.playZone.minY + this.playZone.maxY) / 2,
@@ -2762,23 +2763,28 @@ export class PuzzleStage {
     this.zoomAndPanBy(px, py, px, py, factor);
   }
 
-  // Keeps the camera within the play zone expanded by one padding ring. When
-  // the viewport is larger than that limit on an axis, it centers instead.
+  // Keeps the camera within the play zone expanded by one padding ring. The ring
+  // is a fraction of the viewport, so a pan stops with the zone border that
+  // fraction inside the screen edge whatever the zoom. When the viewport is
+  // larger than that limit on an axis, it centers instead.
   private clampCamera(): void {
     if (!this.app || !this.playZone) return;
     const screen = this.app.renderer.screen;
-    const pad = this.playZonePadding();
+    const vw = screen.width / this.camera.zoom;
+    const vh = screen.height / this.camera.zoom;
+    const padX = vw * PLAY_ZONE_PADDING_FRACTION;
+    const padY = vh * PLAY_ZONE_PADDING_FRACTION;
     const wx = fitOrClamp(
       -this.camera.x / this.camera.zoom,
-      this.playZone.minX - pad,
-      this.playZone.maxX + pad,
-      screen.width / this.camera.zoom,
+      this.playZone.minX - padX,
+      this.playZone.maxX + padX,
+      vw,
     );
     const wy = fitOrClamp(
       -this.camera.y / this.camera.zoom,
-      this.playZone.minY - pad,
-      this.playZone.maxY + pad,
-      screen.height / this.camera.zoom,
+      this.playZone.minY - padY,
+      this.playZone.maxY + padY,
+      vh,
     );
     this.camera.x = -wx * this.camera.zoom;
     this.camera.y = -wy * this.camera.zoom;
