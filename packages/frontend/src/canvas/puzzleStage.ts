@@ -3101,8 +3101,13 @@ export class PuzzleStage {
     }
   }
 
-  // Sorts the pending queue nearest-to-viewport-center last, so the pop() above
-  // always serves the closest group next, and drops any entry already removed
+  // Sorts the pending queue so the pop() above serves every on-screen group
+  // before any group that is only in the hydrate margin, nearest-to-viewport-
+  // center last within each block. Distance alone would rank against a point
+  // while the viewport is a rectangle, which fills the screen as a disc: a group
+  // just off-screen on a center axis is closer to the center than one in the
+  // viewport's own corner, so the sides and corners the player is looking at
+  // wait behind pieces they cannot see. Also drops any entry already removed
   // from hydrateQueued (left behind by a group dehydrated or forgotten before its
   // turn came up). Not kept sorted on push: the viewport moves every frame during
   // a pan, so a push-time order would be stale before it was ever used; only
@@ -3113,9 +3118,20 @@ export class PuzzleStage {
     if (!view) return;
     const cx = view.worldX + view.worldW / 2;
     const cy = view.worldY + view.worldH / 2;
-    const live = this.hydrateQueue.filter((gid) => this.hydrateQueued.has(gid));
-    live.sort((a, b) => this.groupDistanceSq(b, cx, cy) - this.groupDistanceSq(a, cx, cy));
-    this.hydrateQueue = live;
+    const onScreen: number[] = [];
+    const inMargin: number[] = [];
+    for (const gid of this.hydrateQueue) {
+      if (!this.hydrateQueued.has(gid)) continue;
+      const node = this.groups.get(gid);
+      const visible =
+        node !== undefined && boundsVisible(node.localBounds, node.worldX, node.worldY, view);
+      (visible ? onScreen : inMargin).push(gid);
+    }
+    const farthestFirst = (a: number, b: number) =>
+      this.groupDistanceSq(b, cx, cy) - this.groupDistanceSq(a, cx, cy);
+    inMargin.sort(farthestFirst);
+    onScreen.sort(farthestFirst);
+    this.hydrateQueue = inMargin.concat(onScreen);
   }
 
   // Squared distance from a group's origin to a point. Ordering only, so the
