@@ -1888,10 +1888,11 @@ export class PuzzleStage {
 
   // Topmost grabbable cluster whose opaque silhouette covers the world point, or
   // null while the LOD is active: the band is overview-only by design (see
-  // DECISIONS.md, tiled zoom-out LOD), and this guard is the only thing that
-  // enforces it. Hiding the covered clusters does not, on two counts: a cluster
-  // the LOD deliberately keeps live (held by a peer, or in a cell the bake has
-  // not filled yet) is hit-tested like any other, and the fall-through below
+  // DECISIONS.md, tiled zoom-out LOD), and this guard is what enforces it
+  // (applyLodLayerInput only stops the press from arriving at all). Hiding the
+  // covered clusters enforces nothing, on two counts: a cluster the LOD
+  // deliberately keeps live (held by a peer, or in a cell the bake has not
+  // filled yet) is hit-tested like any other, and the fall-through below
   // resolves against the spatial index, which has no notion of a hidden cluster.
   // `hit` is the cluster Pixi delivered the press to (topmost by tile rect); when
   // its own silhouette covers the point it is by definition the topmost grabbable
@@ -3604,6 +3605,7 @@ export class PuzzleStage {
     if (!this.lodLayer) return;
     this.lodActive = active;
     this.lodLayer.setVisible(active);
+    this.applyLodLayerInput();
     if (active) {
       this.bakeViewportCover();
       this.refreshLodVisibility();
@@ -3613,6 +3615,19 @@ export class PuzzleStage {
         if (node) node.container.visible = true;
       }
       this.lodHidden.clear();
+    }
+  }
+
+  // Takes the group layers out of hit-testing while the band covers the board.
+  // grabTargetAt is what makes the band overview-only; this keeps the affordance
+  // honest, since Pixi reads the cursor off the hit target and a cluster the band
+  // deliberately keeps live would otherwise still offer its "grab" hand for a
+  // press that now pans. Pruning at the layer covers every cluster in it in one
+  // write, and clearWorld drops the LOD before it drops the layers, so a rebuilt
+  // layer is always born outside the band with Pixi's own default.
+  private applyLodLayerInput(): void {
+    for (const layer of [this.unlockedLayer, this.remoteHeldLayer, this.localHeldLayer]) {
+      if (layer) layer.eventMode = this.lodActive ? "none" : "passive";
     }
   }
 
