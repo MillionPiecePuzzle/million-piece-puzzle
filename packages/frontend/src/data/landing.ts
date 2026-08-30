@@ -58,12 +58,16 @@ export async function reloadLanding(): Promise<LandingData | null> {
 // mostly reads an edge cache rather than the origin.
 export const LIVE_POLL_INTERVAL_MS = 5_000;
 
-// One poll of the live figures. Never rejects and never caches: a failed poll
+// One poll of the live figures. Never rejects: a failed poll
 // resolves to null and the caller keeps what it already has on screen, so a
 // blip never repaints the landing.
 export async function loadLive(): Promise<LiveData | null> {
   try {
-    const res = await fetch(liveUrl());
+    // `no-store` is what makes the poll a poll: the origin answers `max-age=0`,
+    // but Cloudflare's Browser Cache TTL rewrites that on the way out, and a
+    // plain fetch would then read the browser's own copy for hours and never see
+    // a figure move. The edge still absorbs the load through `s-maxage`.
+    const res = await fetch(liveUrl(), { cache: "no-store" });
     return res.ok ? ((await res.json()) as LiveData) : null;
   } catch {
     return null;
