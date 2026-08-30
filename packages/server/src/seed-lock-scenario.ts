@@ -295,6 +295,7 @@ async function main(): Promise<void> {
       pieceMargin: manifest.margin,
       tilePieceCap,
       clusterPieceCap: config.clusterPieceCap,
+      snapCoverMax: config.snapCoverMax,
       broadcastMaxCells: config.broadcastMaxCells,
       worldTileSize: cellSize,
       regionStreamBatchCells: config.regionStreamBatchCells,

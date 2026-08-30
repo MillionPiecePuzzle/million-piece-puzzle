@@ -523,6 +523,7 @@ function makeDropCtx() {
     pieceMargin: 20,
     tilePieceCap: 2048,
     clusterPieceCap: 20000,
+    snapCoverMax: 5,
   } as unknown as Context;
   return { ctx, send, broadcast, broadcastOverlapping, logMerge, attachProfiles, markDirty, state };
 }
@@ -862,6 +863,7 @@ describe("handleDrop", () => {
       leaderboardBroadcast: { markDirty: vi.fn() },
       tilePieceCap: 2048,
       clusterPieceCap: 20000,
+      snapCoverMax: 5,
     } as unknown as Context;
 
     // Grid id 500500: row 500, col 500, deep in the middle of the board, far

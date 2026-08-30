@@ -100,6 +100,10 @@ export type ServerConfig = {
   // when the merge anchors, since an anchored cluster dissolves into piece-level
   // locked flags rather than growing a group.
   clusterPieceCap: number;
+  // How many other loose pieces may cover a target piece's centre before a snap
+  // onto it is refused (see DECISIONS: a buried piece is not a snap target). The
+  // anchoring path is exempt, so this only ever gates a loose-loose merge.
+  snapCoverMax: number;
   // Board snapshot cadence: the in-memory snapshot (locked count, leaderboard,
   // activity, and the current minimap grid) is regenerated at most this often
   // while the event is live, frozen otherwise. The minimap grid itself is
@@ -297,6 +301,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
     clusterPieceCap: int("MPP_CLUSTER_PIECE_CAP", 20000),
+    snapCoverMax: int("MPP_SNAP_COVER_MAX", 5),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
     leaderboardBroadcastIntervalMs: int("MPP_LEADERBOARD_BROADCAST_INTERVAL_MS", 2000),
     minimapGridResyncIntervalMs: int("MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS", 86400000),

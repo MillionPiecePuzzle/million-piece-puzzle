@@ -266,6 +266,7 @@ const de: MessageSchema = {
   },
   toast: {
     tileFull: "Zu viele Teile auf diesem Feld.",
+    snapCovered: "Dieses Teil ist verdeckt: Räume zuerst die Teile darüber weg.",
   },
   carry: {
     hint: "Teil in der Hand. Doppelklicke oder tippe zweimal zum Ablegen, Esc zum Zurücklegen.",

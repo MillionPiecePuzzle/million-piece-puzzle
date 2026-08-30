@@ -288,6 +288,15 @@ export type SRollback = {
   reason?: "tile_full";
 };
 
+// Private to one client: something the server refused that is neither a protocol
+// error nor a position change, so the drop it rode on still stands and only a
+// toast is owed. "snap_covered": the piece the drop would have joined is buried
+// under a pile, and a buried piece is not a snap target (see MPP_SNAP_COVER_MAX).
+export type SNotice = {
+  t: "notice";
+  kind: "snap_covered";
+};
+
 // Presence, server to client. join is sent to a connecting client once per peer
 // already present, and to existing peers when a new peer connects. The pseudo
 // is the peer's authenticated profile pseudo, fixed for the connection. leave
@@ -480,6 +489,7 @@ export type ServerMessage =
   | SDrop
   | SSnap
   | SRollback
+  | SNotice
   | SJoin
   | SLeave
   | SCursor

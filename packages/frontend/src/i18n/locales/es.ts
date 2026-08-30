@@ -264,6 +264,7 @@ const es: MessageSchema = {
   },
   toast: {
     tileFull: "Demasiadas piezas en esta casilla.",
+    snapCovered: "Esa pieza está enterrada: aparta primero las que tiene encima.",
   },
   carry: {
     hint: "Pieza en mano. Haz doble clic o doble toque para soltarla, Esc para devolverla.",

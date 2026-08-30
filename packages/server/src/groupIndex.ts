@@ -61,6 +61,15 @@ export type RegionGroup = {
   size: number;
 };
 
+// A group whose body rectangle contains a queried point. The origin comes with
+// it because that is what turns the point into the piece of that group standing
+// there: local = point - origin, and the grid is regular in solved space.
+export type CoveringGroup = {
+  groupId: number;
+  originX: number;
+  originY: number;
+};
+
 export class GroupIndex {
   private readonly cells = new Map<number, Set<number>>();
   private readonly groups = new Map<number, IndexedGroup>();
@@ -174,6 +183,41 @@ export class GroupIndex {
     return false;
   }
 
+  // Groups whose body rectangle contains a world point, capped at `limit` and
+  // skipping the ids in `except`. A body is a bounding box, so a hit only means
+  // the group may have a piece there: the caller resolves that (see snap.ts).
+  // Stopping at `limit` can therefore undercount when candidates turn out not to
+  // cover the point after all, which only ever lets a snap through, never blocks
+  // one, and never happens to the pile this bounds (stacked singletons, whose
+  // body is the piece itself).
+  groupsCoveringPoint(
+    x: number,
+    y: number,
+    except: ReadonlySet<number>,
+    limit: number,
+  ): CoveringGroup[] {
+    const out: CoveringGroup[] = [];
+    if (limit <= 0) return out;
+    const cxMin = Math.floor((x - this.maxWidth) / this.cellSize);
+    const cxMax = Math.floor(x / this.cellSize);
+    const cyMin = Math.floor((y - this.maxHeight) / this.cellSize);
+    const cyMax = Math.floor(y / this.cellSize);
+    for (let cx = cxMin; cx <= cxMax; cx++) {
+      for (let cy = cyMin; cy <= cyMax; cy++) {
+        const set = this.cells.get(cellKey(cx, cy));
+        if (!set) continue;
+        for (const id of set) {
+          if (except.has(id)) continue;
+          const g = this.groups.get(id);
+          if (!g || !bodyContainsPoint(g, x, y)) continue;
+          out.push({ groupId: id, originX: g.originX, originY: g.originY });
+          if (out.length === limit) return out;
+        }
+      }
+    }
+    return out;
+  }
+
   clear(): void {
     this.cells.clear();
     this.groups.clear();
@@ -216,5 +260,11 @@ function bodyOverlaps(g: IndexedGroup, box: Aabb): boolean {
     g.bodyMinX + g.width > box.minX &&
     g.bodyMinY < box.maxY &&
     g.bodyMinY + g.height > box.minY
+  );
+}
+
+function bodyContainsPoint(g: IndexedGroup, x: number, y: number): boolean {
+  return (
+    x >= g.bodyMinX && x < g.bodyMinX + g.width && y >= g.bodyMinY && y < g.bodyMinY + g.height
   );
 }

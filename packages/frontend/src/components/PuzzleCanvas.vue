@@ -205,6 +205,9 @@ function routeMessage(msg: ServerMessage): void {
       stage.applyRollback(msg.groupId, msg.worldX, msg.worldY, msg.reason);
       stage.setPeerHeld(msg.userId, false);
       break;
+    case "notice":
+      if (msg.kind === "snap_covered") showToast(t("toast.snapCovered"));
+      break;
     case "join":
       stage.addPeer(msg.userId, msg.pseudo);
       break;

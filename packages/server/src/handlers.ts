@@ -19,7 +19,7 @@ import {
   collectRegionCellComposites,
   type CellCompositeIndex,
 } from "./cellComposite.js";
-import { detectSnap } from "./snap.js";
+import { detectSnap, type SnapCover } from "./snap.js";
 import { resolveDropNearOrigin } from "./dropNear.js";
 import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
 import { batchEnteredCells, sleep } from "./regionStream.js";
@@ -94,6 +94,9 @@ export type Context = {
   // when the merge anchors: an anchored cluster dissolves into piece-level
   // locked flags rather than growing a persisted group.
   clusterPieceCap: number;
+  // How many other loose pieces may cover a target piece's centre before the snap
+  // onto it is refused (see MPP_SNAP_COVER_MAX and detectSnap).
+  snapCoverMax: number;
   // Viewport scoping bound (config.broadcastMaxCells), carried in welcome so the
   // contributor client mirrors the scoped-vs-global decision for its loading cover.
   broadcastMaxCells: number;
@@ -149,6 +152,10 @@ function err(
   message: string,
 ): void {
   send(ctx, client, { t: "error", code, message });
+}
+
+function snapCover(ctx: Context): SnapCover {
+  return { index: ctx.groupIndex, pieceSize: ctx.meta.pieceSize, max: ctx.snapCoverMax };
 }
 
 function isValidGroupId(value: unknown, totalPieces: number): boolean {
@@ -221,13 +228,14 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
   chosen.worldY = 0;
 
   const droppedPieces = await ctx.state.getGroupPieces(chosen.id);
-  const match = await detectSnap(
+  const { match } = await detectSnap(
     ctx.state,
     ctx.meta.gridRows,
     ctx.meta.gridCols,
     ctx.meta.snapTolerance,
     chosen,
     droppedPieces,
+    snapCover(ctx),
   );
 
   await applyMerge(
@@ -464,13 +472,14 @@ export async function handleDrop(
   const droppedPieces = await ctx.state.getGroupPieces(groupId);
   const tol = ctx.meta.snapTolerance;
   const frameAnchor = Math.abs(g.worldX) <= tol && Math.abs(g.worldY) <= tol;
-  const match = await detectSnap(
+  const { match, covered } = await detectSnap(
     ctx.state,
     ctx.meta.gridRows,
     ctx.meta.gridCols,
     tol,
     g,
     droppedPieces,
+    snapCover(ctx),
   );
   const anchored = frameAnchor || (match?.anchored ?? false);
   // Hard cap on a loose-loose merge (see MPP_CLUSTER_PIECE_CAP): over the
@@ -558,6 +567,10 @@ export async function handleDrop(
       },
       [grabAabb, rest],
     );
+    // The drop itself was fine, only the snap it lined up did not happen: the
+    // cluster it would have joined is under a pile. Private to the dropper, since
+    // nobody else's screen changed.
+    if (covered) send(ctx, client, { t: "notice", kind: "snap_covered" });
     return;
   }
 

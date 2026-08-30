@@ -256,6 +256,7 @@ const en = {
   },
   toast: {
     tileFull: "Too many pieces on this tile.",
+    snapCovered: "That piece is buried: move the pieces sitting on it first.",
   },
   carry: {
     hint: "Holding a piece. Double-click or double-tap to drop it, Esc to put it back.",

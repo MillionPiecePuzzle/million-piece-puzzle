@@ -265,6 +265,7 @@ const fr: MessageSchema = {
   },
   toast: {
     tileFull: "Trop de pièces sur cette case.",
+    snapCovered: "Cette pièce est enfouie : dégagez d'abord celles posées dessus.",
   },
   carry: {
     hint: "Pièce en main. Double-cliquez ou tapez deux fois pour la déposer, Échap pour la remettre.",
