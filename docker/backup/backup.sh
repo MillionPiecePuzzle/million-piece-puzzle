@@ -20,11 +20,23 @@
 #   Redis:
 #     rclone copy r2:$MPP_BACKUP_BUCKET/redis-<ts>.rdb.gz .
 #     gunzip redis-<ts>.rdb.gz
-#     stop Redis, delete appendonlydir/ from the data volume, copy the file in as
-#     dump.rdb, start Redis. Deleting the AOF is not optional: with appendonly on,
-#     Redis loads the AOF at boot and ignores dump.rdb entirely, so leaving it in
-#     place restores nothing and reports no error. The AOF is rebuilt from the
-#     loaded RDB on the next rewrite.
+#     The service runs with appendonly on, so dump.rdb is never read: Redis boots
+#     from appendonlydir/, and a restored RDB left beside it restores nothing and
+#     reports no error. Deleting appendonlydir/ does not help either, since a boot
+#     with no manifest starts on an empty dataset and writes a fresh AOF base from
+#     it, just as silently. Restore by making the dump the AOF base itself, which
+#     is the format Redis already writes there. Stop Redis, then replace the whole
+#     directory with:
+#       appendonlydir/appendonly.aof.1.base.rdb   the restored redis-<ts>.rdb
+#       appendonlydir/appendonly.aof.1.incr.aof   empty
+#       appendonlydir/appendonly.aof.manifest     these two lines:
+#         file appendonly.aof.1.base.rdb seq 1 type b
+#         file appendonly.aof.1.incr.aof seq 1 type i
+#     chown it to the redis user, then start. Write those files only after the
+#     stop: shutting Redis down saves the live dataset over the data directory.
+#     With a Redis whose command can be changed, booting once with appendonly off
+#     loads dump.rdb directly, and CONFIG SET appendonly yes then rebuilds the AOF
+#     from memory; both paths were exercised against a full production pass.
 #   Umami and Coolify Postgres:
 #     gunzip -c <file>.sql.gz | psql -h <host> -U <user> -d postgres
 #   Coolify config:
