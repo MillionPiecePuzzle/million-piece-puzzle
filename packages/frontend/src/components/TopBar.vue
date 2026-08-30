@@ -233,37 +233,36 @@ const progressPct = computed(() =>
   box-shadow: 0 0 0 2px var(--ground-2);
 }
 
-/* The bar is one row of three boxes that all want to grow: the pill drops the
-   total it is measured against before the flanking columns are squeezed down to
-   an ellipsis, since the bar beside it already reads as a ratio. */
+/* A narrow row is three boxes that all want to grow, so it keeps one thing per
+   box and drops the rest rather than truncating all three: the mark stands in
+   for the wordmark, the pill keeps the ratio and drops the bar drawing it
+   (the ratio reads on its own, and in less width), and the presence pill is the
+   pseudo and the gear. */
 @media (max-width: 560px) {
-  .progress-pill .num span {
+  .brand-name {
+    display: none;
+  }
+  .progress-pill {
+    padding: 6px 12px;
+  }
+  .progress-pill .bar {
+    display: none;
+  }
+  .presence .flag {
     display: none;
   }
 }
 
 @media (max-width: 420px) {
-  .brand-name {
-    display: none;
-  }
-  .presence .flag,
-  .presence .pseudo {
-    display: none;
-  }
-  .presence {
-    padding: 6px 8px;
-    gap: 0;
-  }
   .topbar {
     padding: 0 10px;
     gap: 4px;
   }
   .progress-pill {
-    padding: 5px 8px;
-    gap: 6px;
+    padding: 5px 10px;
   }
-  .progress-pill .bar {
-    width: clamp(28px, 12vw, 140px);
+  .presence {
+    padding: 6px 10px;
   }
 }
 </style>
