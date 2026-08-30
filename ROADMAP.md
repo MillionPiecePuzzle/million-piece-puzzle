@@ -98,6 +98,7 @@ The release also opened the host's own backups up and cleared three smaller obst
 
 **Exit criterion**: everything below is deployed and verified in prod.
 
+- [ ] `frontend-shell`: the landing's poll actually reaches past the browser. Exit criterion: an open landing picks up a new placement within one poll of the server seeing it, on a browser that has already fetched `GET /live` once. The origin answers `max-age=0`, but the zone's Browser Cache TTL rewrites it (observed as `max-age=14400` behind the Cache Rule), so a plain `fetch` reads the browser's own copy and the figures never move; the poll asks for `cache: "no-store"`, leaving the edge to absorb the load through `s-maxage` as before.
 - [ ] `infra-deploy`: a backup pass runs to its end rather than stopping at its first dump. Exit criterion: one pass uploads `mongo`, `redis`, `umami`, `coolify-db` and `coolify-data` to `mpp-backups` and the prune keeps the newest 3 of each kind. Joining the `coolify` network to reach Coolify's Postgres put Coolify's own password-protected Redis on the alias `redis`, ahead of the game's, so the RDB pull fails `NOAUTH` and `set -e` ends the pass with only the Mongo dump uploaded; the sidecar now addresses the game's Redis as `mpp-redis`, an alias only that service carries. Needs the backend redeploy before it can be verified.
 
 ---
