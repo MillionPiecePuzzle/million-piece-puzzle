@@ -1,11 +1,12 @@
-// Seeds a near-complete-board scenario for Phase 5 verification: locks a
-// configurable subset of a fresh puzzle's pieces through the real gameplay
-// path (grab, then a drop that lands exactly on the piece's own solved
-// position) instead of writing `locked` flags into Redis directly. Every
-// lock this script produces goes through the same handleGrab/handleDrop/
-// applyMerge code a real client's drop does: real Redis reads/writes, real
-// minimap and group-index maintenance, and a real cluster_merges log entry
-// per lock.
+// Seeds a near-complete-board scenario for real-scale verification (see
+// DECISIONS: seed-lock-scenario locks pieces through the real grab/drop
+// path): locks a configurable subset of a fresh puzzle's pieces through the
+// real gameplay path (grab, then a drop that lands exactly on the piece's
+// own solved position) instead of writing `locked` flags into Redis
+// directly. Every lock this script produces goes through the same
+// handleGrab/handleDrop/applyMerge code a real client's drop does: real
+// Redis reads/writes, real minimap and group-index maintenance, and a real
+// cluster_merges log entry per lock.
 //
 // Compositing is deliberately NOT wired in during the locking loop (unlike
 // live play, where each lock fires its own markDirty): CellCompositor.drain
@@ -294,6 +295,7 @@ async function main(): Promise<void> {
       pieceMargin: manifest.margin,
       tilePieceCap,
       clusterPieceCap: config.clusterPieceCap,
+      snapCoverMax: config.snapCoverMax,
       broadcastMaxCells: config.broadcastMaxCells,
       worldTileSize: cellSize,
       regionStreamBatchCells: config.regionStreamBatchCells,

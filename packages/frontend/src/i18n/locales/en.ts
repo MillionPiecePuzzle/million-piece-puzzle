@@ -4,12 +4,7 @@ const en = {
     saving: "Saving...",
     close: "Close",
     skip: "Skip",
-    leaderboard: "Leaderboard",
-    activity: "Activity",
-    noActivity: "No activity yet.",
-    noStandings: "No standings yet.",
     saveError: "Could not save, try again.",
-    fullBoard: "full board",
   },
   time: {
     justNow: "just now",
@@ -31,7 +26,7 @@ const en = {
     completed: "COMPLETED",
     solvedIn: "solved in {duration}",
     liveActivity: "Live activity",
-    noStandingsFinal: "No standings recorded.",
+    noStandingsFinal: "No contributions recorded.",
     someone: "Someone",
     placed: "placed {pieces}",
     connected: "connected {pieces}",
@@ -53,7 +48,6 @@ const en = {
   },
   topbar: {
     puzzleProgress: "Puzzle progress",
-    nationalityTitle: "Nationality: {code}",
     signedInAs: "Signed in as {pseudo}",
     options: "Settings",
     optionsNew: "Settings, new update notes",
@@ -69,12 +63,12 @@ const en = {
     openEnlarged: "Open enlarged reference",
     image: "Reference image",
     fitToView: "Fit to view",
+    aim: "Click the photo to move the board there (or Ctrl-click at any time)",
     credits: "View image credits",
   },
-  minimap: {
-    overview: "Overview",
+  overview: {
+    title: "Overview",
     online: "{n} online",
-    label: "Minimap",
     enlarge: "Enlarge the overview",
   },
   auth: {
@@ -106,8 +100,8 @@ const en = {
         reference: "Reference",
         zoom: "Zoom",
         activity: "Activity",
-        leaderboard: "Leaderboard",
-        minimap: "Minimap",
+        contributors: "Contributors",
+        overview: "Overview",
         flags: "Flags",
       },
     },
@@ -120,15 +114,26 @@ const en = {
     carry: "Double-click a piece to stick it to your cursor, double-click again to drop it.",
     flags: "Use flags to easily move around the canvas.",
     flagDrop: "Drag a piece onto a flag in the bar to send it over there.",
-    minimap: "Click anywhere on the minimap to move the view there.",
-    reference: "Open the reference image and zoom in to find where a piece belongs.",
+    overview: "Click anywhere on the overview to move the view there.",
+    reference:
+      "Open the reference image and zoom in to find where a piece belongs, then Ctrl-click it to bring the board there.",
   },
   updates: {
     title: "Update notes",
+    v130: {
+      jump: "The enlarged overview and the enlarged reference photo now move the board: click the map to go there, and on the photo use the crosshair button, or Ctrl-click, to bring the board to what you are looking at.",
+      contributors:
+        "The panel listing players is now called Contributors, and the wording around it followed.",
+      countries:
+        "Every flag now names its country in your language, in the contributors list, in the top bar and in the country picker.",
+      home: "The home page figures now move on their own: the pieces placed, the contributors and the latest activity update while the page stays open.",
+      fixes:
+        "Bug fixes: the reference photo no longer keeps the board from loading the area you just looked at, a click when zoomed far out pans instead of grabbing a piece, the board's edge stops the view where it becomes visible, and a phone-width top bar shows your pseudo and the full count.",
+    },
     v120: {
       panels: "Every panel now has its own switch in the Display section of this menu.",
-      minimap:
-        "The minimap's enlarged view has been reworked: it now opens the same map, simply bigger.",
+      overview:
+        "The overview's enlarged view has been reworked: it now opens the same map, simply bigger.",
       notes:
         "A dot on the settings button tells you when update notes have arrived that you have not read.",
       fixes:
@@ -146,14 +151,14 @@ const en = {
       underlay:
         "Show the source photo faintly under the board, from the Display section of this menu.",
       standings:
-        "The standings move on every snap, not only when a cluster locks onto the frame, and your own row is always shown.",
+        "The contributors list moves on every snap, not only when a cluster locks onto the frame, and your own row is always shown.",
       account:
         "Signing in with Google turns your guest into a permanent account, and you can sign back into it from another browser.",
       maintenance:
         "A server restart shows a maintenance screen instead of a connection error, and comes back on its own once the puzzle is up again.",
       mobile:
-        "On a phone the interface keeps only the reference and the minimap, and leaves the screen to the board.",
-      help: "This menu carries tips, and the leaderboard explains how points are counted.",
+        "On a phone the interface keeps only the reference and the overview, and leaves the screen to the board.",
+      help: "This menu carries tips, and the contributors panel explains how pieces are counted.",
     },
     v100: {
       launch:
@@ -176,8 +181,8 @@ const en = {
   nationality: {
     titleEdit: "Change your nationality",
     titleNew: "Choose your nationality",
-    ledeEdit: "Pick a new country. Its flag is shown next to your pseudo in the leaderboard.",
-    ledeNew: "Pick your country. Its flag is shown next to your pseudo in the leaderboard.",
+    ledeEdit: "Pick a new country. Its flag is shown next to your pseudo in the contributors list.",
+    ledeNew: "Pick your country. Its flag is shown next to your pseudo in the contributors list.",
     selectLabel: "Country",
     selectPlaceholder: "Select your country...",
     international: "International",
@@ -185,30 +190,38 @@ const en = {
     cooldownHint: "You can change your country once every {hours} hours.",
     cooldown: "You already changed your country recently. Try again in {hours}h.",
   },
-  leaderboardModal: {
-    label: "Full leaderboard",
-    rankingMode: "Ranking mode",
+  contributors: {
+    title: "Contributors",
+    empty: "No contributions yet.",
+    full: "full list",
+    all: "All contributors",
+    viewMode: "View mode",
     people: "People",
     countries: "Countries",
     prev: "prev",
     next: "next",
+    pcs: "pcs",
+    you: "you",
+    online: "online",
   },
   scoring: {
     open: "How pieces are counted",
     title: "How pieces are counted",
-    lede: "Every piece on the board is worth one point. It is credited once, to the first player who snaps it into place.",
+    lede: "Every piece on the board counts once, for the first person who snaps it into place.",
     snapTwo:
-      "You snap two loose pieces together: one point, not two. The other piece's point is set aside for whoever locks that cluster into the board.",
+      "You snap two loose pieces together: that is one piece counted, not two. The other one is set aside for whoever locks that cluster into the board.",
     snapCluster:
-      "You drag a 30-piece cluster onto another one: the 29 already credited do not count twice, so you take the one nobody had ever snapped.",
+      "You drag a 30-piece cluster onto another one: the 29 already counted do not count twice, so you get the one nobody had ever snapped.",
     mismatchTitle: "Why it does not match the progress bar",
     mismatchBody:
-      "The leaderboard credits a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place: the two numbers are not meant to be equal.",
+      "The contributors list counts a piece the moment it snaps, anywhere on the board. The progress bar counts only the pieces locked into their final place: the two numbers are not meant to be equal.",
     fairTitle: "It adds up",
     fairBody:
-      "This is what keeps the standings fair. It also means that, once the last piece is placed, they add up to exactly {total} pieces.",
+      "This is what keeps every piece counted exactly once. It also means that, once the last piece is placed, the counts add up to exactly {total} pieces.",
   },
-  activityPanel: {
+  activity: {
+    title: "Activity",
+    empty: "No activity yet.",
     placedLine: "placed {object}",
     connectedLine: "connected {object}",
     piece: "a piece",
@@ -248,13 +261,14 @@ const en = {
     complete: "Complete",
     assembled: "Puzzle assembled.",
     piecesPlaced: "{n} piece placed. | {n} pieces placed.",
-    topContributors: "Top contributors",
+    topContributors: "Contributors",
     summary: "Summary",
     hideSummary: "Hide summary",
     showSummary: "Show summary",
   },
   toast: {
     tileFull: "Too many pieces on this tile.",
+    snapCovered: "That piece is buried: move the pieces sitting on it first.",
   },
   carry: {
     hint: "Holding a piece. Double-click or double-tap to drop it, Esc to put it back.",
@@ -276,11 +290,6 @@ const en = {
       black: "Black",
     },
   },
-  row: {
-    pcs: "pcs",
-    you: "you",
-    online: "online",
-  },
   legalDoc: {
     back: "Back to home",
     updated: "Last updated: {date}",
@@ -295,10 +304,10 @@ const en = {
     discord: "Discord server",
     collectedHead: "Data collected",
     collectedBody:
-      "Joining the board creates a guest account: a unique user identifier, the pseudo you choose, and the country you select during onboarding, no email required. If you sign in with Google to keep your contributions under one identity, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the leaderboard. Technical logs (IP address, browser) are processed by the host for security and reliability.",
+      "Joining the board creates a guest account: a unique user identifier, the pseudo you choose, and the country you select during onboarding, no email required. If you sign in with Google to keep your contributions under one identity, your email address and your name from Google are also stored. Your contributions (which pieces you placed and when) are recorded and shown publicly for the activity feed and the contributors list. Technical logs (IP address, browser) are processed by the host for security and reliability.",
     purposesHead: "Purposes",
     purposesBody:
-      "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the leaderboard. No data is sold or used for advertising.",
+      "Data is used only to run the game: to authenticate you, save your progress, attribute placed pieces, and display the contributors list. No data is sold or used for advertising.",
     processorsHead: "Sub-processors",
     processorsBody:
       "The service relies on Google (sign-in), Cloudflare (frontend hosting, asset storage and delivery) and OVH (the server hosting the game backend, including its self-hosted analytics). These providers may process data outside the European Union under their own protection frameworks. No third-party tracking or analytics service is used.",

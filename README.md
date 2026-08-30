@@ -6,7 +6,7 @@ A community-built online jigsaw puzzle: **1,000,000 pieces** on a single shared 
 
 ## Status
 
-v1.2.0 is out: production serves the 1,000,000-piece `earth-mosaic` board ahead of the public event. Work is tracked in [ROADMAP.md](ROADMAP.md).
+v1.3.0 is out: production serves the 1,000,000-piece `earth-mosaic` board ahead of the public event. Work is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## How it works
 
@@ -58,7 +58,7 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-Frontend on `http://localhost:5173`, WebSocket server on `ws://localhost:8080/`, anonymous landing data on `http://localhost:8080/landing` and `http://localhost:8080/interested`.
+Frontend on `http://localhost:5173`, WebSocket server on `ws://localhost:8080/`, anonymous landing data on `http://localhost:8080/landing`, `http://localhost:8080/live` and `http://localhost:8080/interested`.
 
 `.env` is gitignored and never committed. Fill it in before bringing the stack up:
 

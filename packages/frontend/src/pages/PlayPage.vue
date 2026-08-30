@@ -4,10 +4,10 @@ import { useI18n } from "vue-i18n";
 import TopBar from "../components/TopBar.vue";
 import PuzzleCanvas from "../components/PuzzleCanvas.vue";
 import ZoomControls from "../components/ZoomControls.vue";
-import ActivityTicker from "../components/ActivityTicker.vue";
-import LeaderboardPanel from "../components/LeaderboardPanel.vue";
+import ActivityPanel from "../components/ActivityPanel.vue";
+import ContributorsPanel from "../components/ContributorsPanel.vue";
 import ReferencePanel from "../components/ReferencePanel.vue";
-import MiniMap from "../components/MiniMap.vue";
+import OverviewPanel from "../components/OverviewPanel.vue";
 import FlagBar from "../components/FlagBar.vue";
 import FlagPopover from "../components/FlagPopover.vue";
 import DevControls from "../components/DevControls.vue";
@@ -40,10 +40,10 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
         <!-- Two independent flex columns, each spanning the stage height with
              justify-content:space-between: panels can never overlap each
              other regardless of their own content-driven size (a portrait
-             reference image, a long activity list, a full leaderboard, ...)
+             reference image, a long activity list, a full contributors list, ...)
              or the viewport's height, unlike the corner-anchored absolute
              positioning this replaced. On a compact viewport the rails are
-             down to the reference thumbnail and the minimap, where the board
+             down to the reference thumbnail and the overview, where the board
              needs every pixel more than a small screen needs a HUD. See
              DECISIONS. A panel the player switches off in the options menu is
              hidden where it stands when its place in the column is what
@@ -56,17 +56,17 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
             v-if="availablePanels.includes('zoom')"
             :class="{ 'hud-off': !visiblePanels.zoom }"
           />
-          <ActivityTicker
+          <ActivityPanel
             v-if="availablePanels.includes('activity')"
             class="hud-shrink"
             :class="{ 'hud-off': !visiblePanels.activity }"
           />
         </div>
         <div class="hud-rail hud-rail-right">
-          <LeaderboardPanel v-if="visiblePanels.leaderboard" class="hud-shrink" />
+          <ContributorsPanel v-if="visiblePanels.contributors" class="hud-shrink" />
           <div class="hud-bottom-right">
             <DevControls v-if="devButtonsEnabled" />
-            <MiniMap v-if="visiblePanels.minimap" />
+            <OverviewPanel v-if="visiblePanels.overview" />
           </div>
         </div>
         <FlagBar />
@@ -83,7 +83,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 .stage {
   /* The widest either rail can get, and the bound every panel in one caps its
      own natural width against: the largest cap any panel carries (the activity
-     ticker's), never more than a third of the screen. A third leaves the middle
+     panel's), never more than a third of the screen. A third leaves the middle
      one too, which is what the flag bar lays itself out in (a bottom-centered
      element being the one thing the two columns cannot place); at half the
      screen each, the two rails would meet in the middle and leave it nothing. */
@@ -117,7 +117,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 
 /* Left/right HUD columns spanning the stage height. justify-content:
    space-between pins the first child to the top and the last to the bottom;
-   with 3 children (reference/zoom/ticker) it also centers the middle one in
+   with 3 children (reference/zoom/activity) it also centers the middle one in
    whatever room is actually left between the other two, so a taller or
    shorter sibling on either side never has to be predicted or hardcoded.
    On a compact viewport the left rail is down to the reference panel alone,
@@ -137,7 +137,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
   pointer-events: none;
 }
 /* Nothing in a rail may outgrow it. The aspect-bound panels (the reference
-   thumbnail, the minimap) hold the size their own width math already fits to
+   thumbnail, the overview) hold the size their own width math already fits to
    the viewport height, so the two that hold a list are the ones that give room
    up, scrolling their own list rather than running off the screen. */
 .hud-rail > * {
@@ -167,16 +167,16 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 /* max-width holds this group to the same width the rails are bounded by, so
    no left-rail item plus right-rail item can ever together exceed the viewport
    width and the flag bar's own inset still clears it. Without it this group
-   (dev-only controls pill + minimap) has no cap of its own and can run wide
-   enough to reach into the activity ticker on the other rail.
+   (dev-only controls pill + overview) has no cap of its own and can run wide
+   enough to reach into the activity panel on the other rail.
    flex-wrap lets it reflow instead of overflowing once capped: DevControls is
    first in DOM/first flex line, so it is what drops to its own row above; the
-   minimap, second/last, always stays the bottom-most line and keeps its
+   overview, second/last, always stays the bottom-most line and keeps its
    corner position. */
 .hud-bottom-right {
   /* Pins itself to the rail's bottom edge on its own: below the breakpoint the
-     leaderboard above it is gone, and space-between with a single child would
-     otherwise park the minimap at the top of the rail. */
+     contributors panel above it is gone, and space-between with a single
+     child would otherwise park the overview at the top of the rail. */
   margin-top: auto;
   display: flex;
   flex-wrap: wrap;

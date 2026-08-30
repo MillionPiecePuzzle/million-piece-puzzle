@@ -13,6 +13,7 @@ import {
   makeRateLimit,
   makePublicGuard,
   makeLandingHandler,
+  makeLiveHandler,
   makeInterestedHandler,
   makeQueueGuard,
   makeQueueTicketHandler,
@@ -23,7 +24,7 @@ import {
   type LandingSnapshot,
   type AdmissionGate,
 } from "./httpApp.js";
-import type { LandingResponse } from "@mpp/shared";
+import type { LandingResponse, LiveResponse } from "@mpp/shared";
 import { hashClaimToken } from "./auth.js";
 import {
   CountryCooldownError,
@@ -784,6 +785,42 @@ describe("makeLandingHandler", () => {
     expect(r.body.leaderboard).toEqual([]);
     expect(r.body.activity).toEqual([]);
     expect(r.body.completion).toBeUndefined();
+  });
+});
+
+describe("makeLiveHandler", () => {
+  const body: LiveResponse = {
+    status: "active",
+    progress: { locked: 120, total: 1000 },
+    leaderboard: [{ userId: "u1", pseudo: "Alice", country: "fr", pieces: 80 }],
+    activity: [],
+  };
+
+  it("answers the figures with an edge-cacheable window and no per-visitor field", async () => {
+    const handler = makeLiveHandler({ figures: async () => body, edgeTtlSec: 10 });
+    const res = fakeRes();
+    await handler(landingReq(), res);
+    const r = res as unknown as {
+      statusCode: number;
+      body: LiveResponse;
+      headers: Record<string, string>;
+    };
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toEqual(body);
+    expect(r.headers["Access-Control-Allow-Origin"]).toBe("*");
+    expect(r.headers["Cache-Control"]).toBe("public, max-age=0, s-maxage=10");
+  });
+
+  it("answers 503 uncached while there are no figures to serve", async () => {
+    const handler = makeLiveHandler({ figures: async () => null, edgeTtlSec: 10 });
+    const res = fakeRes();
+    await handler(landingReq(), res);
+    const r = res as unknown as {
+      statusCode: number;
+      headers: Record<string, string>;
+    };
+    expect(r.statusCode).toBe(503);
+    expect(r.headers["Cache-Control"]).toBe("no-store");
   });
 });
 

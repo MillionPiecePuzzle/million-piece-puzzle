@@ -95,10 +95,15 @@ export type ServerConfig = {
   // density-relative cap above.
   tilePieceCapAbsolute: number;
   // Hard cap on a merge between two unlocked clusters: over this combined size,
-  // the merge is skipped and both stay separate (see ROADMAP Phase 5). Exempt
+  // the merge is skipped and both stay separate (see DECISIONS: locked pieces
+  // stop being a group). Exempt
   // when the merge anchors, since an anchored cluster dissolves into piece-level
   // locked flags rather than growing a group.
   clusterPieceCap: number;
+  // How many other loose pieces may cover a target piece's centre before a snap
+  // onto it is refused (see DECISIONS: a buried piece is not a snap target). The
+  // anchoring path is exempt, so this only ever gates a loose-loose merge.
+  snapCoverMax: number;
   // Board snapshot cadence: the in-memory snapshot (locked count, leaderboard,
   // activity, and the current minimap grid) is regenerated at most this often
   // while the event is live, frozen otherwise. The minimap grid itself is
@@ -147,6 +152,19 @@ export type ServerConfig = {
   // flood, not on a NAT of honest viewers.
   publicRateMax: number;
   publicRateWindowSec: number;
+  // Per-IP fixed window on GET /live, the route an open landing polls. Sized for
+  // a poller rather than for a page load, so it holds a NAT of readers polling
+  // at the client's cadence; an edge caching the route keeps most of them off
+  // this window entirely, since a cache hit never reaches the origin.
+  liveRateMax: number;
+  liveRateWindowSec: number;
+  // Floor between two rebuilds of GET /live's body (see liveFigures.ts). The
+  // origin pays one rebuild per window however many readers poll.
+  liveTtlMs: number;
+  // The `s-maxage` GET /live answers with: how long a shared cache in front of
+  // the origin may serve one body. Only takes effect once a Cloudflare Cache
+  // Rule marks the path eligible, JSON not being cached on headers alone.
+  liveEdgeTtlSec: number;
   // Shared password for the direct-URL admin page (Basic auth). Empty (the
   // default) leaves the /admin routes unmounted entirely, so the page is opt-in
   // per deployment. A secret, so it is passed through from the Coolify env, never
@@ -156,12 +174,13 @@ export type ServerConfig = {
   // is configured server-side (never baked into the committed image) and only the
   // id/label reach the browser.
   adminPuzzles: AdminPuzzle[];
-  // Write-scoped R2 credentials for the cell compositor (see ROADMAP Phase 5
-  // Stage 3), the server's one live write path to R2; everything else it does
-  // with R2 is a public read needing no credentials. null (the default, and
-  // always true for local dev, which has no R2 write creds) leaves compositing
-  // inert: cells are never dirtied into useful work, the client keeps rendering
-  // every locked piece from Stage 2's per-piece path. A secret, so (like the
+  // Write-scoped R2 credentials for the cell compositor (see DECISIONS:
+  // version-suffixed cell composites), the server's one live write path to
+  // R2; everything else it does with R2 is a public read needing no
+  // credentials. null (the default, and always true for local dev, which has
+  // no R2 write creds) leaves compositing inert: cells are never dirtied into
+  // useful work, and locked pieces render as nothing at all (see DECISIONS: no
+  // compositor configured means locked pieces do not render). A secret, so (like the
   // backup sidecar's own R2 credentials) it is passed through from the Coolify
   // env, never baked into the image.
   r2Write: R2WriteConfig | null;
@@ -282,6 +301,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     tilePieceCapMultiplier: int("MPP_TILE_PIECE_CAP_MULTIPLIER", 8),
     tilePieceCapAbsolute: int("MPP_TILE_PIECE_CAP", 0),
     clusterPieceCap: int("MPP_CLUSTER_PIECE_CAP", 20000),
+    snapCoverMax: int("MPP_SNAP_COVER_MAX", 5),
     keyframeIntervalMs: int("MPP_KEYFRAME_INTERVAL_MS", 300000),
     leaderboardBroadcastIntervalMs: int("MPP_LEADERBOARD_BROADCAST_INTERVAL_MS", 2000),
     minimapGridResyncIntervalMs: int("MPP_MINIMAP_GRID_RESYNC_INTERVAL_MS", 86400000),
@@ -296,14 +316,18 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<Serve
     signupWindowSec: int("MPP_SIGNUP_WINDOW_SEC", 3600),
     publicRateMax: int("MPP_PUBLIC_RATE_MAX", 120),
     publicRateWindowSec: int("MPP_PUBLIC_RATE_WINDOW_SEC", 60),
+    liveRateMax: int("MPP_LIVE_RATE_MAX", 300),
+    liveRateWindowSec: int("MPP_LIVE_RATE_WINDOW_SEC", 60),
+    liveTtlMs: int("MPP_LIVE_TTL_MS", 2000),
+    liveEdgeTtlSec: int("MPP_LIVE_EDGE_TTL_SEC", 10),
     adminPassword: str("MPP_ADMIN_PASSWORD", ""),
     adminPuzzles: parseAdminPuzzles(process.env.MPP_ADMIN_PUZZLES),
     r2Write: parseR2WriteConfig(),
   };
 }
 
-// R2 write credentials for the cell compositor (see ROADMAP Phase 5 Stage 3),
-// all-or-nothing: any of the three secret parts set without the others is
+// R2 write credentials for the cell compositor (see DECISIONS: version-suffixed
+// cell composites), all-or-nothing: any of the three secret parts set without the others is
 // almost certainly a misconfiguration, so it fails the boot loudly rather than
 // silently leaving compositing inert. All three unset (local dev's default,
 // which has no R2 write creds) is the normal, supported "feature off" state.

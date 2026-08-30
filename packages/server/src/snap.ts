@@ -1,5 +1,23 @@
 import type { GroupRuntime } from "@mpp/shared";
+import type { GroupIndex } from "./groupIndex.js";
 import type { RedisState } from "./state.js";
+
+// What makes a target piece unreachable: the loose pieces piled on top of it (see
+// DECISIONS: a buried piece is not a snap target). `max` is how many are tolerated
+// before the snap onto that piece is refused, `index` the read model the count is
+// walked against, both wired from config at boot.
+export type SnapCover = {
+  index: GroupIndex;
+  pieceSize: number;
+  max: number;
+};
+
+export type SnapResult = {
+  match: SnapMatch | null;
+  // A contact piece was refused for being buried and nothing else matched, so the
+  // drop rests where it landed and its author is owed the notice explaining why.
+  covered: boolean;
+};
 
 export type SnapMatch = {
   matchedGroupIds: number[];
@@ -20,9 +38,11 @@ export async function detectSnap(
   snapTolerance: number,
   droppedGroup: GroupRuntime,
   droppedPieceIds: number[],
-): Promise<SnapMatch | null> {
+  cover: SnapCover,
+): Promise<SnapResult> {
   const droppedPieceSet = new Set(droppedPieceIds);
   const candidates = new Map<number, GroupRuntime>();
+  let blockedByCover = false;
   // A locked neighbor is always exactly at its solved position (no stored
   // position to read or compare), so the only thing left to check is whether
   // this drop itself landed close enough to its own solved position for that
@@ -65,15 +85,23 @@ export async function detectSnap(
       // holder drops, where their own detectSnap re-checks alignment.
       if (nGroup.heldBy !== null) continue;
       if (
-        Math.abs(nGroup.worldX - droppedGroup.worldX) <= snapTolerance &&
-        Math.abs(nGroup.worldY - droppedGroup.worldY) <= snapTolerance
+        Math.abs(nGroup.worldX - droppedGroup.worldX) > snapTolerance ||
+        Math.abs(nGroup.worldY - droppedGroup.worldY) > snapTolerance
       ) {
-        candidates.set(nGroupId, nGroup);
+        continue;
       }
+      // Checked last, on an already-aligned candidate, so the walk stays off the
+      // ordinary drop path. A group reachable through several contact pieces is
+      // still a target as long as one of them is in the open.
+      if (await isBuried(state, cover, rows, cols, nId, nGroup, droppedGroup.id)) {
+        blockedByCover = true;
+        continue;
+      }
+      candidates.set(nGroupId, nGroup);
     }
   }
 
-  if (candidates.size === 0 && !touchesLocked) return null;
+  if (candidates.size === 0 && !touchesLocked) return { match: null, covered: blockedByCover };
 
   const values = [...candidates.values()];
   // A locked neighbor's implicit position (0,0), when present, takes priority
@@ -93,10 +121,46 @@ export async function detectSnap(
   );
 
   return {
-    matchedGroupIds: matched.map((g) => g.id),
-    targetWorldX: target.worldX,
-    targetWorldY: target.worldY,
-    anchored: touchesLocked,
-    matchedSize: matched.reduce((sum, g) => sum + g.size, 0),
+    match: {
+      matchedGroupIds: matched.map((g) => g.id),
+      targetWorldX: target.worldX,
+      targetWorldY: target.worldY,
+      anchored: touchesLocked,
+      matchedSize: matched.reduce((sum, g) => sum + g.size, 0),
+    },
+    covered: false,
   };
+}
+
+// Whether more than `cover.max` other loose pieces stand on the centre of piece
+// `pieceId`, the contact the drop would snap onto. The index answers in bounding
+// boxes, so each candidate is resolved to the one piece of its group that covers
+// the point (the grid is regular in solved space, so that is arithmetic) and kept
+// only if the group really holds it: a cluster's box spans the gaps in its own
+// shape, and counting those would refuse snaps next to any ragged cluster.
+async function isBuried(
+  state: RedisState,
+  cover: SnapCover,
+  rows: number,
+  cols: number,
+  pieceId: number,
+  group: GroupRuntime,
+  droppedGroupId: number,
+): Promise<boolean> {
+  const { index, pieceSize, max } = cover;
+  const centerX = group.worldX + (pieceId % cols) * pieceSize + pieceSize / 2;
+  const centerY = group.worldY + Math.floor(pieceId / cols) * pieceSize + pieceSize / 2;
+  // The target's own group covers its own piece, and the dropped group is still
+  // indexed at the position it was picked up from, which is no longer where it is.
+  const except = new Set([group.id, droppedGroupId]);
+  let count = 0;
+  for (const candidate of index.groupsCoveringPoint(centerX, centerY, except, max + 1)) {
+    const col = Math.floor((centerX - candidate.originX) / pieceSize);
+    const row = Math.floor((centerY - candidate.originY) / pieceSize);
+    if (col < 0 || col >= cols || row < 0 || row >= rows) continue;
+    const piece = await state.readPieceState(row * cols + col);
+    if (piece.locked || piece.groupId !== candidate.groupId) continue;
+    if (++count > max) return true;
+  }
+  return false;
 }

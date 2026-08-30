@@ -47,7 +47,7 @@ const TIP_KEYS = [
   "tips.carry",
   "tips.flags",
   "tips.flagDrop",
-  "tips.minimap",
+  "tips.overview",
   "tips.reference",
 ] as const;
 const tipIndex = ref(0);
@@ -180,8 +180,8 @@ function openUpdates() {
           </button>
 
           <!-- Only the panels this viewport can hold: a screen too small for
-               the leaderboard, the ticker, the zoom pillar and the flag bar is
-               not offered a switch that would draw one over the board. -->
+               the contributors list, the activity panel, the zoom pillar and the
+               flag bar is not offered a switch that would draw one over the board. -->
           <div class="panel-grid">
             <button
               v-for="panel in availablePanels"

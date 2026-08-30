@@ -46,6 +46,17 @@ ENV MPP_MAX_ACTIVE_CONNECTIONS=200
 # the board.
 ENV MPP_KEYFRAME_INTERVAL_MS=300000
 
+# The landing's poll (GET /live). Its body is rebuilt at most every 2s however
+# many readers ask, and it is served with `s-maxage=10` so a shared cache can
+# absorb the window. The edge only holds it once a Cloudflare Cache Rule marks
+# the path eligible: JSON is not cached on response headers alone. The per-IP
+# window is sized for a poller (a reader at 5s spends 12 of it a minute), and
+# every cache hit is one request this window never sees.
+ENV MPP_LIVE_TTL_MS=2000
+ENV MPP_LIVE_EDGE_TTL_SEC=10
+ENV MPP_LIVE_RATE_MAX=300
+ENV MPP_LIVE_RATE_WINDOW_SEC=60
+
 # Defense-in-depth full resync of the minimap grid: a from-scratch board scan
 # that overwrites the incrementally-maintained grid, guarding against drift. Far
 # slower than the keyframe cadence above since it pays the board scan the

@@ -6,12 +6,7 @@ const fr: MessageSchema = {
     saving: "Enregistrement...",
     close: "Fermer",
     skip: "Passer",
-    leaderboard: "Classement",
-    activity: "Activité",
-    noActivity: "Aucune activité pour l'instant.",
-    noStandings: "Aucun classement pour l'instant.",
     saveError: "Impossible d'enregistrer, réessayez.",
-    fullBoard: "tableau complet",
   },
   time: {
     justNow: "à l'instant",
@@ -33,7 +28,7 @@ const fr: MessageSchema = {
     completed: "TERMINÉ",
     solvedIn: "résolu en {duration}",
     liveActivity: "Activité en direct",
-    noStandingsFinal: "Aucun classement enregistré.",
+    noStandingsFinal: "Aucune contribution enregistrée.",
     someone: "Quelqu'un",
     placed: "a placé {pieces}",
     connected: "a relié {pieces}",
@@ -55,7 +50,6 @@ const fr: MessageSchema = {
   },
   topbar: {
     puzzleProgress: "Progression du puzzle",
-    nationalityTitle: "Nationalité : {code}",
     signedInAs: "Connecté en tant que {pseudo}",
     options: "Paramètres",
     optionsNew: "Paramètres, nouvelles notes de mises à jour",
@@ -71,12 +65,12 @@ const fr: MessageSchema = {
     openEnlarged: "Ouvrir la référence agrandie",
     image: "Image de référence",
     fitToView: "Ajuster à la vue",
+    aim: "Cliquer sur la photo pour y amener le plateau (ou Ctrl-clic à tout moment)",
     credits: "Voir les crédits de l'image",
   },
-  minimap: {
-    overview: "Aperçu",
+  overview: {
+    title: "Aperçu",
     online: "{n} en ligne",
-    label: "Mini-carte",
     enlarge: "Agrandir l'aperçu",
   },
   auth: {
@@ -108,8 +102,8 @@ const fr: MessageSchema = {
         reference: "Référence",
         zoom: "Zoom",
         activity: "Activité",
-        leaderboard: "Classement",
-        minimap: "Mini-carte",
+        contributors: "Contributeurs",
+        overview: "Aperçu",
         flags: "Drapeaux",
       },
     },
@@ -123,16 +117,27 @@ const fr: MessageSchema = {
       "Double-cliquez sur une pièce pour la coller à votre curseur, double-cliquez à nouveau pour la déposer.",
     flags: "Utilisez les drapeaux pour vous déplacer facilement sur le plateau.",
     flagDrop: "Faites glisser une pièce sur un drapeau de la barre pour l'envoyer là-bas.",
-    minimap: "Cliquez n'importe où sur la mini-carte pour y déplacer la vue.",
-    reference: "Ouvrez l'image de référence et zoomez pour trouver où va une pièce.",
+    overview: "Cliquez n'importe où sur l'aperçu pour y déplacer la vue.",
+    reference:
+      "Ouvrez l'image de référence et zoomez pour trouver où va une pièce, puis Ctrl-cliquez dessus pour y amener le plateau.",
   },
   updates: {
     title: "Notes de mises à jour",
+    v130: {
+      jump: "La vue agrandie de l'aperçu et la photo de référence agrandie déplacent maintenant le plateau : cliquez sur la carte pour vous y rendre, et sur la photo utilisez le bouton en forme de viseur, ou Ctrl-clic, pour amener le plateau sur ce que vous regardez.",
+      contributors:
+        "Le panneau qui liste les joueurs s'appelle désormais Contributeurs, et les formulations autour ont suivi.",
+      countries:
+        "Chaque drapeau nomme désormais son pays dans votre langue, dans la liste des contributeurs, dans la barre du haut et dans le sélecteur de pays.",
+      home: "Les chiffres de la page d'accueil bougent maintenant tout seuls : les pièces posées, les contributeurs et l'activité récente se mettent à jour pendant que la page reste ouverte.",
+      fixes:
+        "Corrections de bugs : la photo de référence n'empêche plus le plateau de charger la zone que vous venez de regarder, un clic en zoom très large déplace la vue au lieu d'attraper une pièce, le bord du plateau arrête la caméra là où il devient visible, et la barre du haut sur téléphone affiche votre pseudo et le compte complet.",
+    },
     v120: {
       panels:
         "Chaque panneau a désormais son propre interrupteur dans la section Affichage de ce menu.",
-      minimap:
-        "La vue agrandie de la mini-carte a été retravaillée : elle ouvre maintenant la même carte, en plus grand.",
+      overview:
+        "La vue agrandie de l'aperçu a été retravaillée : elle ouvre maintenant la même carte, en plus grand.",
       notes:
         "Une pastille sur le bouton des réglages signale les notes de mise à jour que vous n'avez pas encore lues.",
       fixes:
@@ -150,14 +155,14 @@ const fr: MessageSchema = {
       underlay:
         "Affichez l'image source en transparence sous le plateau, depuis la section Affichage de ce menu.",
       standings:
-        "Le classement bouge à chaque assemblage, et plus seulement quand un groupe se verrouille sur le cadre. Votre ligne y est toujours visible.",
+        "La liste des contributeurs bouge à chaque assemblage, et plus seulement quand un groupe se verrouille sur le cadre. Votre ligne y est toujours visible.",
       account:
         "Se connecter avec Google transforme votre compte invité en compte permanent, que vous pouvez retrouver depuis un autre navigateur.",
       maintenance:
         "Un redémarrage du serveur affiche un écran de maintenance au lieu d'une erreur de connexion, et revient tout seul dès que le puzzle est de retour.",
       mobile:
-        "Sur téléphone, l'interface ne garde que la référence et la mini-carte, et laisse l'écran au plateau.",
-      help: "Ce menu propose des astuces, et le classement explique comment les points sont comptés.",
+        "Sur téléphone, l'interface ne garde que la référence et l'aperçu, et laisse l'écran au plateau.",
+      help: "Ce menu propose des astuces, et le panneau des contributeurs explique comment les pièces sont comptées.",
     },
     v100: {
       launch:
@@ -183,9 +188,9 @@ const fr: MessageSchema = {
     titleEdit: "Changer de nationalité",
     titleNew: "Choisissez votre nationalité",
     ledeEdit:
-      "Choisissez un nouveau pays. Son drapeau est affiché à côté de votre pseudo dans le classement.",
+      "Choisissez un nouveau pays. Son drapeau est affiché à côté de votre pseudo dans la liste des contributeurs.",
     ledeNew:
-      "Choisissez votre pays. Son drapeau est affiché à côté de votre pseudo dans le classement.",
+      "Choisissez votre pays. Son drapeau est affiché à côté de votre pseudo dans la liste des contributeurs.",
     selectLabel: "Pays",
     selectPlaceholder: "Sélectionnez votre pays...",
     international: "International",
@@ -193,30 +198,38 @@ const fr: MessageSchema = {
     cooldownHint: "Vous pouvez changer de pays une fois toutes les {hours} heures.",
     cooldown: "Vous avez déjà changé de pays récemment. Réessayez dans {hours} h.",
   },
-  leaderboardModal: {
-    label: "Classement complet",
-    rankingMode: "Mode de classement",
+  contributors: {
+    title: "Contributeurs",
+    empty: "Aucune contribution pour l'instant.",
+    full: "liste complète",
+    all: "Tous les contributeurs",
+    viewMode: "Mode d'affichage",
     people: "Personnes",
     countries: "Pays",
     prev: "préc.",
     next: "suiv.",
+    pcs: "pcs",
+    you: "vous",
+    online: "en ligne",
   },
   scoring: {
     open: "Comment les pièces sont comptées",
     title: "Comment les pièces sont comptées",
-    lede: "Chaque pièce du plateau vaut un point. Il est crédité une seule fois, au premier joueur qui l'emboîte.",
+    lede: "Chaque pièce du plateau est comptée une seule fois, pour la première personne qui l'emboîte.",
     snapTwo:
-      "Vous emboîtez deux pièces libres : un point, pas deux. Le point de l'autre pièce est mis de côté pour celui qui verrouillera ce groupe dans le plateau.",
+      "Vous emboîtez deux pièces libres : cela compte une pièce, pas deux. L'autre est mise de côté pour la personne qui verrouillera ce groupe dans le plateau.",
     snapCluster:
-      "Vous glissez un groupe de 30 pièces sur un autre : les 29 déjà créditées ne comptent pas deux fois, vous prenez celle que personne n'avait jamais emboîtée.",
+      "Vous glissez un groupe de 30 pièces sur un autre : les 29 déjà comptées ne comptent pas deux fois, vous obtenez celle que personne n'avait jamais emboîtée.",
     mismatchTitle: "Pourquoi le total ne colle pas à la barre de progression",
     mismatchBody:
-      "Le classement crédite une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive : les deux nombres n'ont pas vocation à être égaux.",
+      "La liste des contributeurs compte une pièce dès qu'elle s'emboîte, où qu'elle soit sur le plateau. La barre de progression ne compte que les pièces verrouillées à leur place définitive : les deux nombres n'ont pas vocation à être égaux.",
     fairTitle: "Le compte tombe juste",
     fairBody:
-      "Ce système permet de garder un classement équitable. Il permettra aussi, quand la dernière pièce sera posée, de comptabiliser exactement {total} pièces.",
+      "Ce système garantit que chaque pièce est comptée exactement une fois. Il permettra aussi, quand la dernière pièce sera posée, de comptabiliser exactement {total} pièces.",
   },
-  activityPanel: {
+  activity: {
+    title: "Activité",
+    empty: "Aucune activité pour l'instant.",
     placedLine: "a placé {object}",
     connectedLine: "a relié {object}",
     piece: "une pièce",
@@ -257,13 +270,14 @@ const fr: MessageSchema = {
     complete: "Terminé",
     assembled: "Puzzle assemblé.",
     piecesPlaced: "{n} pièce placée. | {n} pièces placées.",
-    topContributors: "Meilleurs contributeurs",
+    topContributors: "Contributeurs",
     summary: "Récapitulatif",
     hideSummary: "Masquer le récapitulatif",
     showSummary: "Afficher le récapitulatif",
   },
   toast: {
     tileFull: "Trop de pièces sur cette case.",
+    snapCovered: "Cette pièce est enfouie : dégagez d'abord celles posées dessus.",
   },
   carry: {
     hint: "Pièce en main. Double-cliquez ou tapez deux fois pour la déposer, Échap pour la remettre.",
@@ -285,11 +299,6 @@ const fr: MessageSchema = {
       black: "Noir",
     },
   },
-  row: {
-    pcs: "pcs",
-    you: "vous",
-    online: "en ligne",
-  },
   legalDoc: {
     back: "Retour à l'accueil",
     updated: "Dernière mise à jour : {date}",
@@ -304,10 +313,10 @@ const fr: MessageSchema = {
     discord: "serveur Discord",
     collectedHead: "Données collectées",
     collectedBody:
-      "Rejoindre le plateau crée un compte invité : un identifiant utilisateur unique, le pseudo que vous choisissez et le pays que vous sélectionnez lors de l'inscription, sans adresse e-mail requise. Si vous vous connectez avec Google pour conserver vos contributions sous une seule identité, votre adresse e-mail et votre nom Google sont également enregistrés. Vos contributions (les pièces que vous avez placées et à quel moment) sont enregistrées et affichées publiquement dans le fil d'activité et le classement. Les journaux techniques (adresse IP, navigateur) sont traités par l'hébergeur à des fins de sécurité et de fiabilité.",
+      "Rejoindre le plateau crée un compte invité : un identifiant utilisateur unique, le pseudo que vous choisissez et le pays que vous sélectionnez lors de l'inscription, sans adresse e-mail requise. Si vous vous connectez avec Google pour conserver vos contributions sous une seule identité, votre adresse e-mail et votre nom Google sont également enregistrés. Vos contributions (les pièces que vous avez placées et à quel moment) sont enregistrées et affichées publiquement dans le fil d'activité et la liste des contributeurs. Les journaux techniques (adresse IP, navigateur) sont traités par l'hébergeur à des fins de sécurité et de fiabilité.",
     purposesHead: "Finalités",
     purposesBody:
-      "Les données ne servent qu'à faire fonctionner le jeu : vous authentifier, sauvegarder votre progression, attribuer les pièces placées et afficher le classement. Aucune donnée n'est vendue ni utilisée à des fins publicitaires.",
+      "Les données ne servent qu'à faire fonctionner le jeu : vous authentifier, sauvegarder votre progression, attribuer les pièces placées et afficher la liste des contributeurs. Aucune donnée n'est vendue ni utilisée à des fins publicitaires.",
     processorsHead: "Sous-traitants",
     processorsBody:
       "Le service s'appuie sur Google (connexion), Cloudflare (hébergement du frontend, stockage et diffusion des ressources) et OVH (le serveur hébergeant le backend du jeu, y compris ses statistiques auto-hébergées). Ces prestataires peuvent traiter des données en dehors de l'Union européenne, dans le cadre de leurs propres dispositifs de protection. Aucun service tiers de suivi ou d'analyse n'est utilisé.",

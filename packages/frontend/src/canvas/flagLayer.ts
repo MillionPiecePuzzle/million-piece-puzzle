@@ -11,7 +11,7 @@ import { FLAG_COLORS, type BoardFlag } from "../data/boardFlags";
 // Glyph height in board terms: a flag stands one and a half pieces tall.
 const FLAG_PIECE_HEIGHTS = 1.5;
 
-// Same pennant the HUD button and the minimap markers draw. These are design
+// Same pennant the HUD button and the overview markers draw. These are design
 // units, scaled to the board by update().
 const POLE_HEIGHT = 26;
 const POLE_WIDTH = 2;

@@ -10,7 +10,7 @@ export type BoardFlag = {
   worldY: number;
   // Index into FLAG_COLORS, unique across the list: a flag taking a color
   // another one already holds swaps with it (recolorFlag), so the color alone
-  // identifies a flag across the bar, the canvas and the minimap.
+  // identifies a flag across the bar, the canvas and the overview.
   color: number;
 };
 

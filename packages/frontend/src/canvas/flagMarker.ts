@@ -1,6 +1,6 @@
 import { FLAG_COLORS, type BoardFlag } from "../data/boardFlags";
 
-// Personal flags on the minimap views. The overview painter redraws its whole
+// Personal flags on the overview. Its painter redraws the whole
 // canvas every frame from a stage snapshot, so a marker is a handful of 2D path
 // ops on top rather than a sprite: a pennant on a pole, its foot at the marked
 // world point, sized in device pixels so it reads the same on the small panel

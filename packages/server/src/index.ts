@@ -44,6 +44,7 @@ import { unpackCellKey } from "./worldGrid.js";
 import { IpRegistry, isAllowedOrigin, clientIp, RedisFixedWindow } from "./limits.js";
 import { AdmissionController } from "./admission.js";
 import { KeyframePublisher } from "./keyframe.js";
+import { LiveFigures } from "./liveFigures.js";
 import { LeaderboardBroadcaster } from "./leaderboardBroadcast.js";
 import {
   buildAuthConfig,
@@ -135,17 +136,19 @@ async function main(): Promise<void> {
     meta.totalPieces,
   );
   await rebuildLockedPieceIndex(lockedPieces, state, meta.totalPieces);
-  // Server-composited locked-tile version read model (see ROADMAP Phase 5
-  // Stage 3), rebuilt from Redis at the same occasions the indexes above are.
+  // Server-composited locked-tile version read model (see DECISIONS:
+  // version-suffixed cell composites), rebuilt from Redis at the same
+  // occasions the indexes above are.
   const cellComposites = new CellCompositeIndex();
   await rebuildCellCompositeIndex(cellComposites, state);
   // The compositor itself (the background bake queue) only exists when R2
   // write credentials are configured; local dev has none by default, and a
   // deployment with none simply never dirties a cell, so no locked piece is
-  // ever composited there. Since Stage 5 the frontend has no other rendering
-  // path for a locked piece, so an R2-less deployment (including local dev)
-  // shows locked content as invisible rather than degrading to a per-piece
-  // fetch; accepted, see DECISIONS (see config.r2Write).
+  // ever composited there. The frontend has no other rendering path for a
+  // locked piece, so an R2-less deployment (including local dev) shows locked
+  // content as invisible rather than degrading to a per-piece fetch; accepted,
+  // see DECISIONS: no compositor configured means locked pieces do not render
+  // (and config.r2Write).
   let cellCompositor: CellCompositor | undefined;
   if (config.r2Write) {
     const r2 = createR2Client(config.r2Write);
@@ -162,7 +165,7 @@ async function main(): Promise<void> {
       removeByPrefix: r2.removeByPrefix,
       index: cellComposites,
       persistVersion: (key, version) => state.writeCellCompositeVersion(key, version),
-      // A finished bake broadcasts live (see ROADMAP Phase 5 Stage 5) to every
+      // A finished bake broadcasts live (see DECISIONS: DZI reveal mask/seam bake) to every
       // client whose broadcast-scoped cells overlap it.
       onComposited: (key, version) => {
         const { cx, cy } = unpackCellKey(key);
@@ -238,6 +241,7 @@ async function main(): Promise<void> {
     pieceMargin: manifest.margin,
     tilePieceCap,
     clusterPieceCap: config.clusterPieceCap,
+    snapCoverMax: config.snapCoverMax,
     broadcastMaxCells: config.broadcastMaxCells,
     worldTileSize: cellSize,
     regionStreamBatchCells: config.regionStreamBatchCells,
@@ -312,6 +316,19 @@ async function main(): Promise<void> {
     hub.broadcast({ t: "minimap", grid: snap.minimapGrid });
   lifecycle.attachKeyframePublisher(keyframePublisher);
   keyframePublisher.start();
+
+  // The landing's poll reads this instead of the keyframe snapshot: same sources,
+  // but rebuilt on a seconds-scale window rather than the snapshot's minutes, and
+  // with no minimap broadcast riding on it. It carries the six contributors and
+  // six placements the landing renders, so a rebuild stays two bounded Mongo
+  // reads and one Redis scalar.
+  const liveFigures = new LiveFigures(config.liveTtlMs, {
+    totalPieces: () => ctx.meta.totalPieces,
+    status: () => ctx.meta.status,
+    lockedCount: () => state.getLockedCount(),
+    leaderboard: (limit) => mongo.attachProfiles(leaderboardTracker.top(limit)),
+    activity: (limit) => mongo.recentMerges(ctx.puzzleId, limit),
+  });
 
   // Admin puzzle switch: the configured list plus the currently-running puzzle
   // (always selectable so a switch can be reverted), each mapped to its seed. The
@@ -419,6 +436,7 @@ async function main(): Promise<void> {
       config.publicRateMax,
       config.publicRateWindowSec,
     ),
+    liveLimiter: new RedisFixedWindow(redis, "live", config.liveRateMax, config.liveRateWindowSec),
     queueLimiter: new RedisFixedWindow(
       redis,
       "queue",
@@ -448,6 +466,8 @@ async function main(): Promise<void> {
         activity: snap.activity,
       };
     },
+    liveFigures: () => liveFigures.read(),
+    liveEdgeTtlSec: config.liveEdgeTtlSec,
     puzzleStatus: () => ctx.meta.status,
     puzzleSpan: () => mongo.puzzleSpan(ctx.puzzleId),
     appOrigin: config.appOrigin,

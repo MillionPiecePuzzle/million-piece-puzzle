@@ -19,9 +19,9 @@ import {
   collectRegionCellComposites,
   type CellCompositeIndex,
 } from "./cellComposite.js";
-import { detectSnap } from "./snap.js";
+import { detectSnap, type SnapCover } from "./snap.js";
 import { resolveDropNearOrigin } from "./dropNear.js";
-import { localAabbForPieces, worldAabbFor } from "./worldGrid.js";
+import { localAabbForPieces, worldAabbFor, type Aabb } from "./worldGrid.js";
 import { batchEnteredCells, sleep } from "./regionStream.js";
 import {
   type WireContext,
@@ -94,6 +94,9 @@ export type Context = {
   // when the merge anchors: an anchored cluster dissolves into piece-level
   // locked flags rather than growing a persisted group.
   clusterPieceCap: number;
+  // How many other loose pieces may cover a target piece's centre before the snap
+  // onto it is refused (see MPP_SNAP_COVER_MAX and detectSnap).
+  snapCoverMax: number;
   // Viewport scoping bound (config.broadcastMaxCells), carried in welcome so the
   // contributor client mirrors the scoped-vs-global decision for its loading cover.
   broadcastMaxCells: number;
@@ -111,9 +114,9 @@ export type Context = {
   // Poll interval (ms) while a paced region_state stream waits for
   // bufferedAmount to clear.
   regionStreamPollIntervalMs: number;
-  // Read model for server-composited per-cell locked tiles (see ROADMAP Phase
-  // 5 Stage 3): which cells have a bake and at which version, so region_state
-  // can point a client at one instead of the flat per-piece fallback. Optional
+  // Read model for server-composited per-cell locked tiles (see DECISIONS:
+  // version-suffixed cell composites): which cells have a bake and at which
+  // version, so region_state can point a client at one. Optional
   // because a deployment with no R2 write credentials never constructs a
   // compositor (see index.ts), leaving the whole feature inert; every reader
   // uses optional chaining, so region_state stays valid either way.
@@ -151,12 +154,37 @@ function err(
   send(ctx, client, { t: "error", code, message });
 }
 
+function snapCover(ctx: Context): SnapCover {
+  return { index: ctx.groupIndex, pieceSize: ctx.meta.pieceSize, max: ctx.snapCoverMax };
+}
+
 function isValidGroupId(value: unknown, totalPieces: number): boolean {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value < totalPieces;
 }
 
 function isFiniteCoord(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+// The origin a cluster of this local AABB can rest at with none of its pieces
+// outside the play zone: the same constraint the client applies to its own drag
+// input and dropNear applies to a flag landing. A group with no stored AABB
+// (worldAabbFor's zero-size fallback) clamps its bare origin point.
+function clampOriginToPlayZone(
+  zone: PlayZone,
+  local: Aabb | null | undefined,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  const body = worldAabbFor(local, 0, 0);
+  return {
+    x: clamp(x, zone.minX - body.minX, zone.maxX - body.maxX),
+    y: clamp(y, zone.minY - body.minY, zone.maxY - body.maxY),
+  };
 }
 
 export async function handleHello(ctx: Context, client: Client, msg: CHello): Promise<void> {
@@ -221,13 +249,14 @@ export async function handleDevPlace(ctx: Context, client: Client): Promise<void
   chosen.worldY = 0;
 
   const droppedPieces = await ctx.state.getGroupPieces(chosen.id);
-  const match = await detectSnap(
+  const { match } = await detectSnap(
     ctx.state,
     ctx.meta.gridRows,
     ctx.meta.gridCols,
     ctx.meta.snapTolerance,
     chosen,
     droppedPieces,
+    snapCover(ctx),
   );
 
   await applyMerge(
@@ -386,8 +415,8 @@ async function streamRegionState(
     // Locked pieces in this batch's cells, flat (never grouped): a pure
     // in-memory bitset lookup, no Redis read needed (see LockedPieceIndex).
     const lockedGridIds = ctx.lockedPieces.collect(batch.cells);
-    // Ready server-composited tiles covering this batch's cells (see ROADMAP
-    // Phase 5 Stage 5), absent entirely when no compositor is wired. A cell
+    // Ready server-composited tiles covering this batch's cells (see DECISIONS:
+    // DZI reveal mask/seam bake), absent entirely when no compositor is wired. A cell
     // with no bake yet is simply omitted.
     const cellComposites = ctx.cellComposites
       ? collectRegionCellComposites(ctx.cellComposites, batch.cells)
@@ -447,6 +476,16 @@ export async function handleDrop(
     return;
   }
 
+  // A drop is the only path that persists a position, and the wire only proves
+  // its coordinates are finite. The client clamps its own drag input to the play
+  // zone before sending, so this moves nothing an honest client asks for; what it
+  // closes is a forged drop parking a cluster arbitrarily far off the board,
+  // where no camera can reach it, no viewport ever streams it, and the world
+  // grid's cell key packing stops being collision-free.
+  const dropAt = clampOriginToPlayZone(ctx.playZone, g.localAabb, originX, originY);
+  originX = dropAt.x;
+  originY = dropAt.y;
+
   // The pre-drag resting origin (drags are transient and never persisted, so
   // Redis still holds it), kept as the rollback target if the drop is rejected.
   const prevX = g.worldX;
@@ -464,13 +503,14 @@ export async function handleDrop(
   const droppedPieces = await ctx.state.getGroupPieces(groupId);
   const tol = ctx.meta.snapTolerance;
   const frameAnchor = Math.abs(g.worldX) <= tol && Math.abs(g.worldY) <= tol;
-  const match = await detectSnap(
+  const { match, covered } = await detectSnap(
     ctx.state,
     ctx.meta.gridRows,
     ctx.meta.gridCols,
     tol,
     g,
     droppedPieces,
+    snapCover(ctx),
   );
   const anchored = frameAnchor || (match?.anchored ?? false);
   // Hard cap on a loose-loose merge (see MPP_CLUSTER_PIECE_CAP): over the
@@ -558,6 +598,10 @@ export async function handleDrop(
       },
       [grabAabb, rest],
     );
+    // The drop itself was fine, only the snap it lined up did not happen: the
+    // cluster it would have joined is under a pile. Private to the dropper, since
+    // nobody else's screen changed.
+    if (covered) send(ctx, client, { t: "notice", kind: "snap_covered" });
     return;
   }
 
@@ -647,7 +691,8 @@ async function applyMerge(
     await ctx.state.lockPieces(allPieces);
     ctx.lockedPieces.lock(allPieces);
     // Every cell one of these newly-locked pieces reaches into needs a fresh
-    // composite bake (see ROADMAP Phase 5 Stage 3); a Set dedupes the common
+    // composite bake (see DECISIONS: per-cell compositing runs on a debounced
+    // dirty-cell queue); a Set dedupes the common
     // case of several pieces in this merge sharing a cell. Skipped entirely
     // (not just a no-op call) when no compositor is wired, the common case for
     // any deployment with no R2 write credentials configured.

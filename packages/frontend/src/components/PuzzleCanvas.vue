@@ -4,15 +4,15 @@ import { useI18n } from "vue-i18n";
 import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
-import { useMinimap } from "../composables/useMinimap";
+import { useOverview } from "../composables/useOverview";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { useMode } from "../composables/useMode";
 import { useAuth } from "../composables/useAuth";
 import { useLocaleFormat } from "../i18n/format";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
-import { toLeaderboardRows } from "../data/leaderboard";
-import LeaderboardRow from "./LeaderboardRow.vue";
+import { toContributorsRows } from "../data/contributors";
+import ContributorsRow from "./ContributorsRow.vue";
 
 const { t } = useI18n();
 const { formatNumber } = useLocaleFormat();
@@ -34,7 +34,7 @@ const {
   sendCursor,
 } = usePuzzleSession();
 const { setControls, setCamera, setReady } = useStageControls();
-const { setMinimapSource, setMinimapNavigate } = useMinimap();
+const { setOverviewSource, setOverviewNavigate } = useOverview();
 const {
   flags: boardFlags,
   selectedId: selectedFlagId,
@@ -168,7 +168,7 @@ const loadProgress = computed(() =>
   progressTotal.value > 0 ? Math.round((progressLoaded.value / progressTotal.value) * 100) : 0,
 );
 
-const leaderboardRows = computed(() => toLeaderboardRows(leaderboard.value, userId.value));
+const contributorsRows = computed(() => toContributorsRows(leaderboard.value, userId.value));
 
 function routeMessage(msg: ServerMessage): void {
   if (!stage) return;
@@ -204,6 +204,9 @@ function routeMessage(msg: ServerMessage): void {
     case "rollback":
       stage.applyRollback(msg.groupId, msg.worldX, msg.worldY, msg.reason);
       stage.setPeerHeld(msg.userId, false);
+      break;
+    case "notice":
+      if (msg.kind === "snap_covered") showToast(t("toast.snapCovered"));
       break;
     case "join":
       stage.addPeer(msg.userId, msg.pseudo);
@@ -318,8 +321,8 @@ onMounted(async () => {
     centerOnWorld: (wx, wy) => stage?.centerOnWorld(wx, wy),
     viewportCenterWorld: () => stage?.viewportCenterWorld() ?? null,
   });
-  setMinimapSource(() => stage?.getMinimapSnapshot() ?? null);
-  setMinimapNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
+  setOverviewSource(() => stage?.getOverviewSnapshot() ?? null);
+  setOverviewNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
   unsubscribe = onMessage(routeMessage);
   // Guest-first: the canvas is WS-only. It connects once a complete identity
   // exists (mode flips to contributor on a resolved session or a freshly minted
@@ -435,8 +438,8 @@ onBeforeUnmount(() => {
   }
   setControls(null);
   setReady(false);
-  setMinimapSource(null);
-  setMinimapNavigate(null);
+  setOverviewSource(null);
+  setOverviewNavigate(null);
   close();
   stage?.destroy();
   stage = null;
@@ -529,10 +532,10 @@ onBeforeUnmount(() => {
             t("completion.piecesPlaced", totalPieces, { named: { n: formatNumber(totalPieces) } })
           }}
         </p>
-        <div v-if="leaderboardRows.length > 0" class="completion-leaderboard">
-          <p class="lb-kicker">{{ t("completion.topContributors") }}</p>
-          <ol class="lb-list">
-            <LeaderboardRow v-for="row in leaderboardRows" :key="row.rank" :row="row" />
+        <div v-if="contributorsRows.length > 0" class="completion-contributors">
+          <p class="contributors-kicker">{{ t("completion.topContributors") }}</p>
+          <ol class="contributors-list">
+            <ContributorsRow v-for="row in contributorsRows" :key="row.rank" :row="row" />
           </ol>
         </div>
       </div>
@@ -740,13 +743,13 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(12px);
 }
-.completion-leaderboard {
+.completion-contributors {
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px dashed var(--line);
   text-align: left;
 }
-.lb-kicker {
+.contributors-kicker {
   margin: 0 0 8px;
   font-family: var(--mono);
   font-size: 10px;
@@ -754,7 +757,7 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   color: var(--ink-4);
 }
-.completion-leaderboard .lb-list {
+.completion-contributors .contributors-list {
   list-style: none;
   margin: 0;
   padding: 0;

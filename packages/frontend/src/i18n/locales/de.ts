@@ -6,12 +6,7 @@ const de: MessageSchema = {
     saving: "Speichern...",
     close: "Schließen",
     skip: "Überspringen",
-    leaderboard: "Rangliste",
-    activity: "Aktivität",
-    noActivity: "Noch keine Aktivität.",
-    noStandings: "Noch keine Platzierungen.",
     saveError: "Speichern fehlgeschlagen, bitte erneut versuchen.",
-    fullBoard: "ganze Tabelle",
   },
   time: {
     justNow: "gerade eben",
@@ -33,7 +28,7 @@ const de: MessageSchema = {
     completed: "ABGESCHLOSSEN",
     solvedIn: "gelöst in {duration}",
     liveActivity: "Live-Aktivität",
-    noStandingsFinal: "Keine Platzierungen erfasst.",
+    noStandingsFinal: "Keine Beiträge erfasst.",
     someone: "Jemand",
     placed: "hat {pieces} platziert",
     connected: "hat {pieces} verbunden",
@@ -55,7 +50,6 @@ const de: MessageSchema = {
   },
   topbar: {
     puzzleProgress: "Puzzle-Fortschritt",
-    nationalityTitle: "Nationalität: {code}",
     signedInAs: "Angemeldet als {pseudo}",
     options: "Einstellungen",
     optionsNew: "Einstellungen, neue Versionshinweise",
@@ -71,12 +65,12 @@ const de: MessageSchema = {
     openEnlarged: "Vergrößerte Referenz öffnen",
     image: "Referenzbild",
     fitToView: "An Ansicht anpassen",
+    aim: "Auf das Foto klicken, um das Spielfeld dorthin zu bewegen (oder jederzeit Strg-Klick)",
     credits: "Bildnachweise anzeigen",
   },
-  minimap: {
-    overview: "Übersicht",
+  overview: {
+    title: "Übersicht",
     online: "{n} online",
-    label: "Minikarte",
     enlarge: "Übersicht vergrößern",
   },
   auth: {
@@ -108,8 +102,8 @@ const de: MessageSchema = {
         reference: "Referenz",
         zoom: "Zoom",
         activity: "Aktivität",
-        leaderboard: "Rangliste",
-        minimap: "Minikarte",
+        contributors: "Mitwirkende",
+        overview: "Übersicht",
         flags: "Fahnen",
       },
     },
@@ -123,15 +117,26 @@ const de: MessageSchema = {
       "Doppelklicke auf ein Teil, um es an den Cursor zu heften, und noch einmal, um es abzulegen.",
     flags: "Nutze Fahnen, um dich einfach auf dem Board zu bewegen.",
     flagDrop: "Zieh ein Teil auf eine Fahne in der Leiste, um es dorthin zu schicken.",
-    minimap: "Klicke irgendwo auf die Mini-Karte, um die Ansicht dorthin zu bewegen.",
-    reference: "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört.",
+    overview: "Klicke irgendwo auf die Übersicht, um die Ansicht dorthin zu bewegen.",
+    reference:
+      "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört, und bring das Board dann mit Strg-Klick dorthin.",
   },
   updates: {
     title: "Versionshinweise",
+    v130: {
+      jump: "Die vergrößerte Übersicht und das vergrößerte Referenzfoto bewegen jetzt das Board: Klick auf die Karte, um dorthin zu springen, und auf dem Foto bringt der Fadenkreuz-Knopf, oder Strg-Klick, das Board zu dem, was du gerade ansiehst.",
+      contributors:
+        "Das Panel mit den Spielern heißt jetzt Mitwirkende, und die Formulierungen drumherum sind mitgezogen.",
+      countries:
+        "Jede Fahne nennt jetzt ihr Land in deiner Sprache, in der Liste der Mitwirkenden, in der oberen Leiste und in der Länderauswahl.",
+      home: "Die Zahlen auf der Startseite bewegen sich jetzt von selbst: gesetzte Teile, Mitwirkende und die letzten Aktivitäten aktualisieren sich, während die Seite offen bleibt.",
+      fixes:
+        "Fehlerbehebungen: Das Referenzfoto hindert das Board nicht mehr daran, den gerade angesehenen Bereich zu laden, ein Klick bei weit herausgezoomter Ansicht verschiebt die Ansicht statt ein Teil zu greifen, der Rand des Boards stoppt die Kamera dort, wo er sichtbar wird, und die obere Leiste auf dem Handy zeigt dein Pseudonym und den vollständigen Zählerstand.",
+    },
     v120: {
       panels: "Jedes Panel hat jetzt seinen eigenen Schalter im Bereich Anzeige in diesem Menü.",
-      minimap:
-        "Die vergrößerte Ansicht der Mini-Karte wurde überarbeitet: Sie öffnet jetzt dieselbe Karte, einfach größer.",
+      overview:
+        "Die vergrößerte Ansicht der Übersicht wurde überarbeitet: Sie öffnet jetzt dieselbe Karte, einfach größer.",
       notes:
         "Ein Punkt am Einstellungen-Knopf zeigt dir, dass Versionshinweise da sind, die du noch nicht gelesen hast.",
       fixes:
@@ -149,14 +154,14 @@ const de: MessageSchema = {
       underlay:
         "Zeig das Originalfoto schwach unter dem Board an, über den Bereich Anzeige in diesem Menü.",
       standings:
-        "Die Rangliste bewegt sich bei jedem Zusammenfügen, nicht mehr nur beim Einrasten am Rahmen. Deine eigene Zeile ist immer sichtbar.",
+        "Die Liste der Mitwirkenden bewegt sich bei jedem Zusammenfügen, nicht mehr nur beim Einrasten am Rahmen. Deine eigene Zeile ist immer sichtbar.",
       account:
         "Die Anmeldung mit Google macht aus deinem Gastkonto ein dauerhaftes Konto, das du auch von einem anderen Browser aus wieder erreichst.",
       maintenance:
         "Ein Neustart des Servers zeigt einen Wartungshinweis statt eines Verbindungsfehlers und kommt von selbst zurück, sobald das Puzzle wieder da ist.",
       mobile:
-        "Auf dem Handy behält die Oberfläche nur die Referenz und die Mini-Karte und überlässt dem Board den Bildschirm.",
-      help: "Dieses Menü enthält Tipps, und die Rangliste erklärt, wie Punkte gezählt werden.",
+        "Auf dem Handy behält die Oberfläche nur die Referenz und die Übersicht und überlässt dem Board den Bildschirm.",
+      help: "Dieses Menü enthält Tipps, und die Liste der Mitwirkenden erklärt, wie Teile gezählt werden.",
     },
     v100: {
       launch:
@@ -183,9 +188,9 @@ const de: MessageSchema = {
     titleEdit: "Nationalität ändern",
     titleNew: "Wähle deine Nationalität",
     ledeEdit:
-      "Wähle ein neues Land. Seine Flagge wird in der Rangliste neben deinem Pseudonym angezeigt.",
+      "Wähle ein neues Land. Seine Flagge wird in der Liste der Mitwirkenden neben deinem Pseudonym angezeigt.",
     ledeNew:
-      "Wähle dein Land. Seine Flagge wird in der Rangliste neben deinem Pseudonym angezeigt.",
+      "Wähle dein Land. Seine Flagge wird in der Liste der Mitwirkenden neben deinem Pseudonym angezeigt.",
     selectLabel: "Land",
     selectPlaceholder: "Wähle dein Land...",
     international: "International",
@@ -193,30 +198,38 @@ const de: MessageSchema = {
     cooldownHint: "Du kannst dein Land nur alle {hours} Stunden ändern.",
     cooldown: "Du hast dein Land bereits vor Kurzem geändert. Versuch es in {hours} Std. erneut.",
   },
-  leaderboardModal: {
-    label: "Vollständige Rangliste",
-    rankingMode: "Ranglistenmodus",
+  contributors: {
+    title: "Mitwirkende",
+    empty: "Noch keine Beiträge.",
+    full: "ganze Liste",
+    all: "Alle Mitwirkenden",
+    viewMode: "Ansichtsmodus",
     people: "Personen",
     countries: "Länder",
     prev: "zurück",
     next: "weiter",
+    pcs: "Tle",
+    you: "du",
+    online: "online",
   },
   scoring: {
     open: "Wie Teile gezählt werden",
     title: "Wie Teile gezählt werden",
-    lede: "Jedes Teil auf dem Brett ist einen Punkt wert. Er wird einmal gutgeschrieben, an den ersten Spieler, der es einrastet.",
+    lede: "Jedes Teil auf dem Brett wird einmal gezählt, für die erste Person, die es einrastet.",
     snapTwo:
-      "Du rastest zwei lose Teile zusammen: ein Punkt, nicht zwei. Der Punkt des anderen Teils bleibt für den zurückgelegt, der diesen Verbund im Brett verriegelt.",
+      "Du rastest zwei lose Teile zusammen: das zählt ein Teil, nicht zwei. Das andere bleibt für die Person zurückgelegt, die diesen Verbund im Brett verriegelt.",
     snapCluster:
-      "Du ziehst einen 30-Teile-Verbund auf einen anderen: die 29 bereits gutgeschriebenen zählen nicht doppelt, du bekommst das eine, das noch nie jemand eingerastet hat.",
+      "Du ziehst einen 30-Teile-Verbund auf einen anderen: die 29 bereits gezählten zählen nicht doppelt, du bekommst das eine, das noch nie jemand eingerastet hat.",
     mismatchTitle: "Warum das nicht zum Fortschrittsbalken passt",
     mismatchBody:
-      "Die Rangliste schreibt ein Teil in dem Moment gut, in dem es einrastet, egal wo auf dem Brett. Der Fortschrittsbalken zählt nur die Teile, die an ihrem endgültigen Platz verriegelt sind: die beiden Zahlen sollen gar nicht gleich sein.",
+      "Die Liste der Mitwirkenden zählt ein Teil in dem Moment, in dem es einrastet, egal wo auf dem Brett. Der Fortschrittsbalken zählt nur die Teile, die an ihrem endgültigen Platz verriegelt sind: die beiden Zahlen sollen gar nicht gleich sein.",
     fairTitle: "Am Ende geht es auf",
     fairBody:
-      "Dieses System hält die Rangliste fair. Und es sorgt dafür, dass sie genau {total} Teile ergibt, sobald das letzte Teil gesetzt ist.",
+      "Dieses System sorgt dafür, dass jedes Teil genau einmal gezählt wird. Und dafür, dass die Zählungen genau {total} Teile ergeben, sobald das letzte Teil gesetzt ist.",
   },
-  activityPanel: {
+  activity: {
+    title: "Aktivität",
+    empty: "Noch keine Aktivität.",
     placedLine: "hat {object} platziert",
     connectedLine: "hat {object} verbunden",
     piece: "ein Teil",
@@ -258,13 +271,14 @@ const de: MessageSchema = {
     complete: "Fertig",
     assembled: "Puzzle zusammengesetzt.",
     piecesPlaced: "{n} Teil platziert. | {n} Teile platziert.",
-    topContributors: "Top-Mitwirkende",
+    topContributors: "Mitwirkende",
     summary: "Zusammenfassung",
     hideSummary: "Zusammenfassung ausblenden",
     showSummary: "Zusammenfassung anzeigen",
   },
   toast: {
     tileFull: "Zu viele Teile auf diesem Feld.",
+    snapCovered: "Dieses Teil ist verdeckt: Räume zuerst die Teile darüber weg.",
   },
   carry: {
     hint: "Teil in der Hand. Doppelklicke oder tippe zweimal zum Ablegen, Esc zum Zurücklegen.",
@@ -286,11 +300,6 @@ const de: MessageSchema = {
       black: "Schwarz",
     },
   },
-  row: {
-    pcs: "Tle",
-    you: "du",
-    online: "online",
-  },
   legalDoc: {
     back: "Zurück zur Startseite",
     updated: "Zuletzt aktualisiert: {date}",
@@ -305,10 +314,10 @@ const de: MessageSchema = {
     discord: "Discord-Server",
     collectedHead: "Erfasste Daten",
     collectedBody:
-      "Der Eintritt ins Spielfeld legt ein Gastkonto an: eine eindeutige Benutzerkennung, das von dir gewählte Pseudonym und das beim Onboarding ausgewählte Land, ohne dass eine E-Mail-Adresse erforderlich ist. Wenn du dich mit Google anmeldest, um deine Beiträge unter einer einzigen Identität zu behalten, werden auch deine E-Mail-Adresse und dein Name von Google gespeichert. Deine Beiträge (welche Teile du platziert hast und wann) werden erfasst und für den Aktivitäts-Feed und die Rangliste öffentlich angezeigt. Technische Protokolle (IP-Adresse, Browser) werden vom Hoster aus Gründen der Sicherheit und Zuverlässigkeit verarbeitet.",
+      "Der Eintritt ins Spielfeld legt ein Gastkonto an: eine eindeutige Benutzerkennung, das von dir gewählte Pseudonym und das beim Onboarding ausgewählte Land, ohne dass eine E-Mail-Adresse erforderlich ist. Wenn du dich mit Google anmeldest, um deine Beiträge unter einer einzigen Identität zu behalten, werden auch deine E-Mail-Adresse und dein Name von Google gespeichert. Deine Beiträge (welche Teile du platziert hast und wann) werden erfasst und für den Aktivitäts-Feed und die Liste der Mitwirkenden öffentlich angezeigt. Technische Protokolle (IP-Adresse, Browser) werden vom Hoster aus Gründen der Sicherheit und Zuverlässigkeit verarbeitet.",
     purposesHead: "Zwecke",
     purposesBody:
-      "Die Daten werden ausschließlich zum Betrieb des Spiels verwendet: um dich zu authentifizieren, deinen Fortschritt zu speichern, platzierte Teile zuzuordnen und die Rangliste anzuzeigen. Es werden keine Daten verkauft oder für Werbung verwendet.",
+      "Die Daten werden ausschließlich zum Betrieb des Spiels verwendet: um dich zu authentifizieren, deinen Fortschritt zu speichern, platzierte Teile zuzuordnen und die Liste der Mitwirkenden anzuzeigen. Es werden keine Daten verkauft oder für Werbung verwendet.",
     processorsHead: "Auftragsverarbeiter",
     processorsBody:
       "Der Dienst nutzt Google (Anmeldung), Cloudflare (Frontend-Hosting, Speicherung und Auslieferung der Assets) und OVH (den Server, der das Spiel-Backend hostet, einschließlich seiner selbst gehosteten Analyse). Diese Anbieter können Daten außerhalb der Europäischen Union im Rahmen ihrer eigenen Schutzmechanismen verarbeiten. Es wird kein Drittanbieter-Dienst für Tracking oder Analyse eingesetzt.",

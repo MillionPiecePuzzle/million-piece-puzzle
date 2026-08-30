@@ -4,6 +4,7 @@ import OpenSeadragon from "openseadragon";
 import { useI18n } from "vue-i18n";
 import type { ImageManifest } from "@mpp/shared";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
+import { useOverview } from "../composables/useOverview";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 
@@ -15,6 +16,10 @@ const host = ref<HTMLDivElement | null>(null);
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
 const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
+const { navigate } = useOverview();
+// Armed from the control pillar, so the gesture is discoverable without the
+// modifier. Ctrl (or Cmd) does the same thing whether it is armed or not.
+const aiming = ref(false);
 let viewer: OpenSeadragon.Viewer | null = null;
 
 const aspectRatio = computed(() => `${props.manifest.source.width / props.manifest.source.height}`);
@@ -30,13 +35,52 @@ function zoomBy(factor: number): void {
   vp.applyConstraints();
 }
 
-// Rest at the maximum zoom-out (minZoomImageRatio below) so the image sits
-// inside the viewer with a visible border all around, rather than filling it.
-function fit(immediate = false): void {
+// Empty viewer kept on every side of the image, as a fraction of the viewer's own
+// size. It is the viewport's margin rather than a zoom-out overshoot, so it is
+// there at every zoom: a pan stops with the band showing past the image edge
+// instead of running that edge flush against the modal, where there is nothing
+// left to read it against.
+const EDGE_BAND = 0.05;
+
+function applyEdgeBand(): void {
+  const el = host.value;
+  if (!viewer || !el) return;
+  const x = el.clientWidth * EDGE_BAND;
+  const y = el.clientHeight * EDGE_BAND;
+  viewer.viewport.setMargins({ left: x, right: x, top: y, bottom: y });
+}
+
+// The pyramid is the cropped source (`cols * pieceSize` by `rows * pieceSize`),
+// so it maps 1:1 onto the puzzle frame and an image pixel names a world point.
+function worldAt(position: OpenSeadragon.Point): { x: number; y: number } | null {
   const vp = viewer?.viewport;
-  if (!vp) return;
-  vp.goHome(true);
-  vp.zoomTo(vp.getMinZoom(), undefined, immediate);
+  if (!vp) return null;
+  const image = vp.viewerElementToImageCoordinates(position);
+  const { rows, cols, pieceSize, source } = props.manifest;
+  return {
+    x: (image.x / source.width) * cols * pieceSize,
+    y: (image.y / source.height) * rows * pieceSize,
+  };
+}
+
+// Aim the board from the photo: the click moves the camera instead of zooming
+// the viewer, and leaves the modal open, so the photo stays there to aim from
+// again rather than costing a reopen per jump.
+function onAimedClick(event: OpenSeadragon.CanvasClickEvent): void {
+  const mouse = event.originalEvent as MouseEvent;
+  if (!event.quick || !(aiming.value || mouse.ctrlKey || mouse.metaKey)) return;
+  // Set before the world lookup can fail: an aimed click never falls through to
+  // the viewer's own click-to-zoom.
+  event.preventDefaultAction = true;
+  const world = worldAt(event.position);
+  if (!world) return;
+  navigate.value?.(world.x, world.y);
+}
+
+// The home fit is already inset by the margins, and minZoomImageRatio pins the
+// zoom floor to it, so this is both the rest position and the zoom-out limit.
+function fit(immediate = false): void {
+  viewer?.viewport.goHome(immediate);
 }
 
 onMounted(() => {
@@ -44,6 +88,8 @@ onMounted(() => {
   viewer = OpenSeadragon({
     element: host.value,
     showNavigationControl: false,
+    // The whole margin-inset viewport must stay covered by the image, which is
+    // what turns the margins into a hard pan limit rather than a home framing.
     visibilityRatio: 1,
     // Keep the image fitted inside the modal and snap to that fit the moment it
     // loads, so the reference always opens centered.
@@ -54,14 +100,29 @@ onMounted(() => {
     constrainDuringPan: true,
     animationTime: 0.4,
     springStiffness: 10,
-    minZoomImageRatio: 0.9,
+    // The margins already hold the image off the modal edges, so the zoom floor
+    // is the fitted view itself rather than a further step out of it.
+    minZoomImageRatio: 1,
     maxZoomPixelRatio: 2,
     // Context2d drawer rather than the default WebGL one: the page already runs
     // the PixiJS stage's WebGL context, and the webgl drawer's tile texture
     // uploads fail (blank viewer) under that contention.
     drawer: "canvas",
+    // CORS on every tile request, though nothing here reads a pixel back. The
+    // board streams this same pyramid, at the same URLs (dziRevealLayer.ts),
+    // through `fetch`, which WebGL leaves no choice but to make a CORS request.
+    // R2 answers a request carrying no Origin with no
+    // Access-Control-Allow-Origin and, decisively, no Vary: Origin, so the
+    // browser replays that cached response to the board's CORS fetch for the
+    // whole max-age: one plain <img> here and the board cannot load that tile
+    // for hours, falling back to its blurry base level over the area the
+    // player just examined.
+    crossOriginPolicy: "Anonymous",
   });
+  applyEdgeBand();
+  viewer.addHandler("resize", applyEdgeBand);
   viewer.addHandler("open", () => fit(true));
+  viewer.addHandler("canvas-click", onAimedClick);
   viewer.open(dziUrlFor(props.manifest) as unknown as OpenSeadragon.TileSourceSpecifier);
   trap.activate();
 });
@@ -86,7 +147,7 @@ onBeforeUnmount(() => {
         <button type="button" class="close" :aria-label="t('common.close')" @click="emit('close')">
           &times;
         </button>
-        <div ref="host" class="osd-large" />
+        <div ref="host" class="osd-large" :class="{ aiming }" />
         <div class="zoom">
           <button type="button" :aria-label="t('zoom.in')" @click="zoomBy(1.4)">
             <svg class="ic" viewBox="0 0 16 16" fill="none">
@@ -107,6 +168,23 @@ onBeforeUnmount(() => {
             <svg class="ic" viewBox="0 0 16 16" fill="none">
               <path
                 d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            :aria-label="t('reference.aim')"
+            :title="t('reference.aim')"
+            :aria-pressed="aiming"
+            @click="aiming = !aiming"
+          >
+            <svg class="ic" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="3.1" stroke="currentColor" stroke-width="1.4" />
+              <path
+                d="M8 1.4v2.5M8 12.1v2.5M1.4 8h2.5M12.1 8h2.5"
                 stroke="currentColor"
                 stroke-width="1.4"
                 stroke-linecap="round"
@@ -161,6 +239,10 @@ onBeforeUnmount(() => {
   max-height: 100%;
   /* No overflow clip here: the caption is anchored just below the shell and must
      escape it. The image clip lives on .osd-large instead. */
+}
+.osd-large.aiming {
+  /* Inherited by the viewer's own elements, which set no cursor of their own. */
+  cursor: crosshair;
 }
 .osd-large {
   width: 100%;
@@ -232,11 +314,21 @@ onBeforeUnmount(() => {
   color: var(--ink-2);
   border-bottom: 1px solid var(--line-2);
 }
+/* The hover and armed fills reach the pillar's own corners, so the end buttons
+   carry its radius rather than painting a square over it. */
+.zoom button:first-child {
+  border-radius: 12px 12px 0 0;
+}
 .zoom button:last-child {
   border-bottom: none;
+  border-radius: 0 0 12px 12px;
 }
 .zoom button:hover {
   background: var(--paper-2);
+}
+.zoom button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .ic {
   width: 16px;

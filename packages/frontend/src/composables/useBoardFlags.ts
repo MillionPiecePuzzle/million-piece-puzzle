@@ -12,7 +12,7 @@ import {
 import type { FlagDropTargetSource } from "../canvas/flagDrop";
 
 // Personal viewport flags, shared by the HUD bar, the popover, the canvas layer
-// and both minimaps. Client-only and per browser: the list is keyed by puzzle
+// and both overviews. Client-only and per browser: the list is keyed by puzzle
 // id, so a board switch never resurrects coordinates from another puzzle.
 const flags = ref<BoardFlag[]>([]);
 const selectedId = ref<string | null>(null);
@@ -21,7 +21,7 @@ const puzzleId = ref<string | null>(null);
 // Pull-based bridge for the drop that sends a dragged cluster to a flag: the
 // stage measures the buttons when a drag starts (the bar cannot relayout under a
 // held pointer) and hit-tests the pointer against them itself. Registered by the
-// bottom-center bar alone, which is what keeps the canvas and minimap markers out
+// bottom-center bar alone, which is what keeps the canvas and overview markers out
 // of the gesture, and answers in client coordinates, the one frame the DOM bar
 // and the canvas both speak.
 const dropTargetSource = shallowRef<FlagDropTargetSource | null>(null);

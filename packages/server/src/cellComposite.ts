@@ -1,7 +1,8 @@
-// Server-composited locked-tile geometry and version bookkeeping (see ROADMAP
-// Phase 5 Stage 3). "Cell" here is the same shared world-grid cell every
-// other per-cell index in this codebase already uses (see worldGrid.ts,
-// WORLD_TILE_SIZE), not the minimap's separate downsampled overview grid.
+// Server-composited locked-tile geometry and version bookkeeping (see
+// DECISIONS: version-suffixed cell composites). "Cell" here is the same
+// shared world-grid cell every other per-cell index in this codebase already
+// uses (see worldGrid.ts, WORLD_TILE_SIZE), not the minimap's separate
+// downsampled overview grid.
 
 import type { CellComposite } from "@mpp/shared";
 import { cellKey } from "./worldGrid.js";
@@ -140,8 +141,8 @@ export class CellCompositeIndex {
   }
 }
 
-// Every composited tile covering a region_state batch's cells (see ROADMAP
-// Phase 5 Stage 5). A cell with no bake yet in `index` is simply omitted, the
+// Every composited tile covering a region_state batch's cells (see DECISIONS:
+// DZI reveal mask/seam bake). A cell with no bake yet in `index` is simply omitted, the
 // same "absent means not ready yet" convention region_state already uses for
 // lockedPieceIds.
 export function collectRegionCellComposites(

@@ -3,7 +3,9 @@
  * never drifts. A contributor's country is an ISO 3166-1 alpha-2 code in lower
  * case (e.g. "fr"), set during onboarding and shown as a flag avatar in the
  * leaderboard. The codes are intersected with the available round-flag assets,
- * so every entry has a flag. Names are English (i18n comes later).
+ * so every entry has a flag. Names are English: the frontend labels a code in
+ * the active UI locale from Intl.DisplayNames (i18n/countryNames.ts) and only
+ * falls back to the name stored here.
  */
 
 export type Country = { code: string; name: string };

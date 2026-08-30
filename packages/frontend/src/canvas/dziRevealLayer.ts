@@ -1,4 +1,4 @@
-// The only rendering path for locked content (see ROADMAP Phase 5 Stage 5):
+// The only rendering path for locked content (see DECISIONS: DZI reveal mask/seam bake):
 // reveals the reference DZI pyramid through each locked piece's own
 // server-baked silhouette, with a seam overlay drawn on top. This layer
 // never fetches a full-photo AVIF or does per-cell RGB compositing itself;

@@ -288,6 +288,15 @@ export type SRollback = {
   reason?: "tile_full";
 };
 
+// Private to one client: something the server refused that is neither a protocol
+// error nor a position change, so the drop it rode on still stands and only a
+// toast is owed. "snap_covered": the piece the drop would have joined is buried
+// under a pile, and a buried piece is not a snap target (see MPP_SNAP_COVER_MAX).
+export type SNotice = {
+  t: "notice";
+  kind: "snap_covered";
+};
+
 // Presence, server to client. join is sent to a connecting client once per peer
 // already present, and to existing peers when a new peer connects. The pseudo
 // is the peer's authenticated profile pseudo, fixed for the connection. leave
@@ -373,8 +382,8 @@ export type SRegionState = {
   // RegionGroup's worldX/worldY already does for a loose group. Always an
   // array, never absent, so the client never needs to null-check it.
   lockedPieceIds: WirePiece[];
-  // Ready server-composited tiles covering this batch's cells (see ROADMAP
-  // Phase 5 Stages 3-5): one entry per batch cell that already has a bake.
+  // Ready server-composited tiles covering this batch's cells (see DECISIONS:
+  // version-suffixed cell composites): one entry per batch cell that already has a bake.
   // Always an array, never absent, same convention as lockedPieceIds; a cell
   // absent here has no composite yet, so the client renders nothing for it
   // until a later cell_composite push reports one.
@@ -387,9 +396,10 @@ export type SRegionState = {
   coverage?: { minX: number; minY: number; maxX: number; maxY: number };
 };
 
-// One cell's server-composited locked-tile version (see ROADMAP Phase 5
-// Stage 3): rebaked from that cell's currently-locked, bordered piece tiles
-// on every lock event that touches it, cached and versioned in R2. `cellKey`
+// One cell's server-composited locked-tile version (see DECISIONS:
+// version-suffixed cell composites): rebaked from that cell's currently-locked
+// piece silhouettes on every lock event that touches it, cached and versioned
+// in R2. `cellKey`
 // is the same world-grid cell key the server's spatial indexes use
 // internally; the frontend needs no further indirection since a cell
 // position is not a solved-adjacency secret (unlike a piece id). `version`
@@ -436,6 +446,19 @@ export type LandingResponse = {
   completion?: { at: number; startedAt: number };
 };
 
+// HTTP response for GET /live: the figures the landing polls while it is open,
+// and nothing else. Deliberately global: no per-visitor field, so one response is
+// correct for every reader and an edge can serve it from cache (see DECISIONS:
+// the landing's live figures ride a cacheable global route). `status` is carried
+// so a poller notices a board that has just been completed; the recap itself
+// still comes from GET /landing.
+export type LiveResponse = {
+  status: "active" | "completed";
+  progress: { locked: number; total: number };
+  leaderboard: LeaderboardEntry[];
+  activity: ActivityItem[];
+};
+
 // Admission queue (see DECISIONS: admission queue). A client requests a ticket,
 // then either connects immediately with the grant or polls status until a slot
 // frees. `ready` carries the one-time grant for the WS `?grant=` query; `queued`
@@ -466,6 +489,7 @@ export type ServerMessage =
   | SDrop
   | SSnap
   | SRollback
+  | SNotice
   | SJoin
   | SLeave
   | SCursor

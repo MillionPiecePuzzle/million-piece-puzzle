@@ -2,15 +2,17 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
-import { toCountryRows, toLeaderboardRows } from "../data/leaderboard";
+import { toCountryRows, toContributorsRows } from "../data/contributors";
+import { useCountryNames } from "../i18n/countryNames";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
-import LeaderboardRow from "./LeaderboardRow.vue";
+import ContributorsRow from "./ContributorsRow.vue";
 
 const { t } = useI18n();
 const emit = defineEmits<{ close: [] }>();
 
 const { leaderboard, userId } = usePuzzleSession();
+const { countryName } = useCountryNames();
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => emit("close") });
 const { onMousedown, onClick } = useBackdropClick(() => emit("close"));
@@ -20,8 +22,8 @@ const mode = ref<Mode>("people");
 
 const rows = computed(() =>
   mode.value === "people"
-    ? toLeaderboardRows(leaderboard.value, userId.value)
-    : toCountryRows(leaderboard.value, userId.value),
+    ? toContributorsRows(leaderboard.value, userId.value)
+    : toCountryRows(leaderboard.value, userId.value, countryName),
 );
 
 const PAGE_SIZE = 10;
@@ -54,10 +56,10 @@ onMounted(trap.activate);
         class="panel modal"
         role="dialog"
         aria-modal="true"
-        :aria-label="t('leaderboardModal.label')"
+        :aria-label="t('contributors.all')"
       >
         <div class="modal-head">
-          <h3>{{ t("common.leaderboard") }}</h3>
+          <h3>{{ t("contributors.title") }}</h3>
           <button
             type="button"
             class="close"
@@ -67,14 +69,14 @@ onMounted(trap.activate);
             &times;
           </button>
         </div>
-        <div class="seg" role="group" :aria-label="t('leaderboardModal.rankingMode')">
+        <div class="seg" role="group" :aria-label="t('contributors.viewMode')">
           <button
             type="button"
             :class="{ on: mode === 'people' }"
             :aria-pressed="mode === 'people'"
             @click="mode = 'people'"
           >
-            {{ t("leaderboardModal.people") }}
+            {{ t("contributors.people") }}
           </button>
           <button
             type="button"
@@ -82,11 +84,11 @@ onMounted(trap.activate);
             :aria-pressed="mode === 'countries'"
             @click="mode = 'countries'"
           >
-            {{ t("leaderboardModal.countries") }}
+            {{ t("contributors.countries") }}
           </button>
         </div>
-        <ol class="lb-list">
-          <LeaderboardRow
+        <ol class="contributors-list">
+          <ContributorsRow
             v-for="row in pageRows"
             :key="row.rank"
             :row="row"
@@ -95,11 +97,11 @@ onMounted(trap.activate);
         </ol>
         <div class="modal-foot">
           <button type="button" :disabled="page === 0" @click="prev">
-            &larr; {{ t("leaderboardModal.prev") }}
+            &larr; {{ t("contributors.prev") }}
           </button>
           <span class="page">{{ page + 1 }} / {{ pageCount }}</span>
           <button type="button" :disabled="page === pageCount - 1" @click="next">
-            {{ t("leaderboardModal.next") }} &rarr;
+            {{ t("contributors.next") }} &rarr;
           </button>
         </div>
       </div>
@@ -151,6 +153,10 @@ onMounted(trap.activate);
 }
 .seg {
   display: inline-flex;
+  /* The shell is a flex column, which blockifies its children and stretches
+     them across the cross axis, so the switch needs to opt out of the stretch
+     to stay as wide as its two buttons. */
+  align-self: flex-start;
   margin-bottom: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-btn);
@@ -173,7 +179,7 @@ onMounted(trap.activate);
 .seg button:hover:not(.on) {
   color: var(--ink);
 }
-.lb-list {
+.contributors-list {
   list-style: none;
   margin: 0;
   padding: 0;

@@ -6,8 +6,8 @@ export const HUD_PANEL_IDS = [
   "reference",
   "zoom",
   "activity",
-  "leaderboard",
-  "minimap",
+  "contributors",
+  "overview",
   "flags",
 ] as const;
 
@@ -26,7 +26,7 @@ export type DisplaySettings = {
 // other four are not drawn there and not offered in the options menu either, so
 // a choice made on a desktop cannot bring one back onto a screen that cannot
 // hold it.
-const COMPACT_PANEL_IDS: readonly HudPanelId[] = ["reference", "minimap"];
+const COMPACT_PANEL_IDS: readonly HudPanelId[] = ["reference", "overview"];
 
 const STORAGE_KEY = "mpp.display";
 

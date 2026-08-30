@@ -92,7 +92,7 @@ session) alongside the run, and tailing the console for a line like:
 [swarm] hotspot found near (123456, 654321)
 ```
 
-Pan or use the minimap to jump to that world position; the clustering bots'
+Pan or use the overview to jump to that world position; the clustering bots'
 labeled cursors should be gliding around and dragging pieces nearby.
 
 All bots from one host share one IP, so the server's per-IP concurrent

@@ -108,6 +108,33 @@ describe("GroupIndex", () => {
     expect(idx.overlapsBox({ minX: 360, minY: 360, maxX: 380, maxY: 380 }, 0)).toBe(false);
   });
 
+  it("collects the groups whose body covers a point, minus the excluded ids", () => {
+    const idx = new GroupIndex(CELL);
+    idx.set(1, 250, 350, at(250, 350));
+    idx.set(2, 255, 355, at(255, 355));
+    idx.set(3, 400, 350, at(400, 350));
+    expect(idx.groupsCoveringPoint(260, 360, new Set(), 10).map((g) => g.groupId)).toEqual([1, 2]);
+    expect(idx.groupsCoveringPoint(260, 360, new Set([1]), 10).map((g) => g.groupId)).toEqual([2]);
+    expect(idx.groupsCoveringPoint(274, 360, new Set(), 10).map((g) => g.groupId)).toEqual([2]);
+    // The body's far edge is open: a point exactly there is outside it.
+    expect(idx.groupsCoveringPoint(275, 360, new Set(), 10)).toEqual([]);
+  });
+
+  it("stops collecting covering groups at the limit", () => {
+    const idx = new GroupIndex(CELL);
+    idx.set(1, 250, 350, at(250, 350));
+    idx.set(2, 255, 355, at(255, 355));
+    expect(idx.groupsCoveringPoint(260, 360, new Set(), 1)).toHaveLength(1);
+    expect(idx.groupsCoveringPoint(260, 360, new Set(), 0)).toEqual([]);
+  });
+
+  it("finds a cluster covering a point from a cell above and left of it", () => {
+    const idx = new GroupIndex(CELL);
+    idx.set(7, 50, 50, { originX: 50, originY: 50, size: 900, width: 300, height: 300 });
+    expect(idx.groupsCoveringPoint(320, 320, new Set(), 10).map((g) => g.groupId)).toEqual([7]);
+    expect(idx.groupsCoveringPoint(360, 360, new Set(), 10)).toEqual([]);
+  });
+
   it("clear empties the index", () => {
     const idx = new GroupIndex(CELL);
     idx.set(1, 10, 10, at(10, 10));

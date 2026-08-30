@@ -1,4 +1,4 @@
-import type { LandingResponse } from "@mpp/shared";
+import type { LandingResponse, LiveResponse } from "@mpp/shared";
 import { authBaseUrl } from "./authBaseUrl";
 
 // Public landing endpoints, served from the WS host (the same Node process as the
@@ -12,8 +12,13 @@ export function interestedUrl(): string {
   return `${authBaseUrl()}/interested`;
 }
 
+export function liveUrl(): string {
+  return `${authBaseUrl()}/live`;
+}
+
 export type InterestState = { count: number; me: boolean };
 export type LandingData = LandingResponse;
+export type LiveData = LiveResponse;
 
 let cached: LandingData | null = null;
 let inFlight: Promise<LandingData | null> | null = null;
@@ -34,6 +39,35 @@ export function loadLanding(): Promise<LandingData | null> {
       });
   }
   return inFlight;
+}
+
+// Re-reads GET /landing and replaces the cached body. The one-shot cache above
+// is what keeps the entry gate and the landing CTA agreeing on eventStartsAt;
+// this is for the one transition that outdates it, a board completing while a
+// landing is open, where the recap has to be read again.
+export async function reloadLanding(): Promise<LandingData | null> {
+  const data = await fetch(landingUrl())
+    .then((res) => (res.ok ? (res.json() as Promise<LandingData>) : null))
+    .catch(() => null);
+  if (data) cached = data;
+  return data;
+}
+
+// How often an open landing re-reads the live figures. The server answers GET
+// /live with a longer `s-maxage` than this, so a reader polling at this cadence
+// mostly reads an edge cache rather than the origin.
+export const LIVE_POLL_INTERVAL_MS = 5_000;
+
+// One poll of the live figures. Never rejects and never caches: a failed poll
+// resolves to null and the caller keeps what it already has on screen, so a
+// blip never repaints the landing.
+export async function loadLive(): Promise<LiveData | null> {
+  try {
+    const res = await fetch(liveUrl());
+    return res.ok ? ((await res.json()) as LiveData) : null;
+  } catch {
+    return null;
+  }
 }
 
 // Reachability probe for the maintenance screens: does the backend answer at

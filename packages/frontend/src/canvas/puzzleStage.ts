@@ -49,27 +49,27 @@ export type Mode = "pending" | "contributor";
 // drop broadcasts to this client. Also drives client-side frustum culling.
 export type ViewportRect = Viewport;
 
-// One piece reduced to a point for the minimap: its world center and whether
+// One piece reduced to a point for the overview: its world center and whether
 // its cluster is locked to the frame.
-export type MinimapPiece = { x: number; y: number; locked: boolean };
+export type OverviewPiece = { x: number; y: number; locked: boolean };
 
 // A group as build()'s initial pass needs it: always empty in practice, since
 // welcome carries no board (groups stream in later via applyRegionState), kept
 // only so the pass has something typed to iterate.
 export type InitialGroupSpec = { id: number; worldX: number; worldY: number };
 
-// Everything the minimap needs to draw, pulled from the stage on demand. `grid`
+// Everything the overview needs to draw, pulled from the stage on demand. `grid`
 // is the server-computed global density overview (decoupled from the now-partial
 // local board); `pieces` is the live overlay of the locally known groups (the
 // visited regions the client has fresh positions for), drawn on top to refine the
 // coarse grid. Null grid degrades to the overlay alone until one arrives.
-export type MinimapSnapshot = {
+export type OverviewSnapshot = {
   playZone: PlayZone;
   frame: { w: number; h: number };
   grid: MinimapGrid | null;
-  pieces: MinimapPiece[];
+  pieces: OverviewPiece[];
   // Server-grid cell indices (row * cols + col) the client knows live: the cells
-  // its visited groups fall in. The minimap skips the server density for these so
+  // its visited groups fall in. The overview skips the server density for these so
   // the stale global count never shows under a region the live overlay covers.
   knownCells: Set<number>;
   viewport: Viewport | null;
@@ -101,7 +101,7 @@ type GroupNode = {
   // Membership: the piece ids this group owns, each mapped to its (dx, dy) offset
   // from the group anchor. Maintained independently of whether textures and nodes
   // are built, so the group is fully described while dehydrated: the offsets drive
-  // localBounds, container placement, and the minimap with no geometry or seed.
+  // localBounds, container placement, and the overview with no geometry or seed.
   members: Map<number, PieceOffset>;
   // Built piece nodes, present only for pieces currently hydrated. A dehydrated
   // group has an empty array and an empty container.
@@ -121,9 +121,10 @@ type GroupNode = {
 // A locked piece, flat and independent of any group: dx/dy are its grid-unit
 // offset from the frame origin (its own solved (col, row)), which doubles as
 // its absolute world position since the layer holding it sits at world (0, 0).
-// A locked piece is never individually fetched (see ROADMAP Phase 5 Stage 5:
-// the only rendering path for locked content is DziRevealLayer's reveal of
-// the reference photo pyramid); node is populated only by salvage (see
+// A locked piece is never individually fetched (see DECISIONS: DZI reveal
+// mask/seam bake, the only rendering path for locked content being
+// DziRevealLayer's reveal of the reference photo pyramid); node is populated
+// only by salvage (see
 // salvageLockedPiece), reusing a texture the local client's own drag already
 // hydrated, and freed once it leaves the keep ring. Otherwise a locked piece
 // is fully described (position, cell membership) with no geometry or
@@ -214,8 +215,10 @@ const EDGE_PAN_MARGIN = 56;
 const EDGE_PAN_MAX_SPEED = 1100;
 
 // The camera may travel one padding ring past the play zone; pieces stay
-// strictly inside it.
-const PLAY_ZONE_PADDING_FRACTION = 0.04;
+// strictly inside it. The ring is a fraction of the viewport, not of the zone,
+// so the board's edge comes to rest just inside the screen at every zoom instead
+// of drifting a board-sized margin out of sight on a large board.
+const PLAY_ZONE_PADDING_FRACTION = 0.12;
 const BACKDROP_COLOR = 0x15140f;
 const BACKDROP_ALPHA = 0.3;
 // Coarse checkerboard painted over the out-of-bounds fill, a deliberately
@@ -355,7 +358,7 @@ export class PuzzleStage {
   // its one piece's id), so this is a separate map, never merged with `groups`.
   private lockedPieces = new Map<number, LockedPieceSlot>();
   // Spatial index over the same LOD tile grid as groupGrid, for the
-  // loading-cell scan and the minimap overlay to find locked pieces per cell
+  // loading-cell scan and the overview overlay to find locked pieces per cell
   // the same way groupGrid finds groups.
   private lockedPieceGrid = new GroupGrid(LOD_TILE_WORLD);
   // Locked pieces currently rendered via a salvaged node (see
@@ -554,10 +557,10 @@ export class PuzzleStage {
   // remote): excluded from bakes and drawn live on top so a piece in hand never
   // freezes into a tile.
   private lodLayer: LodTileLayer | null = null;
-  // Server-baked locked-tile reveal (see ROADMAP Phase 5 Stage 5 and
-  // DECISIONS: DZI reveal mask and seam baked server-side via
-  // CellCompositor): the only rendering path for locked content, active at
-  // every zoom, sharing lockedPiecesLayer with any currently-salvaged node.
+  // Server-baked locked-tile reveal (see DECISIONS: DZI reveal mask and seam
+  // baked server-side via CellCompositor): the only rendering path for locked
+  // content, active at every zoom, sharing lockedPiecesLayer with any
+  // currently-salvaged node.
   // Reveals the reference DZI pyramid through a server-baked per-piece
   // silhouette mask plus a seam overlay, not a flat rectangle (see
   // dziRevealLayer.ts for how the two combine).
@@ -610,8 +613,8 @@ export class PuzzleStage {
   // cover up over the progressive fill instead of an eager whole-board fetch.
   private manifest: ImageManifest | null = null;
   private textureBase = "";
-  // Latest server-computed minimap density grid (the periodic WS `minimap` message
-  // and one on join). The minimap renders this global overview plus a live overlay
+  // Latest server-computed density grid (the periodic WS `minimap` message and one
+  // on join). The overview renders this global density plus a live overlay
   // of the locally known groups, so it stays complete while the local board is
   // partial.
   private minimapGrid: MinimapGrid | null = null;
@@ -669,8 +672,8 @@ export class PuzzleStage {
     this.broadcastMaxCells = maxCells;
   }
 
-  // Store the latest server minimap grid (the WS `minimap` message). The minimap
-  // panel reads it via the next getMinimapSnapshot.
+  // Store the latest server density grid (the WS `minimap` message, which keeps the
+  // wire's own name). The overview panel reads it via the next getOverviewSnapshot.
   setMinimapGrid(grid: MinimapGrid): void {
     this.minimapGrid = grid;
   }
@@ -974,9 +977,9 @@ export class PuzzleStage {
   // Build one locked-piece slot from its frame-relative offset: its absolute
   // world bounds (no origin translation, unlike a group, since the layer
   // holding it sits at world (0, 0)) and its spatial-index entry, for the
-  // minimap overlay and the salvage bridge below. No texture is ever fetched
-  // for it (see ROADMAP Phase 5 Stage 5: DziRevealLayer's reveal is the only
-  // rendering path for locked content); node stays null unless
+  // overview overlay and the salvage bridge below. No texture is ever fetched
+  // for it (see DECISIONS: DZI reveal mask/seam bake, DziRevealLayer's reveal
+  // being the only rendering path for locked content); node stays null unless
   // salvageLockedPiece populates it. Shared by applyRegionState (streamed
   // construction) and applyAnchor (a member with no salvageable node).
   private constructLockedPiece(wp: WirePiece): LockedPieceSlot {
@@ -1019,23 +1022,18 @@ export class PuzzleStage {
     piece.container.y = offset.dy * pieceSize;
   }
 
-  private playZonePadding(): number {
-    if (!this.playZone) return 0;
-    const w = this.playZone.maxX - this.playZone.minX;
-    const h = this.playZone.maxY - this.playZone.minY;
-    return Math.max(w, h) * PLAY_ZONE_PADDING_FRACTION;
-  }
-
   // Dark fill over everything outside the play zone, then a coarse checker on
   // top so the out-of-bounds area reads as a distinct motif from the fine grid
   // inside. The zone interior is left unpainted so the light stage backdrop
-  // shows through. The fill reaches far enough to cover the screen even fully
-  // zoomed out with the zone smaller than the viewport.
+  // shows through. The fill reaches one full viewport at MIN_ZOOM past the zone,
+  // which covers every world point the camera clamp can bring on screen on
+  // either of its branches: a padding ring on a board larger than the viewport,
+  // half a viewport on a board smaller than it.
   private redrawBackdrop(): void {
     if (!this.backdrop || !this.playZone || !this.app) return;
     const zone = this.playZone;
     const screen = this.app.renderer.screen;
-    const reach = (screen.width + screen.height) / MIN_ZOOM;
+    const reach = Math.max(screen.width, screen.height) / MIN_ZOOM;
     const oMinX = zone.minX - reach;
     const oMinY = zone.minY - reach;
     const oMaxX = zone.maxX + reach;
@@ -1417,10 +1415,10 @@ export class PuzzleStage {
     for (const c of cellComposites) this.applyCellComposite(c.cellKey, c.version);
   }
 
-  // Registers or bumps one cell's known mask/seam version (see ROADMAP Phase
-  // 5 Stage 5), shared by applyRegionState's newly-covered-cell batch and the
-  // live cell_composite push: both just report a fact to DziRevealLayer,
-  // which decides whether/when to actually fetch it. No LOD-tile
+  // Registers or bumps one cell's known mask/seam version (see DECISIONS: DZI
+  // reveal mask/seam bake), shared by applyRegionState's newly-covered-cell
+  // batch and the live cell_composite push: both just report a fact to
+  // DziRevealLayer, which decides whether/when to actually fetch it. No LOD-tile
   // invalidation needed here: the reveal renders on its own layer,
   // independent of the loose-piece baked tile above it, so a version bump
   // never needs that tile to re-bake.
@@ -1601,9 +1599,10 @@ export class PuzzleStage {
   // the flat locked layer at its frame-relative position, registering it in
   // every locked-piece index the fresh-fetch path would have. No texture
   // re-fetch, no destroy/rebuild flicker. This is the only bridge between a
-  // piece anchoring and its cell's composite catching up (see ROADMAP Phase 5
-  // Stage 5): salvagedPieceIds tracks it so reconcileSalvagedLockedPieces can
-  // free it the moment a composite tile is confirmed to cover it.
+  // piece anchoring and its cell's composite catching up (see DECISIONS: DZI
+  // reveal mask/seam bake): salvagedPieceIds tracks it so
+  // reconcileSalvagedLockedPieces can free it the moment a composite tile is
+  // confirmed to cover it.
   private salvageLockedPiece(piece: PieceNode, wp: WirePiece): void {
     const pieceSize = this.manifest?.pieceSize ?? 0;
     const margin = this.manifest?.margin ?? 0;
@@ -1852,8 +1851,9 @@ export class PuzzleStage {
     // transparent tab margin, corners, and the gaps between a cluster's pieces, so
     // the top piece can fully cover an opaque neighbour beneath it. Re-resolve
     // against every cluster overlapping the point and grab the topmost one whose
-    // opaque silhouette is actually under the pointer. None means the pointer sits
-    // on a transparent gap: let the press bubble to the stage, which starts a pan.
+    // opaque silhouette is actually under the pointer. None means this press is not
+    // a grab (a transparent gap, or the overview-only LOD band): let it bubble to
+    // the stage, which pans and, on a double press, puts a carried cluster down.
     const target = this.grabTargetAt(world.x, world.y, node);
     if (!target) return;
     ev.stopPropagation();
@@ -1883,7 +1883,14 @@ export class PuzzleStage {
     this.callbacks.onGrab(target.id);
   }
 
-  // Topmost grabbable cluster whose opaque silhouette covers the world point.
+  // Topmost grabbable cluster whose opaque silhouette covers the world point, or
+  // null while the LOD is active: the band is overview-only by design (see
+  // DECISIONS.md, tiled zoom-out LOD), and this guard is what enforces it
+  // (applyLodLayerInput only stops the press from arriving at all). Hiding the
+  // covered clusters enforces nothing, on two counts: a cluster the LOD
+  // deliberately keeps live (held by a peer, or in a cell the bake has not
+  // filled yet) is hit-tested like any other, and the fall-through below
+  // resolves against the spatial index, which has no notion of a hidden cluster.
   // `hit` is the cluster Pixi delivered the press to (topmost by tile rect); when
   // its own silhouette covers the point it is by definition the topmost grabbable
   // and wins immediately. Otherwise fall through to the clusters beneath it,
@@ -1892,6 +1899,7 @@ export class PuzzleStage {
   // locked piece is never a candidate here at all: it lives outside groupGrid
   // entirely (see lockedPieceGrid), not merely filtered out.
   private grabTargetAt(worldX: number, worldY: number, hit: GroupNode): GroupNode | null {
+    if (this.lodActive) return null;
     if (this.pointerOnPiece(hit, worldX, worldY)) return hit;
     const layer = this.unlockedLayer;
     if (!layer) return null;
@@ -2597,16 +2605,20 @@ export class PuzzleStage {
     };
   }
 
-  // Fit the whole play zone, plus its padding ring, into the viewport and
-  // center on it. Zoom is clamped to MIN_ZOOM, so a large board stays partly
-  // off-screen rather than zooming out past the limit.
+  // Fit the whole play zone into the viewport and center on it, leaving the
+  // padding ring showing on each side. Zoom is clamped to MIN_ZOOM, so a large
+  // board stays partly off-screen rather than zooming out past the limit.
   fitView(): void {
     if (!this.app || !this.playZone) return;
     const screen = this.app.renderer.screen;
-    const pad = this.playZonePadding();
-    const w = this.playZone.maxX - this.playZone.minX + pad * 2;
-    const h = this.playZone.maxY - this.playZone.minY + pad * 2;
-    this.camera.zoom = clamp(Math.min(screen.width / w, screen.height / h), MIN_ZOOM, MAX_ZOOM);
+    const room = 1 - 2 * PLAY_ZONE_PADDING_FRACTION;
+    const w = this.playZone.maxX - this.playZone.minX;
+    const h = this.playZone.maxY - this.playZone.minY;
+    this.camera.zoom = clamp(
+      Math.min((screen.width * room) / w, (screen.height * room) / h),
+      MIN_ZOOM,
+      MAX_ZOOM,
+    );
     this.centerOn(
       (this.playZone.minX + this.playZone.maxX) / 2,
       (this.playZone.minY + this.playZone.maxY) / 2,
@@ -2618,7 +2630,7 @@ export class PuzzleStage {
     this.centerOn(this.worldSize.w / 2, this.worldSize.h / 2);
   }
 
-  // Minimap navigation: center the camera on a world point picked from the
+  // Overview navigation: center the camera on a world point picked from the
   // overview. The shared clamp pulls an out-of-bounds pick back to the nearest
   // in-bounds framing.
   centerOnWorld(worldX: number, worldY: number): void {
@@ -2640,7 +2652,7 @@ export class PuzzleStage {
     this.zoomBy(1 / 1.25);
   }
 
-  getMinimapSnapshot(): MinimapSnapshot | null {
+  getOverviewSnapshot(): OverviewSnapshot | null {
     if (!this.playZone || !this.worldSize || !this.manifest) return null;
     // The global overview is the server `grid`; on top, an overlay of the locally
     // known groups (the visited regions, bounded by the partial board, not the
@@ -2650,7 +2662,7 @@ export class PuzzleStage {
     const { pieceSize } = this.manifest;
     const half = pieceSize / 2;
     const grid = this.minimapGrid;
-    const pieces: MinimapPiece[] = [];
+    const pieces: OverviewPiece[] = [];
     // Density cells the live overlay supersedes. Keyed off the authoritative
     // coverage (the LOD cells the client has streamed), not the cells that happen
     // to hold a piece right now: once a region is loaded the client owns its live
@@ -2751,23 +2763,28 @@ export class PuzzleStage {
     this.zoomAndPanBy(px, py, px, py, factor);
   }
 
-  // Keeps the camera within the play zone expanded by one padding ring. When
-  // the viewport is larger than that limit on an axis, it centers instead.
+  // Keeps the camera within the play zone expanded by one padding ring. The ring
+  // is a fraction of the viewport, so a pan stops with the zone border that
+  // fraction inside the screen edge whatever the zoom. When the viewport is
+  // larger than that limit on an axis, it centers instead.
   private clampCamera(): void {
     if (!this.app || !this.playZone) return;
     const screen = this.app.renderer.screen;
-    const pad = this.playZonePadding();
+    const vw = screen.width / this.camera.zoom;
+    const vh = screen.height / this.camera.zoom;
+    const padX = vw * PLAY_ZONE_PADDING_FRACTION;
+    const padY = vh * PLAY_ZONE_PADDING_FRACTION;
     const wx = fitOrClamp(
       -this.camera.x / this.camera.zoom,
-      this.playZone.minX - pad,
-      this.playZone.maxX + pad,
-      screen.width / this.camera.zoom,
+      this.playZone.minX - padX,
+      this.playZone.maxX + padX,
+      vw,
     );
     const wy = fitOrClamp(
       -this.camera.y / this.camera.zoom,
-      this.playZone.minY - pad,
-      this.playZone.maxY + pad,
-      screen.height / this.camera.zoom,
+      this.playZone.minY - padY,
+      this.playZone.maxY + padY,
+      vh,
     );
     this.camera.x = -wx * this.camera.zoom;
     this.camera.y = -wy * this.camera.zoom;
@@ -2785,7 +2802,7 @@ export class PuzzleStage {
   }
 
   // A carried cluster is otherwise only re-placed by a pointer move, so a camera
-  // change that is not one (a flag or minimap jump, fit/center, the zoom buttons)
+  // change that is not one (a flag or overview jump, fit/center, the zoom buttons)
   // would leave it at its old world spot. Re-glue it to the screen point it was
   // last seen floating at, and do it before reconcile: residency runs there, and a
   // cluster still sitting where the view no longer looks is outside the keep ring,
@@ -3270,15 +3287,15 @@ export class PuzzleStage {
     return b.maxX >= ring.minX && b.minX <= ring.maxX && b.maxY >= ring.minY && b.minY <= ring.maxY;
   }
 
-  // Per-frame reconcile for salvaged locked-piece nodes (see ROADMAP Phase 5
-  // Stage 5, salvageLockedPiece): tiny and self-limiting, so a plain walk of
-  // salvagedPieceIds every frame (rather than a spatial-index candidate pass
-  // like reconcileGroups) is simple enough. Culls each against the viewport,
-  // then frees it once it leaves the (wide) keep ring: leaving the ring
-  // means it is off-screen, so freeing it there creates no visible gap.
-  // Unlike the pre-DZI composite renderer, DziRevealLayer does not track
-  // per-piece coverage, so there is no earlier "the reveal layer already
-  // shows this piece" signal to free it on; leaving the ring is the only way
+  // Per-frame reconcile for salvaged locked-piece nodes (see DECISIONS: DZI
+  // reveal mask/seam bake, and salvageLockedPiece): tiny and self-limiting, so
+  // a plain walk of salvagedPieceIds every frame (rather than a spatial-index
+  // candidate pass like reconcileGroups) is simple enough. Culls each against
+  // the viewport, then frees it once it leaves the (wide) keep ring: leaving
+  // the ring means it is off-screen, so freeing it there creates no visible
+  // gap. DziRevealLayer tracks coverage per cell, not per piece, so there is
+  // no earlier "the reveal layer already shows this piece" signal to free it
+  // on; leaving the ring is the only way
   // one is ever freed. Never budget-evicted: unlike a group or a reveal
   // tile, there is no re-fetch to recover a salvaged node if freed early.
   private reconcileSalvagedLockedPieces(): void {
@@ -3490,7 +3507,7 @@ export class PuzzleStage {
       // case that reads it (zoomed in, region already streamed): the
       // zoom-out and not-streamed cases never touch the cell's contents.
       // Locked content has no per-piece loading signal left to contribute
-      // (see ROADMAP Phase 5 Stage 5): it renders only via DziRevealLayer,
+      // (see DECISIONS: DZI reveal mask/seam bake): it renders only via DziRevealLayer,
       // so a cell it covers just reads as loaded the instant that tile is
       // confirmed, with no separate loading badge.
       const needsScan = !this.lodActive && !(this.coverageSeen && !known);
@@ -3537,7 +3554,7 @@ export class PuzzleStage {
   // viewport via region_state: a scoped viewport waits for the coverage ack
   // and for every in-zone cell to be acked known; a global-subscriber viewport
   // (too large to scope) receives no region_state by design, so there is nothing
-  // to wait for (the minimap carries its overview).
+  // to wait for (the overview carries it meanwhile).
   private viewportStreamSettled(): boolean {
     if (this.mode !== "contributor") return true;
     if (this.viewportIsGlobalSubscriber()) return true;
@@ -3594,6 +3611,7 @@ export class PuzzleStage {
     if (!this.lodLayer) return;
     this.lodActive = active;
     this.lodLayer.setVisible(active);
+    this.applyLodLayerInput();
     if (active) {
       this.bakeViewportCover();
       this.refreshLodVisibility();
@@ -3606,10 +3624,23 @@ export class PuzzleStage {
     }
   }
 
+  // Takes the group layers out of hit-testing while the band covers the board.
+  // grabTargetAt is what makes the band overview-only; this keeps the affordance
+  // honest, since Pixi reads the cursor off the hit target and a cluster the band
+  // deliberately keeps live would otherwise still offer its "grab" hand for a
+  // press that now pans. Pruning at the layer covers every cluster in it in one
+  // write, and clearWorld drops the LOD before it drops the layers, so a rebuilt
+  // layer is always born outside the band with Pixi's own default.
+  private applyLodLayerInput(): void {
+    for (const layer of [this.unlockedLayer, this.remoteHeldLayer, this.localHeldLayer]) {
+      if (layer) layer.eventMode = this.lodActive ? "none" : "passive";
+    }
+  }
+
   // Re-evaluates LOD visibility for the current on-screen candidates. Used on
   // enter and after a snapshot, where many tiles change at once. Locked
-  // content has no LOD-band visibility left to refresh (see ROADMAP Phase 5
-  // Stage 5): a salvaged node only ever hides via culling (viewport, not LOD
+  // content has no LOD-band visibility left to refresh (see DECISIONS: DZI
+  // reveal mask/seam bake): a salvaged node only ever hides via culling (viewport, not LOD
   // band) or gets destroyed once it leaves the keep ring, and the reveal
   // layer's own visibility is owned entirely by DziRevealLayer's own reconcile.
   private refreshLodVisibility(): void {
@@ -3621,10 +3652,9 @@ export class PuzzleStage {
 
   // Gapless fill: while the LOD is active a non-held cluster renders live until
   // every tile it occupies is baked, then hides (the tiles draw it). Held
-  // clusters always render live on top. Hiding a cluster also makes it
-  // non-interactive (Pixi skips hit-testing an invisible container), so no grab
-  // can start below LOD_ENTER_ZOOM: the active band is overview-only by design
-  // (see DECISIONS.md, tiled zoom-out LOD).
+  // clusters always render live on top. Visibility carries no grab rule: the
+  // clusters left live here stay interactive like any other, so the
+  // overview-only band is enforced in grabTargetAt, not by this hiding.
   private applyGroupLodVisibility(node: GroupNode): void {
     const live = this.isLive(node.id) || !this.allCellsReady(node.id);
     node.container.visible = live;
@@ -3700,8 +3730,8 @@ export class PuzzleStage {
   // no re-fetch. Only covered-cold entries are evictable (their baked tiles
   // keep drawing them) and only while the LOD is active; zoomed in nothing is
   // covered, so the whole window stays resident. Locked pieces and the DZI
-  // reveal layer are no longer part of this budget (see ROADMAP Phase 5
-  // Stage 5): DziRevealLayer runs its own byte-weighted eviction, and a
+  // reveal layer are not part of this budget (see DECISIONS: DZI reveal
+  // mask/seam bake): DziRevealLayer runs its own byte-weighted eviction, and a
   // salvaged locked-piece node is freed only by reconcileSalvagedLockedPieces,
   // never by budget pressure (there is no re-fetch to recover one evicted
   // early).
@@ -3743,7 +3773,7 @@ export class PuzzleStage {
   // gliding), the frame, the backdrop, the tile layer itself,
   // lockedPiecesLayer and underlayLayer are excluded; non-tile clusters clip
   // out of the texture, so only this tile's loose clusters contribute. Locked
-  // content is never baked in (see ROADMAP Phase 5 Stage 5): it renders on
+  // content is never baked in (see DECISIONS: DZI reveal mask/seam bake): it renders on
   // its own layer beneath this one, always visible through the transparent
   // parts of the resulting texture, so excluding lockedPiecesLayer here is
   // what keeps it from being captured into this tile too. underlayLayer holds

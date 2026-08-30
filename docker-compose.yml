@@ -63,11 +63,12 @@ services:
       # Coolify env like the auth secrets, never baked into the committed image.
       MPP_ADMIN_PASSWORD: "${MPP_ADMIN_PASSWORD:-}"
       MPP_ADMIN_PUZZLES: "${MPP_ADMIN_PUZZLES:-}"
-      # Cell compositor write credentials (see ROADMAP Phase 5 Stage 3): the
-      # server's one live write path to R2, passed through like the secrets
-      # above. All three unset (local dev's default) leaves compositing inert
-      # rather than failing the boot; the bucket is the existing public asset
-      # bucket (non-secret, so fixed here, same as MPP_BACKUP_BUCKET below).
+      # Cell compositor write credentials (see DECISIONS: version-suffixed cell
+      # composites): the server's one live write path to R2, passed through like
+      # the secrets above. All three unset (local dev's default) leaves
+      # compositing inert rather than failing the boot, and locked pieces then
+      # render as nothing; the bucket is the existing public asset bucket
+      # (non-secret, so fixed here, same as MPP_BACKUP_BUCKET below).
       MPP_R2_ENDPOINT: "${MPP_R2_ENDPOINT:-}"
       MPP_R2_ACCESS_KEY_ID: "${MPP_R2_ACCESS_KEY_ID:-}"
       MPP_R2_SECRET_ACCESS_KEY: "${MPP_R2_SECRET_ACCESS_KEY:-}"
@@ -80,10 +81,10 @@ services:
   # packages/frontend/.env.production). A Vite dev server for local development
   # lives in docker-compose.override.yml, which Coolify does not deploy.
 
-  # Off-host backups: a gzipped Mongo dump + Redis RDB pushed to a private R2
-  # bucket every 6h, kept to the newest 3 (see DECISIONS: scheduled backups to a
-  # private R2 bucket). docker-compose.override.yml disables the loop for local
-  # dev (no R2 creds there).
+  # Off-host backups: gzipped dumps of Mongo, Redis, Umami and Coolify pushed to a
+  # private R2 bucket every 6h, kept to the newest 3 of each (see DECISIONS:
+  # scheduled backups to a private R2 bucket). docker-compose.override.yml
+  # disables the loop for local dev (no R2 creds there).
   backup:
     build:
       context: .
@@ -92,6 +93,18 @@ services:
     depends_on:
       - redis
       - mongo
+    # Umami's Postgres and Coolify's own Postgres each sit on their own Docker
+    # network, so the sidecar joins both on top of the app network to reach them.
+    networks:
+      - default
+      - umami
+      - coolify
+    # Coolify's state is half database, half filesystem: its APP_KEY, which lives
+    # here, is what decrypts the secrets stored in the database, so a dump without
+    # this directory restores nothing usable. Read-only, and the same file supplies
+    # the Postgres credentials so they need not be duplicated as a service secret.
+    volumes:
+      - /data/coolify:/host/coolify:ro
     environment:
       MPP_REDIS_URL: "redis://redis:6379"
       MPP_MONGO_URL: "mongodb://mongo:27017"
@@ -103,6 +116,12 @@ services:
       RCLONE_CONFIG_R2_TYPE: "s3"
       RCLONE_CONFIG_R2_PROVIDER: "Cloudflare"
       RCLONE_CONFIG_R2_ACL: "private"
+      # The R2 token is scoped to one bucket, which carries no bucket-level rights,
+      # so rclone's default pre-upload HeadBucket/CreateBucket check is refused and
+      # it abandons the upload before sending a byte. The bucket is pre-created, so
+      # skip the check, same reason as scripts/upload-puzzle.ts's
+      # --s3-no-check-bucket. Without this every pass fails on AccessDenied.
+      RCLONE_CONFIG_R2_NO_CHECK_BUCKET: "true"
       # R2 credentials for the private backup target come from the Coolify service
       # env, never committed: the endpoint carries the account id and the keys are
       # secrets. Without them the backup loop logs failures and the app is
@@ -111,7 +130,23 @@ services:
       RCLONE_CONFIG_R2_ENDPOINT: "${RCLONE_CONFIG_R2_ENDPOINT:-}"
       RCLONE_CONFIG_R2_ACCESS_KEY_ID: "${RCLONE_CONFIG_R2_ACCESS_KEY_ID:-}"
       RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: "${RCLONE_CONFIG_R2_SECRET_ACCESS_KEY:-}"
+      # Umami's Postgres connection string, a Coolify service secret like the keys
+      # above. Unset (local dev's default) skips the Umami dump and leaves the rest
+      # of the pass untouched. Coolify's own Postgres needs no equivalent: its
+      # credentials are read from the mounted config directory.
+      MPP_BACKUP_UMAMI_URL: "${MPP_BACKUP_UMAMI_URL:-}"
 
 volumes:
   redis-data:
   mongo-data:
+
+# Both are created by other stacks on the host, so this file only attaches to
+# them. docker-compose.override.yml turns them into ordinary local networks so
+# local dev still comes up on a machine where neither exists.
+networks:
+  umami:
+    external: true
+    name: umami_default
+  coolify:
+    external: true
+    name: coolify

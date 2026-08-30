@@ -228,10 +228,11 @@ export async function rebuildLeaderboardTracker(
   tracker.rebuildFromLog(rows);
 }
 
-// Rebuild the in-process cell-composite version index from Redis (see ROADMAP
-// Phase 5 Stage 3), used at boot and after a reset, the same occasions the
-// other per-cell indexes above rebuild. Unlike those other indexes, there is
-// no periodic defense-in-depth resync for this one: a missed increment just
+// Rebuild the in-process cell-composite version index from Redis (see
+// DECISIONS: version-suffixed cell composites), used at boot and after a
+// reset, the same occasions the other per-cell indexes above rebuild. Unlike
+// those other indexes, there is no periodic defense-in-depth resync for this
+// one: a missed increment just
 // leaves a cell one version behind its last successful bake (see
 // CellCompositor), never wrong, so nothing needs a slow full-board recheck.
 export async function rebuildCellCompositeIndex(
