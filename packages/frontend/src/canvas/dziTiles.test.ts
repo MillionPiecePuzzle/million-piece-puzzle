@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { CELL_MASK_TIER_FACTORS } from "@mpp/shared";
-import { maskTierForZoom, pickBaseLevel, type DziInfo } from "./dziTiles";
+import {
+  BADGE_TILE_PIECES,
+  badgeTileLevel,
+  dziTilesForRect,
+  maskTierForZoom,
+  pickBaseLevel,
+  type DziInfo,
+} from "./dziTiles";
 
 // MIN_ZOOM in puzzleStage.ts; kept as a literal here rather than imported so
 // this test fails loudly if that floor ever moves without this file noticing.
@@ -55,5 +62,39 @@ describe("pickBaseLevel", () => {
   it("never picks past maxLevel for an image smaller than one tile", () => {
     const info = dziInfo(100, 100, 254);
     expect(pickBaseLevel(info, 64)).toBe(info.maxLevel);
+  });
+});
+
+describe("badgeTileLevel", () => {
+  // The two boards this has to hold for: prod (1000x1000 pieces of 120 source
+  // pixels) and the local synthetic one (720x720 pieces of 72). A badge tile
+  // covers a place, so the reading in pieces is what matters, not the level.
+  const piecesPerTile = (info: DziInfo, pieceSize: number): number =>
+    (info.tileSize * 2 ** (info.maxLevel - badgeTileLevel(info, pieceSize))) / pieceSize;
+
+  it("cuts a tile covering some 30 to 40 pieces a side on the prod board", () => {
+    expect(piecesPerTile(dziInfo(120000, 120000, 254), 120)).toBeCloseTo(33.9, 1);
+  });
+
+  it("stays within a factor of the target on a board with a different piece size", () => {
+    const pieces = piecesPerTile(dziInfo(51840, 51840, 254), 72);
+    expect(pieces).toBeGreaterThan(BADGE_TILE_PIECES / 2);
+    expect(pieces).toBeLessThan(BADGE_TILE_PIECES * 2);
+  });
+
+  it("never leaves the pyramid's own level range", () => {
+    const info = dziInfo(3000, 2000, 254);
+    const level = badgeTileLevel(info, 4000);
+    expect(level).toBeGreaterThanOrEqual(0);
+    expect(level).toBeLessThanOrEqual(info.maxLevel);
+  });
+
+  it("names one tile for a point, at a path relative to the tiles folder", () => {
+    const info = dziInfo(120000, 120000, 254);
+    const level = badgeTileLevel(info, 120);
+    const point = { minX: 60000, minY: 30000, maxX: 60000, maxY: 30000 };
+    const tiles = dziTilesForRect(info, level, point, "source_files/");
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]!.url).toBe(`source_files/${level}/14_7.webp`);
   });
 });

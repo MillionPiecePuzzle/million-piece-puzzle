@@ -11,14 +11,21 @@ import ReferencePanel from "../components/ReferencePanel.vue";
 import OverviewPanel from "../components/OverviewPanel.vue";
 import FlagBar from "../components/FlagBar.vue";
 import FlagPopover from "../components/FlagPopover.vue";
+import BookmarksModal from "../components/BookmarksModal.vue";
 import DevControls from "../components/DevControls.vue";
 import { useStageControls } from "../composables/useStageControls";
 import { useDisplaySettings } from "../composables/useDisplaySettings";
+import { useCompactViewport } from "../composables/useCompactViewport";
 import { GRID_WORLD_CELL } from "@mpp/shared";
 
 const { t } = useI18n();
 const { camera, ready } = useStageControls();
 const { availablePanels, visiblePanels } = useDisplaySettings();
+// The bookmark notebook is desktop-only, and not gated on `ready` like the HUD:
+// it is a window over the board rather than a panel on it, so the list answers
+// while the board is still coming up (its jumps and its add control wait on the
+// stage themselves).
+const { compact } = useCompactViewport();
 
 // Drive the CSS hairline grid from world space: one cell is GRID_WORLD_CELL
 // world units, so the grid scales and pans with the canvas. The play zone is
@@ -75,6 +82,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
         <FlagPopover />
       </template>
     </main>
+    <BookmarksModal v-if="!compact" />
   </div>
 </template>
 

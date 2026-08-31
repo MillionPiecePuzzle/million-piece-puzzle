@@ -2698,6 +2698,16 @@ export class PuzzleStage {
     this.centerOn(worldX, worldY);
   }
 
+  // Restore a whole framing rather than a point: a bookmark comes back at the
+  // scale it was taken at, which is half of what makes it the spot the player
+  // was working in. The zoom is set first so centerOn's own clamp runs against
+  // the framing being restored, not the one being left.
+  frameWorld(worldX: number, worldY: number, zoom: number): void {
+    if (!this.app) return;
+    this.camera.zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+    this.centerOn(worldX, worldY);
+  }
+
   // World point at the middle of the view, where a new personal flag is planted.
   viewportCenterWorld(): { x: number; y: number } | null {
     if (!this.app) return null;

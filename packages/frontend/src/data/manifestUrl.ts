@@ -11,3 +11,10 @@ export function manifestBaseUrl(url: string): string {
   const i = url.lastIndexOf("/");
   return i >= 0 ? url.slice(0, i + 1) : "/";
 }
+
+// The DZI convention (see manifest.ts): the descriptor's tiles live in a sibling
+// folder named after it, `source.dzi` -> `source_files/`, both paths relative to
+// the manifest.
+export function dziTilesPath(dziPath: string): string {
+  return `${dziPath.replace(/\.[^./]+$/, "")}_files/`;
+}

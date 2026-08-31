@@ -9,6 +9,8 @@ export type StageControls = {
   // flag is planted on.
   centerOnWorld: (worldX: number, worldY: number) => void;
   viewportCenterWorld: () => { x: number; y: number } | null;
+  // Bookmarks: restore a recorded framing, position and zoom together.
+  frameWorld: (worldX: number, worldY: number, zoom: number) => void;
 };
 
 export type StageCamera = {

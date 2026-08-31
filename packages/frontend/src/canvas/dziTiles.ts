@@ -57,6 +57,31 @@ export function levelDimension(nativeSize: number, info: DziInfo, level: number)
   return Math.ceil(nativeSize / 2 ** (info.maxLevel - level));
 }
 
+// How much of the board one bookmark badge stands for. Wide enough to read as a
+// place rather than as a crop of one piece, tight enough that two spots a screen
+// apart never take the same tile.
+export const BADGE_TILE_PIECES = 36;
+
+// The level a badge is cut at, fixed for a given board: the tile covering the
+// closest thing to BADGE_TILE_PIECES pieces a side, compared in ratio rather
+// than in world units so the pick is the nearer of the two neighbouring levels
+// (they differ by a factor of 2). Deterministic, so the same point always names
+// the same tile and a stored badge stays valid for the life of the pyramid.
+export function badgeTileLevel(info: DziInfo, pieceSize: number): number {
+  const target = BADGE_TILE_PIECES * pieceSize;
+  let best = info.maxLevel;
+  let bestDistance = Infinity;
+  for (let level = 0; level <= info.maxLevel; level++) {
+    const worldPerTile = info.tileSize * 2 ** (info.maxLevel - level);
+    const distance = Math.abs(Math.log2(worldPerTile / target));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = level;
+    }
+  }
+  return best;
+}
+
 // The per-cell mask/seam LOD tier (see cellCompositor.ts's bakeTiers, same
 // CELL_MASK_TIER_FACTORS) to fetch for the current zoom, chosen to keep a
 // full hydrate ring inside CELL_ASSET_VRAM_BUDGET_MB (see
