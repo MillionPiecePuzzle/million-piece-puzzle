@@ -96,6 +96,7 @@ const es: MessageSchema = {
   options: {
     title: "Ajustes",
     account: "Cuenta",
+    support: "Apoyar el proyecto ❤️",
     sync: "Sincronizar cuenta",
     syncHint: "Inicia sesión con Google para guardar tus contribuciones de forma permanente.",
     synced: "Cuenta sincronizada con Google",

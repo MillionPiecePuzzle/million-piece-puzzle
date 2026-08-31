@@ -94,6 +94,7 @@ const en = {
   options: {
     title: "Settings",
     account: "Account",
+    support: "Support the project ❤️",
     sync: "Sync account",
     syncHint: "Sign in with Google to save your contributions permanently.",
     synced: "Synced with Google",

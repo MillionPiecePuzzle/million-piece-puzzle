@@ -96,6 +96,7 @@ const de: MessageSchema = {
   options: {
     title: "Einstellungen",
     account: "Konto",
+    support: "Das Projekt unterstützen ❤️",
     sync: "Konto synchronisieren",
     syncHint: "Melde dich mit Google an, um deine Beiträge dauerhaft zu sichern.",
     synced: "Konto mit Google synchronisiert",
