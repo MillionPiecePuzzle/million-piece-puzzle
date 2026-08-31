@@ -279,10 +279,47 @@ const HYDRATE_MAX_INFLIGHT = 128;
 // A piece texture is a few KB, so any load this slow is a stalled connection,
 // not a slow one. Without a deadline a hung fetch pins its in-flight hydrate
 // slot forever; enough of them saturate HYDRATE_MAX_INFLIGHT and the whole
-// loader wedges. A timed-out or failed load is retried a bounded number of
-// times, then skipped so the group still completes and the slot frees.
+// loader wedges. The deadline starts once the load is admitted to the decode
+// pool below, so it measures the load and never the wait for a slot. A
+// timed-out or failed load is retried a bounded number of times, then skipped so
+// the group still completes and the slot frees.
 const TEXTURE_LOAD_TIMEOUT_MS = 10000;
 const TEXTURE_LOAD_RETRIES = 1;
+
+// Pixi decodes image bitmaps on a pool of navigator.hardwareConcurrency workers
+// and dispatches its own pending queue last-in-first-out, so every load handed to
+// Assets.load past what that pool can start immediately is ordering given away:
+// the earliest submissions sit at the bottom of its stack and stay there for as
+// long as newer ones keep landing on top. Admitting one load per worker keeps
+// that queue empty, which leaves the hydrate queue's viewport ranking the only
+// thing deciding what loads next. Measured on the 1M board before this gate: a
+// viewport arrival left ~100 of its 128 concurrent loads, the nearest groups and
+// so the middle of the screen, unresolved until they hit the deadline above, and
+// the player watched a hole in the centre for the 20s that took.
+const TEXTURE_DECODE_SLOTS = navigator.hardwareConcurrency || 4;
+
+let decodeSlotsFree = TEXTURE_DECODE_SLOTS;
+const decodeWaiters: (() => void)[] = [];
+
+function acquireDecodeSlot(): Promise<void> {
+  if (decodeSlotsFree > 0) {
+    decodeSlotsFree--;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    decodeWaiters.push(resolve);
+  });
+}
+
+// Hands the slot straight to the longest-waiting caller (first in, first served,
+// the opposite of the pool's own dispatch) rather than freeing it, so a wait
+// cannot be jumped by a load submitted after it.
+function releaseDecodeSlot(): void {
+  const next = decodeWaiters.shift();
+  if (next) next();
+  else decodeSlotsFree++;
+}
+
 // Hydrate passes a group gets to fill a missing piece before its partial state
 // is accepted. Beyond loadPieceTexture's per-call retries: a whole pass is
 // re-run on later frames so a transient outage heals, while a genuinely missing
@@ -3018,11 +3055,15 @@ export class PuzzleStage {
     return joinUrl(this.textureBase, file);
   }
 
-  // Loads one piece texture with a deadline so a stalled CDN connection cannot
-  // pin its hydrate slot forever. Retries a bounded number of times, then
-  // returns null: the caller skips the piece and the group still completes.
+  // Loads one piece texture, admitted to the decode pool first so the pool never
+  // holds a queue of its own (see TEXTURE_DECODE_SLOTS), then with a deadline so a
+  // stalled CDN connection cannot pin its hydrate slot forever. Retries a bounded
+  // number of times, then returns null: the caller skips the piece and the group
+  // still completes. The single Assets.load of the canvas, so every texture the
+  // board fetches, piece or DZI tile, passes through this gate.
   private async loadPieceTexture(url: string): Promise<Texture | null> {
     for (let attempt = 0; ; attempt++) {
+      await acquireDecodeSlot();
       try {
         return (await withTimeout(Assets.load(url), TEXTURE_LOAD_TIMEOUT_MS)) as Texture;
       } catch (e) {
@@ -3030,6 +3071,8 @@ export class PuzzleStage {
           console.warn("[stage] texture load failed", url, e);
           return null;
         }
+      } finally {
+        releaseDecodeSlot();
       }
     }
   }
