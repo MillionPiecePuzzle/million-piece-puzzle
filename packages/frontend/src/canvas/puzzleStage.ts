@@ -274,7 +274,6 @@ const RESIDENT_PIECE_BUDGET = 24000;
 // zoom-out enqueues many groups without firing all their fetches at once.
 const HYDRATE_MARGIN_FRAC = 0.3;
 const DEHYDRATE_MARGIN_FRAC = 0.9;
-const HYDRATE_MAX_INFLIGHT = 128;
 
 // A piece texture is a few KB, so any load this slow is a stalled connection,
 // not a slow one. Without a deadline a hung fetch pins its in-flight hydrate
@@ -319,6 +318,17 @@ function releaseDecodeSlot(): void {
   if (next) next();
   else decodeSlotsFree++;
 }
+
+// One in-flight group per decode slot, so a board of singletons (every scattered
+// piece is its own group) commits exactly what the pool can work on and nothing
+// waits at the gate. What waits at the gate is frozen in the order it was
+// submitted; what waits in the hydrate queue is re-ranked against the viewport
+// every frame, so committing deeper only buys staleness. Measured on the 1M
+// board: at a commitment of 128, a pan mid-fill needed 1.5s to put a piece back
+// at the new centre, against 0.15s here, since the new viewport's own pieces
+// queued behind everything the previous one had committed. It costs no
+// throughput, the pool being the ceiling either way (~85 loads a second).
+const HYDRATE_MAX_INFLIGHT = TEXTURE_DECODE_SLOTS;
 
 // Hydrate passes a group gets to fill a missing piece before its partial state
 // is accepted. Beyond loadPieceTexture's per-call retries: a whole pass is
