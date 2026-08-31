@@ -5,27 +5,20 @@ import { useStageControls } from "./useStageControls";
 // A browser that ends up drawing this board the wrong way (acceleration off and
 // falling back to software, or on over a driver that cannot carry it) renders
 // it at a few frames a second, which a player reads as the game being broken
-// rather than as their machine. The verdict is the sustained frame rate and
-// nothing else: the cause is not knowable from here (no browser agrees on what,
-// if anything, its WebGL renderer string may say), so the notice names the
-// symptom and leaves the player the checks that fix it.
-const SAMPLE_WINDOW_MS = 2_000;
-const LOW_FPS = 20;
-// 16 unbroken seconds under the bar, one recovered window resetting the count.
-// A machine falling back to software rendering is slow for the whole session,
-// so waiting costs nothing on the case worth naming, while the expensive
-// stretches of ordinary play (arriving on a dense region, a burst of texture
-// streaming) are seconds long and recover, and are what a shorter run would
-// misread.
-const LOW_WINDOWS_TO_RAISE = 8;
-// Nothing before the board is playable counts, and not the first seconds after
-// it either: building a million pieces and streaming the first textures costs
-// frames on any machine, which is the board arriving rather than the device
-// failing to draw it.
-const WARMUP_MS = 12_000;
-// A window far longer than the one it asked for was paused, not slow: rAF stops
-// in a hidden tab and resumes with one enormous frame.
-const MAX_WINDOW_MS = SAMPLE_WINDOW_MS * 2;
+// rather than as their machine. The cause is not knowable from here (no browser
+// agrees on what, if anything, its WebGL renderer string may say), so the
+// notice names the symptom and leaves the player the checks that fix it.
+
+// No browser exposes a frame rate either, so the frames themselves are the
+// measure: one longer than this is one the machine could not keep up with.
+const SLOW_FRAME_MS = 1000 / 15;
+// How long every single frame has to stay slow before it is a verdict. Long
+// enough that a hitch (a burst of texture streaming, a garbage collection) is
+// not one, short enough that a player on software rendering is told at once.
+const SUSTAINED_SLOW_MS = 3_000;
+// The board's first seconds are its own arrival, streaming the textures of the
+// viewport it opened on, rather than the machine failing to draw it.
+const WARMUP_MS = 5_000;
 
 // Per browser like the display preferences, and permanent: this is advice, and
 // advice a player has read once and chosen to close must not come back every
@@ -52,40 +45,43 @@ const lowFrameRate = ref(false);
 const dismissed = ref(readDismissed());
 const noticeVisible = computed(() => lowFrameRate.value && !dismissed.value);
 
-// Counts the frames the page itself is given, which is what the player sees:
-// the board, its HUD and the compositor all share this thread, so a stage the
-// machine cannot draw shows up here with nothing to report from the canvas.
+// Reads the gap between the frames the page itself is given, which is what the
+// player sees: the board, its HUD and the compositor all share this thread, so
+// a stage the machine cannot draw shows up here with nothing to report from the
+// canvas. One fast frame clears everything, so the verdict is only ever an
+// unbroken run.
 export function createLowFrameRateWatch() {
   let readyAt: number | null = null;
-  let windowStart: number | null = null;
-  let frames = 0;
-  let lowWindows = 0;
+  let lastFrame: number | null = null;
+  let slowSince: number | null = null;
 
   return {
     frame(now: number, ready: boolean, visible: boolean): boolean {
+      const previous = lastFrame;
+      lastFrame = now;
       // A rebuild puts the loading cover back up and starts the wait over.
       if (!ready) {
         readyAt = null;
-        windowStart = null;
-        lowWindows = 0;
+        slowSince = null;
         return false;
       }
       if (readyAt === null) readyAt = now;
-      if (now - readyAt < WARMUP_MS) return false;
-      if (windowStart === null) {
-        windowStart = now;
-        frames = 0;
+      if (!visible || now - readyAt < WARMUP_MS) {
+        slowSince = null;
         return false;
       }
-      frames++;
-      const elapsed = now - windowStart;
-      if (elapsed < SAMPLE_WINDOW_MS) return false;
-      const measurable = elapsed <= MAX_WINDOW_MS && visible;
-      const fps = (frames * 1000) / elapsed;
-      lowWindows = measurable && fps < LOW_FPS ? lowWindows + 1 : 0;
-      windowStart = now;
-      frames = 0;
-      return lowWindows >= LOW_WINDOWS_TO_RAISE;
+      if (previous === null || now - previous <= SLOW_FRAME_MS) {
+        slowSince = null;
+        return false;
+      }
+      // The gap itself proves nothing: a tab the browser stopped servicing
+      // delivers one enormous frame and then normal ones, so the run is timed
+      // from this frame rather than from the gap in front of it.
+      if (slowSince === null) {
+        slowSince = now;
+        return false;
+      }
+      return now - slowSince >= SUSTAINED_SLOW_MS;
     },
   };
 }
