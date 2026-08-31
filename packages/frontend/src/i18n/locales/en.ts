@@ -67,6 +67,7 @@ const en = {
     out: "Zoom out",
     center: "Center on puzzle",
     fit: "Fit puzzle to view",
+    position: "Your position on the board, in pieces from its center",
   },
   reference: {
     title: "Reference",

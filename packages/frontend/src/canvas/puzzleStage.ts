@@ -452,7 +452,13 @@ export class PuzzleStage {
   private mode: Mode = "pending";
   private localUserId: string | null = null;
   private callbacks: StageCallbacks | null = null;
-  onCameraChange: ((camera: { x: number; y: number; zoom: number }) => void) | null = null;
+  // The transform plus the world point at the middle of the view, which the
+  // position readout needs and only the stage can compute (it owns the screen
+  // size). Emitted together so a pan, a zoom and a resize all keep the two in
+  // step.
+  onCameraChange:
+    | ((camera: { x: number; y: number; zoom: number; centerX: number; centerY: number }) => void)
+    | null = null;
   onViewportChange: ((viewport: ViewportRect) => void) | null = null;
   onCursorMove: ((worldX: number, worldY: number) => void) | null = null;
   // A user-facing notice the canvas cannot render itself (a DOM toast).
@@ -1286,7 +1292,7 @@ export class PuzzleStage {
     this.localHeldLayer = null;
     this.viewport = null;
     this.camera = { x: 0, y: 0, zoom: 1 };
-    this.onCameraChange?.(this.camera);
+    this.emitCamera();
   }
 
   // ----- incoming server messages -----
@@ -2852,8 +2858,17 @@ export class PuzzleStage {
     this.world.position.set(this.camera.x, this.camera.y);
     this.reglueCarried();
     this.updateFlagLayer();
-    this.onCameraChange?.({ ...this.camera });
+    this.emitCamera();
     this.reconcile();
+  }
+
+  private emitCamera(): void {
+    const center = this.viewportCenterWorld();
+    this.onCameraChange?.({
+      ...this.camera,
+      centerX: center?.x ?? 0,
+      centerY: center?.y ?? 0,
+    });
   }
 
   // A carried cluster is otherwise only re-placed by a pointer move, so a camera

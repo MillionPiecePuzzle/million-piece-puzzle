@@ -69,6 +69,7 @@ const fr: MessageSchema = {
     out: "Zoom arrière",
     center: "Centrer sur le puzzle",
     fit: "Ajuster le puzzle à la vue",
+    position: "Votre position sur le plateau, en pièces depuis son centre",
   },
   reference: {
     title: "Référence",

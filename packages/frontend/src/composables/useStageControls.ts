@@ -15,10 +15,15 @@ export type StageCamera = {
   x: number;
   y: number;
   zoom: number;
+  // World point at the middle of the view, computed by the stage since the
+  // transform alone does not give it (the screen size does). Drives the
+  // position readout.
+  centerX: number;
+  centerY: number;
 };
 
 const controls = shallowRef<StageControls | null>(null);
-const camera = ref<StageCamera>({ x: 0, y: 0, zoom: 1 });
+const camera = ref<StageCamera>({ x: 0, y: 0, zoom: 1, centerX: 0, centerY: 0 });
 const zoomPercent = computed(() => Math.round(camera.value.zoom * 100));
 // True only when the board is on screen and interactive (not loading, not
 // rebuilding). The shell gates its overlay panels on this so nothing but the

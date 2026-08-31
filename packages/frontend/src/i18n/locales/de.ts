@@ -69,6 +69,7 @@ const de: MessageSchema = {
     out: "Verkleinern",
     center: "Auf Puzzle zentrieren",
     fit: "Puzzle an Ansicht anpassen",
+    position: "Deine Position auf dem Spielfeld, in Teilen ab der Mitte",
   },
   reference: {
     title: "Referenz",
