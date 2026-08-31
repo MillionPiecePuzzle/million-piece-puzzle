@@ -7,6 +7,10 @@ import type { ActivityItem, LeaderboardEntry, MinimapGrid } from "@mpp/shared";
 // grid itself is read from the incrementally-maintained MinimapGridTracker (see
 // DECISIONS: server-computed minimap grid), so a regenerate never scans the board.
 export type BoardSnapshot = {
+  // Server clock at the build. Carried out to GET /landing as its figures stamp
+  // (see protocol: FiguresStamp), which is what lets a recap body from this frozen
+  // snapshot land over the live figures a poll left on an open landing.
+  at: number;
   lockedCount: number;
   totalPieces: number;
   leaderboard: LeaderboardEntry[];
@@ -38,6 +42,7 @@ export async function buildSnapshot(source: KeyframeSource): Promise<BoardSnapsh
     source.activity(),
   ]);
   return {
+    at: Date.now(),
     lockedCount,
     totalPieces: source.totalPieces(),
     leaderboard,

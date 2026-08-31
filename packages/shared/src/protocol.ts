@@ -429,14 +429,23 @@ export type SMinimap = {
   grid: MinimapGrid;
 };
 
+// Server clock at the moment a set of landing figures was read. The landing takes
+// its figures from two routes at once (the uncached GET /landing and the
+// edge-cached GET /live poll), whose bodies reach it out of order, so this is what
+// orders them: a body older than the one already on screen is dropped whole rather
+// than repainted, and a board reset still applies since it carries a newer stamp
+// (see DECISIONS: the landing's figures are ordered by the server clock).
+export type FiguresStamp = { figuresAt: number };
+
 // HTTP response for GET /landing: lightweight public landing data read once on
 // page load. `status` and `eventStartsAt` drive the landing phase: scheduled
 // before the start, live while active, completed once the board is done. `progress`
 // and `leaderboard` carry the live and recap figures, `activity` the live feed.
 // `completion` is present only when completed: the final placement `at` (the recap
-// date) and the first placement `startedAt`. The leaderboard and activity come from
-// the in-memory board snapshot, never a full-board fetch.
-export type LandingResponse = {
+// date) and the first placement `startedAt`. While the board is live the figures
+// are the same body GET /live serves; the recap comes from the in-memory board
+// snapshot, never a full-board fetch.
+export type LandingResponse = FiguresStamp & {
   eventStartsAt: number;
   interested: { count: number; me: boolean };
   status: "active" | "completed";
@@ -452,7 +461,7 @@ export type LandingResponse = {
 // the landing's live figures ride a cacheable global route). `status` is carried
 // so a poller notices a board that has just been completed; the recap itself
 // still comes from GET /landing.
-export type LiveResponse = {
+export type LiveResponse = FiguresStamp & {
   status: "active" | "completed";
   progress: { locked: number; total: number };
   leaderboard: LeaderboardEntry[];

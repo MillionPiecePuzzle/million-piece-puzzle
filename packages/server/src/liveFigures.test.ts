@@ -39,15 +39,26 @@ function clock(start = 0) {
 }
 
 describe("LiveFigures", () => {
-  it("carries the live figures and the puzzle status", async () => {
-    const figures = new LiveFigures(2000, makeSource());
+  it("carries the live figures, the puzzle status and the build stamp", async () => {
+    const figures = new LiveFigures(2000, makeSource(), clock(1700).now);
     const body = await figures.read();
     expect(body).toEqual({
+      figuresAt: 1700,
       status: "active",
       progress: { locked: 10, total: 25 },
       leaderboard: entries,
       activity: items,
     });
+  });
+
+  it("stamps every rebuild with the clock that closed it", async () => {
+    const c = clock();
+    const figures = new LiveFigures(2000, makeSource(), c.now);
+    const first = await figures.read();
+    c.advance(5000);
+    const second = await figures.read();
+    expect(first?.figuresAt).toBe(0);
+    expect(second?.figuresAt).toBe(5000);
   });
 
   it("asks both sources for exactly what the landing renders", async () => {

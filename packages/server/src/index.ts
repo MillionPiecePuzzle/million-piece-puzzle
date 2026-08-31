@@ -320,11 +320,12 @@ async function main(): Promise<void> {
   lifecycle.attachKeyframePublisher(keyframePublisher);
   keyframePublisher.start();
 
-  // The landing's poll reads this instead of the keyframe snapshot: same sources,
-  // but rebuilt on a seconds-scale window rather than the snapshot's minutes, and
-  // with no minimap broadcast riding on it. It carries the six contributors and
-  // ten placements the landing renders, so a rebuild stays two bounded Mongo
-  // reads and one Redis scalar.
+  // Both routes an open landing reads take their figures from this while the board
+  // is live, rather than from the keyframe snapshot: same sources, but rebuilt on a
+  // seconds-scale window rather than the snapshot's minutes, and with no minimap
+  // broadcast riding on it. It carries the six contributors and ten placements the
+  // landing renders, so a rebuild stays two bounded Mongo reads and one Redis
+  // scalar however many readers share it.
   const liveFigures = new LiveFigures(config.liveTtlMs, {
     totalPieces: () => ctx.meta.totalPieces,
     status: () => ctx.meta.status,
@@ -456,13 +457,15 @@ async function main(): Promise<void> {
       process.env.AUTH_SECRET || "mpp-interested-dev-salt",
     ),
     eventStartsAt: () => ctx.eventStartsAt,
-    // The landing's live progress/standings come from the in-memory keyframe
-    // snapshot (rebuilt on the keyframe cadence, forced on complete), so the
-    // public landing never triggers a full-board read.
+    // The recap of a completed board, and the fallback while the live figures are
+    // unavailable: the in-memory keyframe snapshot (rebuilt on the keyframe
+    // cadence, forced on complete), so the public landing never triggers a
+    // full-board read.
     landingSnapshot: () => {
       const snap = keyframePublisher.latest();
       if (!snap) return null;
       return {
+        at: snap.at,
         lockedCount: snap.lockedCount,
         totalPieces: snap.totalPieces,
         leaderboard: snap.leaderboard,

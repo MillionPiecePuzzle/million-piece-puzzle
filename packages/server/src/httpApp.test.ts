@@ -687,6 +687,7 @@ function landingReq(): Request {
 
 function fakeSnapshot(): LandingSnapshot {
   return {
+    at: 5000,
     lockedCount: 120,
     totalPieces: 1000,
     leaderboard: [{ userId: "u1", pseudo: "Alice", country: "fr", pieces: 80 }],
@@ -704,8 +705,18 @@ function fakeSnapshot(): LandingSnapshot {
   };
 }
 
+function fakeLive(): LiveResponse {
+  return {
+    figuresAt: 9000,
+    status: "active",
+    progress: { locked: 130, total: 1000 },
+    leaderboard: [{ userId: "u2", pseudo: "Bob", country: "es", pieces: 90 }],
+    activity: [],
+  };
+}
+
 describe("makeLandingHandler", () => {
-  it("returns the event start, interested, and live snapshot, skipping the span when active", async () => {
+  it("returns the event start, interested, and live figures, skipping the span when active", async () => {
     const interested: InterestedStore = {
       add: vi.fn(),
       status: vi.fn(async () => ({ count: 7, me: true })),
@@ -715,6 +726,7 @@ describe("makeLandingHandler", () => {
       interested,
       eventStartsAt: () => 12345,
       snapshot: () => fakeSnapshot(),
+      figures: async () => fakeLive(),
       status: () => "active",
       span,
       devEnabled: true,
@@ -730,25 +742,52 @@ describe("makeLandingHandler", () => {
     expect(r.body.eventStartsAt).toBe(12345);
     expect(r.body.interested).toEqual({ count: 7, me: true });
     expect(r.body.status).toBe("active");
-    expect(r.body.progress).toEqual({ locked: 120, total: 1000 });
-    expect(r.body.leaderboard).toHaveLength(1);
-    expect(r.body.activity).toHaveLength(1);
+    // The poll body, not the keyframe snapshot: the two routes the landing reads
+    // must not answer figures minutes apart (see the handler).
+    expect(r.body.figuresAt).toBe(9000);
+    expect(r.body.progress).toEqual({ locked: 130, total: 1000 });
+    expect(r.body.leaderboard[0]?.userId).toBe("u2");
+    expect(r.body.activity).toEqual([]);
     expect(r.body.completion).toBeUndefined();
     expect(span).not.toHaveBeenCalled();
     expect(r.headers["Access-Control-Allow-Origin"]).toBe("*");
     expect(r.headers["Cache-Control"]).toBe("no-store");
   });
 
-  it("includes the completion span once completed", async () => {
+  it("falls back to the keyframe snapshot while the live figures are unavailable", async () => {
+    const interested: InterestedStore = {
+      add: vi.fn(),
+      status: vi.fn(async () => ({ count: 0, me: false })),
+    };
+    const handler = makeLandingHandler({
+      interested,
+      eventStartsAt: () => 0,
+      snapshot: () => fakeSnapshot(),
+      figures: async () => null,
+      status: () => "active",
+      span: vi.fn(async () => null),
+      devEnabled: true,
+    });
+    const res = fakeRes();
+    await handler(landingReq(), res);
+    const r = res as unknown as { body: LandingResponse };
+    expect(r.body.figuresAt).toBe(5000);
+    expect(r.body.progress).toEqual({ locked: 120, total: 1000 });
+    expect(r.body.leaderboard[0]?.userId).toBe("u1");
+  });
+
+  it("serves the frozen snapshot as the recap once completed, never the poll body", async () => {
     const interested: InterestedStore = {
       add: vi.fn(),
       status: vi.fn(async () => ({ count: 0, me: false })),
     };
     const span = vi.fn(async () => ({ firstAt: 100, lastAt: 900 }));
+    const figures = vi.fn(async () => fakeLive());
     const handler = makeLandingHandler({
       interested,
       eventStartsAt: () => 50,
       snapshot: () => fakeSnapshot(),
+      figures,
       status: () => "completed",
       span,
       devEnabled: true,
@@ -757,8 +796,12 @@ describe("makeLandingHandler", () => {
     await handler(landingReq(), res);
     const r = res as unknown as { statusCode: number; body: LandingResponse };
     expect(span).toHaveBeenCalled();
+    expect(figures).not.toHaveBeenCalled();
     expect(r.body.status).toBe("completed");
     expect(r.body.completion).toEqual({ at: 900, startedAt: 100 });
+    expect(r.body.figuresAt).toBe(5000);
+    expect(r.body.progress).toEqual({ locked: 120, total: 1000 });
+    expect(r.body.leaderboard[0]?.userId).toBe("u1");
   });
 
   it("fails open with a zeroed interested block and empty snapshot", async () => {
@@ -772,6 +815,7 @@ describe("makeLandingHandler", () => {
       interested,
       eventStartsAt: () => 0,
       snapshot: () => null,
+      figures: async () => null,
       status: () => "active",
       span: vi.fn(async () => null),
       devEnabled: true,
@@ -790,6 +834,7 @@ describe("makeLandingHandler", () => {
 
 describe("makeLiveHandler", () => {
   const body: LiveResponse = {
+    figuresAt: 9000,
     status: "active",
     progress: { locked: 120, total: 1000 },
     leaderboard: [{ userId: "u1", pseudo: "Alice", country: "fr", pieces: 80 }],

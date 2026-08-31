@@ -13,13 +13,13 @@ import { flooredPercent, useLocaleFormat } from "../i18n/format";
 import {
   backendRetryDelayMs,
   interestedUrl,
-  loadLanding,
   loadLive,
+  offerFigures,
   reloadLanding,
   LIVE_POLL_INTERVAL_MS,
+  type Figures,
   type InterestState,
   type LandingData,
-  type LiveData,
 } from "../data/landing";
 import { toContributorsRows } from "../data/contributors";
 
@@ -156,22 +156,29 @@ function interestLabel(): string {
 
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Both routes carry the same figures, and the freshest body wins whichever answers
+// last (see offerFigures).
+function applyFigures(data: Figures): void {
+  const shown = offerFigures(data);
+  progress.value = shown.progress;
+  leaderboard.value = shown.leaderboard;
+  activity.value = shown.activity;
+}
+
 function applyLanding(data: LandingData): void {
   eventStartsAt.value = data.eventStartsAt;
   count.value = data.interested.count;
   interested.value = data.interested.me;
   if (data.interested.me) rememberInterested();
   status.value = data.status;
-  progress.value = data.progress;
-  leaderboard.value = data.leaderboard;
-  activity.value = data.activity;
   completion.value = data.completion ?? null;
+  applyFigures(data);
 }
 
-// loadLanding never rejects: a failed fetch resolves to null, and only successes
-// are cached, so retrying it is also how the page notices the server is back.
+// reloadLanding never rejects: a failed fetch resolves to null, so retrying it is
+// also how the page notices the server is back.
 async function refresh(): Promise<void> {
-  const data = await loadLanding();
+  const data = await reloadLanding();
   loaded.value = true;
   if (!data) {
     unavailable.value = true;
@@ -183,12 +190,6 @@ async function refresh(): Promise<void> {
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-function applyLive(data: LiveData): void {
-  progress.value = data.progress;
-  leaderboard.value = data.leaderboard;
-  activity.value = data.activity;
-}
 
 async function poll(): Promise<void> {
   // A backgrounded tab reads nothing: the figures it would collect are the ones
@@ -208,7 +209,7 @@ async function poll(): Promise<void> {
     });
     return;
   }
-  applyLive(data);
+  applyFigures(data);
 }
 
 function startPolling(): void {

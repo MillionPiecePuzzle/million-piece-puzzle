@@ -54,13 +54,15 @@ export class LiveFigures {
         this.source.leaderboard(LIVE_CONTRIBUTORS_LIMIT),
         this.source.activity(LIVE_ACTIVITY_LIMIT),
       ]);
+      const at = this.now();
       this.cached = {
+        figuresAt: at,
         status: this.source.status(),
         progress: { locked, total: this.source.totalPieces() },
         leaderboard,
         activity,
       };
-      this.builtAt = this.now();
+      this.builtAt = at;
     } catch (e) {
       // builtAt is left where it was, so the next request retries rather than
       // waiting out a window on a body that failed to refresh.

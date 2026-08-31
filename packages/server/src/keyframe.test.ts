@@ -37,11 +37,13 @@ function makeSource(opts: SourceOpts = {}): KeyframeSource {
 
 describe("buildSnapshot", () => {
   it("collects the live figures and standings", async () => {
+    const before = Date.now();
     const snap = await buildSnapshot(makeSource());
     expect(snap.lockedCount).toBe(1);
     expect(snap.totalPieces).toBe(2);
     expect(snap.leaderboard).toEqual(leaderboardEntries);
     expect(snap.activity).toEqual(activityItems);
+    expect(snap.at).toBeGreaterThanOrEqual(before);
   });
 
   it("carries the minimap grid read from the source, with no board scan", async () => {
