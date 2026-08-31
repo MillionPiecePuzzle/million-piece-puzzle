@@ -39,10 +39,21 @@ function objectPhrase(entry: ActivityEntry): string {
   return entry.count === 1 ? t("activity.piece") : cluster(entry.count);
 }
 
+function actorName(entry: ActivityEntry): string {
+  return entry.actor ?? t("activity.you");
+}
+
 // The whole verb-plus-object phrase comes from one message so each language can
-// place the verb where its grammar needs it (e.g. German verb-final).
+// place the verb where its grammar needs it (e.g. German verb-final). The local
+// player gets their own pair: only English conjugates the second person like the
+// third, so "you" in front of the third-person line is ungrammatical elsewhere.
 function lineRest(entry: ActivityEntry): string {
   const object = objectPhrase(entry);
+  if (entry.actor === null) {
+    return entry.kind === "place"
+      ? t("activity.youPlacedLine", { object })
+      : t("activity.youConnectedLine", { object });
+  }
   return entry.kind === "place"
     ? t("activity.placedLine", { object })
     : t("activity.connectedLine", { object });
@@ -55,7 +66,7 @@ function lineRest(entry: ActivityEntry): string {
     <ul v-if="activity.length > 0">
       <li v-for="entry in activity" :key="entry.id">
         <span class="msg"
-          ><b>{{ entry.actor }}</b> {{ lineRest(entry) }}</span
+          ><b>{{ actorName(entry) }}</b> {{ lineRest(entry) }}</span
         >
         <span class="ts">{{ relativeTime(entry.at) }}</span>
       </li>
