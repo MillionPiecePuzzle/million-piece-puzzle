@@ -54,6 +54,16 @@ const de: MessageSchema = {
     options: "Einstellungen",
     optionsNew: "Einstellungen, neue Versionshinweise",
   },
+  perfNotice: {
+    label: "Leistung",
+    message: "Das Spielfeld läuft auf diesem Gerät sehr langsam.",
+    showTips: "Was tun?",
+    hideTips: "Ausblenden",
+    tipAcceleration:
+      "Schalte die Hardwarebeschleunigung in den Einstellungen deines Browsers ein oder aus und starte ihn neu.",
+    tipTabs: "Schließe andere Tabs und Programme, die die Grafikkarte belegen.",
+    dismiss: "Hinweis ausblenden",
+  },
   zoom: {
     in: "Vergrößern",
     out: "Verkleinern",

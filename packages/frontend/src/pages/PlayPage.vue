@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import TopBar from "../components/TopBar.vue";
+import PerformanceNotice from "../components/PerformanceNotice.vue";
 import PuzzleCanvas from "../components/PuzzleCanvas.vue";
 import ZoomControls from "../components/ZoomControls.vue";
 import ActivityPanel from "../components/ActivityPanel.vue";
@@ -34,6 +35,7 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
 <template>
   <div class="play">
     <TopBar />
+    <PerformanceNotice />
     <main class="stage" :aria-label="t('play.stage')" :style="backdropVars">
       <PuzzleCanvas />
       <template v-if="ready">
@@ -89,7 +91,10 @@ const devButtonsEnabled = import.meta.env.VITE_DEV_BUTTONS !== "0";
      screen each, the two rails would meet in the middle and leave it nothing. */
   --hud-rail-max: min(340px, 33vw);
   position: fixed;
-  inset: 52px 0 0 0;
+  /* Under the topbar, and under the performance notice when it is up: the band
+     reports its own height, so the board loses exactly the strip it takes and
+     no panel ever sits behind it. */
+  inset: calc(52px + var(--notice-h, 0px)) 0 0 0;
   overflow: hidden;
   background: radial-gradient(circle at 50% 40%, #faf7f0 0%, #efeadd 70%, #e7e1d1 100%);
 }

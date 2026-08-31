@@ -54,6 +54,16 @@ const es: MessageSchema = {
     options: "Ajustes",
     optionsNew: "Ajustes, nuevas notas de actualización",
   },
+  perfNotice: {
+    label: "Rendimiento",
+    message: "El tablero va muy lento en este dispositivo.",
+    showTips: "¿Qué hacer?",
+    hideTips: "Ocultar",
+    tipAcceleration:
+      "Prueba a activar o desactivar la aceleración por hardware en los ajustes de tu navegador y reinícialo.",
+    tipTabs: "Cierra otras pestañas y aplicaciones que estén usando la tarjeta gráfica.",
+    dismiss: "Ocultar este aviso",
+  },
   zoom: {
     in: "Acercar",
     out: "Alejar",

@@ -54,6 +54,16 @@ const fr: MessageSchema = {
     options: "Paramètres",
     optionsNew: "Paramètres, nouvelles notes de mises à jour",
   },
+  perfNotice: {
+    label: "Performance",
+    message: "Le plateau tourne au ralenti sur cet appareil.",
+    showTips: "Que faire ?",
+    hideTips: "Masquer",
+    tipAcceleration:
+      "Essayez d'activer ou de désactiver l'accélération matérielle dans les réglages de votre navigateur, puis redémarrez-le.",
+    tipTabs: "Fermez les autres onglets et applications qui utilisent la carte graphique.",
+    dismiss: "Masquer ce message",
+  },
   zoom: {
     in: "Zoom avant",
     out: "Zoom arrière",

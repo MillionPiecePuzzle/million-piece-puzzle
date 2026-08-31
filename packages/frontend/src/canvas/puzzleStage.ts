@@ -398,6 +398,7 @@ type ConfettiParticle = {
 export class PuzzleStage {
   private app: Application | null = null;
   private world: Container | null = null;
+  private hostResize: ResizeObserver | null = null;
   private groups = new Map<number, GroupNode>();
   private pieceToGroup = new Map<number, number>();
   // Locked pieces, flat and independent of groups (see LockedPieceSlot). Piece
@@ -752,6 +753,11 @@ export class PuzzleStage {
       resolution: window.devicePixelRatio,
     });
     host.appendChild(app.canvas);
+    // Pixi's own resizeTo listens to the window and nothing else, so chrome that
+    // takes height from the stage without resizing the window (the performance
+    // notice) would leave the canvas at its old size until the next real resize.
+    this.hostResize = new ResizeObserver(() => app.queueResize());
+    this.hostResize.observe(host);
     const world = new Container();
     app.stage.addChild(world);
 
@@ -1127,6 +1133,8 @@ export class PuzzleStage {
     this.releaseEscape?.();
     this.releaseEscape = null;
     window.removeEventListener("blur", this.onWindowBlur);
+    this.hostResize?.disconnect();
+    this.hostResize = null;
     this.detachPinchZoom();
     this.tweener?.destroy();
     this.tweener = null;

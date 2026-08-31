@@ -52,6 +52,16 @@ const en = {
     options: "Settings",
     optionsNew: "Settings, new update notes",
   },
+  perfNotice: {
+    label: "Performance",
+    message: "The board is running at a low frame rate on this device.",
+    showTips: "What to try",
+    hideTips: "Hide",
+    tipAcceleration:
+      "Try switching hardware acceleration on or off in your browser settings, then restart the browser.",
+    tipTabs: "Close other tabs and applications that are using the graphics card.",
+    dismiss: "Dismiss this notice",
+  },
   zoom: {
     in: "Zoom in",
     out: "Zoom out",
