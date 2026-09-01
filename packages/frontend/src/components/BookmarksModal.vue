@@ -95,7 +95,19 @@ function goTo(bookmark: Bookmark): void {
   hide();
 }
 
+// How many of the pieces on screen the picker offers. Enough rows to choose
+// from at a glance, few enough that opening the picker over a dense pile is a
+// handful of texture requests the board has already made and not a page of them.
+const BADGE_PIECE_CHOICES = 24;
+
+// Where the badge is cut from. The photo answers everywhere, which is what makes
+// it the fallback; the pieces answer only where the player has swept some, which
+// is what makes them the better answer to "what is this spot" outside the frame.
+type BadgeSource = "pieces" | "photo";
+
 const creating = ref(false);
+const source = ref<BadgeSource>("photo");
+const pieceChoices = ref<string[]>([]);
 const pickerAspect = computed(() =>
   manifest.value ? `${manifest.value.source.width / manifest.value.source.height}` : "1",
 );
@@ -107,7 +119,7 @@ const dziInfo = ref<DziInfo | null>(null);
 let dziInfoPuzzleId: string | null = null;
 
 // The pyramid's own geometry, needed to name the tile a click lands in. Fetched
-// when the picker first opens rather than with the modal: the descriptor is a
+// when the photo source is shown rather than with the modal: the descriptor is a
 // few hundred bytes and the viewer below asks for the same URL, so this is a
 // cache hit on every open but the first.
 async function loadDziInfo(): Promise<void> {
@@ -123,14 +135,25 @@ async function loadDziInfo(): Promise<void> {
   }
 }
 
+// The pieces are read once, when the picker opens, not followed live: the board
+// moves under the player and a list reshuffling itself while they aim at a piece
+// would take the piece away from under the pointer.
 function startCreate(): void {
   if (!canAdd.value || !controls.value) return;
   creating.value = true;
   draftName.value = "";
   draftBadge.value = null;
   error.value = null;
-  void loadDziInfo();
+  pieceChoices.value = controls.value.residentPieceFiles(BADGE_PIECE_CHOICES);
+  selectSource(pieceChoices.value.length > 0 ? "pieces" : "photo");
   void nextTick(() => nameEl.value?.focus());
+}
+
+// The pyramid descriptor is only worth its request once the photo is on screen:
+// a player badging the spot with a piece never opens it.
+function selectSource(next: BadgeSource): void {
+  source.value = next;
+  if (next === "photo") void loadDziInfo();
 }
 
 function cancelCreate(): void {
@@ -155,6 +178,14 @@ function onPickBadge(image: { x: number; y: number }): void {
   );
   if (!tile) return;
   draftBadge.value = tile.url;
+  error.value = null;
+}
+
+// A piece out of the area the bookmark names, kept as its own asset path: the
+// same shape under the same base as a photo tile, so one stored string covers
+// both sources.
+function onPickPiece(file: string): void {
+  draftBadge.value = file;
   error.value = null;
 }
 
@@ -206,8 +237,47 @@ function save(): void {
         </header>
 
         <template v-if="creating">
-          <p class="modal-lede">{{ t("bookmarks.pickBadge") }}</p>
-          <div class="picker" :style="{ '--ar': pickerAspect }">
+          <div
+            v-if="pieceChoices.length > 0"
+            class="seg"
+            role="group"
+            :aria-label="t('bookmarks.badgeSource')"
+          >
+            <button
+              type="button"
+              :class="{ on: source === 'pieces' }"
+              :aria-pressed="source === 'pieces'"
+              @click="selectSource('pieces')"
+            >
+              {{ t("bookmarks.sourcePieces") }}
+            </button>
+            <button
+              type="button"
+              :class="{ on: source === 'photo' }"
+              :aria-pressed="source === 'photo'"
+              @click="selectSource('photo')"
+            >
+              {{ t("bookmarks.sourcePhoto") }}
+            </button>
+          </div>
+          <p class="modal-lede">
+            {{ source === "pieces" ? t("bookmarks.pickPiece") : t("bookmarks.pickBadge") }}
+          </p>
+          <ul v-if="source === 'pieces'" class="pieces">
+            <li v-for="file in pieceChoices" :key="file">
+              <button
+                type="button"
+                class="piece"
+                :class="{ on: draftBadge === file }"
+                :aria-pressed="draftBadge === file"
+                :aria-label="t('bookmarks.usePiece')"
+                @click="onPickPiece(file)"
+              >
+                <img :src="assetBase + file" alt="" crossorigin="anonymous" decoding="async" />
+              </button>
+            </li>
+          </ul>
+          <div v-else class="picker" :style="{ '--ar': pickerAspect }">
             <ReferenceViewer
               v-if="manifest"
               class="picker-viewer"
@@ -533,6 +603,71 @@ function save(): void {
 .picker-viewer {
   width: 100%;
   height: 100%;
+}
+/* The two badge sources, on the switch the contributors modal already uses.
+   Absent, not disabled, where the board offers no piece: there is nothing to
+   switch to and the photo alone answers. */
+.seg {
+  display: inline-flex;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.seg button {
+  padding: 5px 14px;
+  color: var(--ink-3);
+  background: var(--paper);
+}
+.seg button + button {
+  border-left: 1px solid var(--line);
+}
+.seg button.on {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.seg button:hover:not(.on) {
+  color: var(--ink);
+}
+/* The pieces on screen, in the room the photo picker takes, so switching source
+   does not resize the window under the player. Each tile keeps its own square:
+   a piece texture carries its tab margin in the alpha, so the silhouette needs
+   the whole cell to read as a piece rather than as a crop. */
+.pieces {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.piece {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--ground-2);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+.piece:hover {
+  background: var(--paper-2);
+}
+.piece.on {
+  border-color: var(--ink);
+  background: var(--paper-2);
+}
+.piece img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 .draft {
   display: flex;

@@ -2715,6 +2715,47 @@ export class PuzzleStage {
     return this.screenToWorld(screen.width * 0.5, screen.height * 0.5);
   }
 
+  // Bookmarks: the pieces standing on screen, nearest the middle of the view
+  // first, as manifest-relative asset paths for the badge picker. Only a
+  // hydrated group answers, so every path handed back is a piece the player can
+  // see right now and its texture is already in the browser's cache; a region
+  // drawn entirely from locked composites holds no group at all (see DECISIONS:
+  // locked pieces stop being a group) and answers with nothing.
+  residentPieceFiles(limit: number): string[] {
+    const view = this.viewport;
+    if (!view || !this.manifest || limit <= 0) return [];
+    const { pieceSize } = this.manifest;
+    const half = pieceSize / 2;
+    const cx = view.worldX + view.worldW / 2;
+    const cy = view.worldY + view.worldH / 2;
+    const rect: Aabb = {
+      minX: view.worldX,
+      minY: view.worldY,
+      maxX: view.worldX + view.worldW,
+      maxY: view.worldY + view.worldH,
+    };
+    const found: { file: string; distanceSq: number }[] = [];
+    for (const gid of this.groupGrid.queryRect(rect)) {
+      const node = this.groups.get(gid);
+      if (!node?.hydrated) continue;
+      for (const [pieceId, off] of node.members) {
+        // The piece's own centre rather than its group's origin: a cluster
+        // reaching into the view offers the pieces of it that are actually
+        // there, not its far corner.
+        const x = node.worldX + off.dx * pieceSize + half;
+        const y = node.worldY + off.dy * pieceSize + half;
+        if (x < rect.minX || x > rect.maxX || y < rect.minY || y > rect.maxY) continue;
+        const file = this.fileById.get(pieceId);
+        if (file === undefined) continue;
+        const dx = x - cx;
+        const dy = y - cy;
+        found.push({ file, distanceSq: dx * dx + dy * dy });
+      }
+    }
+    found.sort((a, b) => a.distanceSq - b.distanceSq);
+    return found.slice(0, limit).map((entry) => entry.file);
+  }
+
   zoomIn(): void {
     this.zoomBy(1.25);
   }

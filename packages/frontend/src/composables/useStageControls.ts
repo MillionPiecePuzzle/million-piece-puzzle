@@ -9,8 +9,10 @@ export type StageControls = {
   // flag is planted on.
   centerOnWorld: (worldX: number, worldY: number) => void;
   viewportCenterWorld: () => { x: number; y: number } | null;
-  // Bookmarks: restore a recorded framing, position and zoom together.
+  // Bookmarks: restore a recorded framing, position and zoom together, and read
+  // the pieces on screen the badge picker offers as its second source.
   frameWorld: (worldX: number, worldY: number, zoom: number) => void;
+  residentPieceFiles: (limit: number) => string[];
 };
 
 export type StageCamera = {

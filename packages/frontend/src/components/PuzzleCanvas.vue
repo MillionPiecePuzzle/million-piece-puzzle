@@ -321,6 +321,7 @@ onMounted(async () => {
     centerOnWorld: (wx, wy) => stage?.centerOnWorld(wx, wy),
     viewportCenterWorld: () => stage?.viewportCenterWorld() ?? null,
     frameWorld: (wx, wy, zoom) => stage?.frameWorld(wx, wy, zoom),
+    residentPieceFiles: (limit) => stage?.residentPieceFiles(limit) ?? [],
   });
   setOverviewSource(() => stage?.getOverviewSnapshot() ?? null);
   setOverviewNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
