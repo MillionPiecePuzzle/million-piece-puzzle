@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import type { ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
@@ -12,6 +13,7 @@ import { useAuth } from "../composables/useAuth";
 import { useLocaleFormat } from "../i18n/format";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 import { toContributorsRows } from "../data/contributors";
+import { SHARE_VIEW_PARAM, parseSharedView, sharedViewWorldPoint } from "../data/shareLink";
 import ContributorsRow from "./ContributorsRow.vue";
 
 const { t } = useI18n();
@@ -47,6 +49,12 @@ const {
 const { mode } = useMode();
 const { settings: displaySettings } = useDisplaySettings();
 const { backendDown } = useAuth();
+
+// The spot a link handed this player, read here rather than at the moment it is
+// applied: the address bar is rewritten at boot (the analytics and auth flags
+// are stripped through a router.replace) and the board is only built seconds
+// later, past the guest onboarding a first-time visitor goes through.
+let sharedView = parseSharedView(useRoute().query[SHARE_VIEW_PARAM]);
 
 let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
@@ -390,6 +398,15 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
     progressLoaded.value = p.loaded;
     progressTotal.value = p.total;
   });
+  // A shared spot is framed once the board is up, since build() ends on fitView
+  // and would otherwise overwrite it, and while the loading cover is still down,
+  // so the player never sees the whole board first. Consumed on the first build
+  // alone: a rebuild (a dev reset, a new board) must not pull them back.
+  if (sharedView) {
+    const point = sharedViewWorldPoint(sharedView, s.manifest, s.welcome.playZone);
+    stage.frameWorld(point.x, point.y, sharedView.zoom);
+    sharedView = null;
+  }
   stage.setMode(mode.value);
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
     triggerCompletion(false);

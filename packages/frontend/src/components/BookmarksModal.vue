@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ImageManifest } from "@mpp/shared";
 import {
@@ -13,6 +13,7 @@ import {
 import { dziTilesPath, manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 import { badgeTileLevel, dziTilesForRect, fetchDziInfo, type DziInfo } from "../canvas/dziTiles";
 import { formatBoardPoint, worldToBoard } from "../canvas/boardCoords";
+import { shareViewUrl } from "../data/shareLink";
 import { useBookmarks } from "../composables/useBookmarks";
 import { useBookmarksModal } from "../composables/useBookmarksModal";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
@@ -37,6 +38,7 @@ const { onMousedown, onClick } = useBackdropClick(() => hide());
 // An open is a fresh read of the notebook: an abandoned draft, a filter and a
 // page from a previous open never come back with it.
 watch(open, (isOpen) => {
+  clearCopyFeedback();
   if (isOpen) {
     creating.value = false;
     query.value = "";
@@ -93,6 +95,44 @@ function positionOf(bookmark: Bookmark): string {
 function goTo(bookmark: Bookmark): void {
   controls.value?.frameWorld(bookmark.worldX, bookmark.worldY, bookmark.zoom);
   hide();
+}
+
+// How long the row says the link is in the clipboard: long enough to read, short
+// enough that the row is back to itself by the time the player looks again.
+const COPIED_FEEDBACK_MS = 2500;
+
+const copiedId = ref<string | null>(null);
+const copyFailed = ref(false);
+let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearCopyFeedback(): void {
+  if (copyTimer !== null) clearTimeout(copyTimer);
+  copyTimer = null;
+  copiedId.value = null;
+  copyFailed.value = false;
+}
+
+onBeforeUnmount(clearCopyFeedback);
+
+// The spot alone travels, in the player coordinates the readout already shows:
+// the recipient has no notebook of yours to file it in, so the name, the badge
+// and the entry's own id stay here.
+async function copyLink(bookmark: Bookmark): Promise<void> {
+  const m = manifest.value;
+  if (!m) return;
+  const point = worldToBoard(bookmark.worldX, bookmark.worldY, m);
+  const url = shareViewUrl(window.location.origin, { ...point, zoom: bookmark.zoom });
+  clearCopyFeedback();
+  try {
+    await navigator.clipboard.writeText(url);
+    copiedId.value = bookmark.id;
+  } catch {
+    // No clipboard at all (an insecure origin), or a browser refusing the write:
+    // an unwritten link is worth nothing, so say so rather than leave the row
+    // looking like it worked.
+    copyFailed.value = true;
+  }
+  copyTimer = setTimeout(clearCopyFeedback, COPIED_FEEDBACK_MS);
 }
 
 // How many of the pieces on screen the picker offers. Enough rows to choose
@@ -366,7 +406,43 @@ function save(): void {
               </button>
               <button
                 type="button"
-                class="delete"
+                class="icon"
+                :class="{ done: copiedId === bookmark.id }"
+                :disabled="!manifest"
+                :aria-label="
+                  copiedId === bookmark.id
+                    ? t('bookmarks.copied')
+                    : t('bookmarks.copyLink', { name: bookmark.name })
+                "
+                @click="copyLink(bookmark)"
+              >
+                <svg v-if="copiedId === bookmark.id" class="ic" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M3.5 8.4 6.4 11.3 12.5 5"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                <svg v-else class="ic" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.1-2.1a2.6 2.6 0 0 0-3.7-3.7l-1 1"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.4 8.9a2.6 2.6 0 0 0 3.7 3.7l1-1"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="icon delete"
                 :aria-label="t('bookmarks.delete', { name: bookmark.name })"
                 @click="remove(bookmark.id)"
               >
@@ -374,6 +450,7 @@ function save(): void {
               </button>
             </li>
           </ul>
+          <p v-if="copyFailed" class="error" role="alert">{{ t("bookmarks.copyFailed") }}</p>
 
           <div v-if="pageCount > 1" class="pager">
             <button type="button" :disabled="page === 0" @click="page--">
@@ -522,21 +599,40 @@ function save(): void {
   font-size: 11px;
   color: var(--ink-4);
 }
-.delete {
+/* The two per-row actions, sharing one shape so neither reads as the main one:
+   the row itself is what the player clicks. */
+.icon {
   flex: none;
+  display: grid;
+  place-items: center;
   width: 28px;
   height: 28px;
   border-radius: var(--radius-pill);
   color: var(--ink-4);
-  font-size: 18px;
   line-height: 1;
   transition:
     background 160ms ease,
     color 160ms ease;
 }
-.delete:hover {
+.icon:hover:not(:disabled) {
   background: var(--ground-2);
   color: var(--ink);
+}
+.icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* The row's own confirmation that the link is in the clipboard, which nothing
+   else on screen would say. */
+.icon.done {
+  color: var(--ink);
+}
+.ic {
+  width: 16px;
+  height: 16px;
+}
+.delete {
+  font-size: 18px;
 }
 .pager {
   display: flex;
