@@ -1,26 +1,13 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useStageControls } from "../composables/useStageControls";
-import { usePuzzleSession } from "../composables/usePuzzleSession";
-import { formatBoardPoint, worldToBoard } from "../canvas/boardCoords";
 
 const { t } = useI18n();
-const { controls, camera, zoomPercent } = useStageControls();
-const { state } = usePuzzleSession();
-
-// Where the middle of the view sits in player coordinates: whole pieces from
-// the center of the frame, so a player can read their spot out to someone.
-const position = computed(() => {
-  const s = state.value;
-  if (s.kind !== "ready") return null;
-  return formatBoardPoint(worldToBoard(camera.value.centerX, camera.value.centerY, s.manifest));
-});
+const { controls, zoomPercent } = useStageControls();
 </script>
 
 <template>
   <div class="zoom">
-    <div v-if="position" class="pos" :data-tip="t('zoom.position')">{{ position }}</div>
     <div class="lvl">{{ zoomPercent }}%</div>
     <button
       type="button"
@@ -99,33 +86,15 @@ const position = computed(() => {
   border: 1px solid var(--line);
   border-radius: 12px;
 }
-/* The position readout is the widest thing in the pillar, so it, and not the
-   button row, is what the pillar's width comes from; the buttons stretch to it
-   rather than carrying a width of their own. */
-.pos,
 .lvl {
-  --pad-x: 8px;
   font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-3);
-  padding: 6px var(--pad-x);
+  padding: 6px 8px;
   text-align: center;
   white-space: nowrap;
   border-bottom: 1px solid var(--line-2);
-}
-/* Whichever line is on top, since the readout is only drawn once the board is
-   up and the zoom level leads until then. */
-.zoom > :first-child {
   border-radius: 12px 12px 0 0;
-}
-.pos {
-  position: relative;
-  color: var(--ink-2);
-  /* Held at the width of the longest reading the play zone can produce (four
-     digits and a sign an axis, out at its corner), so the pillar keeps one
-     width instead of resizing under the player's hand as they pan. The font is
-     monospace, so one ch is exactly one character. */
-  min-width: calc(14ch + 2 * var(--pad-x));
 }
 .zoom button {
   position: relative;

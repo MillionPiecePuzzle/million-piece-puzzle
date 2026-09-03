@@ -70,7 +70,6 @@ const es: MessageSchema = {
     out: "Alejar",
     center: "Centrar en el puzle",
     fit: "Ajustar el puzle a la vista",
-    position: "Tu posición en el tablero, en piezas desde su centro",
   },
   reference: {
     title: "Referencia",
@@ -84,6 +83,8 @@ const es: MessageSchema = {
     title: "Vista general",
     online: "{n} en línea",
     enlarge: "Ampliar la vista general",
+    coordinates: "Coordenadas",
+    coordinatesHint: "Tu posición en el tablero, en piezas desde su centro",
   },
   auth: {
     title: "Sincroniza tu cuenta",

@@ -1,18 +1,26 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { MIN_OVERVIEW_ASPECT, drawOverview, overviewAspect } from "../canvas/overviewView";
+import { formatBoardPoint, worldToBoard } from "../canvas/boardCoords";
 import { useOverview } from "../composables/useOverview";
 import { useOverviewPointer } from "../composables/useOverviewPointer";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
+import { useStageControls } from "../composables/useStageControls";
+import { useCompactViewport } from "../composables/useCompactViewport";
 import { useRafLoop } from "../composables/useRafLoop";
 import OverviewModal from "./OverviewModal.vue";
 
 const { t } = useI18n();
 const { source } = useOverview();
 const { flags } = useBoardFlags();
-const { onlineCount } = usePuzzleSession();
+const { onlineCount, state } = usePuzzleSession();
+const { camera } = useStageControls();
+// A compact panel is 128px of row against the 167px the longest label and the
+// longest reading need, so the readout stays off a small screen, where it has
+// never been drawn: the zoom pillar it comes from is not offered there either.
+const { compact } = useCompactViewport();
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
 const enlarged = ref(false);
@@ -21,6 +29,15 @@ const { captureTransform, onPointerDown, onPointerMove, onPointerUp } =
   useOverviewPointer(canvasEl);
 
 const canvasAspect = ref(MIN_OVERVIEW_ASPECT);
+
+// Where the middle of the view sits in player coordinates: whole pieces from
+// the center of the frame, so a player can read their spot out to someone. It
+// belongs under the map it is a reading of, rather than on the zoom pillar.
+const position = computed(() => {
+  const s = state.value;
+  if (s.kind !== "ready") return null;
+  return formatBoardPoint(worldToBoard(camera.value.centerX, camera.value.centerY, s.manifest));
+});
 
 function draw(): void {
   // The enlarged view covers the HUD with its own backdrop and paints the same
@@ -97,6 +114,10 @@ useRafLoop(draw);
         @pointercancel="onPointerUp"
       ></canvas>
     </div>
+    <p v-if="position && !compact" class="coords" :title="t('overview.coordinatesHint')">
+      <span class="coords-label">{{ t("overview.coordinates") }}</span>
+      <span class="coords-value">{{ position }}</span>
+    </p>
   </aside>
 
   <OverviewModal v-if="enlarged" @close="enlarged = false" />
@@ -104,12 +125,13 @@ useRafLoop(draw);
 
 <style scoped>
 /* Last cap: the room the right rail has left once the topbar, its own insets, a
-   readable contributors list and this panel's own chrome are taken out, converted to a
-   width through the map's aspect. Same reasoning as the reference panel, so a
-   short window shrinks the map instead of pushing it off the screen. */
+   readable contributors list and this panel's own chrome (the coordinates row
+   included, 22px of it) are taken out, converted to a width through the map's
+   aspect. Same reasoning as the reference panel, so a short window shrinks the
+   map instead of pushing it off the screen. */
 .overview {
   position: static;
-  width: min(248px, var(--hud-rail-max), calc((100dvh - 300px) * var(--ar)));
+  width: min(248px, var(--hud-rail-max), calc((100dvh - 322px) * var(--ar)));
   padding: 10px 10px 12px;
 }
 .overview-head {
@@ -155,6 +177,26 @@ useRafLoop(draw);
      instead of picking the map up, and the arrow's tip is what aims it. */
   cursor: default;
   touch-action: none;
+}
+/* Inset like the panel's own head, so the label lines up with the title above
+   the map and the reading ends on the map's right edge. */
+.coords {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0 4px;
+}
+.coords-label {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.coords-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
 }
 .expand {
   flex: none;

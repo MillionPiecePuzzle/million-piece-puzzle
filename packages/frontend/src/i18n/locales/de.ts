@@ -70,7 +70,6 @@ const de: MessageSchema = {
     out: "Verkleinern",
     center: "Auf Puzzle zentrieren",
     fit: "Puzzle an Ansicht anpassen",
-    position: "Deine Position auf dem Spielfeld, in Teilen ab der Mitte",
   },
   reference: {
     title: "Referenz",
@@ -84,6 +83,8 @@ const de: MessageSchema = {
     title: "Übersicht",
     online: "{n} online",
     enlarge: "Übersicht vergrößern",
+    coordinates: "Koordinaten",
+    coordinatesHint: "Deine Position auf dem Spielfeld, in Teilen ab der Mitte",
   },
   auth: {
     title: "Konto synchronisieren",

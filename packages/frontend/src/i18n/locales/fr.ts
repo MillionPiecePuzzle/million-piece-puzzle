@@ -70,7 +70,6 @@ const fr: MessageSchema = {
     out: "Zoom arrière",
     center: "Centrer sur le puzzle",
     fit: "Ajuster le puzzle à la vue",
-    position: "Votre position sur le plateau, en pièces depuis son centre",
   },
   reference: {
     title: "Référence",
@@ -84,6 +83,8 @@ const fr: MessageSchema = {
     title: "Aperçu",
     online: "{n} en ligne",
     enlarge: "Agrandir l'aperçu",
+    coordinates: "Coordonnées",
+    coordinatesHint: "Votre position sur le plateau, en pièces depuis son centre",
   },
   auth: {
     title: "Synchroniser votre compte",
