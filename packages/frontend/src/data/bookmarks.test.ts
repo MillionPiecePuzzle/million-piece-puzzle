@@ -9,6 +9,9 @@ import {
   parseBookmarkBadge,
   parseBookmarks,
   removeBookmark,
+  serializeBookmarks,
+  sortBookmarks,
+  toggleBookmarkFavorite,
   type Bookmark,
   type BookmarkBadge,
 } from "./bookmarks";
@@ -72,8 +75,54 @@ describe("addBookmark", () => {
       worldY: 0,
       createdAt: 0,
       badge: BADGE,
+      favorite: false,
     }));
     expect(make("one more", full)).toHaveLength(MAX_BOOKMARKS);
+  });
+
+  it("starts a new entry plain, favorites being what the player says afterwards", () => {
+    const [saved] = make("spot");
+    expect(saved!.favorite).toBe(false);
+  });
+
+  it("lands a new entry under the favorites rather than above them", () => {
+    const kept = make("kept");
+    const starred = toggleBookmarkFavorite(kept, kept[0]!.id);
+    const list = addBookmark(starred, { name: "fresh", worldX: 0, worldY: 0, badge: BADGE });
+    expect(list.map((b) => b.name)).toEqual(["kept", "fresh"]);
+  });
+});
+
+// createdAt is minted by the clock, so these are built by hand: what is under
+// test is the order two entries come out in, not when they were made.
+function entry(name: string, createdAt: number, favorite = false): Bookmark {
+  return { id: name, name, worldX: 0, worldY: 0, createdAt, badge: BADGE, favorite };
+}
+
+describe("sortBookmarks", () => {
+  it("puts the favorites first and the newest first inside each block", () => {
+    const list = sortBookmarks([
+      entry("old", 100),
+      entry("old favorite", 100, true),
+      entry("new", 300),
+      entry("new favorite", 300, true),
+    ]);
+    expect(list.map((b) => b.name)).toEqual(["new favorite", "old favorite", "new", "old"]);
+  });
+});
+
+describe("toggleBookmarkFavorite", () => {
+  it("raises the starred entry to the top and drops it back when unstarred", () => {
+    const list = [entry("old", 100), entry("new", 300)];
+    const starred = toggleBookmarkFavorite(list, "old");
+    expect(starred.map((b) => b.name)).toEqual(["old", "new"]);
+    expect(starred[0]!.favorite).toBe(true);
+    expect(toggleBookmarkFavorite(starred, "old").map((b) => b.name)).toEqual(["new", "old"]);
+  });
+
+  it("leaves the rest of the list alone", () => {
+    const list = [entry("a", 300), entry("b", 100)];
+    expect(toggleBookmarkFavorite(list, "nobody")).toEqual(list);
   });
 });
 
@@ -168,13 +217,29 @@ describe("parseBookmarks", () => {
     createdAt: 1_700_000_000_000,
     badge: BADGE,
   };
+  const parsed = { ...entry, favorite: false };
 
   it("reads back what was written", () => {
-    expect(parseBookmarks(JSON.stringify([entry]))).toEqual([entry]);
+    expect(parseBookmarks(JSON.stringify([entry]))).toEqual([parsed]);
   });
 
   it("leaves behind the zoom an older notebook stored", () => {
-    expect(parseBookmarks(JSON.stringify([{ ...entry, zoom: 1.5 }]))).toEqual([entry]);
+    expect(parseBookmarks(JSON.stringify([{ ...entry, zoom: 1.5 }]))).toEqual([parsed]);
+  });
+
+  it("reads a starred entry back starred, and anything but the flag as plain", () => {
+    expect(parseBookmarks(JSON.stringify([{ ...entry, favorite: true }]))[0]!.favorite).toBe(true);
+    expect(parseBookmarks(JSON.stringify([{ ...entry, favorite: "yes" }]))[0]!.favorite).toBe(
+      false,
+    );
+  });
+
+  it("opens a hand-edited file in the order the panel pages", () => {
+    const stored = [
+      { ...entry, id: "b1", createdAt: 300 },
+      { ...entry, id: "b2", createdAt: 100, favorite: true },
+    ];
+    expect(parseBookmarks(JSON.stringify(stored)).map((b) => b.id)).toEqual(["b2", "b1"]);
   });
 
   it("returns an empty list for junk, a non-array, or nothing at all", () => {
@@ -185,7 +250,7 @@ describe("parseBookmarks", () => {
 
   it("reads back a piece badge too", () => {
     const piece = { ...entry, badge: PIECE_BADGE };
-    expect(parseBookmarks(JSON.stringify([piece]))).toEqual([piece]);
+    expect(parseBookmarks(JSON.stringify([piece]))).toEqual([{ ...piece, favorite: false }]);
   });
 
   it("drops an entry that is not a named, placed, badged point", () => {
@@ -208,5 +273,17 @@ describe("parseBookmarks", () => {
   it("cuts the list at the cap", () => {
     const many = Array.from({ length: MAX_BOOKMARKS + 20 }, (_, i) => ({ ...entry, id: `b${i}` }));
     expect(parseBookmarks(JSON.stringify(many))).toHaveLength(MAX_BOOKMARKS);
+  });
+});
+
+describe("serializeBookmarks", () => {
+  it("survives a round trip, starred entries included", () => {
+    const list = sortBookmarks([entry("kept", 300, true), entry("plain", 100)]);
+    expect(parseBookmarks(serializeBookmarks(list))).toEqual(list);
+  });
+
+  it("writes no flag for a plain entry, which is most of the notebook", () => {
+    expect(serializeBookmarks([entry("plain", 100)])).not.toContain("favorite");
+    expect(serializeBookmarks([entry("kept", 100, true)])).toContain('"favorite":true');
   });
 });

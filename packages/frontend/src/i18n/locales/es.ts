@@ -332,6 +332,8 @@ const es: MessageSchema = {
     needName: "Ponle nombre a este marcador antes de guardarlo.",
     needBadge: "Elige una miniatura antes de guardar.",
     goTo: "Ir a {name}",
+    favorite: "Añadir {name} a tus favoritos",
+    unfavorite: "Quitar {name} de tus favoritos",
     copyLink: "Copiar un enlace a {name}",
     copied: "Enlace copiado",
     copyFailed: "Tu navegador no ha permitido copiar el enlace.",

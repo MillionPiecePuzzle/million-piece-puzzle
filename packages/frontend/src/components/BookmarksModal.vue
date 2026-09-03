@@ -38,7 +38,8 @@ const { t } = useI18n();
 const { open, hide, anchorInset, takeDraft } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
-const { bookmarks, badgePieces, badgeKind, canAdd, setPuzzle, add, remove } = useBookmarks();
+const { bookmarks, badgePieces, badgeKind, canAdd, setPuzzle, add, remove, toggleFavorite } =
+  useBookmarks();
 const { relativeTime } = useRelativeTime();
 const { formatNumber } = useLocaleFormat();
 
@@ -643,6 +644,31 @@ function save(): void {
               </button>
               <button
                 type="button"
+                class="icon star"
+                :class="{ on: bookmark.favorite }"
+                :aria-pressed="bookmark.favorite"
+                :aria-label="
+                  bookmark.favorite
+                    ? t('bookmarks.unfavorite', { name: bookmark.name })
+                    : t('bookmarks.favorite', { name: bookmark.name })
+                "
+                @click="toggleFavorite(bookmark.id)"
+              >
+                <svg
+                  class="ic"
+                  viewBox="0 0 16 16"
+                  :fill="bookmark.favorite ? 'currentColor' : 'none'"
+                >
+                  <path
+                    d="M8 1.8 9.6 6.2 14.3 6.4 10.6 9.2 11.9 13.7 8 11.1 4.1 13.7 5.4 9.2 1.7 6.4 6.4 6.2Z"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
                 class="icon"
                 :class="{ done: copiedId === bookmark.id }"
                 :disabled="!manifest"
@@ -930,6 +956,11 @@ function save(): void {
 /* The row's own confirmation that the link is in the clipboard, which nothing
    else on screen would say. */
 .icon.done {
+  color: var(--ink);
+}
+/* A starred row is already at the top of the list, so the star only has to say
+   why it is there: filled and in full ink against the outline of the rest. */
+.icon.star.on {
   color: var(--ink);
 }
 .ic {

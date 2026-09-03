@@ -324,6 +324,8 @@ const en = {
     needName: "Name this bookmark before saving it.",
     needBadge: "Pick a badge before saving.",
     goTo: "Go to {name}",
+    favorite: "Add {name} to your favorites",
+    unfavorite: "Remove {name} from your favorites",
     copyLink: "Copy a link to {name}",
     copied: "Link copied",
     copyFailed: "Your browser would not let the link be copied.",

@@ -336,6 +336,8 @@ const de: MessageSchema = {
     needName: "Benenne dieses Lesezeichen, bevor du es speicherst.",
     needBadge: "Wähle ein Bildchen, bevor du speicherst.",
     goTo: "Zu {name}",
+    favorite: "{name} zu deinen Favoriten hinzufügen",
+    unfavorite: "{name} aus deinen Favoriten entfernen",
     copyLink: "Link zu {name} kopieren",
     copied: "Link kopiert",
     copyFailed: "Dein Browser hat das Kopieren des Links nicht zugelassen.",

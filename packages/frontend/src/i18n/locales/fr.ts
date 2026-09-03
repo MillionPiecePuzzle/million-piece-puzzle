@@ -333,6 +333,8 @@ const fr: MessageSchema = {
     needName: "Nommez ce signet avant de l'enregistrer.",
     needBadge: "Choisissez une vignette avant d'enregistrer.",
     goTo: "Aller à {name}",
+    favorite: "Ajouter {name} à vos favoris",
+    unfavorite: "Retirer {name} de vos favoris",
     copyLink: "Copier un lien vers {name}",
     copied: "Lien copié",
     copyFailed: "Votre navigateur n'a pas autorisé la copie du lien.",

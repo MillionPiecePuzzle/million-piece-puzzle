@@ -51,6 +51,7 @@ const bookmark: Bookmark = {
   worldY: 120_000,
   createdAt: 1_700_000_000_000,
   badge: { kind: "area", x: 80_880, y: 119_280, size: 1440 },
+  favorite: false,
 };
 const senderZoom = 0.85;
 

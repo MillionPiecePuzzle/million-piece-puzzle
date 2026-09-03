@@ -26,9 +26,15 @@ export type Bookmark = {
   worldY: number;
   createdAt: number;
   badge: BookmarkBadge;
+  // The spots the player keeps coming back to, held at the top of the list. A
+  // flag rather than a slot: there is no cap on it, since it orders the notebook
+  // and never competes for anything on the board.
+  favorite: boolean;
 };
 
-export type NewBookmark = Omit<Bookmark, "id" | "createdAt">;
+// Nothing is born a favorite: it is what the player says about a spot after
+// working it, so a new entry (their own, or one saved from a link) starts plain.
+export type NewBookmark = Omit<Bookmark, "id" | "createdAt" | "favorite">;
 
 // Which of the two badges the next spot is marked with, chosen before the aim
 // rather than decided by what happens to be under the click: the player says
@@ -115,6 +121,18 @@ function roundBadge(badge: BookmarkBadge): BookmarkBadge {
   };
 }
 
+// The one order the notebook is ever in, kept by every writer so the stored list,
+// the page the panel shows and the row a save lands on all agree: favorites
+// first, then newest first inside each block. The list is read top-down, the
+// spots the player keeps coming back to are what they are looking for, and the
+// spot just marked is the one being worked in. It also makes the parser's cut
+// drop the oldest plain entries rather than a favorite.
+export function sortBookmarks(list: readonly Bookmark[]): Bookmark[] {
+  return [...list].sort((a, b) =>
+    a.favorite === b.favorite ? b.createdAt - a.createdAt : a.favorite ? -1 : 1,
+  );
+}
+
 export function addBookmark(list: readonly Bookmark[], entry: NewBookmark): Bookmark[] {
   if (list.length >= MAX_BOOKMARKS) return [...list];
   const bookmark: Bookmark = {
@@ -124,14 +142,20 @@ export function addBookmark(list: readonly Bookmark[], entry: NewBookmark): Book
     worldY: Math.round(entry.worldY),
     createdAt: Date.now(),
     badge: roundBadge(entry.badge),
+    favorite: false,
   };
-  // Newest first: the list is read top-down and the spot just marked is the one
-  // being worked in, which also makes the parser's cut drop the oldest entries.
-  return [bookmark, ...list];
+  return sortBookmarks([bookmark, ...list]);
 }
 
 export function removeBookmark(list: readonly Bookmark[], id: string): Bookmark[] {
   return list.filter((b) => b.id !== id);
+}
+
+// Starring an entry moves it, so the list is re-sorted rather than left with a
+// favorite sitting where it was written: the row the player just starred is at
+// the top when they look again.
+export function toggleBookmarkFavorite(list: readonly Bookmark[], id: string): Bookmark[] {
+  return sortBookmarks(list.map((b) => (b.id === id ? { ...b, favorite: !b.favorite } : b)));
 }
 
 export function filterBookmarks(list: readonly Bookmark[], query: string): Bookmark[] {
@@ -162,7 +186,10 @@ export function parseBookmarks(raw: string | null): Bookmark[] {
   for (const entry of parsed) {
     if (bookmarks.length >= MAX_BOOKMARKS) break;
     if (typeof entry !== "object" || entry === null) continue;
-    const { id, name, worldX, worldY, createdAt, badge } = entry as Record<string, unknown>;
+    const { id, name, worldX, worldY, createdAt, badge, favorite } = entry as Record<
+      string,
+      unknown
+    >;
     if (typeof id !== "string" || id === "" || takenIds.has(id)) continue;
     if (typeof name !== "string") continue;
     const cleanName = normalizeBookmarkName(name);
@@ -178,10 +205,13 @@ export function parseBookmarks(raw: string | null): Bookmark[] {
       worldY: worldY as number,
       createdAt: createdAt as number,
       badge: cleanBadge,
+      favorite: favorite === true,
     });
     takenIds.add(id);
   }
-  return bookmarks;
+  // Sorted on the way in as well as on the way out: a hand-edited file, or one
+  // written before favorites existed, still opens in the order the panel pages.
+  return sortBookmarks(bookmarks);
 }
 
 export function readBookmarks(puzzleId: string): Bookmark[] {
@@ -192,10 +222,31 @@ export function readBookmarks(puzzleId: string): Bookmark[] {
   }
 }
 
+// The other half of the codec, written field by field like the parser reads:
+// a plain entry carries no flag at all, since the notebook is mostly plain
+// entries and `"favorite":false` on each of them is 17 bytes of a quota the cap
+// is measured against. What is absent reads as false on the way back in.
+export function serializeBookmarks(list: readonly Bookmark[]): string {
+  return JSON.stringify(
+    list.map((b) => {
+      const stored: Record<string, unknown> = {
+        id: b.id,
+        name: b.name,
+        worldX: b.worldX,
+        worldY: b.worldY,
+        createdAt: b.createdAt,
+        badge: b.badge,
+      };
+      if (b.favorite) stored.favorite = true;
+      return stored;
+    }),
+  );
+}
+
 export function writeBookmarks(puzzleId: string, list: readonly Bookmark[]): void {
   try {
     if (list.length === 0) localStorage.removeItem(bookmarkStorageKey(puzzleId));
-    else localStorage.setItem(bookmarkStorageKey(puzzleId), JSON.stringify(list));
+    else localStorage.setItem(bookmarkStorageKey(puzzleId), serializeBookmarks(list));
   } catch {
     // Private mode, storage disabled, or a list that outgrew the origin's quota:
     // the notebook stays live for this session only.

@@ -5,6 +5,7 @@ import {
   addBookmark,
   readBookmarks,
   removeBookmark,
+  toggleBookmarkFavorite,
   writeBookmarks,
   type BadgeKind,
   type Bookmark,
@@ -47,7 +48,11 @@ export function useBookmarks() {
     commit(removeBookmark(bookmarks.value, id));
   }
 
+  function toggleFavorite(id: string): void {
+    commit(toggleBookmarkFavorite(bookmarks.value, id));
+  }
+
   const canAdd = computed(() => bookmarks.value.length < MAX_BOOKMARKS);
 
-  return { bookmarks, badgePieces, badgeKind, canAdd, setPuzzle, add, remove };
+  return { bookmarks, badgePieces, badgeKind, canAdd, setPuzzle, add, remove, toggleFavorite };
 }
