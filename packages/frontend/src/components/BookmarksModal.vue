@@ -25,7 +25,7 @@ import { useLocaleFormat } from "../i18n/format";
 import ReferenceViewer from "./ReferenceViewer.vue";
 
 const { t } = useI18n();
-const { open, hide } = useBookmarksModal();
+const { open, hide, anchorInset } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
 const { bookmarks, canAdd, setPuzzle, add, remove } = useBookmarks();
@@ -35,6 +35,19 @@ const { formatNumber } = useLocaleFormat();
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => (creating.value ? cancelCreate() : hide()) });
 const { onMousedown, onClick } = useBackdropClick(() => hide());
+
+// How far the panel's right edge sits inside the viewport, the backdrop's own
+// padding. Subtracting it from the control's distance to that same edge turns
+// the control's position into an offset inside the panel, which is where the
+// open has to grow from.
+const PANEL_EDGE_GAP = 16;
+
+const openOrigin = computed(() => {
+  const inset = anchorInset.value;
+  if (inset === null) return undefined;
+  const fromRight = Math.round(Math.max(0, inset - PANEL_EDGE_GAP));
+  return { transformOrigin: `calc(100% - ${fromRight}px) top` };
+});
 // An open is a fresh read of the notebook: an abandoned draft, a filter and a
 // page from a previous open never come back with it.
 watch(open, (isOpen) => {
@@ -265,6 +278,7 @@ function save(): void {
       <div
         ref="shellEl"
         class="modal-shell bookmarks-modal"
+        :style="openOrigin"
         role="dialog"
         aria-modal="true"
         aria-labelledby="bookmarks-title"
@@ -480,16 +494,35 @@ function save(): void {
 </template>
 
 <style scoped>
+/* A window opened from the topbar, not a dialog dropped over the board: it hangs
+   under the bar it was opened from, and the board it is a notebook of stays lit
+   behind it. The backdrop is still there, invisible, to catch the click that
+   closes it. */
 .bookmarks-backdrop {
-  /* Over the settings menu that opens it, which stays behind rather than
-     unmounting, so closing this returns to the board directly. */
   z-index: 111;
+  background: none;
+  backdrop-filter: none;
+  place-items: start end;
+  padding: calc(52px + var(--notice-h, 0px) + 8px) 16px 16px;
 }
 .bookmarks-modal {
   /* Wide enough for a row to carry its badge, its name and its coordinates on
      one line, and for the picker below to show the photo at a size you can aim
      at. */
   width: min(560px, 100%);
+  /* Grown from the control that opened it, whose place in the panel's own box
+     `openOrigin` computes. */
+  animation: bookmarks-open 160ms ease-out;
+}
+@keyframes bookmarks-open {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .tools {
   display: flex;

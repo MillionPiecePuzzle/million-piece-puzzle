@@ -300,7 +300,6 @@ const fr: MessageSchema = {
   },
   bookmarks: {
     title: "Signets",
-    menuHint: "Vos coins nommés sur ce plateau.",
     newTitle: "Nouveau signet",
     count: "{n} signet | {n} signets",
     filter: "Filtrer par nom",

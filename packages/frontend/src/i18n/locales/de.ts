@@ -301,7 +301,6 @@ const de: MessageSchema = {
   },
   bookmarks: {
     title: "Lesezeichen",
-    menuHint: "Deine benannten Stellen auf diesem Brett.",
     newTitle: "Neues Lesezeichen",
     count: "{n} Lesezeichen | {n} Lesezeichen",
     filter: "Nach Name filtern",

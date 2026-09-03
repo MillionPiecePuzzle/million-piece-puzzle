@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { useI18n } from "vue-i18n";
 import BrandMark from "./BrandMark.vue";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useAuth } from "../composables/useAuth";
 import { useOptionsModal } from "../composables/useOptionsModal";
+import { useBookmarksModal } from "../composables/useBookmarksModal";
+import { useCompactViewport } from "../composables/useCompactViewport";
 import { useUpdatesSeen } from "../composables/useUpdatesSeen";
 import { useLocaleFormat } from "../i18n/format";
 import { useCountryNames } from "../i18n/countryNames";
@@ -17,7 +19,17 @@ const { countryName } = useCountryNames();
 const { totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
 const { show: showOptions } = useOptionsModal();
+const { showFrom: showBookmarks } = useBookmarksModal();
+// The notebook is a desktop affordance: a compact viewport has no room for the
+// list, so the control that opens it is not offered there either.
+const { compact } = useCompactViewport();
 const { unseen: unseenUpdates } = useUpdatesSeen();
+
+const bookmarksEl = ref<HTMLElement | null>(null);
+
+function openBookmarks() {
+  showBookmarks(bookmarksEl.value);
+}
 
 // The dot marks what is behind the gear, so it has to reach the name a screen
 // reader announces too, not only the pixels.
@@ -48,44 +60,69 @@ const progressPct = computed(() =>
     <span v-else></span>
 
     <div class="top-right">
-      <div v-if="user && user.pseudo" class="presence">
-        <span v-if="user.country" class="flag" :title="countryName(user.country)">
-          <img
-            :src="flagUrl(user.country)"
-            :alt="countryName(user.country)"
-            width="18"
-            height="18"
-          />
-        </span>
-        <span class="pseudo" :title="t('topbar.signedInAs', { pseudo: user.pseudo })">
-          {{ user.pseudo }}
-        </span>
+      <template v-if="user && user.pseudo">
         <button
+          v-if="!compact"
+          ref="bookmarksEl"
           type="button"
-          class="gear"
-          :title="optionsLabel"
-          :aria-label="optionsLabel"
-          @click="showOptions"
+          class="bookmarks"
+          :title="t('bookmarks.title')"
+          :aria-label="t('bookmarks.title')"
+          @click="openBookmarks"
         >
           <svg
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
+            viewBox="0 0 16 16"
+            width="18"
+            height="18"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
+            stroke-width="1.4"
             stroke-linejoin="round"
             aria-hidden="true"
           >
-            <circle cx="12" cy="12" r="3.2" />
-            <path
-              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-            />
+            <path d="M4.2 2.6h7.6a.6.6 0 0 1 .6.6v10.2L8 10.6l-4.4 2.8V3.2a.6.6 0 0 1 .6-.6z" />
           </svg>
-          <span v-if="unseenUpdates" class="new-dot" aria-hidden="true"></span>
         </button>
-      </div>
+
+        <div class="presence">
+          <span v-if="user.country" class="flag" :title="countryName(user.country)">
+            <img
+              :src="flagUrl(user.country)"
+              :alt="countryName(user.country)"
+              width="18"
+              height="18"
+            />
+          </span>
+          <span class="pseudo" :title="t('topbar.signedInAs', { pseudo: user.pseudo })">
+            {{ user.pseudo }}
+          </span>
+          <button
+            type="button"
+            class="gear"
+            :title="optionsLabel"
+            :aria-label="optionsLabel"
+            @click="showOptions"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="3.2" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              />
+            </svg>
+            <span v-if="unseenUpdates" class="new-dot" aria-hidden="true"></span>
+          </button>
+        </div>
+      </template>
     </div>
   </header>
 </template>
@@ -166,6 +203,28 @@ const progressPct = computed(() =>
   align-items: center;
   gap: 14px;
   min-width: 0;
+}
+/* Its own box next to the presence pill rather than a control inside it: the
+   pill says who you are, this opens a window over the board. Same chrome and
+   the same 18px content, so the two read as one row. */
+.bookmarks {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+.bookmarks:hover {
+  background: var(--ground-2);
+  color: var(--ink);
 }
 .presence {
   display: inline-flex;

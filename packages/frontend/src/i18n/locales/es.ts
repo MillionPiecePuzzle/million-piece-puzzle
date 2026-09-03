@@ -299,7 +299,6 @@ const es: MessageSchema = {
   },
   bookmarks: {
     title: "Marcadores",
-    menuHint: "Tus rincones con nombre en este tablero.",
     newTitle: "Nuevo marcador",
     count: "{n} marcador | {n} marcadores",
     filter: "Filtrar por nombre",

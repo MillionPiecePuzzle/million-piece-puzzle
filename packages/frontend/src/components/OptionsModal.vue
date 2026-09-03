@@ -7,8 +7,6 @@ import { usePseudoModal } from "../composables/usePseudoModal";
 import { useNationalityModal } from "../composables/useNationalityModal";
 import { useUpdatesModal } from "../composables/useUpdatesModal";
 import { useUpdatesSeen } from "../composables/useUpdatesSeen";
-import { useBookmarksModal } from "../composables/useBookmarksModal";
-import { useCompactViewport } from "../composables/useCompactViewport";
 import { useAuth } from "../composables/useAuth";
 import { useDisplaySettings } from "../composables/useDisplaySettings";
 import { useFocusTrap } from "../composables/useFocusTrap";
@@ -22,10 +20,6 @@ const { show: showPseudo } = usePseudoModal();
 const { show: showNationality } = useNationalityModal();
 const { show: showUpdates } = useUpdatesModal();
 const { unseen: unseenUpdates } = useUpdatesSeen();
-const { show: showBookmarks } = useBookmarksModal();
-// The notebook is a desktop affordance: a compact viewport has no room for the
-// list, so the row that opens it is not offered there either.
-const { compact } = useCompactViewport();
 const { user, signOut } = useAuth();
 const {
   settings: display,
@@ -81,10 +75,6 @@ function changeCountry() {
 function openUpdates() {
   hide();
   showUpdates();
-}
-function openBookmarks() {
-  hide();
-  showBookmarks();
 }
 </script>
 
@@ -164,27 +154,6 @@ function openBookmarks() {
             </svg>
             <span class="label">{{ t("options.support") }}</span>
           </a>
-          <button v-if="!compact" type="button" class="action bookmarks" @click="openBookmarks">
-            <svg
-              class="bookmark-mark"
-              viewBox="0 0 16 16"
-              width="18"
-              height="18"
-              aria-hidden="true"
-            >
-              <path
-                d="M4.2 2.6h7.6a.6.6 0 0 1 .6.6v10.2L8 10.6l-4.4 2.8V3.2a.6.6 0 0 1 .6-.6z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.3"
-                stroke-linejoin="round"
-              />
-            </svg>
-            <span class="bookmarks-text">
-              <span class="label">{{ t("bookmarks.title") }}</span>
-              <span class="hint">{{ t("bookmarks.menuHint") }}</span>
-            </span>
-          </button>
           <button type="button" class="action" @click="changePseudo">
             <span class="label">{{ t("options.changePseudo") }}</span>
           </button>
@@ -305,8 +274,7 @@ function openBookmarks() {
 .action.sync,
 .action.synced,
 .action.discord,
-.action.kofi,
-.action.bookmarks {
+.action.kofi {
   flex-direction: row;
   align-items: center;
   gap: 10px;
@@ -327,8 +295,7 @@ function openBookmarks() {
   background: var(--accent);
 }
 .sync-text,
-.synced-text,
-.bookmarks-text {
+.synced-text {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -344,12 +311,8 @@ function openBookmarks() {
 .g-mark,
 .check,
 .discord-mark,
-.kofi-mark,
-.bookmark-mark {
+.kofi-mark {
   flex: none;
-}
-.bookmark-mark {
-  color: var(--ink-3);
 }
 .g-mark {
   display: inline-grid;

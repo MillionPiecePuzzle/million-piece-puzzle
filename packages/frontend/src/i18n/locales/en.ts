@@ -291,7 +291,6 @@ const en = {
   },
   bookmarks: {
     title: "Bookmarks",
-    menuHint: "Your named spots on this board.",
     newTitle: "New bookmark",
     count: "{n} bookmark | {n} bookmarks",
     filter: "Filter by name",
