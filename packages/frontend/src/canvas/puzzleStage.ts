@@ -80,6 +80,11 @@ export type OverviewSnapshot = {
 // position is (dx * pieceSize, dy * pieceSize).
 type PieceOffset = { dx: number; dy: number };
 
+// What a click on the board answers with: the world point pressed, and the asset
+// path of the loose piece under it when there is one. Null over locked content, a
+// transparent gap or bare ground, which the caller badges its own way.
+export type PickedSpot = { worldX: number; worldY: number; pieceFile: string | null };
+
 type PieceNode = {
   id: number;
   container: Container;
@@ -205,6 +210,17 @@ const DOUBLE_TAP_MAX_DIST = 32;
 // Screen px a press on a personal flag may travel and still count as a press
 // (opening its options) rather than a drag that moves it.
 const FLAG_DRAG_SLOP = 4;
+
+// Screen px a press may travel while a spot pick is armed and still count as the
+// click that answers it, rather than as the pan that carried the board under it.
+const SPOT_PICK_SLOP = 4;
+
+// The square the aim traces under the cursor, which is the badge a click takes.
+// A dark halo under a light line so it reads over the picture, over a pile and
+// over bare ground alike, and a fill faint enough to leave the board it frames
+// legible under it.
+const AIM_SQUARE_COLOR = 0xffffff;
+const AIM_SQUARE_SHADOW = 0x000000;
 
 // Edge-pan: when the pointer rests within this many screen pixels of a canvas
 // edge, the camera scrolls toward that edge. Speed ramps quadratically from 0 at
@@ -565,6 +581,19 @@ export class PuzzleStage {
     lastX: 0,
     lastY: 0,
   };
+  // A one-shot spot pick, armed by the notebook while the player marks a place.
+  // Grabs are off for as long as it is armed, so a press on a pile aims at the
+  // pile instead of picking it up, and panning and zooming keep working: the
+  // player brings the spot into view and then clicks it.
+  private spotPick: ((spot: PickedSpot | null) => void) | null = null;
+  private spotPress: { x: number; y: number; moved: boolean } | null = null;
+  // The aim's square, in world units a side and as the screen-space Graphics
+  // drawing it under the cursor. Its side on screen is the world side times the
+  // zoom, so the geometry is redrawn on a zoom or a size change and only moved on
+  // a pointer move.
+  private aimSquareWorld = 0;
+  private aimSquare: Graphics | null = null;
+  private aimSquareSide = -1;
   // Latest pointer position in screen space (renderer.screen coords, matching
   // ev.global), updated on every move and cleared when the pointer leaves the
   // canvas. Drives edge-pan, which reads it from the ticker so a pointer resting
@@ -786,9 +815,11 @@ export class PuzzleStage {
     // matching pointerup: abort an in-progress press-drag rather than leaving it
     // stuck in the hand.
     app.stage.on("pointercancel", () => this.cancelPressDrag());
-    // Off-canvas: stop edge-pan (no pointer to read a band from).
+    // Off-canvas: stop edge-pan (no pointer to read a band from), and take the
+    // aim's square with it rather than leave it parked at the edge.
     app.canvas.addEventListener("pointerleave", () => {
       this.pointerScreen = null;
+      this.updateAimSquare();
     });
     app.renderer.on("resize", () => {
       this.refreshStageHitArea(app);
@@ -1136,6 +1167,7 @@ export class PuzzleStage {
     this.buildToken++;
     this.stopConfetti();
     this.clearCarryIdle();
+    this.cancelPickSpot();
     this.releaseEscape?.();
     this.releaseEscape = null;
     window.removeEventListener("blur", this.onWindowBlur);
@@ -1896,7 +1928,7 @@ export class PuzzleStage {
   private applyGroupInteractivity(node: GroupNode): void {
     const interactive = this.mode === "contributor";
     node.container.eventMode = interactive ? "static" : "none";
-    node.container.cursor = interactive ? "grab" : "default";
+    node.container.cursor = !interactive ? "default" : this.spotPick ? "crosshair" : "grab";
     node.container.off("pointerdown");
     if (interactive) {
       node.container.on("pointerdown", (ev) => this.onGroupPointerDown(node, ev));
@@ -1905,6 +1937,10 @@ export class PuzzleStage {
 
   private onGroupPointerDown(node: GroupNode, ev: FederatedPointerEvent): void {
     if (this.pinch || !this.callbacks) return;
+    // A spot pick is armed: this press aims at the board rather than grabbing
+    // what happens to be under it. Left to bubble to the stage, which pans on a
+    // drag and answers the pick on a click.
+    if (this.spotPick) return;
     this.trackPointer(ev.global.x, ev.global.y);
     const world = this.screenToWorld(ev.global.x, ev.global.y);
     // Strict hit-test with fall-through: Pixi delivers the press to the cluster
@@ -1982,20 +2018,27 @@ export class PuzzleStage {
   }
 
   // Whether a world point lands on the opaque silhouette of any of a cluster's
-  // pieces (knobs included, blanks and gaps excluded). The press happens at rest,
-  // so each piece's inner transform is identity (its pivot and position cancel)
-  // and the tile texture maps onto container-local [-margin, pieceSize+margin].
+  // pieces. A board with no manifest yet is grabbable rather than dead, which is
+  // the one case the piece lookup below cannot answer.
   private pointerOnPiece(node: GroupNode, worldX: number, worldY: number): boolean {
+    return !this.manifest || this.pieceAtPoint(node, worldX, worldY) !== null;
+  }
+
+  // The piece of a cluster whose opaque silhouette covers a world point (knobs
+  // included, blanks and gaps excluded), or null. The press happens at rest, so
+  // each piece's inner transform is identity (its pivot and position cancel) and
+  // the tile texture maps onto container-local [-margin, pieceSize+margin].
+  private pieceAtPoint(node: GroupNode, worldX: number, worldY: number): PieceNode | null {
     const m = this.manifest;
-    if (!m) return true;
+    if (!m) return null;
     const span = m.tileSize;
     for (const piece of node.pieces) {
       const u = (worldX - node.worldX - piece.container.x + m.margin) / span;
       const v = (worldY - node.worldY - piece.container.y + m.margin) / span;
       if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
-      if (this.samplePieceAlpha(piece, u, v) >= GRAB_HIT_ALPHA) return true;
+      if (this.samplePieceAlpha(piece, u, v) >= GRAB_HIT_ALPHA) return piece;
     }
-    return false;
+    return null;
   }
 
   // Alpha (0-255) of one texel of a piece's tile, at normalized (u, v). Reads a
@@ -2032,6 +2075,16 @@ export class PuzzleStage {
   private onStagePointerDown(ev: FederatedPointerEvent): void {
     if (this.pinch) return;
     this.trackPointer(ev.global.x, ev.global.y);
+    // An armed pick owns every press: it pans like an empty hand, and the release
+    // answers if the press stayed put. No double-press pairing, so a rapid pair
+    // of picks cannot also read as a carry.
+    if (this.spotPick) {
+      this.spotPress = { x: ev.global.x, y: ev.global.y, moved: false };
+      this.pan.active = true;
+      this.pan.lastX = ev.global.x;
+      this.pan.lastY = ev.global.y;
+      return;
+    }
     // Double-press bookkeeping runs regardless of carry state (a begin-carry or
     // drop-carry pair can straddle a piece and empty stage, e.g. the first tap
     // lands on the gap between pieces), so it must see every contributor-mode
@@ -2055,6 +2108,11 @@ export class PuzzleStage {
 
   private onPointerMove(ev: FederatedPointerEvent): void {
     this.trackPointer(ev.global.x, ev.global.y);
+    const press = this.spotPress;
+    if (press && Math.hypot(ev.global.x - press.x, ev.global.y - press.y) > SPOT_PICK_SLOP) {
+      press.moved = true;
+    }
+    if (this.spotPick) this.updateAimSquare();
     // A cursor is broadcast only in contributor mode (a connected player).
     if (this.mode === "contributor" && this.onCursorMove) {
       const cursor = this.screenToWorld(ev.global.x, ev.global.y);
@@ -2198,6 +2256,13 @@ export class PuzzleStage {
       this.endFlagDrag();
       return;
     }
+    if (this.spotPick) {
+      const press = this.spotPress;
+      this.spotPress = null;
+      this.pan.active = false;
+      if (press && !press.moved) this.resolveSpotPick(ev.global.x, ev.global.y);
+      return;
+    }
     // Sticky carry ignores the button release: the cluster stays in hand until a
     // double-press drops it, Escape returns it, or it times out.
     if (this.held?.carry) {
@@ -2270,6 +2335,9 @@ export class PuzzleStage {
   // sticky-carry drop, so it is left to bubble to the stage untouched.
   private onFlagPointerDown(id: string, ev: FederatedPointerEvent): void {
     if (this.pinch || this.mode !== "contributor" || this.held) return;
+    // An armed pick reaches the ground a flag stands on: the press bubbles to the
+    // stage rather than picking the flag up.
+    if (this.spotPick) return;
     const flag = this.flagLayer?.flagAt(id);
     if (!flag) return;
     ev.stopPropagation();
@@ -2698,10 +2766,10 @@ export class PuzzleStage {
     this.centerOn(worldX, worldY);
   }
 
-  // Restore a whole framing rather than a point: a bookmark comes back at the
-  // scale it was taken at, which is half of what makes it the spot the player
-  // was working in. The zoom is set first so centerOn's own clamp runs against
-  // the framing being restored, not the one being left.
+  // Restore a whole framing rather than a point: a shared link hands over the
+  // scale its sender was reading the board at, which is half of what makes it
+  // the spot they meant. The zoom is set first so centerOn's own clamp runs
+  // against the framing being restored, not the one being left.
   frameWorld(worldX: number, worldY: number, zoom: number): void {
     if (!this.app) return;
     this.camera.zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
@@ -2715,45 +2783,121 @@ export class PuzzleStage {
     return this.screenToWorld(screen.width * 0.5, screen.height * 0.5);
   }
 
-  // Bookmarks: the pieces standing on screen, nearest the middle of the view
-  // first, as manifest-relative asset paths for the badge picker. Only a
-  // hydrated group answers, so every path handed back is a piece the player can
-  // see right now and its texture is already in the browser's cache; a region
-  // drawn entirely from locked composites holds no group at all (see DECISIONS:
-  // locked pieces stop being a group) and answers with nothing.
-  residentPieceFiles(limit: number): string[] {
-    const view = this.viewport;
-    if (!view || !this.manifest || limit <= 0) return [];
-    const { pieceSize } = this.manifest;
-    const half = pieceSize / 2;
-    const cx = view.worldX + view.worldW / 2;
-    const cy = view.worldY + view.worldH / 2;
-    const rect: Aabb = {
-      minX: view.worldX,
-      minY: view.worldY,
-      maxX: view.worldX + view.worldW,
-      maxY: view.worldY + view.worldH,
-    };
-    const found: { file: string; distanceSq: number }[] = [];
-    for (const gid of this.groupGrid.queryRect(rect)) {
-      const node = this.groups.get(gid);
-      if (!node?.hydrated) continue;
-      for (const [pieceId, off] of node.members) {
-        // The piece's own centre rather than its group's origin: a cluster
-        // reaching into the view offers the pieces of it that are actually
-        // there, not its far corner.
-        const x = node.worldX + off.dx * pieceSize + half;
-        const y = node.worldY + off.dy * pieceSize + half;
-        if (x < rect.minX || x > rect.maxX || y < rect.minY || y > rect.maxY) continue;
-        const file = this.fileById.get(pieceId);
-        if (file === undefined) continue;
-        const dx = x - cx;
-        const dy = y - cy;
-        found.push({ file, distanceSq: dx * dx + dy * dy });
+  // Bookmarks: arms a one-shot spot pick and answers with the next click that is
+  // not a pan, or with null when it is called off. Re-arming supersedes a pick
+  // already waiting, so a caller never has to pair its own cancel with a new arm.
+  // `squareWorld` is the side, in world units, of the square traced under the
+  // cursor: the caller sets it, since the badge it stands for is the caller's,
+  // and zero traces none, which is what an aim for a piece alone asks for.
+  pickSpot(squareWorld: number): Promise<PickedSpot | null> {
+    this.cancelPickSpot();
+    this.aimSquareWorld = squareWorld;
+    return new Promise((resolve) => {
+      this.spotPick = resolve;
+      this.applyAimState();
+    });
+  }
+
+  // The square resized while the aim is up, so the player sees the badge they
+  // are about to take rather than setting its size blind.
+  setPickSquare(squareWorld: number): void {
+    this.aimSquareWorld = squareWorld;
+    this.updateAimSquare();
+  }
+
+  cancelPickSpot(): void {
+    const pending = this.spotPick;
+    if (!pending) return;
+    this.spotPick = null;
+    this.spotPress = null;
+    this.applyAimState();
+    pending(null);
+  }
+
+  // The crosshair has to reach the clusters too: Pixi paints the cursor of
+  // whatever container the pointer is over, so a board left on `grab` would keep
+  // offering a grab that the aim has just turned off.
+  private applyAimState(): void {
+    if (this.app) this.app.stage.cursor = this.spotPick ? "crosshair" : "default";
+    for (const node of this.groups.values()) this.applyGroupInteractivity(node);
+    this.updateAimSquare();
+  }
+
+  // Drawn in screen space rather than in the world, so the one thing it has to
+  // follow is the cursor: the side is the world square under the current zoom,
+  // and the strokes stay the same weight at every zoom with no counter-scaling.
+  private updateAimSquare(): void {
+    const app = this.app;
+    const pointer = this.pointerScreen;
+    if (!app || !pointer || !this.spotPick || this.aimSquareWorld <= 0) {
+      this.removeAimSquare();
+      return;
+    }
+    let g = this.aimSquare;
+    if (!g) {
+      g = new Graphics();
+      g.eventMode = "none";
+      app.stage.addChild(g);
+      this.aimSquare = g;
+      this.aimSquareSide = -1;
+    }
+    const side = this.aimSquareWorld * this.camera.zoom;
+    if (side !== this.aimSquareSide) {
+      this.aimSquareSide = side;
+      const x = -side / 2;
+      g.clear();
+      g.rect(x, x, side, side).fill({ color: AIM_SQUARE_COLOR, alpha: 0.12 });
+      g.rect(x, x, side, side).stroke({ color: AIM_SQUARE_SHADOW, width: 4, alpha: 0.5 });
+      g.rect(x, x, side, side).stroke({ color: AIM_SQUARE_COLOR, width: 2, alpha: 1 });
+    }
+    g.position.set(pointer.x, pointer.y);
+  }
+
+  private removeAimSquare(): void {
+    const g = this.aimSquare;
+    this.aimSquare = null;
+    this.aimSquareSide = -1;
+    if (!g) return;
+    g.parent?.removeChild(g);
+    if (!g.destroyed) g.destroy({ context: true });
+  }
+
+  private resolveSpotPick(screenX: number, screenY: number): void {
+    const resolve = this.spotPick;
+    if (!resolve) return;
+    this.spotPick = null;
+    this.applyAimState();
+    const world = this.screenToWorld(screenX, screenY);
+    const pieceId = this.loosePieceAt(world.x, world.y);
+    resolve({
+      worldX: world.x,
+      worldY: world.y,
+      pieceFile: pieceId === null ? null : (this.fileById.get(pieceId) ?? null),
+    });
+  }
+
+  // The loose piece whose opaque silhouette covers a world point, topmost in the
+  // unlocked layer's z-order, or null. Only a hydrated piece can answer: its own
+  // tile is both what the alpha is read from and what the caller stores, so a
+  // piece the browser has never fetched is not offered as a badge.
+  private loosePieceAt(worldX: number, worldY: number): number | null {
+    const layer = this.unlockedLayer;
+    if (!layer) return null;
+    const point: Aabb = { minX: worldX, minY: worldY, maxX: worldX, maxY: worldY };
+    let best: number | null = null;
+    let bestZ = -1;
+    for (const id of this.groupGrid.queryRect(point)) {
+      const node = this.groups.get(id);
+      if (!node || node.container.parent !== layer) continue;
+      const piece = this.pieceAtPoint(node, worldX, worldY);
+      if (!piece) continue;
+      const z = layer.getChildIndex(node.container);
+      if (z > bestZ) {
+        bestZ = z;
+        best = piece.id;
       }
     }
-    found.sort((a, b) => a.distanceSq - b.distanceSq);
-    return found.slice(0, limit).map((entry) => entry.file);
+    return best;
   }
 
   zoomIn(): void {
@@ -2909,6 +3053,9 @@ export class PuzzleStage {
     this.world.position.set(this.camera.x, this.camera.y);
     this.reglueCarried();
     this.updateFlagLayer();
+    // The aim's square is a world size drawn on screen, so a zoom resizes it and
+    // a pan leaves it where the cursor is.
+    if (this.spotPick) this.updateAimSquare();
     this.emitCamera();
     this.reconcile();
   }

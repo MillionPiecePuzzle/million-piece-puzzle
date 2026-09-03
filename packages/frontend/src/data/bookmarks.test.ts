@@ -4,17 +4,20 @@ import {
   MAX_BOOKMARKS,
   addBookmark,
   filterBookmarks,
-  isBadgePath,
+  isPieceFile,
   normalizeBookmarkName,
+  parseBookmarkBadge,
   parseBookmarks,
   removeBookmark,
   type Bookmark,
+  type BookmarkBadge,
 } from "./bookmarks";
 
-const BADGE = "source_files/12/3_4.webp";
+const BADGE: BookmarkBadge = { kind: "area", x: 1200, y: 2400, size: 1440 };
+const PIECE_BADGE: BookmarkBadge = { kind: "piece", file: "pieces/0123/012345.avif" };
 
 function make(name: string, list: readonly Bookmark[] = []): Bookmark[] {
-  return addBookmark(list, { name, worldX: 10, worldY: 20, zoom: 1, badge: BADGE });
+  return addBookmark(list, { name, worldX: 10, worldY: 20, badge: BADGE });
 }
 
 describe("addBookmark", () => {
@@ -23,15 +26,36 @@ describe("addBookmark", () => {
     expect(list.map((b) => b.name)).toEqual(["second", "first"]);
   });
 
-  it("rounds the position to the world unit and the zoom to three decimals", () => {
+  it("rounds the position to the world unit", () => {
     const [saved] = addBookmark([], {
       name: "spot",
       worldX: 1234.56,
       worldY: -78.9,
-      zoom: 1.23456,
       badge: BADGE,
     });
-    expect(saved).toMatchObject({ worldX: 1235, worldY: -79, zoom: 1.235 });
+    expect(saved).toMatchObject({ worldX: 1235, worldY: -79 });
+  });
+
+  it("records a place and no scale, so a jump keeps the zoom the player is at", () => {
+    const [saved] = make("spot");
+    expect(saved).not.toHaveProperty("zoom");
+  });
+
+  it("rounds the badge square to the world unit and leaves a piece alone", () => {
+    const [square] = addBookmark([], {
+      name: "spot",
+      worldX: 0,
+      worldY: 0,
+      badge: { kind: "area", x: 11.4, y: -22.6, size: 1440.2 },
+    });
+    expect(square!.badge).toEqual({ kind: "area", x: 11, y: -23, size: 1440 });
+    const [piece] = addBookmark([], {
+      name: "spot",
+      worldX: 0,
+      worldY: 0,
+      badge: PIECE_BADGE,
+    });
+    expect(piece!.badge).toEqual(PIECE_BADGE);
   });
 
   it("mints distinct ids", () => {
@@ -46,7 +70,6 @@ describe("addBookmark", () => {
       name: `spot ${i}`,
       worldX: 0,
       worldY: 0,
-      zoom: 1,
       createdAt: 0,
       badge: BADGE,
     }));
@@ -75,24 +98,51 @@ describe("normalizeBookmarkName", () => {
   });
 });
 
-describe("isBadgePath", () => {
-  it("takes a tile of the puzzle's own pyramid", () => {
-    expect(isBadgePath(BADGE)).toBe(true);
-    expect(isBadgePath("pieces/0123/012345.avif")).toBe(true);
+describe("isPieceFile", () => {
+  it("takes the tile path the manifest gives a piece", () => {
+    expect(isPieceFile("pieces/0123/012345.avif")).toBe(true);
   });
 
-  it("refuses anything that is not a relative asset path", () => {
+  it("refuses anything that is not a piece path under this bucket", () => {
     for (const bad of [
-      "https://elsewhere.example/tile.webp",
+      "https://elsewhere.example/pieces/0123/012345.avif",
       "javascript:alert(1)",
-      "/source_files/12/3_4.webp",
-      "../../etc/passwd",
-      "source_files/12/3_4",
+      "/pieces/0123/012345.avif",
+      "pieces/../../etc/passwd",
+      "pieces/0123/012345",
+      "source_files/12/3_4.webp",
       "",
       42,
       null,
     ]) {
-      expect(isBadgePath(bad), String(bad)).toBe(false);
+      expect(isPieceFile(bad), String(bad)).toBe(false);
+    }
+  });
+});
+
+describe("parseBookmarkBadge", () => {
+  it("reads back a square and a piece", () => {
+    expect(parseBookmarkBadge({ ...BADGE })).toEqual(BADGE);
+    expect(parseBookmarkBadge({ ...PIECE_BADGE })).toEqual(PIECE_BADGE);
+  });
+
+  it("keeps nothing an entry carries beyond the badge itself", () => {
+    expect(parseBookmarkBadge({ ...BADGE, onload: "alert(1)" })).toEqual(BADGE);
+  });
+
+  it("refuses a badge that is neither a drawable square nor a piece", () => {
+    for (const bad of [
+      null,
+      "pieces/0123/012345.avif",
+      { kind: "photo", x: 0, y: 0, size: 10 },
+      { kind: "area", x: 0, y: 0, size: 0 },
+      { kind: "area", x: 0, y: 0, size: -10 },
+      { kind: "area", x: Number.NaN, y: 0, size: 10 },
+      { kind: "area", x: 0, y: 0 },
+      { kind: "piece", file: "https://elsewhere.example/tile.avif" },
+      { kind: "piece" },
+    ]) {
+      expect(parseBookmarkBadge(bad), JSON.stringify(bad)).toBeNull();
     }
   });
 });
@@ -115,7 +165,6 @@ describe("parseBookmarks", () => {
     name: "Sky pile",
     worldX: 12,
     worldY: 34,
-    zoom: 1.5,
     createdAt: 1_700_000_000_000,
     badge: BADGE,
   };
@@ -124,20 +173,29 @@ describe("parseBookmarks", () => {
     expect(parseBookmarks(JSON.stringify([entry]))).toEqual([entry]);
   });
 
+  it("leaves behind the zoom an older notebook stored", () => {
+    expect(parseBookmarks(JSON.stringify([{ ...entry, zoom: 1.5 }]))).toEqual([entry]);
+  });
+
   it("returns an empty list for junk, a non-array, or nothing at all", () => {
     expect(parseBookmarks(null)).toEqual([]);
     expect(parseBookmarks("{oops")).toEqual([]);
     expect(parseBookmarks('{"id":"b1"}')).toEqual([]);
   });
 
-  it("drops an entry that is not a named, framed, badged point", () => {
+  it("reads back a piece badge too", () => {
+    const piece = { ...entry, badge: PIECE_BADGE };
+    expect(parseBookmarks(JSON.stringify([piece]))).toEqual([piece]);
+  });
+
+  it("drops an entry that is not a named, placed, badged point", () => {
     const broken = [
       { ...entry, id: "" },
       { ...entry, id: "b2", name: "   " },
       { ...entry, id: "b3", worldX: Number.NaN },
-      { ...entry, id: "b4", zoom: 0 },
+      { ...entry, id: "b4", worldY: "over there" },
       { ...entry, id: "b5", createdAt: "yesterday" },
-      { ...entry, id: "b6", badge: "https://elsewhere.example/tile.webp" },
+      { ...entry, id: "b6", badge: { kind: "area", x: 0, y: 0, size: 0 } },
       { ...entry, id: "b7", badge: undefined },
     ];
     expect(parseBookmarks(JSON.stringify(broken))).toEqual([]);

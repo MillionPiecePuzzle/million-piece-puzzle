@@ -9,26 +9,43 @@
 // entry and no glyph competing for the board, which is what lets the list run to
 // MAX_BOOKMARKS instead of to a palette of 8.
 
+// What stands for a spot in its row. Either a square of the board, stored in
+// world units and drawn from whatever pyramid tiles cover it, or the tile of one
+// loose piece, named by the path the manifest gave it. Never a canvas capture,
+// which would cost a renderer.extract GPU readback, a blob store outside
+// localStorage's quota, and would be lying minutes later on a board a million
+// pieces move across.
+export type BookmarkBadge =
+  | { kind: "piece"; file: string }
+  | { kind: "area"; x: number; y: number; size: number };
+
 export type Bookmark = {
   id: string;
   name: string;
   worldX: number;
   worldY: number;
-  zoom: number;
   createdAt: number;
-  // Path of an asset the puzzle's own bucket already serves, relative to the
-  // manifest: a tile of the reference pyramid today. Never a canvas capture,
-  // which would cost a renderer.extract GPU readback, a blob store outside
-  // localStorage's quota, and would be lying minutes later on a board a million
-  // pieces move across.
-  badge: string;
+  badge: BookmarkBadge;
 };
 
 export type NewBookmark = Omit<Bookmark, "id" | "createdAt">;
 
+// Which of the two badges the next spot is marked with, chosen before the aim
+// rather than decided by what happens to be under the click: the player says
+// whether this spot is a piece or a square of the board, and the aim takes that
+// and nothing else.
+export type BadgeKind = BookmarkBadge["kind"];
+
+// The badge square's side, in pieces. A photo of a board like this one holds 8 to
+// 12 pieces, which is what a place looks like to the eye, so that is the middle
+// of the range and the default; the ends are one pile and one whole corner.
+export const BADGE_PIECES_MIN = 4;
+export const BADGE_PIECES_MAX = 24;
+export const BADGE_PIECES_DEFAULT = 12;
+
 // A cut, not a quota: a notebook has no natural depth the way the flag palette
 // has 8, so this is the bound that keeps one hand-edited (or runaway) list from
-// costing a page load. An entry runs ~130 bytes, so a full list is ~1.3 MB of
+// costing a page load. An entry runs ~150 bytes, so a full list is ~1.5 MB of
 // the origin's localStorage.
 export const MAX_BOOKMARKS = 10_000;
 
@@ -38,14 +55,16 @@ export const BOOKMARK_NAME_MAX = 40;
 
 // What one page of the list holds. Paging bounds the DOM nodes and the CDN
 // requests an open costs (one badge image per row); the localStorage read is one
-// JSON.parse of the whole list either way, a few milliseconds even full.
-export const BOOKMARK_PAGE_SIZE = 20;
+// JSON.parse of the whole list either way, a few milliseconds even full. Ten
+// rows is what the panel shows without the list itself becoming the scroll.
+export const BOOKMARK_PAGE_SIZE = 10;
 
 const STORAGE_PREFIX = "mpp.bookmarks.";
 
-// A badge is only ever a path under this puzzle's own asset base, so a stored
-// value can never become an absolute URL to somewhere else or climb out of it.
-const BADGE_PATH = /^[a-z0-9][a-z0-9_-]*(\/[a-z0-9_-]+)*\.[a-z0-9]{2,5}$/i;
+// A piece badge is only ever the tile path the manifest gave for that piece,
+// relative to this puzzle's own asset base, so a stored or shared value can never
+// become an absolute URL to somewhere else or climb out of the bucket.
+const PIECE_FILE = /^pieces\/[a-z0-9_-]+\/[a-z0-9_-]+\.[a-z0-9]{2,5}$/i;
 
 let idCounter = 0;
 
@@ -56,8 +75,22 @@ function nextBookmarkId(): string {
   return `b${Date.now().toString(36)}${idCounter.toString(36)}`;
 }
 
-export function isBadgePath(value: unknown): value is string {
-  return typeof value === "string" && value.length <= 120 && BADGE_PATH.test(value);
+export function isPieceFile(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 120 && PIECE_FILE.test(value);
+}
+
+// A badge as it arrives from storage or from a link: rebuilt field by field
+// rather than passed through, so nothing an entry carries beyond the two shapes
+// reaches the row. A square is refused rather than clamped when it has no side,
+// since a badge of no width would draw nothing.
+export function parseBookmarkBadge(value: unknown): BookmarkBadge | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { kind, file, x, y, size } = value as Record<string, unknown>;
+  if (kind === "piece") return isPieceFile(file) ? { kind, file } : null;
+  if (kind !== "area") return null;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if (!Number.isFinite(size) || (size as number) <= 0) return null;
+  return { kind, x: x as number, y: y as number, size: size as number };
 }
 
 // The name as it is stored: trimmed, and refused rather than cut when it is
@@ -68,9 +101,20 @@ export function normalizeBookmarkName(raw: string): string | null {
   return name;
 }
 
-// Positions are rounded to the world unit (one source pixel, far under a piece)
-// and the zoom to three decimals: a float straight off the camera costs 15
-// characters an axis in storage and names a spot no more precisely.
+// Positions are rounded to the world unit (one source pixel, far under a piece):
+// a float straight off the board costs 15 characters an axis in storage and names
+// a spot no more precisely. The badge square is a position too, so it is rounded
+// the same way.
+function roundBadge(badge: BookmarkBadge): BookmarkBadge {
+  if (badge.kind === "piece") return badge;
+  return {
+    kind: "area",
+    x: Math.round(badge.x),
+    y: Math.round(badge.y),
+    size: Math.round(badge.size),
+  };
+}
+
 export function addBookmark(list: readonly Bookmark[], entry: NewBookmark): Bookmark[] {
   if (list.length >= MAX_BOOKMARKS) return [...list];
   const bookmark: Bookmark = {
@@ -78,9 +122,8 @@ export function addBookmark(list: readonly Bookmark[], entry: NewBookmark): Book
     name: entry.name,
     worldX: Math.round(entry.worldX),
     worldY: Math.round(entry.worldY),
-    zoom: Math.round(entry.zoom * 1000) / 1000,
     createdAt: Date.now(),
-    badge: entry.badge,
+    badge: roundBadge(entry.badge),
   };
   // Newest first: the list is read top-down and the spot just marked is the one
   // being worked in, which also makes the parser's cut drop the oldest entries.
@@ -102,8 +145,9 @@ export function bookmarkStorageKey(puzzleId: string): string {
 }
 
 // localStorage is player-editable and survives a board switch, so a stored list
-// is treated as untrusted input: an entry that is not a named, framed, badged
-// point is dropped whole, and the list is cut to the cap.
+// is treated as untrusted input: an entry that is not a named, placed, badged
+// point is dropped whole, the list is cut to the cap, and anything an entry
+// carries beyond those fields (a zoom an older notebook stored) is left behind.
 export function parseBookmarks(raw: string | null): Bookmark[] {
   if (!raw) return [];
   let parsed: unknown;
@@ -118,23 +162,22 @@ export function parseBookmarks(raw: string | null): Bookmark[] {
   for (const entry of parsed) {
     if (bookmarks.length >= MAX_BOOKMARKS) break;
     if (typeof entry !== "object" || entry === null) continue;
-    const { id, name, worldX, worldY, zoom, createdAt, badge } = entry as Record<string, unknown>;
+    const { id, name, worldX, worldY, createdAt, badge } = entry as Record<string, unknown>;
     if (typeof id !== "string" || id === "" || takenIds.has(id)) continue;
     if (typeof name !== "string") continue;
     const cleanName = normalizeBookmarkName(name);
     if (cleanName === null) continue;
     if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) continue;
-    if (!Number.isFinite(zoom) || (zoom as number) <= 0) continue;
     if (!Number.isFinite(createdAt)) continue;
-    if (!isBadgePath(badge)) continue;
+    const cleanBadge = parseBookmarkBadge(badge);
+    if (cleanBadge === null) continue;
     bookmarks.push({
       id,
       name: cleanName,
       worldX: worldX as number,
       worldY: worldY as number,
-      zoom: zoom as number,
       createdAt: createdAt as number,
-      badge,
+      badge: cleanBadge,
     });
     takenIds.add(id);
   }

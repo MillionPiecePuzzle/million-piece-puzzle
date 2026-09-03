@@ -13,7 +13,18 @@ import { useAuth } from "../composables/useAuth";
 import { useLocaleFormat } from "../i18n/format";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 import { toContributorsRows } from "../data/contributors";
-import { SHARE_VIEW_PARAM, parseSharedView, sharedViewWorldPoint } from "../data/shareLink";
+import {
+  SHARE_BADGE_PARAM,
+  SHARE_NAME_PARAM,
+  SHARE_VIEW_PARAM,
+  parseSharedBookmark,
+  parseSharedView,
+  sharedBadgeToBadge,
+  sharedViewWorldPoint,
+} from "../data/shareLink";
+import type { NewBookmark } from "../data/bookmarks";
+import { useBookmarksModal } from "../composables/useBookmarksModal";
+import { useCompactViewport } from "../composables/useCompactViewport";
 import ContributorsRow from "./ContributorsRow.vue";
 
 const { t } = useI18n();
@@ -36,6 +47,8 @@ const {
   sendCursor,
 } = usePuzzleSession();
 const { setControls, setCamera, setReady } = useStageControls();
+const { showDraft } = useBookmarksModal();
+const { compact } = useCompactViewport();
 const { setOverviewSource, setOverviewNavigate } = useOverview();
 const {
   flags: boardFlags,
@@ -50,11 +63,17 @@ const { mode } = useMode();
 const { settings: displaySettings } = useDisplaySettings();
 const { backendDown } = useAuth();
 
-// The spot a link handed this player, read here rather than at the moment it is
-// applied: the address bar is rewritten at boot (the analytics and auth flags
-// are stripped through a router.replace) and the board is only built seconds
-// later, past the guest onboarding a first-time visitor goes through.
-let sharedView = parseSharedView(useRoute().query[SHARE_VIEW_PARAM]);
+// The spot a link handed this player, and the bookmark of it when the link
+// carries one. Read here rather than at the moment they are applied: the address
+// bar is rewritten at boot (the analytics and auth flags are stripped through a
+// router.replace) and the board is only built seconds later, past the guest
+// onboarding a first-time visitor goes through.
+const query = useRoute().query;
+let sharedView = parseSharedView(query[SHARE_VIEW_PARAM]);
+let sharedBookmark = parseSharedBookmark(query[SHARE_NAME_PARAM], query[SHARE_BADGE_PARAM]);
+// The draft that bookmark becomes, held until the loading cover is down: the
+// notebook is offered on a board the recipient can already see, never over it.
+let sharedDraft: NewBookmark | null = null;
 
 let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
@@ -329,7 +348,9 @@ onMounted(async () => {
     centerOnWorld: (wx, wy) => stage?.centerOnWorld(wx, wy),
     viewportCenterWorld: () => stage?.viewportCenterWorld() ?? null,
     frameWorld: (wx, wy, zoom) => stage?.frameWorld(wx, wy, zoom),
-    residentPieceFiles: (limit) => stage?.residentPieceFiles(limit) ?? [],
+    pickSpot: (square) => stage?.pickSpot(square) ?? Promise.resolve(null),
+    setPickSquare: (square) => stage?.setPickSquare(square),
+    cancelPickSpot: () => stage?.cancelPickSpot(),
   });
   setOverviewSource(() => stage?.getOverviewSnapshot() ?? null);
   setOverviewNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
@@ -405,12 +426,34 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
   if (sharedView) {
     const point = sharedViewWorldPoint(sharedView, s.manifest, s.welcome.playZone);
     stage.frameWorld(point.x, point.y, sharedView.zoom);
+    if (sharedBookmark) {
+      // Anchored on the point the camera was actually sent to rather than on the
+      // one the link asked for: it is held inside the play zone, and a draft has
+      // to badge the spot the recipient was given.
+      sharedDraft = {
+        name: sharedBookmark.name,
+        badge: sharedBadgeToBadge(sharedBookmark.badge, point, s.manifest),
+        worldX: point.x,
+        worldY: point.y,
+      };
+    }
     sharedView = null;
+    sharedBookmark = null;
   }
   stage.setMode(mode.value);
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
     triggerCompletion(false);
   }
+}
+
+// The notebook is opened on the shared bookmark once the board is up and the
+// cover is down, and only where there is a notebook to open it in: below the
+// compact breakpoint nothing renders it, so the link keeps its framing and drops
+// its draft rather than arming a panel nobody can answer.
+function offerSharedDraft(): void {
+  const draft = sharedDraft;
+  sharedDraft = null;
+  if (draft && !compact.value) showDraft(draft);
 }
 
 // Builds run one at a time through this chain. If `state` changes while
@@ -432,6 +475,7 @@ watch(state, (s) => {
     .finally(() => {
       if (state.value.kind === "ready" && state.value.epoch === builtEpoch) {
         building.value = false;
+        offerSharedDraft();
       }
     });
 });

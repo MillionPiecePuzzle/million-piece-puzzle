@@ -4,12 +4,10 @@ import OpenSeadragon from "openseadragon";
 import type { ImageManifest } from "@mpp/shared";
 import { manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
 
-// The reference photo as a viewer you can aim at: the enlarged reference window
-// and the bookmark badge picker are the same OpenSeadragon deep-zoom viewer over
-// the same pyramid, and it is held here once rather than configured twice. Every
-// option below is a property of that pyramid and of the page it shares (the pan
-// bounds, the zoom floor, the drawer, the CORS policy), none of them of either
-// caller.
+// The reference photo as a viewer you can aim at, held here once so the pyramid
+// is configured in one place. Every option below is a property of that pyramid
+// and of the page it shares (the pan bounds, the zoom floor, the drawer, the
+// CORS policy), none of them of the caller.
 const props = withDefaults(defineProps<{ manifest: ImageManifest; aiming?: boolean }>(), {
   aiming: false,
 });

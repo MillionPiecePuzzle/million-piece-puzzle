@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { CELL_MASK_TIER_FACTORS } from "@mpp/shared";
 import {
-  BADGE_TILE_PIECES,
-  badgeTileLevel,
-  dziTilesForRect,
+  badgeSquareLevel,
+  dziTileImages,
   maskTierForZoom,
   pickBaseLevel,
   type DziInfo,
@@ -65,36 +64,79 @@ describe("pickBaseLevel", () => {
   });
 });
 
-describe("badgeTileLevel", () => {
-  // The two boards this has to hold for: prod (1000x1000 pieces of 120 source
-  // pixels) and the local synthetic one (720x720 pieces of 72). A badge tile
-  // covers a place, so the reading in pieces is what matters, not the level.
-  const piecesPerTile = (info: DziInfo, pieceSize: number): number =>
-    (info.tileSize * 2 ** (info.maxLevel - badgeTileLevel(info, pieceSize))) / pieceSize;
+describe("badgeSquareLevel", () => {
+  // The prod board: 1000x1000 pieces of 120 source pixels, so the default badge
+  // square (12 pieces) is 1440 world units a side.
+  const prod = dziInfo(120000, 120000, 254);
+  const square = 1440;
 
-  it("cuts a tile covering some 30 to 40 pieces a side on the prod board", () => {
-    expect(piecesPerTile(dziInfo(120000, 120000, 254), 120)).toBeCloseTo(33.9, 1);
+  // Level pixels the square spans: what the badge is actually drawn from.
+  const spanAt = (info: DziInfo, worldSize: number, displayPx: number): number =>
+    worldSize / 2 ** (info.maxLevel - badgeSquareLevel(info, worldSize, displayPx));
+
+  it("cuts a row badge from the level that matches its own 40px, and no finer", () => {
+    expect(spanAt(prod, square, 40)).toBeGreaterThanOrEqual(40);
+    expect(spanAt(prod, square, 40)).toBeLessThan(80);
   });
 
-  it("stays within a factor of the target on a board with a different piece size", () => {
-    const pieces = piecesPerTile(dziInfo(51840, 51840, 254), 72);
-    expect(pieces).toBeGreaterThan(BADGE_TILE_PIECES / 2);
-    expect(pieces).toBeLessThan(BADGE_TILE_PIECES * 2);
+  it("goes finer for the preview under the pointer, up to the tile it stays inside", () => {
+    expect(badgeSquareLevel(prod, square, 192)).toBeGreaterThan(badgeSquareLevel(prod, square, 40));
+    expect(spanAt(prod, square, 192)).toBeGreaterThan(prod.tileSize / 2);
+  });
+
+  it("keeps the square inside one tile, so a badge is one to four of them", () => {
+    for (const px of [40, 192, 384, 4000]) {
+      for (const pieces of [4, 12, 24]) {
+        expect(spanAt(prod, pieces * 120, px), `${pieces} pieces at ${px}px`).toBeLessThanOrEqual(
+          prod.tileSize,
+        );
+      }
+    }
   });
 
   it("never leaves the pyramid's own level range", () => {
     const info = dziInfo(3000, 2000, 254);
-    const level = badgeTileLevel(info, 4000);
-    expect(level).toBeGreaterThanOrEqual(0);
-    expect(level).toBeLessThanOrEqual(info.maxLevel);
+    for (const worldSize of [1, 1e9]) {
+      const level = badgeSquareLevel(info, worldSize, 40);
+      expect(level, String(worldSize)).toBeGreaterThanOrEqual(0);
+      expect(level, String(worldSize)).toBeLessThanOrEqual(info.maxLevel);
+    }
+  });
+});
+
+describe("dziTileImages", () => {
+  const info = dziInfo(120000, 120000, 254);
+
+  it("names the one tile a square inside it falls in", () => {
+    const level = badgeSquareLevel(info, 1440, 40);
+    const tiles = dziTileImages(
+      info,
+      level,
+      { minX: 60000, minY: 30000, maxX: 61440, maxY: 31440 },
+      "source_files/",
+    );
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]!.url).toBe(`source_files/${level}/7_3.webp`);
   });
 
-  it("names one tile for a point, at a path relative to the tiles folder", () => {
-    const info = dziInfo(120000, 120000, 254);
-    const level = badgeTileLevel(info, 120);
-    const point = { minX: 60000, minY: 30000, maxX: 60000, maxY: 30000 };
-    const tiles = dziTilesForRect(info, level, point, "source_files/");
-    expect(tiles).toHaveLength(1);
-    expect(tiles[0]!.url).toBe(`source_files/${level}/14_7.webp`);
+  it("gives a tile the world rect its image really spans, overlap included", () => {
+    const level = info.maxLevel;
+    const [first, second] = dziTileImages(
+      info,
+      level,
+      { minX: 250, minY: 0, maxX: 260, maxY: 1 },
+      "source_files/",
+    );
+    // The first tile of a row starts at the picture's edge and reaches one pixel
+    // into its neighbour; the next starts one pixel back, so the two overlap
+    // instead of meeting, and a badge laid out from them has no seam.
+    expect(first!.worldRect).toMatchObject({ minX: 0, maxX: 255 });
+    expect(second!.worldRect).toMatchObject({ minX: 253, maxX: 509 });
+  });
+
+  it("answers with nothing for a square that is off the picture altogether", () => {
+    const level = badgeSquareLevel(info, 1440, 40);
+    const rect = { minX: -10000, minY: -10000, maxX: -8560, maxY: -8560 };
+    expect(dziTileImages(info, level, rect, "source_files/")).toEqual([]);
   });
 });

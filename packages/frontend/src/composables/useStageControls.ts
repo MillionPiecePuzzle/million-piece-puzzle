@@ -1,4 +1,5 @@
 import { computed, ref, shallowRef } from "vue";
+import type { PickedSpot } from "../canvas/puzzleStage";
 
 export type StageControls = {
   zoomIn: () => void;
@@ -9,10 +10,13 @@ export type StageControls = {
   // flag is planted on.
   centerOnWorld: (worldX: number, worldY: number) => void;
   viewportCenterWorld: () => { x: number; y: number } | null;
-  // Bookmarks: restore a recorded framing, position and zoom together, and read
-  // the pieces on screen the badge picker offers as its second source.
+  // A whole framing, position and zoom together, which is what a shared link
+  // carries and what a pasted one applies.
   frameWorld: (worldX: number, worldY: number, zoom: number) => void;
-  residentPieceFiles: (limit: number) => string[];
+  // Bookmarks: let the player mark a spot by aiming at the board itself.
+  pickSpot: (squareWorld: number) => Promise<PickedSpot | null>;
+  setPickSquare: (squareWorld: number) => void;
+  cancelPickSpot: () => void;
 };
 
 export type StageCamera = {

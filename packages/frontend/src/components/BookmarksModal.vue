@@ -1,19 +1,30 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ImageManifest } from "@mpp/shared";
+import type { ImageManifest, PlayZone } from "@mpp/shared";
 import {
+  BADGE_PIECES_MAX,
+  BADGE_PIECES_MIN,
   BOOKMARK_NAME_MAX,
   BOOKMARK_PAGE_SIZE,
   MAX_BOOKMARKS,
   filterBookmarks,
   normalizeBookmarkName,
   type Bookmark,
+  type BookmarkBadge,
+  type NewBookmark,
 } from "../data/bookmarks";
 import { dziTilesPath, manifestBaseUrl, manifestUrlFor } from "../data/manifestUrl";
-import { badgeTileLevel, dziTilesForRect, fetchDziInfo, type DziInfo } from "../canvas/dziTiles";
+import { fetchDziInfo, type DziInfo } from "../canvas/dziTiles";
+import type { PickedSpot } from "../canvas/puzzleStage";
 import { formatBoardPoint, worldToBoard } from "../canvas/boardCoords";
-import { shareViewUrl } from "../data/shareLink";
+import {
+  bookmarkShareUrl,
+  parseShareLink,
+  sharedBadgeToBadge,
+  sharedViewWorldPoint,
+} from "../data/shareLink";
+import BookmarkBadgeArt from "./BookmarkBadgeArt.vue";
 import { useBookmarks } from "../composables/useBookmarks";
 import { useBookmarksModal } from "../composables/useBookmarksModal";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
@@ -22,19 +33,26 @@ import { useRelativeTime } from "../composables/useRelativeTime";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 import { useLocaleFormat } from "../i18n/format";
-import ReferenceViewer from "./ReferenceViewer.vue";
 
 const { t } = useI18n();
-const { open, hide, anchorInset } = useBookmarksModal();
+const { open, hide, anchorInset, takeDraft } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
-const { bookmarks, canAdd, setPuzzle, add, remove } = useBookmarks();
+const { bookmarks, badgePieces, badgeKind, canAdd, setPuzzle, add, remove } = useBookmarks();
 const { relativeTime } = useRelativeTime();
 const { formatNumber } = useLocaleFormat();
 
 const shellEl = ref<HTMLElement | null>(null);
-const trap = useFocusTrap(shellEl, { onEscape: () => (creating.value ? cancelCreate() : hide()) });
+const trap = useFocusTrap(shellEl, { onEscape: () => backOrClose() });
 const { onMousedown, onClick } = useBackdropClick(() => hide());
+
+// Escape leaves the draft or the paste field first and the notebook second: what
+// is on screen is what it closes.
+function backOrClose(): void {
+  if (creating.value) cancelCreate();
+  else if (importing.value) cancelImport();
+  else hide();
+}
 
 // How far the panel's right edge sits inside the viewport, the backdrop's own
 // padding. Subtracting it from the control's distance to that same edge turns
@@ -49,15 +67,26 @@ const openOrigin = computed(() => {
   return { transformOrigin: `calc(100% - ${fromRight}px) top` };
 });
 // An open is a fresh read of the notebook: an abandoned draft, a filter and a
-// page from a previous open never come back with it.
+// page from a previous open never come back with it. A bookmark handed over in a
+// link is the one thing that survives an open, and it is consumed by it.
 watch(open, (isOpen) => {
   clearCopyFeedback();
   if (isOpen) {
-    creating.value = false;
     query.value = "";
     page.value = 0;
+    importing.value = false;
+    importUrl.value = "";
+    void loadDziInfo();
+    // The trap first: it takes the panel's first control on the next tick, and a
+    // handed draft wants the caret in its name field instead, which it gets by
+    // asking for it after.
     trap.activate();
+    const handed = takeDraft();
+    if (handed) startShared(handed);
+    else creating.value = false;
   } else {
+    // A closed notebook leaves no aim armed on the board behind it.
+    controls.value?.cancelPickSpot();
     trap.deactivate();
   }
 });
@@ -65,9 +94,20 @@ watch(open, (isOpen) => {
 const manifest = computed<ImageManifest | null>(() =>
   state.value.kind === "ready" || state.value.kind === "syncing" ? state.value.manifest : null,
 );
+// The bound a pasted link's point is held inside, the same one a pan stops at.
+const playZone = computed<PlayZone | null>(() =>
+  state.value.kind === "ready" || state.value.kind === "syncing"
+    ? state.value.welcome.playZone
+    : null,
+);
 const assetBase = computed(() =>
   manifest.value ? manifestBaseUrl(manifestUrlFor(manifest.value.puzzleId)) : "",
 );
+const tilesPath = computed(() => (manifest.value ? dziTilesPath(manifest.value.source.dzi) : ""));
+// The traced square in world units, which is what the stage draws and what the
+// badge stores. Zero until the board is known, which is also when the notebook
+// offers nothing to create.
+const squareWorld = computed(() => badgePieces.value * (manifest.value?.pieceSize ?? 0));
 
 watch(
   () => manifest.value?.puzzleId ?? null,
@@ -95,9 +135,9 @@ watch(query, () => {
   page.value = 0;
 });
 
-function badgeUrl(bookmark: Bookmark): string {
-  return assetBase.value + bookmark.badge;
-}
+// The box the row draws a badge in, in CSS pixels, which is what picks the
+// pyramid level it is cut from. Kept with `.badge`'s own size in the stylesheet.
+const BADGE_ROW_SIZE = 40;
 
 function positionOf(bookmark: Bookmark): string {
   const m = manifest.value;
@@ -105,8 +145,52 @@ function positionOf(bookmark: Bookmark): string {
   return formatBoardPoint(worldToBoard(bookmark.worldX, bookmark.worldY, m));
 }
 
+// The badge lifted out of its row at a size you can read it at. Bigger than the
+// max buys nothing (a pyramid tile is 254px native); under the min there is not
+// enough room beside the panel for a preview worth raising, and covering the row
+// the pointer is on would be worse than showing nothing.
+const BADGE_PEEK_MAX = 192;
+const BADGE_PEEK_MIN = 120;
+const BADGE_PEEK_GAP = 12;
+const PEEK_EDGE_GAP = 16;
+
+const peek = ref<{ badge: BookmarkBadge; size: number; top: number; left: number } | null>(null);
+
+// Beside the panel rather than beside the row: what the preview has to stay
+// clear of is the notebook itself, so every row raises it in the same place, and
+// a narrow window shrinks it instead of pushing it under the list. Vertically it
+// follows its row, held inside the screen so one near the bottom comes back up
+// rather than hanging under the fold. A square badge is re-cut at the size it is
+// raised to, so the preview is sharp rather than the row's own tiles stretched.
+function showPeek(badge: BookmarkBadge, ev: MouseEvent): void {
+  const el = ev.currentTarget;
+  const shell = shellEl.value;
+  if (!(el instanceof HTMLElement) || !shell) return;
+  const room = shell.getBoundingClientRect().left - BADGE_PEEK_GAP - PEEK_EDGE_GAP;
+  if (room < BADGE_PEEK_MIN) return;
+  const size = Math.min(BADGE_PEEK_MAX, room);
+  const rect = el.getBoundingClientRect();
+  peek.value = {
+    badge,
+    size,
+    left: shell.getBoundingClientRect().left - BADGE_PEEK_GAP - size,
+    top: Math.min(
+      Math.max(PEEK_EDGE_GAP, rect.top + rect.height / 2 - size / 2),
+      window.innerHeight - size - PEEK_EDGE_GAP,
+    ),
+  };
+}
+
+function hidePeek(): void {
+  peek.value = null;
+}
+
+// The spot, at whatever scale the player is already reading the board at: a
+// bookmark records a place and not a framing, so coming back to one never takes
+// the zoom out of their hands.
 function goTo(bookmark: Bookmark): void {
-  controls.value?.frameWorld(bookmark.worldX, bookmark.worldY, bookmark.zoom);
+  hidePeek();
+  controls.value?.centerOnWorld(bookmark.worldX, bookmark.worldY);
   hide();
 }
 
@@ -125,16 +209,19 @@ function clearCopyFeedback(): void {
   copyFailed.value = false;
 }
 
-onBeforeUnmount(clearCopyFeedback);
+onBeforeUnmount(() => {
+  clearCopyFeedback();
+  controls.value?.cancelPickSpot();
+});
 
-// The spot alone travels, in the player coordinates the readout already shows:
-// the recipient has no notebook of yours to file it in, so the name, the badge
-// and the entry's own id stay here.
+// The spot and the bookmark of it both travel, in the player coordinates the
+// readout already shows: what the recipient gets is a draft of this entry, so
+// the name and the emblem go with the framing and the entry's own id stays here.
+// The scale is the sender's own, since the entry holds none.
 async function copyLink(bookmark: Bookmark): Promise<void> {
   const m = manifest.value;
   if (!m) return;
-  const point = worldToBoard(bookmark.worldX, bookmark.worldY, m);
-  const url = shareViewUrl(window.location.origin, { ...point, zoom: bookmark.zoom });
+  const url = bookmarkShareUrl(window.location.origin, bookmark, m, camera.value.zoom);
   clearCopyFeedback();
   try {
     await navigator.clipboard.writeText(url);
@@ -148,33 +235,30 @@ async function copyLink(bookmark: Bookmark): Promise<void> {
   copyTimer = setTimeout(clearCopyFeedback, COPIED_FEEDBACK_MS);
 }
 
-// How many of the pieces on screen the picker offers. Enough rows to choose
-// from at a glance, few enough that opening the picker over a dense pile is a
-// handful of texture requests the board has already made and not a page of them.
-const BADGE_PIECE_CHOICES = 24;
-
-// Where the badge is cut from. The photo answers everywhere, which is what makes
-// it the fallback; the pieces answer only where the player has swept some, which
-// is what makes them the better answer to "what is this spot" outside the frame.
-type BadgeSource = "pieces" | "photo";
-
 const creating = ref(false);
-const source = ref<BadgeSource>("photo");
-const pieceChoices = ref<string[]>([]);
-const pickerAspect = computed(() =>
-  manifest.value ? `${manifest.value.source.width / manifest.value.source.height}` : "1",
-);
+const aiming = ref(false);
+// A draft filled from a link rather than from an aim: nothing is written until
+// the recipient saves, and the panel says where it came from so a name someone
+// else wrote is read before it is kept.
+const shared = ref(false);
 const draftName = ref("");
-const draftBadge = ref<string | null>(null);
+const draftBadge = ref<BookmarkBadge | null>(null);
+const draftSpot = ref<{ worldX: number; worldY: number } | null>(null);
 const error = ref<string | null>(null);
 const nameEl = ref<HTMLInputElement | null>(null);
+// A link pasted into the notebook itself, which is the other way one arrives:
+// opening it in the address bar reloads the board and drops the hand the player
+// is in the middle of, where this reads the same parameters live.
+const importing = ref(false);
+const importUrl = ref("");
+const importEl = ref<HTMLInputElement | null>(null);
 const dziInfo = ref<DziInfo | null>(null);
 let dziInfoPuzzleId: string | null = null;
 
-// The pyramid's own geometry, needed to name the tile a click lands in. Fetched
-// when the photo source is shown rather than with the modal: the descriptor is a
-// few hundred bytes and the viewer below asks for the same URL, so this is a
-// cache hit on every open but the first.
+// The pyramid's own geometry, needed to lay a square badge out of tiles. Fetched
+// on the open, since the list draws badges before anything is created: the
+// descriptor is a few hundred bytes and the board's own reveal layer asks for the
+// same URL, so this is a cache hit on every open but the first.
 async function loadDziInfo(): Promise<void> {
   const m = manifest.value;
   if (!m || dziInfoPuzzleId === m.puzzleId) return;
@@ -184,81 +268,156 @@ async function loadDziInfo(): Promise<void> {
     dziInfo.value = info;
     dziInfoPuzzleId = m.puzzleId;
   } catch (e: unknown) {
-    console.warn("[bookmarks] could not read the reference pyramid, no badge can be picked", e);
+    console.warn("[bookmarks] could not read the reference pyramid, no badge can be drawn", e);
   }
 }
 
-// The pieces are read once, when the picker opens, not followed live: the board
-// moves under the player and a list reshuffling itself while they aim at a piece
-// would take the piece away from under the pointer.
 function startCreate(): void {
   if (!canAdd.value || !controls.value) return;
   creating.value = true;
+  shared.value = false;
   draftName.value = "";
   draftBadge.value = null;
+  draftSpot.value = null;
   error.value = null;
-  pieceChoices.value = controls.value.residentPieceFiles(BADGE_PIECE_CHOICES);
-  selectSource(pieceChoices.value.length > 0 ? "pieces" : "photo");
-  void nextTick(() => nameEl.value?.focus());
+  void aimAtSpot();
 }
 
-// The pyramid descriptor is only worth its request once the photo is on screen:
-// a player badging the spot with a piece never opens it.
-function selectSource(next: BadgeSource): void {
-  source.value = next;
-  if (next === "photo") void loadDziInfo();
+function startImport(): void {
+  importing.value = true;
+  importUrl.value = "";
+  error.value = null;
+  void nextTick(() => importEl.value?.focus());
 }
+
+function cancelImport(): void {
+  importing.value = false;
+  importUrl.value = "";
+  error.value = null;
+}
+
+// A pasted link, applied where an opened one would have been: the board is
+// framed on the spot it names and the notebook offers the same draft, so the
+// player sees what they are about to keep without losing the board they are on.
+function applyImport(): void {
+  const m = manifest.value;
+  const zone = playZone.value;
+  if (!m || !zone) return;
+  const link = parseShareLink(importUrl.value);
+  if (link === null) {
+    error.value = t("bookmarks.importBad");
+    return;
+  }
+  const point = sharedViewWorldPoint(link.view, m, zone);
+  controls.value?.frameWorld(point.x, point.y, link.view.zoom);
+  importing.value = false;
+  importUrl.value = "";
+  startShared({
+    name: link.bookmark.name,
+    badge: sharedBadgeToBadge(link.bookmark.badge, point, m),
+    worldX: point.x,
+    worldY: point.y,
+  });
+}
+
+// A bookmark that arrived in a link: the same fields an aim fills, filled from
+// someone else's entry. The name is selected rather than only focused, since it
+// is a stranger's and retyping it should cost one keystroke.
+function startShared(entry: NewBookmark): void {
+  creating.value = true;
+  shared.value = true;
+  draftName.value = entry.name;
+  draftBadge.value = entry.badge;
+  draftSpot.value = { worldX: entry.worldX, worldY: entry.worldY };
+  error.value = null;
+  void nextTick(() => nameEl.value?.select());
+}
+
+// The side the aim traces, which is nothing at all when the badge being taken is
+// a piece: the square would then promise something the click does not take.
+const aimSquareWorld = computed(() => (badgeKind.value === "area" ? squareWorld.value : 0));
+
+// The spot and its badge are one click on the board: what the player pressed is
+// where the bookmark is, and what they chose beforehand is what stands for it.
+// The notebook stays on screen with its backdrop let through, so the board it is
+// a notebook of is the thing being aimed at.
+async function aimAtSpot(): Promise<void> {
+  const stage = controls.value;
+  if (!stage) return;
+  aiming.value = true;
+  for (;;) {
+    const spot = await stage.pickSpot(aimSquareWorld.value);
+    if (!spot) break;
+    const badge = badgeFor(spot);
+    if (badge !== null) {
+      draftBadge.value = badge;
+      draftSpot.value = { worldX: spot.worldX, worldY: spot.worldY };
+      error.value = null;
+      break;
+    }
+    // Nothing here to stand for the spot: a square of bare ground off the
+    // picture, or no loose piece under a click that asked for one. The aim stays
+    // armed rather than handing back a draft that would badge an empty box.
+    error.value =
+      badgeKind.value === "piece" ? t("bookmarks.noPieceHere") : t("bookmarks.nothingHere");
+  }
+  aiming.value = false;
+  if (draftBadge.value !== null) void nextTick(() => nameEl.value?.focus());
+}
+
+// What the click takes is what was chosen before it, and only that: a piece is
+// the loose piece under the point, refused where there is none rather than
+// falling back to the ground it sits on, and a square is the one traced around
+// the point. A square with no picture in it at all is refused; one hanging off
+// the edge keeps the part that has one.
+function badgeFor(spot: PickedSpot): BookmarkBadge | null {
+  if (badgeKind.value === "piece") {
+    return spot.pieceFile === null ? null : { kind: "piece", file: spot.pieceFile };
+  }
+  const m = manifest.value;
+  const size = squareWorld.value;
+  if (!m || size <= 0) return null;
+  const x = spot.worldX - size / 2;
+  const y = spot.worldY - size / 2;
+  const onPicture = x + size > 0 && y + size > 0 && x < m.source.width && y < m.source.height;
+  return onPicture ? { kind: "area", x, y, size } : null;
+}
+
+// The square is set while the aim is up, so the board redraws it under the cursor
+// as the player changes their mind about how much of it the badge holds, and
+// drops it whole when they change their mind about taking a square at all.
+watch(aimSquareWorld, (side) => {
+  if (aiming.value) controls.value?.setPickSquare(side);
+});
+
+// A refusal is about the badge that was being taken, so switching badges takes
+// it back rather than leaving the panel explaining the other one.
+watch(badgeKind, () => {
+  if (aiming.value) error.value = null;
+});
 
 function cancelCreate(): void {
   creating.value = false;
   error.value = null;
-}
-
-// The badge is the tile of the reference photo the player clicked, at the one
-// level a badge is ever cut from: a place on the picture, chosen for what it
-// shows rather than derived from where the bookmark is, so a tile of sky can
-// stand for a pile of sky sorted far outside the frame.
-function onPickBadge(image: { x: number; y: number }): void {
-  const info = dziInfo.value;
-  const m = manifest.value;
-  if (!info || !m) return;
-  const level = badgeTileLevel(info, m.pieceSize);
-  const [tile] = dziTilesForRect(
-    info,
-    level,
-    { minX: image.x, minY: image.y, maxX: image.x, maxY: image.y },
-    dziTilesPath(m.source.dzi),
-  );
-  if (!tile) return;
-  draftBadge.value = tile.url;
-  error.value = null;
-}
-
-// A piece out of the area the bookmark names, kept as its own asset path: the
-// same shape under the same base as a photo tile, so one stored string covers
-// both sources.
-function onPickPiece(file: string): void {
-  draftBadge.value = file;
-  error.value = null;
+  controls.value?.cancelPickSpot();
 }
 
 function save(): void {
+  if (!canAdd.value) {
+    error.value = t("bookmarks.full", { max: formatNumber(MAX_BOOKMARKS) });
+    return;
+  }
   const name = normalizeBookmarkName(draftName.value);
   if (name === null) {
     error.value = t("bookmarks.needName");
     return;
   }
-  if (draftBadge.value === null) {
+  const spot = draftSpot.value;
+  if (spot === null || draftBadge.value === null) {
     error.value = t("bookmarks.needBadge");
     return;
   }
-  add({
-    name,
-    worldX: camera.value.centerX,
-    worldY: camera.value.centerY,
-    zoom: camera.value.zoom,
-    badge: draftBadge.value,
-  });
+  add({ name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value });
   creating.value = false;
   // The new entry is the first row of the unfiltered list, so the player lands
   // on it rather than on whatever page and filter they were reading before.
@@ -272,6 +431,7 @@ function save(): void {
     <div
       v-if="open"
       class="modal-backdrop bookmarks-backdrop"
+      :class="{ aiming }"
       @mousedown="onMousedown"
       @click="onClick"
     >
@@ -282,72 +442,84 @@ function save(): void {
         role="dialog"
         aria-modal="true"
         aria-labelledby="bookmarks-title"
+        @scroll="hidePeek"
       >
         <header class="modal-header">
           <h2 id="bookmarks-title" class="modal-title">
-            {{ creating ? t("bookmarks.newTitle") : t("bookmarks.title") }}
+            {{
+              creating
+                ? shared
+                  ? t("bookmarks.sharedTitle")
+                  : t("bookmarks.newTitle")
+                : importing
+                  ? t("bookmarks.importTitle")
+                  : t("bookmarks.title")
+            }}
           </h2>
           <button class="modal-close" :aria-label="t('common.close')" @click="hide">×</button>
         </header>
 
         <template v-if="creating">
-          <div
-            v-if="pieceChoices.length > 0"
-            class="seg"
-            role="group"
-            :aria-label="t('bookmarks.badgeSource')"
-          >
-            <button
-              type="button"
-              :class="{ on: source === 'pieces' }"
-              :aria-pressed="source === 'pieces'"
-              @click="selectSource('pieces')"
-            >
-              {{ t("bookmarks.sourcePieces") }}
-            </button>
-            <button
-              type="button"
-              :class="{ on: source === 'photo' }"
-              :aria-pressed="source === 'photo'"
-              @click="selectSource('photo')"
-            >
-              {{ t("bookmarks.sourcePhoto") }}
-            </button>
-          </div>
           <p class="modal-lede">
-            {{ source === "pieces" ? t("bookmarks.pickPiece") : t("bookmarks.pickBadge") }}
+            {{
+              shared
+                ? t("bookmarks.sharedLede")
+                : !aiming
+                  ? t("bookmarks.nameSpot")
+                  : badgeKind === "piece"
+                    ? t("bookmarks.pickPiece")
+                    : t("bookmarks.pickSpot")
+            }}
           </p>
-          <ul v-if="source === 'pieces'" class="pieces">
-            <li v-for="file in pieceChoices" :key="file">
+          <div v-if="aiming" class="kind" role="group" :aria-label="t('bookmarks.badgeKind')">
+            <span class="kind-label">{{ t("bookmarks.badgeKind") }}</span>
+            <span class="kind-options">
               <button
                 type="button"
-                class="piece"
-                :class="{ on: draftBadge === file }"
-                :aria-pressed="draftBadge === file"
-                :aria-label="t('bookmarks.usePiece')"
-                @click="onPickPiece(file)"
+                class="kind-option"
+                :class="{ on: badgeKind === 'area' }"
+                :aria-pressed="badgeKind === 'area'"
+                @click="badgeKind = 'area'"
               >
-                <img :src="assetBase + file" alt="" crossorigin="anonymous" decoding="async" />
+                {{ t("bookmarks.badgeKindArea") }}
               </button>
-            </li>
-          </ul>
-          <div v-else class="picker" :style="{ '--ar': pickerAspect }">
-            <ReferenceViewer
-              v-if="manifest"
-              class="picker-viewer"
-              :manifest="manifest"
-              aiming
-              @pick="onPickBadge"
-            />
+              <button
+                type="button"
+                class="kind-option"
+                :class="{ on: badgeKind === 'piece' }"
+                :aria-pressed="badgeKind === 'piece'"
+                @click="badgeKind = 'piece'"
+              >
+                {{ t("bookmarks.badgeKindPiece") }}
+              </button>
+            </span>
           </div>
-          <div class="draft">
+          <div v-if="aiming && badgeKind === 'area'" class="size">
+            <label class="size-label" for="bookmark-badge-size">
+              {{ t("bookmarks.badgeSize") }}
+            </label>
+            <input
+              id="bookmark-badge-size"
+              v-model.number="badgePieces"
+              class="size-range"
+              type="range"
+              :min="BADGE_PIECES_MIN"
+              :max="BADGE_PIECES_MAX"
+              step="1"
+            />
+            <span class="size-value">
+              {{ t("bookmarks.badgeSizePieces", badgePieces, { named: { n: badgePieces } }) }}
+            </span>
+          </div>
+          <div v-if="!aiming" class="draft">
             <span class="badge" :class="{ empty: !draftBadge }">
-              <img
+              <BookmarkBadgeArt
                 v-if="draftBadge"
-                :src="assetBase + draftBadge"
-                alt=""
-                crossorigin="anonymous"
-                decoding="async"
+                :badge="draftBadge"
+                :size="BADGE_ROW_SIZE"
+                :asset-base="assetBase"
+                :tiles-path="tilesPath"
+                :dzi="dziInfo"
               />
             </span>
             <input
@@ -367,11 +539,59 @@ function save(): void {
             <button type="button" class="ghost" @click="cancelCreate">
               {{ t("common.cancel") }}
             </button>
-            <button type="button" class="primary" @click="save">{{ t("common.save") }}</button>
+            <button v-if="!aiming" type="button" class="primary" @click="save">
+              {{ t("common.save") }}
+            </button>
+          </div>
+        </template>
+
+        <template v-else-if="importing">
+          <p class="modal-lede">{{ t("bookmarks.importLede") }}</p>
+          <input
+            ref="importEl"
+            v-model="importUrl"
+            class="field"
+            type="text"
+            :placeholder="t('bookmarks.importPlaceholder')"
+            :aria-label="t('bookmarks.importLabel')"
+            autocomplete="off"
+            spellcheck="false"
+            @keyup.enter="applyImport"
+          />
+          <p v-if="error" class="error" role="alert">{{ error }}</p>
+          <div class="draft-actions">
+            <button type="button" class="ghost" @click="cancelImport">
+              {{ t("common.cancel") }}
+            </button>
+            <button type="button" class="primary" @click="applyImport">
+              {{ t("bookmarks.importAction") }}
+            </button>
           </div>
         </template>
 
         <template v-else>
+          <div class="top-actions">
+            <button
+              type="button"
+              class="primary"
+              :disabled="!canAdd || !controls"
+              @click="startCreate"
+            >
+              {{ t("bookmarks.add") }}
+            </button>
+            <button
+              type="button"
+              class="ghost"
+              :disabled="!canAdd || !controls"
+              @click="startImport"
+            >
+              {{ t("bookmarks.import") }}
+            </button>
+          </div>
+          <p v-if="!canAdd" class="full" role="alert">
+            {{ t("bookmarks.full", { max: formatNumber(MAX_BOOKMARKS) }) }}
+          </p>
+
           <div class="tools">
             <input
               v-model="query"
@@ -401,20 +621,23 @@ function save(): void {
                 :aria-label="t('bookmarks.goTo', { name: bookmark.name })"
                 @click="goTo(bookmark)"
               >
-                <span class="badge">
-                  <img
-                    :src="badgeUrl(bookmark)"
-                    alt=""
-                    crossorigin="anonymous"
-                    loading="lazy"
-                    decoding="async"
+                <span
+                  class="badge"
+                  @mouseenter="showPeek(bookmark.badge, $event)"
+                  @mouseleave="hidePeek"
+                >
+                  <BookmarkBadgeArt
+                    :badge="bookmark.badge"
+                    :size="BADGE_ROW_SIZE"
+                    :asset-base="assetBase"
+                    :tiles-path="tilesPath"
+                    :dzi="dziInfo"
+                    lazy
                   />
                 </span>
                 <span class="text">
                   <span class="name">{{ bookmark.name }}</span>
-                  <span class="meta">
-                    {{ positionOf(bookmark) }} &middot; {{ Math.round(bookmark.zoom * 100) }}%
-                  </span>
+                  <span class="meta">{{ positionOf(bookmark) }}</span>
                 </span>
                 <span class="age">{{ relativeTime(bookmark.createdAt) }}</span>
               </button>
@@ -466,7 +689,7 @@ function save(): void {
           </ul>
           <p v-if="copyFailed" class="error" role="alert">{{ t("bookmarks.copyFailed") }}</p>
 
-          <div v-if="pageCount > 1" class="pager">
+          <div class="pager">
             <button type="button" :disabled="page === 0" @click="page--">
               &larr; {{ t("bookmarks.prev") }}
             </button>
@@ -475,20 +698,30 @@ function save(): void {
               {{ t("bookmarks.next") }} &rarr;
             </button>
           </div>
-
-          <button
-            type="button"
-            class="primary add"
-            :disabled="!canAdd || !controls"
-            @click="startCreate"
-          >
-            {{ t("bookmarks.add") }}
-          </button>
-          <p v-if="!canAdd" class="full" role="alert">
-            {{ t("bookmarks.full", { max: formatNumber(MAX_BOOKMARKS) }) }}
-          </p>
         </template>
       </div>
+
+      <Transition name="peek">
+        <div
+          v-if="peek"
+          class="badge-peek"
+          :style="{
+            top: `${peek.top}px`,
+            left: `${peek.left}px`,
+            width: `${peek.size}px`,
+            height: `${peek.size}px`,
+          }"
+          aria-hidden="true"
+        >
+          <BookmarkBadgeArt
+            :badge="peek.badge"
+            :size="peek.size"
+            :asset-base="assetBase"
+            :tiles-path="tilesPath"
+            :dzi="dziInfo"
+          />
+        </div>
+      </Transition>
     </div>
   </Teleport>
 </template>
@@ -505,10 +738,18 @@ function save(): void {
   place-items: start end;
   padding: calc(52px + var(--notice-h, 0px) + 8px) 16px 16px;
 }
+/* While the player aims, the press belongs to the board: the backdrop stops
+   catching it and the panel takes it back, so the notebook stays on screen with
+   its own cancel while the click lands on the puzzle. */
+.bookmarks-backdrop.aiming {
+  pointer-events: none;
+}
+.bookmarks-backdrop.aiming .bookmarks-modal {
+  pointer-events: auto;
+}
 .bookmarks-modal {
   /* Wide enough for a row to carry its badge, its name and its coordinates on
-     one line, and for the picker below to show the photo at a size you can aim
-     at. */
+     one line. */
   width: min(560px, 100%);
   /* Grown from the control that opened it, whose place in the panel's own box
      `openOrigin` computes. */
@@ -523,6 +764,17 @@ function save(): void {
     opacity: 1;
     transform: none;
   }
+}
+/* The two ways into a new entry, at the top of the panel: what the notebook is
+   opened to do is read before the list of what it already holds. */
+.top-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.top-actions .primary,
+.top-actions .ghost {
+  flex: 1;
 }
 .tools {
   display: flex;
@@ -587,8 +839,9 @@ function save(): void {
 .jump:disabled {
   cursor: default;
 }
-/* The badge is a photo tile, so it carries the same rounded frame in the row
-   and in the draft: a picture of a place, not an icon. */
+/* The badge is a picture of a place, so it carries the same rounded frame in the
+   row and in the draft: a photograph, not an icon. Its size here is what
+   BADGE_ROW_SIZE names, which is what the level of the pyramid follows. */
 .badge {
   flex: none;
   width: 40px;
@@ -598,14 +851,33 @@ function save(): void {
   border-radius: var(--radius-btn);
   background: var(--ground-2);
 }
-.badge img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
 .badge.empty {
   border-style: dashed;
+}
+/* The badge lifted out of its row, out to the left where the panel leaves room.
+   Never takes the pointer, so the row underneath keeps the hover that raised
+   it. */
+.badge-peek {
+  position: fixed;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--ground-2);
+  box-shadow: var(--shadow-panel);
+  pointer-events: none;
+  z-index: 1;
+}
+.peek-enter-active,
+.peek-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+/* Slid out of the row, which is to its right, and back into it on the way out. */
+.peek-enter-from,
+.peek-leave-to {
+  opacity: 0;
+  transform: translateX(10px);
 }
 .text {
   flex: 1;
@@ -709,99 +981,82 @@ function save(): void {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.add {
-  margin-top: 14px;
-}
 .full {
-  margin: 8px 0 0;
+  margin: 0 0 10px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-3);
-}
-/* The picker holds the photo's own aspect ratio, capped so the name field and
-   the buttons under it stay on screen without scrolling the shell. */
-.picker {
-  aspect-ratio: var(--ar);
-  max-height: 46vh;
-  margin-bottom: 12px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  background: var(--ground-2);
-}
-.picker-viewer {
-  width: 100%;
-  height: 100%;
-}
-/* The two badge sources, on the switch the contributors modal already uses.
-   Absent, not disabled, where the board offers no piece: there is nothing to
-   switch to and the photo alone answers. */
-.seg {
-  display: inline-flex;
-  margin-bottom: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-btn);
-  overflow: hidden;
-  font-family: var(--mono);
-  font-size: 11px;
-}
-.seg button {
-  padding: 5px 14px;
-  color: var(--ink-3);
-  background: var(--paper);
-}
-.seg button + button {
-  border-left: 1px solid var(--line);
-}
-.seg button.on {
-  background: var(--paper-2);
-  color: var(--ink);
-}
-.seg button:hover:not(.on) {
-  color: var(--ink);
-}
-/* The pieces on screen, in the room the photo picker takes, so switching source
-   does not resize the window under the player. Each tile keeps its own square:
-   a piece texture carries its tab margin in the alpha, so the silhouette needs
-   the whole cell to read as a piece rather than as a crop. */
-.pieces {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
-  gap: 6px;
-  max-height: 46vh;
-  overflow-y: auto;
-}
-.piece {
-  width: 100%;
-  aspect-ratio: 1;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-btn);
-  background: var(--ground-2);
-  transition:
-    border-color 160ms ease,
-    background 160ms ease;
-}
-.piece:hover {
-  background: var(--paper-2);
-}
-.piece.on {
-  border-color: var(--ink);
-  background: var(--paper-2);
-}
-.piece img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
 }
 .draft {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+/* What the aim takes, chosen before it lands: two options reading as one control,
+   so the click has one meaning rather than whichever of the two the board happens
+   to offer under it. */
+.kind {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.kind-label {
+  flex: none;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.kind-options {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+}
+.kind-option {
+  flex: 1;
+  padding: 5px 10px;
+  border-radius: calc(var(--radius-btn) - 2px);
+  font-size: 13px;
+  color: var(--ink-3);
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+.kind-option:hover:not(.on) {
+  background: var(--ground-2);
+  color: var(--ink);
+}
+.kind-option.on {
+  background: var(--ink);
+  color: var(--ground);
+}
+/* The square's size, set while the aim is up: one row under the instruction, so
+   the slider and the square it resizes are both in view. */
+.size {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.size-label {
+  flex: none;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.size-range {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--ink);
+}
+.size-value {
+  flex: none;
+  min-width: 66px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
 }
 .error {
   margin: 10px 0 0;
@@ -828,8 +1083,12 @@ function save(): void {
     background 160ms ease,
     color 160ms ease;
 }
-.ghost:hover {
+.ghost:hover:not(:disabled) {
   background: var(--ground-2);
   color: var(--ink);
+}
+.ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>
