@@ -1369,10 +1369,7 @@ export class PuzzleStage {
       // flow has parked it at rest; falling through to the remote-grab branch
       // would strand it in remoteHeldLayer (one layer too high, forced live off
       // the LOD) until the next event happened to touch it.
-      const entry =
-        this.held?.groupId === groupId
-          ? this.held
-          : this.carryExtras.find((e) => e.groupId === groupId);
+      const entry = this.handEntry(groupId);
       if (entry) entry.confirmed = true;
       return;
     }
@@ -1386,10 +1383,7 @@ export class PuzzleStage {
     // A denied grab means an optimistic drop that followed it will be rejected by
     // the server, so lift the in-flight guard rather than leaving it stuck.
     this.pendingDrops.delete(groupId);
-    const entry =
-      this.held?.groupId === groupId
-        ? this.held
-        : this.carryExtras.find((e) => e.groupId === groupId);
+    const entry = this.handEntry(groupId);
     if (!entry) return;
     const node = this.groups.get(groupId);
     if (node) {
@@ -2644,14 +2638,32 @@ export class PuzzleStage {
   // Every cluster in hand, the one picked first leading, which is the order they
   // land in. A press-drag hand is always one cluster; only a sticky carry can hold
   // more.
+  private handEntries(): HeldState[] {
+    return this.held ? [this.held, ...this.carryExtras] : [];
+  }
+
   private carriedIds(): number[] {
-    if (!this.held) return [];
-    return [this.held.groupId, ...this.carryExtras.map((e) => e.groupId)];
+    return this.handEntries().map((e) => e.groupId);
+  }
+
+  // The hand's own record for a cluster: the lead, one of the ctrl-clicked
+  // extras, or null when the cluster is not in hand at all. Where a cluster sits
+  // in the hand is the caller's business only when it leaves it (dropFromHand),
+  // so everything else reads it through here.
+  private handEntry(groupId: number): HeldState | null {
+    return this.handEntries().find((e) => e.groupId === groupId) ?? null;
   }
 
   private isInHand(groupId: number): boolean {
-    if (this.held?.groupId === groupId) return true;
-    return this.carryExtras.some((e) => e.groupId === groupId);
+    return this.handEntry(groupId) !== null;
+  }
+
+  // The hand is empty: every cluster in it has been committed or given up by the
+  // caller, so forget them all and take the carry down with them.
+  private releaseHand(): void {
+    this.held = null;
+    this.carryExtras = [];
+    this.endCarry();
   }
 
   // Pick a cluster up into sticky carry: grab it (acquiring the server lock), keep
@@ -2728,7 +2740,7 @@ export class PuzzleStage {
       this.carryExtras = this.carryExtras.filter((e) => e.groupId !== groupId);
     }
     if (!this.held) {
-      this.endCarry();
+      this.releaseHand();
       return;
     }
     // The hand that stays keeps its lifted size: committing the cluster that left
@@ -2765,9 +2777,7 @@ export class PuzzleStage {
         const node = this.groups.get(id);
         if (node) this.commitHeldDrop(node, node.worldX, node.worldY);
       }
-      this.held = null;
-      this.carryExtras = [];
-      this.endCarry();
+      this.releaseHand();
       return;
     }
     if (this.carryExtras.length > 0) {
@@ -2780,8 +2790,7 @@ export class PuzzleStage {
       const { x, y } = this.carryDropOrigin(lead, pointer.x, pointer.y);
       this.commitHeldDrop(lead, x, y);
     }
-    this.held = null;
-    this.endCarry();
+    this.releaseHand();
   }
 
   // Lay the carried hand out around a world point, each cluster on the free patch
@@ -2817,9 +2826,7 @@ export class PuzzleStage {
       // the hand is being put down on.
       airborne.delete(id);
     }
-    this.held = null;
-    this.carryExtras = [];
-    this.endCarry();
+    this.releaseHand();
   }
 
   // Abort an in-progress press-drag (button-held grab) without committing a move:
@@ -2843,15 +2850,13 @@ export class PuzzleStage {
   // each lock by dropping the cluster back at its own origin.
   private cancelCarry(): void {
     if (!this.held?.carry) return;
-    for (const entry of [this.held, ...this.carryExtras]) {
+    for (const entry of this.handEntries()) {
       const node = this.groups.get(entry.groupId);
       if (!node) continue;
       this.markDirty(this.worldAabb(node));
       this.commitHeldDrop(node, entry.originX, entry.originY);
     }
-    this.held = null;
-    this.carryExtras = [];
-    this.endCarry();
+    this.releaseHand();
   }
 
   // Clear the carry visuals and idle timer and notify the shell. Leaves this.held
