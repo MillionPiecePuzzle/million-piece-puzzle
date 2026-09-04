@@ -64,6 +64,10 @@ export type CDropNear = {
   worldY: number;
 };
 
+// Clusters one hand may carry at once. Bounds the sticky carry: past it a pick is
+// refused rather than silently dropping the oldest.
+export const CARRY_SELECTION_MAX = 10;
+
 // Presence, client to server. The client reports its viewport and cursor so the
 // server can scope broadcasts and relay cursors to viewport-neighbor peers. Both
 // change on every zoom and pan: the client throttles sends. Transient, never

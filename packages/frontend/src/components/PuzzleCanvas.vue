@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
-import type { ServerMessage } from "@mpp/shared";
+import { CARRY_SELECTION_MAX, type ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useOverview } from "../composables/useOverview";
@@ -81,9 +81,10 @@ let buildChain: Promise<void> = Promise.resolve();
 let unsubscribe: (() => void) | null = null;
 const completed = ref(false);
 const modalVisible = ref(true);
-// True while the local player carries a cluster stuck to the cursor (double-click
-// to pick up). Drives the floating carry hint.
-const carrying = ref(false);
+// How many clusters the local player carries stuck to the cursor (double-click to
+// pick the first up, ctrl-click to add more). Zero is an empty hand. Drives the
+// floating carry hint, which is also where the count is read.
+const carried = ref(0);
 
 // Transient bottom-center notice (e.g. a rejected drop). A new toast resets the
 // dismiss timer so repeated rejections do not stack.
@@ -331,9 +332,10 @@ onMounted(async () => {
   stage.onCursorMove = (x, y) => queueCursor(x, y);
   stage.onNotice = (kind) => {
     if (kind === "tile_full") showToast(t("toast.tileFull"));
+    if (kind === "carry_full") showToast(t("toast.carryFull", { n: CARRY_SELECTION_MAX }));
   };
   stage.onCarryChange = (c) => {
-    carrying.value = c;
+    carried.value = c;
   };
   stage.onFlagMove = (id, x, y) => moveFlag(id, x, y);
   stage.onFlagSelect = (id) => selectFlag(id);
@@ -614,15 +616,17 @@ onBeforeUnmount(() => {
         {{ t("completion.summary") }}
       </button>
     </Transition>
-    <Transition name="toast">
-      <div v-if="toast" class="toast" role="status" aria-live="polite">{{ toast }}</div>
-    </Transition>
-    <Transition name="carry-hint">
-      <div v-if="carrying && !showStatus" class="carry-hint" role="status" aria-live="polite">
-        <span class="carry-dot" aria-hidden="true" />
-        {{ t("carry.hint") }}
-      </div>
-    </Transition>
+    <div class="notices">
+      <Transition name="toast">
+        <div v-if="toast" class="toast" role="status" aria-live="polite">{{ toast }}</div>
+      </Transition>
+      <Transition name="carry-hint">
+        <div v-if="carried > 0 && !showStatus" class="carry-hint" role="status" aria-live="polite">
+          <span class="carry-dot" aria-hidden="true" />
+          {{ t("carry.hint", carried, { named: { n: carried, max: CARRY_SELECTION_MAX } }) }}
+        </div>
+      </Transition>
+    </div>
   </div>
 </template>
 
@@ -923,13 +927,25 @@ onBeforeUnmount(() => {
   transform: translate(-50%, -8px);
 }
 /* Above the flag bar, which owns the bottom-center strip; back down to the
-   screen edge on a compact viewport, where the bar is not rendered. */
-.toast {
+   screen edge on a compact viewport, where the bar is not rendered. The two
+   notices stack in one column so a toast raised while a piece is in hand sits
+   above the hint instead of behind it. */
+.notices {
   position: absolute;
   left: 50%;
   bottom: 97px;
   transform: translateX(-50%);
-  max-width: min(90%, 360px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: 90vw;
+  pointer-events: none;
+  z-index: 3;
+}
+.toast {
+  max-width: min(100%, 360px);
   padding: 10px 16px;
   border-radius: 8px;
   background: rgba(38, 16, 16, 0.92);
@@ -937,8 +953,6 @@ onBeforeUnmount(() => {
   color: #f7e9e9;
   font-size: 13px;
   text-align: center;
-  pointer-events: none;
-  z-index: 3;
 }
 .toast-enter-active,
 .toast-leave-active {
@@ -949,17 +963,13 @@ onBeforeUnmount(() => {
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translate(-50%, 8px);
+  transform: translateY(8px);
 }
 .carry-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 97px;
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 9px;
-  max-width: min(90%, 420px);
+  max-width: min(100%, 420px);
   padding: 10px 18px;
   border-radius: var(--radius-pill);
   background: rgba(28, 24, 16, 0.9);
@@ -967,8 +977,6 @@ onBeforeUnmount(() => {
   color: #f6efdd;
   font-size: 13px;
   text-align: center;
-  pointer-events: none;
-  z-index: 3;
 }
 .carry-dot {
   flex: none;
@@ -999,12 +1007,11 @@ onBeforeUnmount(() => {
 .carry-hint-enter-from,
 .carry-hint-leave-to {
   opacity: 0;
-  transform: translate(-50%, 8px);
+  transform: translateY(8px);
 }
 
 @media (max-width: 680px), (max-height: 480px) {
-  .toast,
-  .carry-hint {
+  .notices {
     bottom: 32px;
   }
 }

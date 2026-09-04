@@ -136,6 +136,8 @@ const fr: MessageSchema = {
       "Ouvrez l'image de référence et zoomez pour trouver où va une pièce, puis Ctrl-cliquez dessus pour y amener le plateau.",
     bookmarks:
       "Utilisez les signets pour garder les endroits importants du puzzle : le bouton signet de la barre du haut ouvre votre carnet, et un clic vous y ramène directement.",
+    multiCarry:
+      "Avec une pièce en main, Ctrl-cliquez d'autres pièces pour en porter jusqu'à 10 d'un coup, puis double-cliquez sur le plateau pour toutes les poser côte à côte.",
   },
   updates: {
     title: "Notes de mises à jour",
@@ -297,9 +299,10 @@ const fr: MessageSchema = {
   toast: {
     tileFull: "Trop de pièces sur cette case.",
     snapCovered: "Cette pièce est enfouie : dégagez d'abord celles posées dessus.",
+    carryFull: "Vous ne pouvez pas tenir plus de {n} pièces à la fois.",
   },
   carry: {
-    hint: "Pièce en main. Double-cliquez ou tapez deux fois pour la déposer, Échap pour la remettre.",
+    hint: "Pièce en main. Double-cliquez ou tapez deux fois pour la déposer, Échap pour la remettre. | {n} pièces en main sur {max}. Double-cliquez pour toutes les déposer, Échap pour les remettre.",
   },
   bookmarks: {
     title: "Signets",

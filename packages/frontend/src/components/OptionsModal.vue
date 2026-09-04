@@ -51,6 +51,7 @@ const TIP_KEYS = [
   "tips.overview",
   "tips.reference",
   "tips.bookmarks",
+  "tips.multiCarry",
 ] as const;
 const tipIndex = ref(0);
 const tip = computed(() => t(TIP_KEYS[tipIndex.value] ?? TIP_KEYS[0]));

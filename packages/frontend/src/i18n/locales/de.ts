@@ -136,6 +136,8 @@ const de: MessageSchema = {
       "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört, und bring das Board dann mit Strg-Klick dorthin.",
     bookmarks:
       "Nutze Lesezeichen, um dir die Stellen im Puzzle zu merken, die dir wichtig sind: Der Lesezeichen-Knopf in der oberen Leiste öffnet dein Notizbuch, und ein Klick bringt dich direkt dorthin zurück.",
+    multiCarry:
+      "Mit einem Teil in der Hand kannst du weitere Teile mit Strg-Klick aufnehmen, bis zu 10 auf einmal, und sie dann per Doppelklick aufs Board alle nebeneinander ablegen.",
   },
   updates: {
     title: "Versionshinweise",
@@ -298,9 +300,10 @@ const de: MessageSchema = {
   toast: {
     tileFull: "Zu viele Teile auf diesem Feld.",
     snapCovered: "Dieses Teil ist verdeckt: Räume zuerst die Teile darüber weg.",
+    carryFull: "Du kannst nicht mehr als {n} Teile auf einmal halten.",
   },
   carry: {
-    hint: "Teil in der Hand. Doppelklicke oder tippe zweimal zum Ablegen, Esc zum Zurücklegen.",
+    hint: "Teil in der Hand. Doppelklicke oder tippe zweimal zum Ablegen, Esc zum Zurücklegen. | {n} von {max} Teilen in der Hand. Doppelklicke, um alle abzulegen, Esc zum Zurücklegen.",
   },
   bookmarks: {
     title: "Lesezeichen",

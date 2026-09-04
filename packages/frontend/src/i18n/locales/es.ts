@@ -136,6 +136,8 @@ const es: MessageSchema = {
       "Abre la imagen de referencia y amplíala para encontrar dónde va una pieza, luego haz Ctrl-clic en ella para llevar el tablero ahí.",
     bookmarks:
       "Usa los marcadores para guardar los lugares del puzle que te importan: el botón de marcadores de la barra superior abre tu cuaderno, y un clic te lleva de vuelta allí.",
+    multiCarry:
+      "Con una pieza en mano, haz Ctrl-clic en otras piezas para llevar hasta 10 a la vez y luego doble clic en el tablero para dejarlas todas una al lado de otra.",
   },
   updates: {
     title: "Notas de actualización",
@@ -296,9 +298,10 @@ const es: MessageSchema = {
   toast: {
     tileFull: "Demasiadas piezas en esta casilla.",
     snapCovered: "Esa pieza está enterrada: aparta primero las que tiene encima.",
+    carryFull: "No puedes llevar más de {n} piezas a la vez.",
   },
   carry: {
-    hint: "Pieza en mano. Haz doble clic o doble toque para soltarla, Esc para devolverla.",
+    hint: "Pieza en mano. Haz doble clic o doble toque para soltarla, Esc para devolverla. | {n} piezas en mano de {max}. Haz doble clic para soltarlas todas, Esc para devolverlas.",
   },
   bookmarks: {
     title: "Marcadores",

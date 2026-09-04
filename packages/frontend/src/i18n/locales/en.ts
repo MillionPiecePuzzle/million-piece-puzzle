@@ -133,6 +133,8 @@ const en = {
       "Open the reference image and zoom in to find where a piece belongs, then Ctrl-click it to bring the board there.",
     bookmarks:
       "Use bookmarks to keep the places on the puzzle that matter to you: the bookmark button in the top bar opens your notebook, and one click takes you back there.",
+    multiCarry:
+      "With a piece in hand, Ctrl-click other pieces to carry up to 10 at once, then double-click the board to lay them all down side by side.",
   },
   updates: {
     title: "Update notes",
@@ -288,9 +290,10 @@ const en = {
   toast: {
     tileFull: "Too many pieces on this tile.",
     snapCovered: "That piece is buried: move the pieces sitting on it first.",
+    carryFull: "You cannot hold more than {n} pieces at once.",
   },
   carry: {
-    hint: "Holding a piece. Double-click or double-tap to drop it, Esc to put it back.",
+    hint: "Holding a piece. Double-click or double-tap to drop it, Esc to put it back. | Holding {n} pieces of {max}. Double-click to put them all down, Esc to put them back.",
   },
   bookmarks: {
     title: "Bookmarks",
