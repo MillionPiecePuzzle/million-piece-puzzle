@@ -3,16 +3,14 @@
 export const RELEASES = [
   {
     version: "1.4.0",
-    at: Date.UTC(2026, 8, 4),
+    at: Date.UTC(2026, 8, 5),
     lines: [
       "updates.v140.bookmarks",
       "updates.v140.share",
       "updates.v140.multiCarry",
       "updates.v140.coordinates",
-      "updates.v140.contributors",
       "updates.v140.performance",
       "updates.v140.support",
-      "updates.v140.fixes",
     ],
   },
   {

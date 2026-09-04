@@ -148,16 +148,11 @@ const es: MessageSchema = {
         "Envía un marcador a alguien: el enlace abre el tablero exactamente en ese punto y le ofrece el mismo marcador para guardarlo.",
       multiCarry:
         "Con una pieza en mano, haz Ctrl-clic en otras piezas para llevar hasta 10 a la vez y luego doble clic en el tablero para dejarlas todas una al lado de otra.",
-      coordinates:
-        "El panel de vista general muestra ahora tu posición en el tablero, en piezas desde su centro.",
-      contributors:
-        "El panel de colaboradores muestra ahora a los dos jugadores que te rodean, el que está justo por encima y el que está justo por debajo, junto a tu propia fila.",
+      coordinates: "Se ha añadido un sistema de coordenadas.",
       performance:
-        "Llegar a una zona cargada del tablero carga primero lo que tienes delante, desde el centro de la pantalla hacia los bordes. Y un dispositivo que no consigue dibujar el tablero con la suficiente rapidez lo dice, con algunas cosas que probar.",
+        "Llegar a una zona cargada del tablero carga primero lo que tienes delante, desde el centro de la pantalla hacia los bordes.",
       support:
-        "El menú de ajustes incluye un enlace para apoyar el proyecto, para quien quiera ayudar a pagar lo que cuesta mantener el tablero.",
-      fixes:
-        "Correcciones de errores: el hilo de actividad se dirige a ti en tu propio idioma, y el contador de piezas de la página de inicio ya no retrocede, mientras su lista de actividad llena la tarjeta en la que está.",
+        "El menú de ajustes incluye un enlace para apoyar el proyecto: ayuda a pagar el servidor, el almacenamiento y el nombre de dominio.",
     },
     v130: {
       jump: "La vista ampliada de la vista general y la foto de referencia ampliada ahora mueven el tablero: haz clic en el mapa para ir allí, y en la foto usa el botón de mira, o Ctrl-clic, para llevar el tablero a lo que estás mirando.",

@@ -148,16 +148,11 @@ const de: MessageSchema = {
         "Schick jemandem ein Lesezeichen: Der Link öffnet das Board genau an dieser Stelle und bietet das gleiche Lesezeichen zum Behalten an.",
       multiCarry:
         "Mit einem Teil in der Hand kannst du weitere Teile mit Strg-Klick aufnehmen, bis zu 10 auf einmal, und sie dann per Doppelklick aufs Board alle nebeneinander ablegen.",
-      coordinates:
-        "Das Übersichts-Panel zeigt jetzt deine Position auf dem Board an, in Teilen ab seiner Mitte.",
-      contributors:
-        "Das Panel der Mitwirkenden zeigt jetzt die beiden Spieler um dich herum, den direkt über dir und den direkt unter dir, neben deiner eigenen Zeile.",
+      coordinates: "Ein Koordinatensystem wurde hinzugefügt.",
       performance:
-        "Wer auf einem dicht belegten Teil des Boards ankommt, sieht zuerst das, was direkt vor ihm liegt, von der Bildschirmmitte nach außen. Und ein Gerät, das das Board nicht schnell genug zeichnen kann, sagt das jetzt, mit ein paar Dingen zum Ausprobieren.",
+        "Wer auf einem dicht belegten Teil des Boards ankommt, sieht zuerst das, was direkt vor ihm liegt, von der Bildschirmmitte nach außen.",
       support:
-        "Das Einstellungsmenü hat einen Link, um das Projekt zu unterstützen, für alle, die bei den Kosten des Boards mithelfen wollen.",
-      fixes:
-        "Fehlerbehebungen: Der Aktivitätsverlauf spricht dich in deiner eigenen Sprache an, und der Teile-Zähler auf der Startseite geht nie mehr zurück, während die Aktivitätsliste die Karte füllt, in der sie steht.",
+        "Das Einstellungsmenü hat einen Link, um das Projekt zu unterstützen: Das hilft, Server, Speicher und Domainnamen zu bezahlen.",
     },
     v130: {
       jump: "Die vergrößerte Übersicht und das vergrößerte Referenzfoto bewegen jetzt das Board: Klick auf die Karte, um dorthin zu springen, und auf dem Foto bringt der Fadenkreuz-Knopf, oder Strg-Klick, das Board zu dem, was du gerade ansiehst.",
