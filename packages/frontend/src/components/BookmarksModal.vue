@@ -8,8 +8,18 @@ import {
   BOOKMARK_NAME_MAX,
   BOOKMARK_PAGE_SIZE,
   MAX_BOOKMARKS,
+  MAX_TAGS_PER_BOOKMARK,
+  TAG_NAME_MAX,
+  VIEW_ALL,
+  VIEW_UNTAGGED,
+  bookmarksInView,
   filterBookmarks,
+  hasTag,
   normalizeBookmarkName,
+  normalizeTagName,
+  sameTag,
+  tagView,
+  viewTag,
   type Bookmark,
   type BookmarkBadge,
   type NewBookmark,
@@ -29,7 +39,6 @@ import { useBookmarks } from "../composables/useBookmarks";
 import { useBookmarksModal } from "../composables/useBookmarksModal";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
-import { useRelativeTime } from "../composables/useRelativeTime";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
 import { useLocaleFormat } from "../i18n/format";
@@ -38,20 +47,31 @@ const { t } = useI18n();
 const { open, hide, anchorInset, takeDraft } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
-const { bookmarks, badgePieces, badgeKind, canAdd, setPuzzle, add, remove, toggleFavorite } =
-  useBookmarks();
-const { relativeTime } = useRelativeTime();
+const {
+  bookmarks,
+  tags,
+  badgePieces,
+  badgeKind,
+  canAdd,
+  setPuzzle,
+  add,
+  remove,
+  toggleFavorite,
+  tag,
+  untag,
+} = useBookmarks();
 const { formatNumber } = useLocaleFormat();
 
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => backOrClose() });
 const { onMousedown, onClick } = useBackdropClick(() => hide());
 
-// Escape leaves the draft or the paste field first and the notebook second: what
-// is on screen is what it closes.
+// Escape leaves whatever the panel is showing over its list first and the
+// notebook second: what is on screen is what it closes.
 function backOrClose(): void {
   if (creating.value) cancelCreate();
   else if (importing.value) cancelImport();
+  else if (tagging.value !== null) closeTagging();
   else hide();
 }
 
@@ -75,8 +95,10 @@ watch(open, (isOpen) => {
   if (isOpen) {
     query.value = "";
     page.value = 0;
+    view.value = VIEW_ALL;
     importing.value = false;
     importUrl.value = "";
+    closeTagging();
     void loadDziInfo();
     // The trap first: it takes the panel's first control on the next tick, and a
     // handed draft wants the caret in its name field instead, which it gets by
@@ -118,7 +140,45 @@ watch(
 
 const query = ref("");
 const page = ref(0);
-const filtered = computed(() => filterBookmarks(bookmarks.value, query.value));
+// Which tag the list is reading, or one of the two views that are not a tag.
+// Reset on every open like the filter and the page: an open is a fresh read of
+// the notebook.
+const view = ref<string>(VIEW_ALL);
+// The selector narrows the notebook and the name filter narrows what is left: a
+// tag is a word the player put on a bookmark, a name is what they called it, and
+// reading for a name inside one tag is what both are for.
+const filtered = computed(() =>
+  filterBookmarks(bookmarksInView(bookmarks.value, view.value), query.value),
+);
+
+// One walk of the notebook for every option the selector shows. A count is what
+// makes a tag worth opening, and filtering once per tag to get them would be one
+// walk each.
+const tagCounts = computed(() => {
+  const worn = new Map<string, number>();
+  let untagged = 0;
+  for (const bookmark of bookmarks.value) {
+    if (bookmark.tags.length === 0) untagged += 1;
+    for (const name of bookmark.tags) {
+      const key = name.toLocaleLowerCase();
+      worn.set(key, (worn.get(key) ?? 0) + 1);
+    }
+  }
+  return { worn, untagged };
+});
+
+function countIn(name: string): number {
+  return tagCounts.value.worn.get(name.toLocaleLowerCase()) ?? 0;
+}
+
+// The tag the list is reading, gone as soon as the last bookmark wearing it
+// drops it: a view of a word nobody uses any more would be an empty list under a
+// selector offering it, so the notebook falls back to everything.
+watch([tags, view], () => {
+  const reading = viewTag(view.value);
+  if (reading !== null && !tags.value.some((t) => sameTag(t, reading))) view.value = VIEW_ALL;
+});
+
 const pageCount = computed(() =>
   Math.max(1, Math.ceil(filtered.value.length / BOOKMARK_PAGE_SIZE)),
 );
@@ -132,13 +192,19 @@ const pageRows = computed(() =>
 watch([query, pageCount], () => {
   page.value = Math.min(page.value, pageCount.value - 1);
 });
-watch(query, () => {
+watch([query, view], () => {
   page.value = 0;
 });
 
 // The box the row draws a badge in, in CSS pixels, which is what picks the
 // pyramid level it is cut from. Kept with `.badge`'s own size in the stylesheet.
 const BADGE_ROW_SIZE = 40;
+
+// How many tags a row shows before counting the rest. A row is one line and a
+// tag runs to 24 characters, so five of them cannot be read there at any panel
+// width: two are shown, the rest are a number, and the whole list is the row's
+// own title.
+const ROW_TAGS_SHOWN = 2;
 
 function positionOf(bookmark: Bookmark): string {
   const m = manifest.value;
@@ -253,6 +319,20 @@ const nameEl = ref<HTMLInputElement | null>(null);
 const importing = ref(false);
 const importUrl = ref("");
 const importEl = ref<HTMLInputElement | null>(null);
+// The bookmark whose tags are being written, a view of the panel rather than a
+// menu hung off its row: a list of tags is the same shape as the two the panel
+// already shows over its own, so it costs no positioning, it scrolls when there
+// are many, and the focus trap already holds it.
+const tagging = ref<string | null>(null);
+// One field for both jobs, which is what keeps a notebook of a hundred tags
+// usable: it reads down to the ones that match, and creates what it holds when
+// nothing does.
+const tagDraft = ref("");
+const tagDraftEl = ref<HTMLInputElement | null>(null);
+// The tags the entry being written carries, inherited from the list being read:
+// marking a second bookmark under the tag you are already working from costs
+// nothing.
+const draftTags = ref<string[]>([]);
 const dziInfo = ref<DziInfo | null>(null);
 let dziInfoPuzzleId: string | null = null;
 
@@ -273,6 +353,13 @@ async function loadDziInfo(): Promise<void> {
   }
 }
 
+// The tag a new entry inherits, which is the one the list is reading and nothing
+// at all in the two views that are not a tag.
+function viewTags(): string[] {
+  const reading = viewTag(view.value);
+  return reading === null ? [] : [reading];
+}
+
 function startCreate(): void {
   if (!canAdd.value || !controls.value) return;
   creating.value = true;
@@ -280,6 +367,7 @@ function startCreate(): void {
   draftName.value = "";
   draftBadge.value = null;
   draftSpot.value = null;
+  draftTags.value = viewTags();
   error.value = null;
   void aimAtSpot();
 }
@@ -330,6 +418,11 @@ function startShared(entry: NewBookmark): void {
   draftName.value = entry.name;
   draftBadge.value = entry.badge;
   draftSpot.value = { worldX: entry.worldX, worldY: entry.worldY };
+  // No tag travels in a link: what a bookmark is filed under is the recipient's
+  // own reading of their notebook, not the sender's, and a URL that wrote words
+  // into someone else's would be a strange gift. It lands where they are
+  // reading.
+  draftTags.value = viewTags();
   error.value = null;
   void nextTick(() => nameEl.value?.select());
 }
@@ -418,13 +511,120 @@ function save(): void {
     error.value = t("bookmarks.needBadge");
     return;
   }
-  add({ name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value });
+  add({ name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value }, draftTags.value);
   creating.value = false;
-  // The new entry is the first row of the unfiltered list, so the player lands
-  // on it rather than on whatever page and filter they were reading before.
+  // The list is left showing the entry just written, wherever its name sorts:
+  // the filter and the page go, and the view stays on the tag it inherited.
   query.value = "";
   page.value = 0;
+  const inherited = draftTags.value[0];
+  view.value = inherited === undefined ? VIEW_ALL : tagView(inherited);
 }
+
+const taggedBookmark = computed(() => bookmarks.value.find((b) => b.id === tagging.value) ?? null);
+
+// What the picker lists: every tag the notebook holds, read down to the ones
+// the field matches. The ones this bookmark already wears come first, so what
+// it carries is read before what it could.
+const tagChoices = computed(() => {
+  const bookmark = taggedBookmark.value;
+  const needle = tagDraft.value.trim().toLocaleLowerCase();
+  const matching =
+    needle === ""
+      ? tags.value
+      : tags.value.filter((name) => name.toLocaleLowerCase().includes(needle));
+  if (bookmark === null) return matching;
+  return [
+    ...matching.filter((name) => hasTag(bookmark, name)),
+    ...matching.filter((name) => !hasTag(bookmark, name)),
+  ];
+});
+
+// A word the notebook does not hold yet, which is what the field offers to
+// create: a tag is made by putting it on a bookmark and never before.
+const tagDraftIsNew = computed(() => {
+  const name = normalizeTagName(tagDraft.value);
+  return name !== null && !tags.value.some((t) => sameTag(t, name));
+});
+
+const taggedIsFull = computed(
+  () => (taggedBookmark.value?.tags.length ?? 0) >= MAX_TAGS_PER_BOOKMARK,
+);
+
+function startTagging(bookmark: Bookmark): void {
+  hidePeek();
+  tagging.value = bookmark.id;
+  tagDraft.value = "";
+  error.value = null;
+  void nextTick(() => tagDraftEl.value?.focus());
+}
+
+function closeTagging(): void {
+  tagging.value = null;
+  tagDraft.value = "";
+  error.value = null;
+}
+
+// One click is the whole change, on or off, since taking a word back is the same
+// click again: a Save button would only stand between the two.
+function toggleTag(name: string): void {
+  const bookmark = taggedBookmark.value;
+  if (bookmark === null) return;
+  if (hasTag(bookmark, name)) {
+    untag(bookmark.id, name);
+    error.value = null;
+    return;
+  }
+  if (taggedIsFull.value) {
+    error.value = t("bookmarks.tagsFull", { max: MAX_TAGS_PER_BOOKMARK });
+    return;
+  }
+  tag(bookmark.id, name);
+  error.value = null;
+}
+
+// The field's other job: what it holds becomes a tag on this bookmark, which is
+// the only way a tag comes into being.
+function createTag(): void {
+  const bookmark = taggedBookmark.value;
+  if (bookmark === null) return;
+  const name = normalizeTagName(tagDraft.value);
+  if (name === null) {
+    error.value = t("bookmarks.tagNeedName");
+    return;
+  }
+  if (hasTag(bookmark, name)) {
+    error.value = t("bookmarks.tagWorn");
+    return;
+  }
+  if (taggedIsFull.value) {
+    error.value = t("bookmarks.tagsFull", { max: MAX_TAGS_PER_BOOKMARK });
+    return;
+  }
+  tag(bookmark.id, name);
+  tagDraft.value = "";
+  error.value = null;
+}
+
+// Enter takes what is in the field: the tag it names when the notebook already
+// holds it, and a new one when it does not.
+function submitTagDraft(): void {
+  const name = normalizeTagName(tagDraft.value);
+  if (name === null) return;
+  const known = tags.value.find((t) => sameTag(t, name));
+  if (known === undefined) createTag();
+  else {
+    toggleTag(known);
+    tagDraft.value = "";
+  }
+}
+
+const title = computed(() => {
+  if (creating.value) return shared.value ? t("bookmarks.sharedTitle") : t("bookmarks.newTitle");
+  if (importing.value) return t("bookmarks.importTitle");
+  if (tagging.value !== null) return t("bookmarks.tagsTitle");
+  return t("bookmarks.title");
+});
 </script>
 
 <template>
@@ -446,17 +646,7 @@ function save(): void {
         @scroll="hidePeek"
       >
         <header class="modal-header">
-          <h2 id="bookmarks-title" class="modal-title">
-            {{
-              creating
-                ? shared
-                  ? t("bookmarks.sharedTitle")
-                  : t("bookmarks.newTitle")
-                : importing
-                  ? t("bookmarks.importTitle")
-                  : t("bookmarks.title")
-            }}
-          </h2>
+          <h2 id="bookmarks-title" class="modal-title">{{ title }}</h2>
           <button class="modal-close" :aria-label="t('common.close')" @click="hide">×</button>
         </header>
 
@@ -478,20 +668,20 @@ function save(): void {
               <button
                 type="button"
                 class="kind-option"
-                :class="{ on: badgeKind === 'area' }"
-                :aria-pressed="badgeKind === 'area'"
-                @click="badgeKind = 'area'"
-              >
-                {{ t("bookmarks.badgeKindArea") }}
-              </button>
-              <button
-                type="button"
-                class="kind-option"
                 :class="{ on: badgeKind === 'piece' }"
                 :aria-pressed="badgeKind === 'piece'"
                 @click="badgeKind = 'piece'"
               >
                 {{ t("bookmarks.badgeKindPiece") }}
+              </button>
+              <button
+                type="button"
+                class="kind-option"
+                :class="{ on: badgeKind === 'area' }"
+                :aria-pressed="badgeKind === 'area'"
+                @click="badgeKind = 'area'"
+              >
+                {{ t("bookmarks.badgeKindArea") }}
               </button>
             </span>
           </div>
@@ -535,6 +725,10 @@ function save(): void {
               @keyup.enter="save"
             />
           </div>
+          <div v-if="!aiming && draftTags.length > 0" class="draft-tags">
+            <span class="tag-label">{{ t("bookmarks.tags") }}</span>
+            <span v-for="name in draftTags" :key="name" class="chip">{{ name }}</span>
+          </div>
           <p v-if="error" class="error" role="alert">{{ error }}</p>
           <div class="draft-actions">
             <button type="button" class="ghost" @click="cancelCreate">
@@ -570,6 +764,73 @@ function save(): void {
           </div>
         </template>
 
+        <template v-else-if="tagging !== null">
+          <p class="modal-lede">
+            {{ t("bookmarks.tagsLede", { name: taggedBookmark?.name ?? "" }) }}
+          </p>
+          <div class="tag-field">
+            <input
+              ref="tagDraftEl"
+              v-model="tagDraft"
+              class="field"
+              type="text"
+              :maxlength="TAG_NAME_MAX"
+              :placeholder="t('bookmarks.tagPlaceholder')"
+              :aria-label="t('bookmarks.tagNew')"
+              autocomplete="off"
+              @keyup.enter="submitTagDraft"
+            />
+            <button
+              type="button"
+              class="ghost"
+              :disabled="!tagDraftIsNew || taggedIsFull"
+              @click="createTag"
+            >
+              {{ t("bookmarks.tagCreate") }}
+            </button>
+          </div>
+          <p v-if="error" class="error" role="alert">{{ error }}</p>
+          <p v-if="tagChoices.length === 0" class="empty">
+            {{ tags.length === 0 ? t("bookmarks.tagsNone") : t("bookmarks.tagNoMatch") }}
+          </p>
+          <ul v-else class="tag-rows">
+            <li v-for="name in tagChoices" :key="name" class="tag-row">
+              <button
+                type="button"
+                class="tag-pick"
+                :class="{ on: taggedBookmark !== null && hasTag(taggedBookmark, name) }"
+                :aria-pressed="taggedBookmark !== null && hasTag(taggedBookmark, name)"
+                :disabled="taggedIsFull && taggedBookmark !== null && !hasTag(taggedBookmark, name)"
+                @click="toggleTag(name)"
+              >
+                <span class="tag-mark" aria-hidden="true">
+                  <svg
+                    v-if="taggedBookmark !== null && hasTag(taggedBookmark, name)"
+                    class="ic"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                  >
+                    <path
+                      d="M3.5 8.4 6.4 11.3 12.5 5"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span class="tag-name">{{ name }}</span>
+                <span class="tag-count">{{ formatNumber(countIn(name)) }}</span>
+              </button>
+            </li>
+          </ul>
+          <div class="draft-actions">
+            <button type="button" class="ghost" @click="closeTagging">
+              {{ t("bookmarks.backToList") }}
+            </button>
+          </div>
+        </template>
+
         <template v-else>
           <div class="top-actions">
             <button
@@ -594,6 +855,22 @@ function save(): void {
           </p>
 
           <div class="tools">
+            <select
+              v-if="tags.length > 0"
+              v-model="view"
+              class="tag-select"
+              :aria-label="t('bookmarks.tag')"
+            >
+              <option :value="VIEW_ALL">
+                {{ t("bookmarks.tagAll") }} ({{ formatNumber(bookmarks.length) }})
+              </option>
+              <option :value="VIEW_UNTAGGED">
+                {{ t("bookmarks.tagUntagged") }} ({{ formatNumber(tagCounts.untagged) }})
+              </option>
+              <option v-for="name in tags" :key="name" :value="tagView(name)">
+                {{ name }} ({{ formatNumber(countIn(name)) }})
+              </option>
+            </select>
             <input
               v-model="query"
               class="field"
@@ -612,7 +889,9 @@ function save(): void {
           </div>
 
           <p v-if="bookmarks.length === 0" class="empty">{{ t("bookmarks.empty") }}</p>
-          <p v-else-if="filtered.length === 0" class="empty">{{ t("bookmarks.noMatch") }}</p>
+          <p v-else-if="filtered.length === 0" class="empty">
+            {{ query.trim() === "" ? t("bookmarks.viewEmpty") : t("bookmarks.noMatch") }}
+          </p>
           <ul v-else class="rows">
             <li v-for="bookmark in pageRows" :key="bookmark.id" class="row">
               <button
@@ -638,9 +917,26 @@ function save(): void {
                 </span>
                 <span class="text">
                   <span class="name">{{ bookmark.name }}</span>
-                  <span class="meta">{{ positionOf(bookmark) }}</span>
+                  <span class="meta">
+                    <span class="position">{{ positionOf(bookmark) }}</span>
+                    <span
+                      v-if="bookmark.tags.length > 0"
+                      class="chips"
+                      :title="bookmark.tags.join(', ')"
+                    >
+                      <span
+                        v-for="name in bookmark.tags.slice(0, ROW_TAGS_SHOWN)"
+                        :key="name"
+                        class="chip"
+                      >
+                        {{ name }}
+                      </span>
+                      <span v-if="bookmark.tags.length > ROW_TAGS_SHOWN" class="chip more">
+                        +{{ bookmark.tags.length - ROW_TAGS_SHOWN }}
+                      </span>
+                    </span>
+                  </span>
                 </span>
-                <span class="age">{{ relativeTime(bookmark.createdAt) }}</span>
               </button>
               <button
                 type="button"
@@ -651,6 +947,9 @@ function save(): void {
                   bookmark.favorite
                     ? t('bookmarks.unfavorite', { name: bookmark.name })
                     : t('bookmarks.favorite', { name: bookmark.name })
+                "
+                :title="
+                  bookmark.favorite ? t('bookmarks.hintUnfavorite') : t('bookmarks.hintFavorite')
                 "
                 @click="toggleFavorite(bookmark.id)"
               >
@@ -670,12 +969,33 @@ function save(): void {
               <button
                 type="button"
                 class="icon"
+                :class="{ tagged: bookmark.tags.length > 0 }"
+                :aria-label="t('bookmarks.tagsOf', { name: bookmark.name })"
+                :title="t('bookmarks.hintTags')"
+                @click="startTagging(bookmark)"
+              >
+                <svg class="ic" viewBox="0 0 16 16" fill="none">
+                  <circle cx="5.4" cy="5.4" r="1" fill="currentColor" />
+                  <path
+                    d="M7.6 2.2H3.2a1 1 0 0 0-1 1v4.4c0 .3.1.5.3.7l5.4 5.4c.4.4 1 .4 1.4 0l4-4c.4-.4.4-1 0-1.4L8.3 2.5a1 1 0 0 0-.7-.3Z"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="icon"
                 :class="{ done: copiedId === bookmark.id }"
                 :disabled="!manifest"
                 :aria-label="
                   copiedId === bookmark.id
                     ? t('bookmarks.copied')
                     : t('bookmarks.copyLink', { name: bookmark.name })
+                "
+                :title="
+                  copiedId === bookmark.id ? t('bookmarks.copied') : t('bookmarks.hintCopyLink')
                 "
                 @click="copyLink(bookmark)"
               >
@@ -707,6 +1027,7 @@ function save(): void {
                 type="button"
                 class="icon delete"
                 :aria-label="t('bookmarks.delete', { name: bookmark.name })"
+                :title="t('bookmarks.hintDelete')"
                 @click="remove(bookmark.id)"
               >
                 ×
@@ -920,18 +1241,16 @@ function save(): void {
   color: var(--ink);
 }
 .meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-4);
 }
-.age {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-4);
-}
-/* The two per-row actions, sharing one shape so neither reads as the main one:
-   the row itself is what the player clicks. */
+/* The per-row actions, sharing one shape so none reads as the main one: the row
+   itself is what the player clicks. */
 .icon {
   flex: none;
   display: grid;
@@ -1121,5 +1440,148 @@ function save(): void {
 .ghost:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+/* The tag the list is reading, beside the filter it composes with: the selector
+   says which word a bookmark was put under and the filter says what it was
+   called. A native control, since nothing bounds the list at the three a row of
+   chips would hold. */
+.tag-select {
+  flex: none;
+  max-width: 45%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  background: var(--paper);
+  font-size: 13px;
+  color: var(--ink);
+}
+.tag-select:focus {
+  outline: none;
+  border-color: var(--ink-3);
+}
+/* What the entry being written already carries, under its name: inherited from
+   the list being read, so it is shown rather than sprung on the player when the
+   row appears. */
+.draft-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.tag-label {
+  flex: none;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+/* The draft has the whole panel's width for one or two words, where a row has
+   what its name leaves: nothing is cut here. */
+.draft-tags .chip {
+  max-width: none;
+}
+/* The row's own tags, after the coordinates: two of them at most and a count for
+   the rest, each held to a width that leaves the line readable however long the
+   words are. The whole list is the title, one hover away. */
+.chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.chip {
+  flex: 0 1 auto;
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--ground-2);
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.chip.more {
+  flex: none;
+  max-width: none;
+}
+.position {
+  flex: none;
+}
+.tag-rows {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+/* A tag goes on and comes off in one click, so the whole row is the control: the
+   tick says whether this bookmark wears it and the count says how many others
+   do. */
+.tag-pick {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--radius-row);
+  text-align: left;
+  transition: background 160ms ease;
+}
+.tag-pick:hover:not(:disabled) {
+  background: var(--ground-2);
+}
+/* At five tags the rest of the list is not a choice any more, so it stops
+   offering itself rather than answering with a refusal. */
+.tag-pick:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tag-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--ink);
+}
+.tag-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--ink);
+}
+.tag-pick.on .tag-name {
+  color: var(--ink);
+}
+.tag-count {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
+}
+/* One field for both jobs: it reads the list down to what it holds, and makes
+   that word a tag when the notebook does not have it yet. */
+.tag-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.tag-field .ghost {
+  flex: none;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+/* A tagged row says so standing still: which words is a hover away in the list,
+   and one click from changing here. */
+.icon.tagged {
+  color: var(--ink-3);
 }
 </style>

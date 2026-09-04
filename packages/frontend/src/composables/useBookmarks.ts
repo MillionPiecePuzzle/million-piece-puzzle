@@ -3,8 +3,11 @@ import {
   BADGE_PIECES_DEFAULT,
   MAX_BOOKMARKS,
   addBookmark,
+  addTag,
+  allTags,
   readBookmarks,
   removeBookmark,
+  removeTag,
   toggleBookmarkFavorite,
   writeBookmarks,
   type BadgeKind,
@@ -24,9 +27,9 @@ const puzzleId = ref<string | null>(null);
 const badgePieces = ref(BADGE_PIECES_DEFAULT);
 // Which badge the next aim takes, held for the page for the same reason: the
 // player who marks one pile by its pieces marks the next one the same way. The
-// square leads because it answers everywhere, where a piece needs one under the
-// click.
-const badgeKind = ref<BadgeKind>("area");
+// piece leads because it is the simpler aim, one click on a thing that is
+// already there against a square whose size is a second decision.
+const badgeKind = ref<BadgeKind>("piece");
 
 function commit(next: Bookmark[]): void {
   bookmarks.value = next;
@@ -40,8 +43,8 @@ export function useBookmarks() {
     bookmarks.value = next ? readBookmarks(next) : [];
   }
 
-  function add(entry: NewBookmark): void {
-    commit(addBookmark(bookmarks.value, entry));
+  function add(entry: NewBookmark, tags: readonly string[] = []): void {
+    commit(addBookmark(bookmarks.value, entry, tags));
   }
 
   function remove(id: string): void {
@@ -52,7 +55,31 @@ export function useBookmarks() {
     commit(toggleBookmarkFavorite(bookmarks.value, id));
   }
 
-  const canAdd = computed(() => bookmarks.value.length < MAX_BOOKMARKS);
+  function tag(id: string, name: string): void {
+    commit(addTag(bookmarks.value, id, name));
+  }
 
-  return { bookmarks, badgePieces, badgeKind, canAdd, setPuzzle, add, remove, toggleFavorite };
+  function untag(id: string, name: string): void {
+    commit(removeTag(bookmarks.value, id, name));
+  }
+
+  const canAdd = computed(() => bookmarks.value.length < MAX_BOOKMARKS);
+  // Every tag the notebook holds, which is every word its bookmarks wear: a tag
+  // is born on the first one to wear it and goes with the last one to drop it,
+  // so there is nothing to create and nothing to clean up.
+  const tags = computed(() => allTags(bookmarks.value));
+
+  return {
+    bookmarks,
+    tags,
+    badgePieces,
+    badgeKind,
+    canAdd,
+    setPuzzle,
+    add,
+    remove,
+    toggleFavorite,
+    tag,
+    untag,
+  };
 }

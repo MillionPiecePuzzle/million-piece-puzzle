@@ -50,6 +50,7 @@ const TIP_KEYS = [
   "tips.flagDrop",
   "tips.overview",
   "tips.reference",
+  "tips.bookmarks",
 ] as const;
 const tipIndex = ref(0);
 const tip = computed(() => t(TIP_KEYS[tipIndex.value] ?? TIP_KEYS[0]));
