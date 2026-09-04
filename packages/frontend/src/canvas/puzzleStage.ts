@@ -37,8 +37,8 @@ import {
   type Viewport,
 } from "./cull";
 import {
+  fanAxis,
   fanColumns,
-  fanDirection,
   fanSlot,
   type FanCell,
   type FanDirection,
@@ -2255,11 +2255,14 @@ export class PuzzleStage {
     return this.originForScreenAnchor(node, screenX, screenY, anchorX, anchorY);
   }
 
-  // Which way the fan grows out of the cursor. Up and to the right by default,
-  // which is where a single carried cluster has always floated, and away from
-  // whichever edge it would otherwise run off: a full hand is wider and taller
-  // than the space beside a cursor near a corner, and a player has to see what
-  // they are holding.
+  // Which way the fan grows out of the cursor: up and to the right, where a
+  // carried cluster floats, and it keeps that side over the whole board the player
+  // works on. Each axis is tested against the room behind the hand rather than the
+  // room ahead of it, and that is deliberate: the fan is sized in world units, so
+  // at the zoom pieces are actually placed at a hand covers a large part of the
+  // screen, and a test for the room ahead turns it over across most of the
+  // viewport. A hand that jumps sides while the player is working reads as broken
+  // where one that runs past an edge does not, so the side is what is held onto.
   private carryFanDirection(
     count: number,
     columns: number,
@@ -2272,14 +2275,12 @@ export class PuzzleStage {
     if (!screen) return { x: 1, y: 1 };
     const rows = Math.ceil(count / columns);
     const zoom = this.camera.zoom;
-    return fanDirection(
-      {
-        width: HELD_CARRY_GAP + (columns * (cell.width + gap) - gap) * zoom,
-        height: HELD_CARRY_GAP + (rows * (cell.height + gap) - gap) * zoom,
-      },
-      { x: screenX, y: screenY },
-      screen,
-    );
+    const width = HELD_CARRY_GAP + (columns * (cell.width + gap) - gap) * zoom;
+    const height = HELD_CARRY_GAP + (rows * (cell.height + gap) - gap) * zoom;
+    return {
+      x: fanAxis(screenX, screen.width - screenX, width),
+      y: fanAxis(screen.height - screenY, screenY, height),
+    };
   }
 
   // The cell every slot of the carried fan is sized by: the largest cluster the
