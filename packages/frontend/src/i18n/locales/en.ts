@@ -138,6 +138,24 @@ const en = {
   },
   updates: {
     title: "Update notes",
+    v140: {
+      bookmarks:
+        "Bookmarks: keep the spots on the board that matter to you in a notebook, opened from the button in the top bar. Aim at the board to take one, name it, file it under words of your own, star the ones you keep coming back to, and one click brings you back.",
+      share:
+        "Send a bookmark to someone: the link opens the board on that exact spot, and offers them the same bookmark to keep.",
+      multiCarry:
+        "With a piece in hand, Ctrl-click other pieces to carry up to 10 at once, then double-click the board to lay them all down side by side.",
+      coordinates:
+        "The overview panel now reads out your position on the board, in pieces from its center.",
+      contributors:
+        "The contributors panel now shows the two players around you, the one just above and the one just below, next to your own row.",
+      performance:
+        "Arriving on a busy part of the board now loads what is under your eyes first, from the center of the screen outward. And a device that cannot draw the board fast enough now says so, with a few things to try.",
+      support:
+        "The settings menu carries a link to support the project, for anyone who wants to help pay for what the board costs to run.",
+      fixes:
+        "Bug fixes: the activity feed speaks about you in your own language, and the home page's piece counter never goes backwards while its activity list fills the card it sits in.",
+    },
     v130: {
       jump: "The enlarged overview and the enlarged reference photo now move the board: click the map to go there, and on the photo use the crosshair button, or Ctrl-click, to bring the board to what you are looking at.",
       contributors:

@@ -141,6 +141,24 @@ const fr: MessageSchema = {
   },
   updates: {
     title: "Notes de mises à jour",
+    v140: {
+      bookmarks:
+        "Signets : gardez dans un carnet les endroits du plateau qui comptent pour vous, ouvert depuis le bouton de la barre du haut. Visez le plateau pour en créer un, nommez-le, classez-le sous vos propres mots, mettez une étoile à ceux où vous revenez sans cesse, et un clic vous y ramène.",
+      share:
+        "Envoyez un signet à quelqu'un : le lien ouvre le plateau exactement à cet endroit, et lui propose le même signet à garder.",
+      multiCarry:
+        "Avec une pièce en main, Ctrl-cliquez d'autres pièces pour en porter jusqu'à 10 d'un coup, puis double-cliquez sur le plateau pour toutes les poser côte à côte.",
+      coordinates:
+        "Le panneau d'aperçu affiche désormais votre position sur le plateau, en pièces depuis son centre.",
+      contributors:
+        "Le panneau des contributeurs montre maintenant les deux joueurs qui vous entourent, celui juste au-dessus et celui juste en dessous, à côté de votre propre ligne.",
+      performance:
+        "Arriver sur une zone chargée du plateau affiche d'abord ce que vous avez sous les yeux, depuis le centre de l'écran vers les bords. Et un appareil qui n'arrive pas à dessiner le plateau assez vite le dit, avec quelques pistes à essayer.",
+      support:
+        "Le menu des paramètres propose un lien pour soutenir le projet, pour qui veut aider à payer ce que le plateau coûte à faire tourner.",
+      fixes:
+        "Corrections de bugs : le fil d'activité vous parle dans votre langue, et le compteur de pièces de la page d'accueil ne revient jamais en arrière, tandis que sa liste d'activité remplit la carte où elle se trouve.",
+    },
     v130: {
       jump: "La vue agrandie de l'aperçu et la photo de référence agrandie déplacent maintenant le plateau : cliquez sur la carte pour vous y rendre, et sur la photo utilisez le bouton en forme de viseur, ou Ctrl-clic, pour amener le plateau sur ce que vous regardez.",
       contributors:

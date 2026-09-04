@@ -141,6 +141,24 @@ const de: MessageSchema = {
   },
   updates: {
     title: "Versionshinweise",
+    v140: {
+      bookmarks:
+        "Lesezeichen: Merk dir die Stellen auf dem Board, die dir wichtig sind, in einem Notizbuch, das der Knopf in der oberen Leiste öffnet. Ziel auf das Board, um eines anzulegen, benenne es, sortiere es unter deine eigenen Wörter, gib den Stellen einen Stern, zu denen du immer wieder zurückkehrst, und ein Klick bringt dich dorthin.",
+      share:
+        "Schick jemandem ein Lesezeichen: Der Link öffnet das Board genau an dieser Stelle und bietet das gleiche Lesezeichen zum Behalten an.",
+      multiCarry:
+        "Mit einem Teil in der Hand kannst du weitere Teile mit Strg-Klick aufnehmen, bis zu 10 auf einmal, und sie dann per Doppelklick aufs Board alle nebeneinander ablegen.",
+      coordinates:
+        "Das Übersichts-Panel zeigt jetzt deine Position auf dem Board an, in Teilen ab seiner Mitte.",
+      contributors:
+        "Das Panel der Mitwirkenden zeigt jetzt die beiden Spieler um dich herum, den direkt über dir und den direkt unter dir, neben deiner eigenen Zeile.",
+      performance:
+        "Wer auf einem dicht belegten Teil des Boards ankommt, sieht zuerst das, was direkt vor ihm liegt, von der Bildschirmmitte nach außen. Und ein Gerät, das das Board nicht schnell genug zeichnen kann, sagt das jetzt, mit ein paar Dingen zum Ausprobieren.",
+      support:
+        "Das Einstellungsmenü hat einen Link, um das Projekt zu unterstützen, für alle, die bei den Kosten des Boards mithelfen wollen.",
+      fixes:
+        "Fehlerbehebungen: Der Aktivitätsverlauf spricht dich in deiner eigenen Sprache an, und der Teile-Zähler auf der Startseite geht nie mehr zurück, während die Aktivitätsliste die Karte füllt, in der sie steht.",
+    },
     v130: {
       jump: "Die vergrößerte Übersicht und das vergrößerte Referenzfoto bewegen jetzt das Board: Klick auf die Karte, um dorthin zu springen, und auf dem Foto bringt der Fadenkreuz-Knopf, oder Strg-Klick, das Board zu dem, was du gerade ansiehst.",
       contributors:

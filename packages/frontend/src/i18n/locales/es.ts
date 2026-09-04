@@ -141,6 +141,24 @@ const es: MessageSchema = {
   },
   updates: {
     title: "Notas de actualización",
+    v140: {
+      bookmarks:
+        "Marcadores: guarda en un cuaderno los lugares del tablero que te importan, que se abre desde el botón de la barra superior. Apunta al tablero para crear uno, ponle nombre, archívalo bajo tus propias palabras, marca con una estrella aquellos a los que vuelves siempre, y un clic te lleva de vuelta.",
+      share:
+        "Envía un marcador a alguien: el enlace abre el tablero exactamente en ese punto y le ofrece el mismo marcador para guardarlo.",
+      multiCarry:
+        "Con una pieza en mano, haz Ctrl-clic en otras piezas para llevar hasta 10 a la vez y luego doble clic en el tablero para dejarlas todas una al lado de otra.",
+      coordinates:
+        "El panel de vista general muestra ahora tu posición en el tablero, en piezas desde su centro.",
+      contributors:
+        "El panel de colaboradores muestra ahora a los dos jugadores que te rodean, el que está justo por encima y el que está justo por debajo, junto a tu propia fila.",
+      performance:
+        "Llegar a una zona cargada del tablero carga primero lo que tienes delante, desde el centro de la pantalla hacia los bordes. Y un dispositivo que no consigue dibujar el tablero con la suficiente rapidez lo dice, con algunas cosas que probar.",
+      support:
+        "El menú de ajustes incluye un enlace para apoyar el proyecto, para quien quiera ayudar a pagar lo que cuesta mantener el tablero.",
+      fixes:
+        "Correcciones de errores: el hilo de actividad se dirige a ti en tu propio idioma, y el contador de piezas de la página de inicio ya no retrocede, mientras su lista de actividad llena la tarjeta en la que está.",
+    },
     v130: {
       jump: "La vista ampliada de la vista general y la foto de referencia ampliada ahora mueven el tablero: haz clic en el mapa para ir allí, y en la foto usa el botón de mira, o Ctrl-clic, para llevar el tablero a lo que estás mirando.",
       contributors:
