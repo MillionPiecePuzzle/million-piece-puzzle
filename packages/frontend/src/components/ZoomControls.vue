@@ -90,14 +90,15 @@ const { controls, zoomPercent } = useStageControls();
   font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-3);
-  padding: 6px 0;
+  padding: 6px 8px;
   text-align: center;
+  white-space: nowrap;
   border-bottom: 1px solid var(--line-2);
   border-radius: 12px 12px 0 0;
 }
 .zoom button {
   position: relative;
-  width: 36px;
+  min-width: 36px;
   height: 36px;
   display: grid;
   place-items: center;
@@ -115,7 +116,7 @@ const { controls, zoomPercent } = useStageControls();
   color: var(--ink-4);
   cursor: default;
 }
-.zoom button::after {
+.zoom [data-tip]::after {
   content: attr(data-tip);
   position: absolute;
   left: calc(100% + 8px);
@@ -132,7 +133,7 @@ const { controls, zoomPercent } = useStageControls();
   pointer-events: none;
   transition: opacity 120ms ease;
 }
-.zoom button:hover:not(:disabled)::after {
+.zoom [data-tip]:hover:not(:disabled)::after {
   opacity: 1;
 }
 .ic {

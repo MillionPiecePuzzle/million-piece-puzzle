@@ -14,16 +14,22 @@ const { user } = useAuth();
 const showModal = ref(false);
 const showScoring = ref(false);
 
-// Compact panel: the leaders, plus the local user and their neighbour when the
-// local user ranks outside the visible leaders. Outside the standings list
-// entirely (nothing to slice), their own row comes from the personal standing
-// the server sends them instead, so a contributor ranked 4000th still watches
-// their own count move.
+// Compact panel: the leaders, plus the local user between both their
+// neighbours when the local user ranks outside the visible leaders, so the gap
+// on screen is the one they can close and the one behind them. Ranked just past
+// the leaders the row above is already on screen, and the slice clamps rather
+// than repeating it; last of the list, it ends one row short the same way.
+// Outside the standings list entirely (nothing to slice), their own row comes
+// from the personal standing the server sends them instead, so a contributor
+// ranked 4000th still watches their own count move, with no neighbour the
+// client holds to put around it.
+const TOP_ROWS = 6;
 const panelRows = computed(() => {
   const rows = toContributorsRows(leaderboard.value, userId.value);
-  const top = rows.slice(0, 6);
+  const top = rows.slice(0, TOP_ROWS);
   const youIndex = rows.findIndex((r) => r.you);
-  if (youIndex >= 6) return [...top, ...rows.slice(youIndex, youIndex + 2)];
+  if (youIndex >= TOP_ROWS)
+    return [...top, ...rows.slice(Math.max(TOP_ROWS, youIndex - 1), youIndex + 2)];
   if (youIndex === -1 && myStanding.value && userId.value) {
     return [
       ...top,

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ActivityItem, LeaderboardEntry } from "@mpp/shared";
-import { LiveFigures, LIVE_FIGURES_LIMIT, type LiveFiguresSource } from "./liveFigures.js";
+import {
+  LiveFigures,
+  LIVE_ACTIVITY_LIMIT,
+  LIVE_CONTRIBUTORS_LIMIT,
+  type LiveFiguresSource,
+} from "./liveFigures.js";
 
 const entries: LeaderboardEntry[] = [{ userId: "u1", pseudo: "Alice", country: "fr", pieces: 3 }];
 const items: ActivityItem[] = [
@@ -34,10 +39,11 @@ function clock(start = 0) {
 }
 
 describe("LiveFigures", () => {
-  it("carries the live figures and the puzzle status", async () => {
-    const figures = new LiveFigures(2000, makeSource());
+  it("carries the live figures, the puzzle status and the build stamp", async () => {
+    const figures = new LiveFigures(2000, makeSource(), clock(1700).now);
     const body = await figures.read();
     expect(body).toEqual({
+      figuresAt: 1700,
       status: "active",
       progress: { locked: 10, total: 25 },
       leaderboard: entries,
@@ -45,11 +51,21 @@ describe("LiveFigures", () => {
     });
   });
 
+  it("stamps every rebuild with the clock that closed it", async () => {
+    const c = clock();
+    const figures = new LiveFigures(2000, makeSource(), c.now);
+    const first = await figures.read();
+    c.advance(5000);
+    const second = await figures.read();
+    expect(first?.figuresAt).toBe(0);
+    expect(second?.figuresAt).toBe(5000);
+  });
+
   it("asks both sources for exactly what the landing renders", async () => {
     const source = makeSource();
     await new LiveFigures(2000, source).read();
-    expect(source.leaderboard).toHaveBeenCalledWith(LIVE_FIGURES_LIMIT);
-    expect(source.activity).toHaveBeenCalledWith(LIVE_FIGURES_LIMIT);
+    expect(source.leaderboard).toHaveBeenCalledWith(LIVE_CONTRIBUTORS_LIMIT);
+    expect(source.activity).toHaveBeenCalledWith(LIVE_ACTIVITY_LIMIT);
   });
 
   it("serves the memo inside the window and rebuilds past it", async () => {

@@ -20,12 +20,41 @@ export type InterestState = { count: number; me: boolean };
 export type LandingData = LandingResponse;
 export type LiveData = LiveResponse;
 
+// The figures both landing routes carry, and their server stamp.
+export type Figures = Pick<LiveResponse, "figuresAt" | "progress" | "leaderboard" | "activity">;
+
+let figures: Figures | null = null;
+
+// The freshest figures this page load has seen, from either route. GET /landing is
+// uncached and GET /live rides an edge cache, so a poll can answer with a body up
+// to that cache's window older than the one the page is already showing, and a
+// landing remounted from /play (the topbar brand is a router link) would otherwise
+// start over from whatever its own read returns. Ordering them by the server stamp
+// is what keeps the locked counter from falling back, while a board reset still
+// applies since its body is stamped later. A body that loses is dropped whole:
+// its standings and its feed are as old as its counter.
+export function offerFigures(next: Figures): Figures {
+  if (!figures || stampOf(next) >= stampOf(figures)) figures = next;
+  return figures;
+}
+
+// A body from a server that does not stamp its figures yet counts as stamp 0, so
+// every body wins and the page behaves as it did before the stamp existed. The
+// frontend deploys on a merge and the backend by hand, so that pair runs in
+// production for as long as the redeploy takes, and a landing that quietly froze
+// its figures for that window would be the worse failure.
+function stampOf(f: Figures): number {
+  return f.figuresAt ?? 0;
+}
+
 let cached: LandingData | null = null;
 let inFlight: Promise<LandingData | null> | null = null;
 
-// One shared GET /landing per session, read by both the landing countdown and the
-// /play entry guard so the gate and the CTA can never disagree on eventStartsAt.
-// Only a successful response is cached; a failure stays retryable.
+// One shared GET /landing per session, read by the /play entry guard so the gate
+// and the CTA can never disagree on eventStartsAt. Only a successful response is
+// cached; a failure stays retryable. The landing page itself reads through
+// reloadLanding: this body is as old as the first read of the page load, and its
+// interested block, status and figures all go stale behind it.
 export function loadLanding(): Promise<LandingData | null> {
   if (cached) return Promise.resolve(cached);
   if (!inFlight) {
@@ -41,10 +70,10 @@ export function loadLanding(): Promise<LandingData | null> {
   return inFlight;
 }
 
-// Re-reads GET /landing and replaces the cached body. The one-shot cache above
-// is what keeps the entry gate and the landing CTA agreeing on eventStartsAt;
-// this is for the one transition that outdates it, a board completing while a
-// landing is open, where the recap has to be read again.
+// Re-reads GET /landing and replaces the cached body, which also keeps the entry
+// gate agreeing with what the page was just told. Every mount of the landing goes
+// through here, and so does the one transition that outdates an open page, a board
+// completing under it, where the recap has to be read again.
 export async function reloadLanding(): Promise<LandingData | null> {
   const data = await fetch(landingUrl())
     .then((res) => (res.ok ? (res.json() as Promise<LandingData>) : null))

@@ -1,6 +1,5 @@
 import { computed, ref, shallowRef } from "vue";
 import type {
-  ActivityItem,
   ImageManifest,
   LeaderboardEntry,
   QueueStatusResponse,
@@ -59,7 +58,9 @@ export type MessageHandler = (msg: ServerMessage) => void;
 
 export type ActivityEntry = {
   id: string;
-  actor: string;
+  // Pseudo to show, or null for the local player: the panel names them in their
+  // own locale and picks the second-person wording the name has to agree with.
+  actor: string | null;
   // "place": dragged group locked into the puzzle (anchored). "snap": two loose
   // clusters joined without locking.
   kind: "snap" | "place";
@@ -107,9 +108,9 @@ const handlers = new Set<MessageHandler>();
 type DevTag = "dev_reset" | "dev_complete" | "dev_place";
 let pendingDev: DevTag[] = [];
 
-function snapActor(msg: SSnap): string {
-  if (msg.userId === userId.value) return "you";
-  return msg.pseudo ?? msg.userId;
+function activityActor(item: { userId: string; pseudo?: string | null }): string | null {
+  if (item.userId === userId.value) return null;
+  return item.pseudo ?? item.userId;
 }
 
 function recordSnap(msg: SSnap): void {
@@ -122,18 +123,13 @@ function recordSnap(msg: SSnap): void {
   lockedCount.value = Math.max(prev, msg.lockedCount);
   const entry: ActivityEntry = {
     id: msg.mergeId,
-    actor: snapActor(msg),
+    actor: activityActor(msg),
     kind: msg.anchored ? "place" : "snap",
     // A place reports the placed group; a snap reports the resulting cluster.
     count: msg.anchored ? msg.droppedSize : msg.mergedSize,
     at: msg.at,
   };
   activity.value = [entry, ...activity.value].slice(0, ACTIVITY_LIMIT);
-}
-
-function activityActor(item: ActivityItem): string {
-  if (item.userId === userId.value) return "you";
-  return item.pseudo ?? item.userId;
 }
 
 function applyActivity(msg: SActivity): void {

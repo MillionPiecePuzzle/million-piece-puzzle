@@ -5,6 +5,7 @@ const de: MessageSchema = {
     save: "Speichern",
     saving: "Speichern...",
     close: "Schließen",
+    cancel: "Abbrechen",
     skip: "Überspringen",
     saveError: "Speichern fehlgeschlagen, bitte erneut versuchen.",
   },
@@ -54,6 +55,16 @@ const de: MessageSchema = {
     options: "Einstellungen",
     optionsNew: "Einstellungen, neue Versionshinweise",
   },
+  perfNotice: {
+    label: "Leistung",
+    message: "Das Spielfeld läuft auf diesem Gerät sehr langsam.",
+    showTips: "Was tun?",
+    hideTips: "Ausblenden",
+    tipAcceleration:
+      "Schalte die Hardwarebeschleunigung in den Einstellungen deines Browsers ein oder aus und starte ihn neu.",
+    tipTabs: "Schließe andere Tabs und Programme, die die Grafikkarte belegen.",
+    dismiss: "Hinweis ausblenden",
+  },
   zoom: {
     in: "Vergrößern",
     out: "Verkleinern",
@@ -72,6 +83,8 @@ const de: MessageSchema = {
     title: "Übersicht",
     online: "{n} online",
     enlarge: "Übersicht vergrößern",
+    coordinates: "Koordinaten",
+    coordinatesHint: "Deine Position auf dem Spielfeld, in Teilen ab der Mitte",
   },
   auth: {
     title: "Konto synchronisieren",
@@ -86,6 +99,7 @@ const de: MessageSchema = {
   options: {
     title: "Einstellungen",
     account: "Konto",
+    support: "Das Projekt unterstützen ❤️",
     sync: "Konto synchronisieren",
     syncHint: "Melde dich mit Google an, um deine Beiträge dauerhaft zu sichern.",
     synced: "Konto mit Google synchronisiert",
@@ -120,9 +134,26 @@ const de: MessageSchema = {
     overview: "Klicke irgendwo auf die Übersicht, um die Ansicht dorthin zu bewegen.",
     reference:
       "Öffne das Referenzbild und zoome hinein, um zu finden, wohin ein Teil gehört, und bring das Board dann mit Strg-Klick dorthin.",
+    bookmarks:
+      "Nutze Lesezeichen, um dir die Stellen im Puzzle zu merken, die dir wichtig sind: Der Lesezeichen-Knopf in der oberen Leiste öffnet dein Notizbuch, und ein Klick bringt dich direkt dorthin zurück.",
+    multiCarry:
+      "Mit einem Teil in der Hand kannst du weitere Teile mit Strg-Klick aufnehmen, bis zu 10 auf einmal, und sie dann per Doppelklick aufs Board alle nebeneinander ablegen.",
   },
   updates: {
     title: "Versionshinweise",
+    v140: {
+      bookmarks:
+        "Lesezeichen: Merk dir die Stellen auf dem Board, die dir wichtig sind, in einem Notizbuch, das der Knopf in der oberen Leiste öffnet. Ziel auf das Board, um eines anzulegen, benenne es, sortiere es unter deine eigenen Wörter, gib den Stellen einen Stern, zu denen du immer wieder zurückkehrst, und ein Klick bringt dich dorthin.",
+      share:
+        "Schick jemandem ein Lesezeichen: Der Link öffnet das Board genau an dieser Stelle und bietet das gleiche Lesezeichen zum Behalten an.",
+      multiCarry:
+        "Mit einem Teil in der Hand kannst du weitere Teile mit Strg-Klick aufnehmen, bis zu 10 auf einmal, und sie dann per Doppelklick aufs Board alle nebeneinander ablegen.",
+      coordinates: "Ein Koordinatensystem wurde hinzugefügt.",
+      performance:
+        "Wer auf einem dicht belegten Teil des Boards ankommt, sieht zuerst das, was direkt vor ihm liegt, von der Bildschirmmitte nach außen.",
+      support:
+        "Das Einstellungsmenü hat einen Link, um das Projekt zu unterstützen: Das hilft, Server, Speicher und Domainnamen zu bezahlen.",
+    },
     v130: {
       jump: "Die vergrößerte Übersicht und das vergrößerte Referenzfoto bewegen jetzt das Board: Klick auf die Karte, um dorthin zu springen, und auf dem Foto bringt der Fadenkreuz-Knopf, oder Strg-Klick, das Board zu dem, was du gerade ansiehst.",
       contributors:
@@ -232,6 +263,9 @@ const de: MessageSchema = {
     empty: "Noch keine Aktivität.",
     placedLine: "hat {object} platziert",
     connectedLine: "hat {object} verbunden",
+    you: "Du",
+    youPlacedLine: "hast {object} platziert",
+    youConnectedLine: "hast {object} verbunden",
     piece: "ein Teil",
     twoPieces: "zwei Teile",
     cluster: "ein Cluster aus {n} Teilen",
@@ -279,9 +313,83 @@ const de: MessageSchema = {
   toast: {
     tileFull: "Zu viele Teile auf diesem Feld.",
     snapCovered: "Dieses Teil ist verdeckt: Räume zuerst die Teile darüber weg.",
+    carryFull: "Du kannst nicht mehr als {n} Teile auf einmal halten.",
   },
   carry: {
-    hint: "Teil in der Hand. Doppelklicke oder tippe zweimal zum Ablegen, Esc zum Zurücklegen.",
+    hint: "Teil in der Hand. Doppelklicke oder tippe zweimal zum Ablegen, Esc zum Zurücklegen. | {n} von {max} Teilen in der Hand. Doppelklicke, um alle abzulegen, Esc zum Zurücklegen.",
+  },
+  bookmarks: {
+    title: "Lesezeichen",
+    newTitle: "Neues Lesezeichen",
+    count: "{n} Lesezeichen | {n} Lesezeichen",
+    filter: "Nach Name filtern",
+    empty: "Noch keine Lesezeichen.",
+    noMatch: "Kein Lesezeichen mit diesem Namen.",
+    add: "Lesezeichen anlegen",
+    import: "Link einfügen",
+    importTitle: "Lesezeichen-Link einfügen",
+    importLede:
+      "Füge den Lesezeichen-Link ein, den dir jemand geschickt hat, und behalte es in deinem Notizbuch.",
+    importLabel: "Lesezeichen-Link",
+    importPlaceholder: "Link hier einfügen",
+    importAction: "Öffnen",
+    importBad: "Dieser Link trägt kein Lesezeichen. Kopiere die ganze Zeile, die du bekommen hast.",
+    full: "Dein Notizbuch ist mit {max} Lesezeichen voll. Lösche eines, um ein neues anzulegen.",
+    pickSpot:
+      "Klicke auf dem Spielfeld dorthin, wo das Lesezeichen sein soll. Der Bildausschnitt unter dem Zeiger wird sein Bildchen.",
+    pickPiece: "Klicke ein Teil auf dem Spielfeld an. Dieses Teil steht dann für das Lesezeichen.",
+    nameSpot: "Benenne dieses Lesezeichen.",
+    sharedTitle: "Ein Lesezeichen, das dir jemand geschickt hat",
+    sharedLede:
+      "Behalte dieses Lesezeichen in deinem Notizbuch, unter diesem Namen oder deinem eigenen.",
+    badgeKind: "Bildchen",
+    badgeKindArea: "Ein Ausschnitt",
+    badgeKindPiece: "Ein Teil",
+    badgeSize: "Größe",
+    badgeSizePieces: "{n} Teil | {n} Teile",
+    badgeSizeWheel: "Mit dem Mausrad über dem Brett änderst du die Größe des Quadrats.",
+    nothingHere: "Hier ist kein Bild. Ziele ins Bild hinein.",
+    noPieceHere:
+      "Hier ist kein Teil. Klicke eines an, das das Spielfeld zeigt, oder nimm einen Ausschnitt.",
+    nameLabel: "Name des Lesezeichens",
+    namePlaceholder: "dieses Lesezeichen benennen",
+    needName: "Benenne dieses Lesezeichen, bevor du es speicherst.",
+    needBadge: "Wähle ein Bildchen, bevor du speicherst.",
+    goTo: "Zu {name}",
+    favorite: "{name} zu deinen Favoriten hinzufügen",
+    unfavorite: "{name} aus deinen Favoriten entfernen",
+    copyLink: "Link zu {name} kopieren",
+    copied: "Link kopiert",
+    copyFailed: "Dein Browser hat das Kopieren des Links nicht zugelassen.",
+    delete: "{name} löschen",
+    tag: "Tag",
+    tags: "Tags",
+    tagAll: "Alle",
+    tagUntagged: "Ohne Tag",
+    viewEmpty: "Hier ist kein Lesezeichen.",
+    tagsTitle: "Tags",
+    tagsLede: "Wähl die Tags für {name}.",
+    tagsDraftLede: "Wähl die Tags für dieses Lesezeichen.",
+    tagsPick: "Tags wählen",
+    tagsNoneYet: "noch keine",
+    tagsNone: "Noch keine Tags. Tipp ein Wort und leg es an.",
+    tagNoMatch: "Kein Tag passt dazu.",
+    tagPlaceholder: "Tag suchen oder anlegen",
+    tagNew: "Name des Tags",
+    tagCreate: "Anlegen",
+    tagNeedName: "Benenne den Tag, bevor du ihn anlegst.",
+    tagWorn: "Dieses Lesezeichen hat diesen Tag schon.",
+    tagsFull: "Ein Lesezeichen trägt {max} Tags. Nimm einen weg, um einen neuen zu setzen.",
+    tagsOf: "Tags von {name}",
+    backToList: "Zurück zur Liste",
+    backToEntry: "Zurück zum Lesezeichen",
+    hintFavorite: "Zu Favoriten hinzufügen",
+    hintUnfavorite: "Aus Favoriten entfernen",
+    hintTags: "Tags",
+    hintCopyLink: "Link kopieren",
+    hintDelete: "Löschen",
+    prev: "zurück",
+    next: "weiter",
   },
   flags: {
     bar: "Persönliche Fahnen",

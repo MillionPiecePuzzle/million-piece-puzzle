@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
-import type { ServerMessage } from "@mpp/shared";
+import { CARRY_SELECTION_MAX, type ServerMessage } from "@mpp/shared";
 import { usePuzzleSession, type PuzzleSessionState } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useOverview } from "../composables/useOverview";
@@ -12,6 +13,18 @@ import { useAuth } from "../composables/useAuth";
 import { useLocaleFormat } from "../i18n/format";
 import { PuzzleStage, type ViewportRect } from "../canvas/puzzleStage";
 import { toContributorsRows } from "../data/contributors";
+import {
+  SHARE_BADGE_PARAM,
+  SHARE_NAME_PARAM,
+  SHARE_VIEW_PARAM,
+  parseSharedBookmark,
+  parseSharedView,
+  sharedBadgeToBadge,
+  sharedViewWorldPoint,
+} from "../data/shareLink";
+import type { NewBookmark } from "../data/bookmarks";
+import { useBookmarksModal } from "../composables/useBookmarksModal";
+import { useCompactViewport } from "../composables/useCompactViewport";
 import ContributorsRow from "./ContributorsRow.vue";
 
 const { t } = useI18n();
@@ -34,6 +47,8 @@ const {
   sendCursor,
 } = usePuzzleSession();
 const { setControls, setCamera, setReady } = useStageControls();
+const { showDraft } = useBookmarksModal();
+const { compact } = useCompactViewport();
 const { setOverviewSource, setOverviewNavigate } = useOverview();
 const {
   flags: boardFlags,
@@ -48,15 +63,28 @@ const { mode } = useMode();
 const { settings: displaySettings } = useDisplaySettings();
 const { backendDown } = useAuth();
 
+// The spot a link handed this player, and the bookmark of it when the link
+// carries one. Read here rather than at the moment they are applied: the address
+// bar is rewritten at boot (the analytics and auth flags are stripped through a
+// router.replace) and the board is only built seconds later, past the guest
+// onboarding a first-time visitor goes through.
+const query = useRoute().query;
+let sharedView = parseSharedView(query[SHARE_VIEW_PARAM]);
+let sharedBookmark = parseSharedBookmark(query[SHARE_NAME_PARAM], query[SHARE_BADGE_PARAM]);
+// The draft that bookmark becomes, held until the loading cover is down: the
+// notebook is offered on a board the recipient can already see, never over it.
+let sharedDraft: NewBookmark | null = null;
+
 let stage: PuzzleStage | null = null;
 let builtEpoch = 0;
 let buildChain: Promise<void> = Promise.resolve();
 let unsubscribe: (() => void) | null = null;
 const completed = ref(false);
 const modalVisible = ref(true);
-// True while the local player carries a cluster stuck to the cursor (double-click
-// to pick up). Drives the floating carry hint.
-const carrying = ref(false);
+// How many clusters the local player carries stuck to the cursor (double-click to
+// pick the first up, ctrl-click to add more). Zero is an empty hand. Drives the
+// floating carry hint, which is also where the count is read.
+const carried = ref(0);
 
 // Transient bottom-center notice (e.g. a rejected drop). A new toast resets the
 // dismiss timer so repeated rejections do not stack.
@@ -304,9 +332,10 @@ onMounted(async () => {
   stage.onCursorMove = (x, y) => queueCursor(x, y);
   stage.onNotice = (kind) => {
     if (kind === "tile_full") showToast(t("toast.tileFull"));
+    if (kind === "carry_full") showToast(t("toast.carryFull", { n: CARRY_SELECTION_MAX }));
   };
   stage.onCarryChange = (c) => {
-    carrying.value = c;
+    carried.value = c;
   };
   stage.onFlagMove = (id, x, y) => moveFlag(id, x, y);
   stage.onFlagSelect = (id) => selectFlag(id);
@@ -320,6 +349,10 @@ onMounted(async () => {
     fit: () => stage?.fitView(),
     centerOnWorld: (wx, wy) => stage?.centerOnWorld(wx, wy),
     viewportCenterWorld: () => stage?.viewportCenterWorld() ?? null,
+    frameWorld: (wx, wy, zoom) => stage?.frameWorld(wx, wy, zoom),
+    pickSpot: (square, onResize) => stage?.pickSpot(square, onResize) ?? Promise.resolve(null),
+    setPickSquare: (square) => stage?.setPickSquare(square),
+    cancelPickSpot: () => stage?.cancelPickSpot(),
   });
   setOverviewSource(() => stage?.getOverviewSnapshot() ?? null);
   setOverviewNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));
@@ -388,10 +421,41 @@ async function buildStage(s: Extract<PuzzleSessionState, { kind: "ready" }>): Pr
     progressLoaded.value = p.loaded;
     progressTotal.value = p.total;
   });
+  // A shared spot is framed once the board is up, since build() ends on fitView
+  // and would otherwise overwrite it, and while the loading cover is still down,
+  // so the player never sees the whole board first. Consumed on the first build
+  // alone: a rebuild (a dev reset, a new board) must not pull them back.
+  if (sharedView) {
+    const point = sharedViewWorldPoint(sharedView, s.manifest, s.welcome.playZone);
+    stage.frameWorld(point.x, point.y, sharedView.zoom);
+    if (sharedBookmark) {
+      // Anchored on the point the camera was actually sent to rather than on the
+      // one the link asked for: it is held inside the play zone, and a draft has
+      // to badge the spot the recipient was given.
+      sharedDraft = {
+        name: sharedBookmark.name,
+        badge: sharedBadgeToBadge(sharedBookmark.badge, point, s.manifest),
+        worldX: point.x,
+        worldY: point.y,
+      };
+    }
+    sharedView = null;
+    sharedBookmark = null;
+  }
   stage.setMode(mode.value);
   if (s.welcome.lockedCount >= s.manifest.pieces.length) {
     triggerCompletion(false);
   }
+}
+
+// The notebook is opened on the shared bookmark once the board is up and the
+// cover is down, and only where there is a notebook to open it in: below the
+// compact breakpoint nothing renders it, so the link keeps its framing and drops
+// its draft rather than arming a panel nobody can answer.
+function offerSharedDraft(): void {
+  const draft = sharedDraft;
+  sharedDraft = null;
+  if (draft && !compact.value) showDraft(draft);
 }
 
 // Builds run one at a time through this chain. If `state` changes while
@@ -413,6 +477,7 @@ watch(state, (s) => {
     .finally(() => {
       if (state.value.kind === "ready" && state.value.epoch === builtEpoch) {
         building.value = false;
+        offerSharedDraft();
       }
     });
 });
@@ -551,15 +616,17 @@ onBeforeUnmount(() => {
         {{ t("completion.summary") }}
       </button>
     </Transition>
-    <Transition name="toast">
-      <div v-if="toast" class="toast" role="status" aria-live="polite">{{ toast }}</div>
-    </Transition>
-    <Transition name="carry-hint">
-      <div v-if="carrying && !showStatus" class="carry-hint" role="status" aria-live="polite">
-        <span class="carry-dot" aria-hidden="true" />
-        {{ t("carry.hint") }}
-      </div>
-    </Transition>
+    <div class="notices">
+      <Transition name="toast">
+        <div v-if="toast" class="toast" role="status" aria-live="polite">{{ toast }}</div>
+      </Transition>
+      <Transition name="carry-hint">
+        <div v-if="carried > 0 && !showStatus" class="carry-hint" role="status" aria-live="polite">
+          <span class="carry-dot" aria-hidden="true" />
+          {{ t("carry.hint", carried, { named: { n: carried, max: CARRY_SELECTION_MAX } }) }}
+        </div>
+      </Transition>
+    </div>
   </div>
 </template>
 
@@ -860,13 +927,25 @@ onBeforeUnmount(() => {
   transform: translate(-50%, -8px);
 }
 /* Above the flag bar, which owns the bottom-center strip; back down to the
-   screen edge on a compact viewport, where the bar is not rendered. */
-.toast {
+   screen edge on a compact viewport, where the bar is not rendered. The two
+   notices stack in one column so a toast raised while a piece is in hand sits
+   above the hint instead of behind it. */
+.notices {
   position: absolute;
   left: 50%;
   bottom: 97px;
   transform: translateX(-50%);
-  max-width: min(90%, 360px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: 90vw;
+  pointer-events: none;
+  z-index: 3;
+}
+.toast {
+  max-width: min(100%, 360px);
   padding: 10px 16px;
   border-radius: 8px;
   background: rgba(38, 16, 16, 0.92);
@@ -874,8 +953,6 @@ onBeforeUnmount(() => {
   color: #f7e9e9;
   font-size: 13px;
   text-align: center;
-  pointer-events: none;
-  z-index: 3;
 }
 .toast-enter-active,
 .toast-leave-active {
@@ -886,17 +963,13 @@ onBeforeUnmount(() => {
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translate(-50%, 8px);
+  transform: translateY(8px);
 }
 .carry-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 97px;
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 9px;
-  max-width: min(90%, 420px);
+  max-width: min(100%, 420px);
   padding: 10px 18px;
   border-radius: var(--radius-pill);
   background: rgba(28, 24, 16, 0.9);
@@ -904,8 +977,6 @@ onBeforeUnmount(() => {
   color: #f6efdd;
   font-size: 13px;
   text-align: center;
-  pointer-events: none;
-  z-index: 3;
 }
 .carry-dot {
   flex: none;
@@ -936,12 +1007,11 @@ onBeforeUnmount(() => {
 .carry-hint-enter-from,
 .carry-hint-leave-to {
   opacity: 0;
-  transform: translate(-50%, 8px);
+  transform: translateY(8px);
 }
 
 @media (max-width: 680px), (max-height: 480px) {
-  .toast,
-  .carry-hint {
+  .notices {
     bottom: 32px;
   }
 }

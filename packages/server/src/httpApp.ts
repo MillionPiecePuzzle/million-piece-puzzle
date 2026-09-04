@@ -76,10 +76,12 @@ export type AdmissionGate = {
   status: (ticketId: string) => QueueStatusResponse;
 };
 
-// Compact live figures for the landing, lifted from the in-memory keyframe
-// snapshot so the landing never triggers a full-board read. Null until the first
-// keyframe is built at boot.
+// The in-memory keyframe snapshot, as GET /landing reads it: the recap figures of
+// a completed board (frozen on the completion transition, and deeper than the poll
+// body carries) and the fallback while the live figures are unavailable. Null
+// until the first keyframe is built at boot.
 export type LandingSnapshot = {
+  at: number;
   lockedCount: number;
   totalPieces: number;
   leaderboard: LeaderboardEntry[];
@@ -110,7 +112,9 @@ export type CreateAppDeps = {
   // reflected on the next landing request without a restart.
   eventStartsAt: () => number;
   landingSnapshot: () => LandingSnapshot | null;
-  // GET /live's body, rebuilt behind its own short window (see LiveFigures).
+  // GET /live's body, rebuilt behind its own short window (see LiveFigures). Also
+  // GET /landing's figures while the board is live, so the two routes the landing
+  // reads answer from one memo and cannot disagree by more than that window.
   liveFigures: () => Promise<LiveResponse | null>;
   liveEdgeTtlSec: number;
   puzzleStatus: () => "active" | "completed";
@@ -140,6 +144,7 @@ export function createApp(deps: CreateAppDeps): Express {
       interested: deps.interested,
       eventStartsAt: deps.eventStartsAt,
       snapshot: deps.landingSnapshot,
+      figures: deps.liveFigures,
       status: deps.puzzleStatus,
       span: deps.puzzleSpan,
       devEnabled: deps.devEnabled,
@@ -384,16 +389,18 @@ export type LandingDeps = {
   interested: InterestedStore;
   eventStartsAt: () => number;
   snapshot: () => LandingSnapshot | null;
+  // The same body GET /live serves, read through the same 2s memo.
+  figures: () => Promise<LiveResponse | null>;
   status: () => "active" | "completed";
   span: () => Promise<{ firstAt: number; lastAt: number } | null>;
   devEnabled: boolean;
 };
 
 // GET /landing: the event start, the interested count and this IP's opt-in state,
-// plus the live progress/standings (from the cached keyframe snapshot) and, once
-// completed, the recap span. Fail-open on a Redis error (same posture as the
-// public guard): a transient outage still serves the landing, just with a
-// zeroed interested block. The span lookup is skipped unless completed.
+// plus the live progress/standings and, once completed, the recap span. Fail-open
+// on a Redis error (same posture as the public guard): a transient outage still
+// serves the landing, just with a zeroed interested block. The span lookup is
+// skipped unless completed.
 export function makeLandingHandler(deps: LandingDeps) {
   return async (req: Request, res: Response): Promise<void> => {
     let interested = { count: 0, me: false };
@@ -404,13 +411,21 @@ export function makeLandingHandler(deps: LandingDeps) {
     }
     const snap = deps.snapshot();
     const status = deps.status();
+    // A live board's figures are the poll body, not the keyframe snapshot: the
+    // landing reads both routes, and a first paint on the snapshot's own
+    // 5-minute cadence is minutes behind the poll that overwrites it seconds
+    // later, which is a locked counter visibly falling back. A completed board
+    // reads the snapshot instead, frozen on the completion transition and
+    // carrying the deeper standings the recap renders.
+    const live = status === "active" ? await deps.figures() : null;
     const body: LandingResponse = {
+      figuresAt: live?.figuresAt ?? snap?.at ?? 0,
       eventStartsAt: deps.eventStartsAt(),
       interested,
       status,
-      progress: { locked: snap?.lockedCount ?? 0, total: snap?.totalPieces ?? 0 },
-      leaderboard: snap?.leaderboard ?? [],
-      activity: snap?.activity ?? [],
+      progress: live?.progress ?? { locked: snap?.lockedCount ?? 0, total: snap?.totalPieces ?? 0 },
+      leaderboard: live?.leaderboard ?? snap?.leaderboard ?? [],
+      activity: live?.activity ?? snap?.activity ?? [],
     };
     if (status === "completed") {
       try {

@@ -57,6 +57,20 @@ export function levelDimension(nativeSize: number, info: DziInfo, level: number)
   return Math.ceil(nativeSize / 2 ** (info.maxLevel - level));
 }
 
+// The level a bookmark badge is drawn from. A badge is a square of the board of
+// its own size, drawn at whatever size the page gives it, so the level follows
+// that pairing rather than the board: the same square is cut from a coarse level
+// for a 40px row and from a finer one for the 192px preview, each sharp where it
+// is shown. `Math.ceil` rather than `levelForZoom`'s round, so a badge is a
+// downscale of a sharper level and never an upscale of a softer one. Capped at
+// the level where the square still spans at most one tile, which is what holds a
+// badge to the one to four tiles it touches whatever size it is drawn at.
+export function badgeSquareLevel(info: DziInfo, worldSize: number, displayPx: number): number {
+  const ideal = Math.ceil(info.maxLevel + Math.log2(displayPx / worldSize));
+  const oneTile = Math.floor(info.maxLevel + Math.log2(info.tileSize / worldSize));
+  return Math.max(0, Math.min(ideal, oneTile, info.maxLevel));
+}
+
 // The per-cell mask/seam LOD tier (see cellCompositor.ts's bakeTiers, same
 // CELL_MASK_TIER_FACTORS) to fetch for the current zoom, chosen to keep a
 // full hydrate ring inside CELL_ASSET_VRAM_BUDGET_MB (see
@@ -113,6 +127,26 @@ export function pickBaseLevel(info: DziInfo, maxTiles: number): number {
   return level;
 }
 
+// The tile grid of a level, and the block of it a world rect falls in. A rect
+// entirely off the level answers with an empty block (col0 past col1), so a
+// caller's loop runs zero times rather than over the whole grid.
+function tileBlock(info: DziInfo, level: number, rect: Aabb) {
+  const scale = 2 ** (info.maxLevel - level);
+  const worldPerTile = info.tileSize * scale;
+  const cols = Math.ceil(levelDimension(info.width, info, level) / info.tileSize);
+  const rows = Math.ceil(levelDimension(info.height, info, level) / info.tileSize);
+  return {
+    scale,
+    cols,
+    rows,
+    worldPerTile,
+    col0: Math.max(0, Math.floor(rect.minX / worldPerTile)),
+    col1: Math.min(cols - 1, Math.floor(rect.maxX / worldPerTile)),
+    row0: Math.max(0, Math.floor(rect.minY / worldPerTile)),
+    row1: Math.min(rows - 1, Math.floor(rect.maxY / worldPerTile)),
+  };
+}
+
 // Every native tile at a level intersecting a world rect, with each tile's
 // own world-space rect. Deliberately independent of any app-specific grid
 // (e.g. the 2048-unit composite cell pitch): a native tile only ever needs
@@ -126,25 +160,61 @@ export function dziTilesForRect(
   rect: Aabb,
   baseUrl: string,
 ): { url: string; col: number; row: number; worldRect: Aabb }[] {
-  const worldPerTile = info.tileSize * 2 ** (info.maxLevel - level);
-  const colsAtLevel = Math.ceil(levelDimension(info.width, info, level) / info.tileSize);
-  const rowsAtLevel = Math.ceil(levelDimension(info.height, info, level) / info.tileSize);
-  const col0 = Math.max(0, Math.floor(rect.minX / worldPerTile));
-  const col1 = Math.min(colsAtLevel - 1, Math.floor(rect.maxX / worldPerTile));
-  const row0 = Math.max(0, Math.floor(rect.minY / worldPerTile));
-  const row1 = Math.min(rowsAtLevel - 1, Math.floor(rect.maxY / worldPerTile));
+  const block = tileBlock(info, level, rect);
   const out: { url: string; col: number; row: number; worldRect: Aabb }[] = [];
-  for (let row = row0; row <= row1; row++) {
-    for (let col = col0; col <= col1; col++) {
+  for (let row = block.row0; row <= block.row1; row++) {
+    for (let col = block.col0; col <= block.col1; col++) {
       out.push({
         url: `${baseUrl}${level}/${col}_${row}.${info.format}`,
         col,
         row,
         worldRect: {
-          minX: col * worldPerTile,
-          minY: row * worldPerTile,
-          maxX: Math.min((col + 1) * worldPerTile, info.width),
-          maxY: Math.min((row + 1) * worldPerTile, info.height),
+          minX: col * block.worldPerTile,
+          minY: row * block.worldPerTile,
+          maxX: Math.min((col + 1) * block.worldPerTile, info.width),
+          maxY: Math.min((row + 1) * block.worldPerTile, info.height),
+        },
+      });
+    }
+  }
+  return out;
+}
+
+// The same tiles, each with the world rect its own image really spans: the
+// pyramid gives neighbouring tiles a shared overlap margin, so a tile placed at
+// its nominal grid rect sits that margin off its neighbour. A badge lays its
+// tiles out by these rects and crops them to its box, which is where a pixel of
+// slip would show as a seam, and where the shared margin covers the subpixel gap
+// a rounded position would otherwise leave.
+export function dziTileImages(
+  info: DziInfo,
+  level: number,
+  rect: Aabb,
+  baseUrl: string,
+): { url: string; worldRect: Aabb }[] {
+  const block = tileBlock(info, level, rect);
+  const width = levelDimension(info.width, info, level);
+  const height = levelDimension(info.height, info, level);
+  const out: { url: string; worldRect: Aabb }[] = [];
+  for (let row = block.row0; row <= block.row1; row++) {
+    for (let col = block.col0; col <= block.col1; col++) {
+      const left = col * info.tileSize - (col > 0 ? info.overlap : 0);
+      const top = row * info.tileSize - (row > 0 ? info.overlap : 0);
+      const right = Math.min(
+        (col + 1) * info.tileSize + (col < block.cols - 1 ? info.overlap : 0),
+        width,
+      );
+      const bottom = Math.min(
+        (row + 1) * info.tileSize + (row < block.rows - 1 ? info.overlap : 0),
+        height,
+      );
+      out.push({
+        url: `${baseUrl}${level}/${col}_${row}.${info.format}`,
+        worldRect: {
+          minX: left * block.scale,
+          minY: top * block.scale,
+          maxX: right * block.scale,
+          maxY: bottom * block.scale,
         },
       });
     }

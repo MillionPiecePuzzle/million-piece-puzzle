@@ -9,6 +9,7 @@ import {
   type Texture,
 } from "pixi.js";
 import {
+  CARRY_SELECTION_MAX,
   FLAG_DROP_GAP_PIECES,
   FLAG_DROP_SEARCH_RINGS,
   GRID_WORLD_CELL,
@@ -35,6 +36,14 @@ import {
   type Aabb,
   type Viewport,
 } from "./cull";
+import {
+  fanAxis,
+  fanColumns,
+  fanSlot,
+  type FanCell,
+  type FanDirection,
+  type FanSlot,
+} from "./carryFan";
 import { GroupGrid, LOD_TILE_WORLD, cellKeysForRect, unpackCell, type CellKey } from "./groupGrid";
 import { LodTileLayer } from "./lodTiles";
 import { fetchDziInfo, type DziInfo } from "./dziTiles";
@@ -79,6 +88,11 @@ export type OverviewSnapshot = {
 // client never derives a solved-space coordinate. A piece's local container
 // position is (dx * pieceSize, dy * pieceSize).
 type PieceOffset = { dx: number; dy: number };
+
+// What a click on the board answers with: the world point pressed, and the asset
+// path of the loose piece under it when there is one. Null over locked content, a
+// transparent gap or bare ground, which the caller badges its own way.
+export type PickedSpot = { worldX: number; worldY: number; pieceFile: string | null };
 
 type PieceNode = {
   id: number;
@@ -192,6 +206,10 @@ const FLAG_DROP_SCALE_MS = 160;
 // held indefinitely.
 const CARRY_HIGHLIGHT_COLOR = 0xffce47;
 const CARRY_IDLE_TIMEOUT_MS = 30000;
+// Clear space, in pieces, between two clusters of a carried hand. In world units
+// like the clusters themselves, so the fan scales with the board rather than
+// spreading at high zoom.
+const CARRY_FAN_GAP_PIECES = 0.2;
 
 // Manual double-press detection (mouse dblclick and touch double-tap alike),
 // matching a browser's own dblclick heuristic: two pointerdowns this close in
@@ -205,6 +223,30 @@ const DOUBLE_TAP_MAX_DIST = 32;
 // Screen px a press on a personal flag may travel and still count as a press
 // (opening its options) rather than a drag that moves it.
 const FLAG_DRAG_SLOP = 4;
+
+// Screen px a press may travel while a spot pick is armed and still count as the
+// click that answers it, rather than as the pan that carried the board under it.
+const SPOT_PICK_SLOP = 4;
+
+// The square the aim traces under the cursor, which is the badge a click takes.
+// A dark halo under a light line so it reads over the picture, over a pile and
+// over bare ground alike, and a fill faint enough to leave the board it frames
+// legible under it.
+const AIM_SQUARE_COLOR = 0xffffff;
+const AIM_SQUARE_SHADOW = 0x000000;
+
+// A wheel event's travel in notches, whatever unit the browser measures it in:
+// pixels (a notch is about a hundred of them, a trackpad a stream of far smaller
+// ones), lines (three to a notch) or pages. Normalized here because the aim
+// counts discrete steps, where the camera zoom takes the raw delta as it comes.
+const WHEEL_PIXELS_PER_NOTCH = 100;
+const WHEEL_LINES_PER_NOTCH = 3;
+
+function wheelNotches(ev: WheelEvent): number {
+  if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) return ev.deltaY / WHEEL_LINES_PER_NOTCH;
+  if (ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) return ev.deltaY;
+  return ev.deltaY / WHEEL_PIXELS_PER_NOTCH;
+}
 
 // Edge-pan: when the pointer rests within this many screen pixels of a canvas
 // edge, the camera scrolls toward that edge. Speed ramps quadratically from 0 at
@@ -274,15 +316,62 @@ const RESIDENT_PIECE_BUDGET = 24000;
 // zoom-out enqueues many groups without firing all their fetches at once.
 const HYDRATE_MARGIN_FRAC = 0.3;
 const DEHYDRATE_MARGIN_FRAC = 0.9;
-const HYDRATE_MAX_INFLIGHT = 128;
 
 // A piece texture is a few KB, so any load this slow is a stalled connection,
 // not a slow one. Without a deadline a hung fetch pins its in-flight hydrate
 // slot forever; enough of them saturate HYDRATE_MAX_INFLIGHT and the whole
-// loader wedges. A timed-out or failed load is retried a bounded number of
-// times, then skipped so the group still completes and the slot frees.
+// loader wedges. The deadline starts once the load is admitted to the decode
+// pool below, so it measures the load and never the wait for a slot. A
+// timed-out or failed load is retried a bounded number of times, then skipped so
+// the group still completes and the slot frees.
 const TEXTURE_LOAD_TIMEOUT_MS = 10000;
 const TEXTURE_LOAD_RETRIES = 1;
+
+// Pixi decodes image bitmaps on a pool of navigator.hardwareConcurrency workers
+// and dispatches its own pending queue last-in-first-out, so every load handed to
+// Assets.load past what that pool can start immediately is ordering given away:
+// the earliest submissions sit at the bottom of its stack and stay there for as
+// long as newer ones keep landing on top. Admitting one load per worker keeps
+// that queue empty, which leaves the hydrate queue's viewport ranking the only
+// thing deciding what loads next. Measured on the 1M board before this gate: a
+// viewport arrival left ~100 of its 128 concurrent loads, the nearest groups and
+// so the middle of the screen, unresolved until they hit the deadline above, and
+// the player watched a hole in the centre for the 20s that took.
+const TEXTURE_DECODE_SLOTS = navigator.hardwareConcurrency || 4;
+
+let decodeSlotsFree = TEXTURE_DECODE_SLOTS;
+const decodeWaiters: (() => void)[] = [];
+
+function acquireDecodeSlot(): Promise<void> {
+  if (decodeSlotsFree > 0) {
+    decodeSlotsFree--;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    decodeWaiters.push(resolve);
+  });
+}
+
+// Hands the slot straight to the longest-waiting caller (first in, first served,
+// the opposite of the pool's own dispatch) rather than freeing it, so a wait
+// cannot be jumped by a load submitted after it.
+function releaseDecodeSlot(): void {
+  const next = decodeWaiters.shift();
+  if (next) next();
+  else decodeSlotsFree++;
+}
+
+// One in-flight group per decode slot, so a board of singletons (every scattered
+// piece is its own group) commits exactly what the pool can work on and nothing
+// waits at the gate. What waits at the gate is frozen in the order it was
+// submitted; what waits in the hydrate queue is re-ranked against the viewport
+// every frame, so committing deeper only buys staleness. Measured on the 1M
+// board: at a commitment of 128, a pan mid-fill needed 1.5s to put a piece back
+// at the new centre, against 0.15s here, since the new viewport's own pieces
+// queued behind everything the previous one had committed. It costs no
+// throughput, the pool being the ceiling either way (~85 loads a second).
+const HYDRATE_MAX_INFLIGHT = TEXTURE_DECODE_SLOTS;
+
 // Hydrate passes a group gets to fill a missing piece before its partial state
 // is accepted. Beyond loadPieceTexture's per-call retries: a whole pass is
 // re-run on later frames so a transient outage heals, while a genuinely missing
@@ -351,6 +440,7 @@ type ConfettiParticle = {
 export class PuzzleStage {
   private app: Application | null = null;
   private world: Container | null = null;
+  private hostResize: ResizeObserver | null = null;
   private groups = new Map<number, GroupNode>();
   private pieceToGroup = new Map<number, number>();
   // Locked pieces, flat and independent of groups (see LockedPieceSlot). Piece
@@ -404,15 +494,22 @@ export class PuzzleStage {
   private mode: Mode = "pending";
   private localUserId: string | null = null;
   private callbacks: StageCallbacks | null = null;
-  onCameraChange: ((camera: { x: number; y: number; zoom: number }) => void) | null = null;
+  // The transform plus the world point at the middle of the view, which the
+  // position readout needs and only the stage can compute (it owns the screen
+  // size). Emitted together so a pan, a zoom and a resize all keep the two in
+  // step.
+  onCameraChange:
+    | ((camera: { x: number; y: number; zoom: number; centerX: number; centerY: number }) => void)
+    | null = null;
   onViewportChange: ((viewport: ViewportRect) => void) | null = null;
   onCursorMove: ((worldX: number, worldY: number) => void) | null = null;
   // A user-facing notice the canvas cannot render itself (a DOM toast).
   // "tile_full": a drop the server rejected for exceeding the per-tile cap.
-  onNotice: ((kind: "tile_full") => void) | null = null;
-  // Fired when the local sticky-carry state changes, so the shell can show or hide
-  // the carry hint. Contributor mode only.
-  onCarryChange: ((carrying: boolean) => void) | null = null;
+  // "carry_full": a cluster refused because the hand already holds its maximum.
+  onNotice: ((kind: "tile_full" | "carry_full") => void) | null = null;
+  // How many clusters the local hand carries, so the shell can show the carry hint
+  // and count them. Zero means an empty hand. Contributor mode only.
+  onCarryChange: ((carried: number) => void) | null = null;
   // Personal flags: a flag dragged aside reports its new resting point, a flag
   // pressed without being dragged reports the request to open its options.
   onFlagMove: ((id: string, worldX: number, worldY: number) => void) | null = null;
@@ -464,14 +561,19 @@ export class PuzzleStage {
   private alphaProbe: CanvasRenderingContext2D | null = null;
 
   private held: HeldState | null = null;
+  // The rest of a carried hand: the clusters ctrl-clicked in alongside `held`,
+  // in the order they were picked, which is the order they land in. Empty for a
+  // press-drag, which is always a single cluster (a button is held, so there is
+  // no second press to add with).
+  private carryExtras: HeldState[] = [];
   // Screen position and timestamp of the last unconsumed pointerdown, for
   // double-press detection (see consumeDoubleTap): mouse dblclick and touch
   // double-tap alike, driven off this class's own pointerdown handling rather
   // than the native `dblclick` DOM event.
   private lastTapScreen: { x: number; y: number; at: number } | null = null;
-  // Outline over the cluster currently carried, and the idle timer that drops it.
-  // Only one cluster is ever carried at a time.
-  private carryHighlight: Graphics | null = null;
+  // Outline over each carried cluster, keyed by group id, and the idle timer that
+  // puts the whole hand down.
+  private readonly carryHighlights = new Map<number, Graphics>();
   private carryIdleTimer: ReturnType<typeof setTimeout> | null = null;
   // Escape returns a carried cluster to where it was picked up. Window-level so it
   // fires without the canvas being focused; bound once for add/remove symmetry.
@@ -499,18 +601,45 @@ export class PuzzleStage {
   // already applied it locally; this only defers the broadcast so tickDragFlush
   // emits at most one drag per frame. Null on frames with no movement, so idle
   // frames broadcast nothing.
-  private pendingDrag: { worldX: number; worldY: number } | null = null;
+  private readonly pendingDrags = new Map<number, { worldX: number; worldY: number }>();
+  // One drag message per frame whatever the hand holds. A full hand broadcasting
+  // every cluster every frame would be ten times the drag rate of a single one,
+  // over the per-IP budget the server drops messages past (grabs and drops
+  // included), so the clusters take turns: re-setting an entry keeps its place in
+  // the map's order, and flushing the oldest sends it to the back, which cycles
+  // them. A hand of N therefore refreshes each cluster at a frame in N, and a
+  // pointer that stops still drains every last position out.
   private readonly tickDragFlush = (): void => {
-    if (!this.pendingDrag || !this.held || !this.callbacks) return;
-    const { worldX, worldY } = this.pendingDrag;
-    this.pendingDrag = null;
-    this.callbacks.onDrag(this.held.groupId, worldX, worldY);
+    if (!this.callbacks) return;
+    const [groupId] = this.pendingDrags.keys();
+    if (groupId === undefined) return;
+    const at = this.pendingDrags.get(groupId);
+    this.pendingDrags.delete(groupId);
+    if (at) this.callbacks.onDrag(groupId, at.worldX, at.worldY);
   };
   private pan: { active: boolean; lastX: number; lastY: number } = {
     active: false,
     lastX: 0,
     lastY: 0,
   };
+  // A one-shot spot pick, armed by the notebook while the player marks a place.
+  // Grabs are off for as long as it is armed, so a press on a pile aims at the
+  // pile instead of picking it up, and panning and zooming keep working: the
+  // player brings the spot into view and then clicks it.
+  private spotPick: ((spot: PickedSpot | null) => void) | null = null;
+  private spotPress: { x: number; y: number; moved: boolean } | null = null;
+  // Where a wheel over the board goes while the aim traces a square, and the
+  // fraction of a notch the last event left behind: a trackpad delivers a stream
+  // of small deltas, which add up to the same step a mouse notch takes in one.
+  private spotResize: ((step: number) => void) | null = null;
+  private aimWheelNotches = 0;
+  // The aim's square, in world units a side and as the screen-space Graphics
+  // drawing it under the cursor. Its side on screen is the world side times the
+  // zoom, so the geometry is redrawn on a zoom or a size change and only moved on
+  // a pointer move.
+  private aimSquareWorld = 0;
+  private aimSquare: Graphics | null = null;
+  private aimSquareSide = -1;
   // Latest pointer position in screen space (renderer.screen coords, matching
   // ev.global), updated on every move and cleared when the pointer leaves the
   // canvas. Drives edge-pan, which reads it from the ticker so a pointer resting
@@ -705,6 +834,11 @@ export class PuzzleStage {
       resolution: window.devicePixelRatio,
     });
     host.appendChild(app.canvas);
+    // Pixi's own resizeTo listens to the window and nothing else, so chrome that
+    // takes height from the stage without resizing the window (the performance
+    // notice) would leave the canvas at its old size until the next real resize.
+    this.hostResize = new ResizeObserver(() => app.queueResize());
+    this.hostResize.observe(host);
     const world = new Container();
     app.stage.addChild(world);
 
@@ -727,9 +861,11 @@ export class PuzzleStage {
     // matching pointerup: abort an in-progress press-drag rather than leaving it
     // stuck in the hand.
     app.stage.on("pointercancel", () => this.cancelPressDrag());
-    // Off-canvas: stop edge-pan (no pointer to read a band from).
+    // Off-canvas: stop edge-pan (no pointer to read a band from), and take the
+    // aim's square with it rather than leave it parked at the edge.
     app.canvas.addEventListener("pointerleave", () => {
       this.pointerScreen = null;
+      this.updateAimSquare();
     });
     app.renderer.on("resize", () => {
       this.refreshStageHitArea(app);
@@ -751,6 +887,7 @@ export class PuzzleStage {
     this.releaseEscape = pushEscapeHandler(this.onEscapeKey);
     window.addEventListener("blur", this.onWindowBlur);
     this.attachWheelZoom(app.canvas);
+    this.attachContextMenuGuard(app.canvas);
     this.attachPinchZoom();
   }
 
@@ -1077,9 +1214,12 @@ export class PuzzleStage {
     this.buildToken++;
     this.stopConfetti();
     this.clearCarryIdle();
+    this.cancelPickSpot();
     this.releaseEscape?.();
     this.releaseEscape = null;
     window.removeEventListener("blur", this.onWindowBlur);
+    this.hostResize?.disconnect();
+    this.hostResize = null;
     this.detachPinchZoom();
     this.tweener?.destroy();
     this.tweener = null;
@@ -1125,12 +1265,13 @@ export class PuzzleStage {
     this.textureBase = "";
     this.minimapGrid = null;
     this.held = null;
+    this.carryExtras = [];
     this.disarmFlagDropTargets();
-    this.carryHighlight = null;
+    this.carryHighlights.clear();
     this.lastTapScreen = null;
     this.touchPoints.clear();
     this.pinch = null;
-    this.pendingDrag = null;
+    this.pendingDrags.clear();
     this.pointerScreen = null;
     this.pendingDrops.clear();
     this.dirtyRects = [];
@@ -1208,12 +1349,13 @@ export class PuzzleStage {
     // A carry in progress is dropped by the rebuild: the highlight was already
     // freed with the world above, so just clear the carry state and hide the hint.
     this.clearCarryIdle();
-    this.carryHighlight = null;
+    this.carryHighlights.clear();
     this.lastTapScreen = null;
-    this.onCarryChange?.(false);
+    this.onCarryChange?.(0);
     this.held = null;
+    this.carryExtras = [];
     this.disarmFlagDropTargets();
-    this.pendingDrag = null;
+    this.pendingDrags.clear();
     this.peerCursors?.clearHeld();
     this.fileById = new Map();
     this.manifest = null;
@@ -1231,7 +1373,7 @@ export class PuzzleStage {
     this.localHeldLayer = null;
     this.viewport = null;
     this.camera = { x: 0, y: 0, zoom: 1 };
-    this.onCameraChange?.(this.camera);
+    this.emitCamera();
   }
 
   // ----- incoming server messages -----
@@ -1245,7 +1387,8 @@ export class PuzzleStage {
       // flow has parked it at rest; falling through to the remote-grab branch
       // would strand it in remoteHeldLayer (one layer too high, forced live off
       // the LOD) until the next event happened to touch it.
-      if (this.held && this.held.groupId === groupId) this.held.confirmed = true;
+      const entry = this.handEntry(groupId);
+      if (entry) entry.confirmed = true;
       return;
     }
     // Remote grab: keep group visible on top while held by someone else, and
@@ -1258,16 +1401,19 @@ export class PuzzleStage {
     // A denied grab means an optimistic drop that followed it will be rejected by
     // the server, so lift the in-flight guard rather than leaving it stuck.
     this.pendingDrops.delete(groupId);
-    if (!this.held || this.held.groupId !== groupId) return;
+    const entry = this.handEntry(groupId);
+    if (!entry) return;
     const node = this.groups.get(groupId);
     if (node) {
       this.markDirty(this.worldAabb(node));
-      this.moveGroup(node, this.held.originX, this.held.originY);
+      this.moveGroup(node, entry.originX, entry.originY);
       this.setGroupHeldVisual(node, false);
     }
     this.releaseGroupHeld(groupId);
-    if (this.held.carry) this.endCarry();
-    this.held = null;
+    // A denial takes one cluster out of the hand; the rest of it is unaffected and
+    // stays carried, so a press-drag ends where a carry only shrinks.
+    if (entry.carry) this.dropFromHand(groupId);
+    else this.held = null;
   }
 
   applyRemoteDrag(groupId: number, userId: string, worldX: number, worldY: number): void {
@@ -1310,10 +1456,10 @@ export class PuzzleStage {
     // A rolled-back cluster was released on its drop (not held now), so moveGroup
     // records the tiles it leaves and re-enters.
     this.moveGroup(node, worldX, worldY);
-    if (this.held && this.held.groupId === groupId) {
+    if (this.isInHand(groupId)) {
       this.setGroupHeldVisual(node, false);
-      if (this.held.carry) this.endCarry();
-      this.held = null;
+      if (this.held?.carry) this.dropFromHand(groupId);
+      else this.held = null;
       this.disarmFlagDropTargets();
     }
     this.releaseGroupHeld(groupId);
@@ -1482,12 +1628,7 @@ export class PuzzleStage {
       this.heldGroupIds.delete(newGroupId);
       this.pendingDrops.delete(newGroupId);
       for (const gid of plan.removeGroups) this.pendingDrops.delete(gid);
-      if (
-        this.held &&
-        (this.held.groupId === newGroupId || plan.removeGroups.includes(this.held.groupId))
-      ) {
-        this.held = null;
-      }
+      this.forgetHeldMerged(newGroupId, plan.removeGroups);
       return;
     }
 
@@ -1519,12 +1660,7 @@ export class PuzzleStage {
     this.pendingDrops.delete(newGroupId);
     for (const gid of sourceGroupIds) this.pendingDrops.delete(gid);
 
-    if (
-      this.held &&
-      (this.held.groupId === newGroupId || sourceGroupIds.includes(this.held.groupId))
-    ) {
-      this.held = null;
-    }
+    this.forgetHeldMerged(newGroupId, sourceGroupIds);
 
     if (animate) {
       let bursts = 0;
@@ -1835,7 +1971,7 @@ export class PuzzleStage {
   private applyGroupInteractivity(node: GroupNode): void {
     const interactive = this.mode === "contributor";
     node.container.eventMode = interactive ? "static" : "none";
-    node.container.cursor = interactive ? "grab" : "default";
+    node.container.cursor = !interactive ? "default" : this.spotPick ? "crosshair" : "grab";
     node.container.off("pointerdown");
     if (interactive) {
       node.container.on("pointerdown", (ev) => this.onGroupPointerDown(node, ev));
@@ -1844,6 +1980,10 @@ export class PuzzleStage {
 
   private onGroupPointerDown(node: GroupNode, ev: FederatedPointerEvent): void {
     if (this.pinch || !this.callbacks) return;
+    // A spot pick is armed: this press aims at the board rather than grabbing
+    // what happens to be under it. Left to bubble to the stage, which pans on a
+    // drag and answers the pick on a click.
+    if (this.spotPick) return;
     this.trackPointer(ev.global.x, ev.global.y);
     const world = this.screenToWorld(ev.global.x, ev.global.y);
     // Strict hit-test with fall-through: Pixi delivers the press to the cluster
@@ -1857,6 +1997,16 @@ export class PuzzleStage {
     const target = this.grabTargetAt(world.x, world.y, node);
     if (!target) return;
     ev.stopPropagation();
+    // Ctrl (or Cmd, which is what a Mac has instead) adds this cluster to a hand
+    // already carrying one. It pairs into no double press: two quick adds on
+    // neighbouring pieces would otherwise read as the press that puts the whole
+    // hand down. With an empty hand the modifier means nothing and the press is an
+    // ordinary grab.
+    if (isAdditive(ev) && this.held?.carry) {
+      this.lastTapScreen = null;
+      this.addToCarrySelection(target);
+      return;
+    }
     if (this.consumeDoubleTap(ev.global.x, ev.global.y)) {
       if (this.held?.carry) this.dropCarried();
       else if (!this.held) this.beginCarry(target);
@@ -1921,20 +2071,27 @@ export class PuzzleStage {
   }
 
   // Whether a world point lands on the opaque silhouette of any of a cluster's
-  // pieces (knobs included, blanks and gaps excluded). The press happens at rest,
-  // so each piece's inner transform is identity (its pivot and position cancel)
-  // and the tile texture maps onto container-local [-margin, pieceSize+margin].
+  // pieces. A board with no manifest yet is grabbable rather than dead, which is
+  // the one case the piece lookup below cannot answer.
   private pointerOnPiece(node: GroupNode, worldX: number, worldY: number): boolean {
+    return !this.manifest || this.pieceAtPoint(node, worldX, worldY) !== null;
+  }
+
+  // The piece of a cluster whose opaque silhouette covers a world point (knobs
+  // included, blanks and gaps excluded), or null. The press happens at rest, so
+  // each piece's inner transform is identity (its pivot and position cancel) and
+  // the tile texture maps onto container-local [-margin, pieceSize+margin].
+  private pieceAtPoint(node: GroupNode, worldX: number, worldY: number): PieceNode | null {
     const m = this.manifest;
-    if (!m) return true;
+    if (!m) return null;
     const span = m.tileSize;
     for (const piece of node.pieces) {
       const u = (worldX - node.worldX - piece.container.x + m.margin) / span;
       const v = (worldY - node.worldY - piece.container.y + m.margin) / span;
       if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
-      if (this.samplePieceAlpha(piece, u, v) >= GRAB_HIT_ALPHA) return true;
+      if (this.samplePieceAlpha(piece, u, v) >= GRAB_HIT_ALPHA) return piece;
     }
-    return false;
+    return null;
   }
 
   // Alpha (0-255) of one texel of a piece's tile, at normalized (u, v). Reads a
@@ -1971,13 +2128,26 @@ export class PuzzleStage {
   private onStagePointerDown(ev: FederatedPointerEvent): void {
     if (this.pinch) return;
     this.trackPointer(ev.global.x, ev.global.y);
+    // An armed pick owns every press: it pans like an empty hand, and the release
+    // answers if the press stayed put. No double-press pairing, so a rapid pair
+    // of picks cannot also read as a carry.
+    if (this.spotPick) {
+      this.spotPress = { x: ev.global.x, y: ev.global.y, moved: false };
+      this.pan.active = true;
+      this.pan.lastX = ev.global.x;
+      this.pan.lastY = ev.global.y;
+      return;
+    }
     // Double-press bookkeeping runs regardless of carry state (a begin-carry or
     // drop-carry pair can straddle a piece and empty stage, e.g. the first tap
     // lands on the gap between pieces), so it must see every contributor-mode
-    // pointerdown to pair correctly; only the resulting action is carry-gated.
+    // pointerdown to pair correctly; only the resulting action is carry-gated. A
+    // ctrl-click is the one press that never pairs: it is an add that missed the
+    // piece it was aimed at, not half of a drop.
     if (this.mode === "contributor") {
-      const doubleTap = this.consumeDoubleTap(ev.global.x, ev.global.y);
-      if (doubleTap && this.held?.carry) {
+      if (isAdditive(ev) && this.held?.carry) {
+        this.lastTapScreen = null;
+      } else if (this.consumeDoubleTap(ev.global.x, ev.global.y) && this.held?.carry) {
         this.dropCarried();
         return;
       }
@@ -1994,6 +2164,11 @@ export class PuzzleStage {
 
   private onPointerMove(ev: FederatedPointerEvent): void {
     this.trackPointer(ev.global.x, ev.global.y);
+    const press = this.spotPress;
+    if (press && Math.hypot(ev.global.x - press.x, ev.global.y - press.y) > SPOT_PICK_SLOP) {
+      press.moved = true;
+    }
+    if (this.spotPick) this.updateAimSquare();
     // A cursor is broadcast only in contributor mode (a connected player).
     if (this.mode === "contributor" && this.onCursorMove) {
       const cursor = this.screenToWorld(ev.global.x, ev.global.y);
@@ -2059,18 +2234,68 @@ export class PuzzleStage {
     );
   }
 
-  // World-space origin that floats the carried cluster to the upper-right of the
+  // World-space origin that floats a carried cluster to the upper-right of the
   // cursor: its bottom-left bounding-box corner (minX, maxY) is held HELD_CARRY_GAP
   // screen px to the right of and above the pointer, so the whole cluster clears
-  // the cursor whatever piece was grabbed and whatever the zoom.
+  // the cursor whatever piece was grabbed and whatever the zoom. A hand of several
+  // fans out from that same corner, `slot` steps right and `row` steps up by the
+  // largest cluster in the hand, so no two overlap and the fan reads as one body
+  // travelling with the cursor.
   private carryGroupOrigin(
     node: GroupNode,
     screenX: number,
     screenY: number,
+    slot: FanSlot = { dx: 0, dy: 0 },
+    towards: FanDirection = { x: 1, y: 1 },
   ): { x: number; y: number } {
     const gap = HELD_CARRY_GAP / this.camera.zoom;
     const b = node.localBounds;
-    return this.originForScreenAnchor(node, screenX, screenY, b.minX - gap, b.maxY + gap);
+    const anchorX = towards.x > 0 ? b.minX - gap - slot.dx : b.maxX + gap + slot.dx;
+    const anchorY = towards.y > 0 ? b.maxY + gap + slot.dy : b.minY - gap - slot.dy;
+    return this.originForScreenAnchor(node, screenX, screenY, anchorX, anchorY);
+  }
+
+  // Which way the fan grows out of the cursor: up and to the right, where a
+  // carried cluster floats, and it keeps that side over the whole board the player
+  // works on. Each axis is tested against the room behind the hand rather than the
+  // room ahead of it, and that is deliberate: the fan is sized in world units, so
+  // at the zoom pieces are actually placed at a hand covers a large part of the
+  // screen, and a test for the room ahead turns it over across most of the
+  // viewport. A hand that jumps sides while the player is working reads as broken
+  // where one that runs past an edge does not, so the side is what is held onto.
+  private carryFanDirection(
+    count: number,
+    columns: number,
+    cell: FanCell,
+    gap: number,
+    screenX: number,
+    screenY: number,
+  ): FanDirection {
+    const screen = this.app?.renderer.screen;
+    if (!screen) return { x: 1, y: 1 };
+    const rows = Math.ceil(count / columns);
+    const zoom = this.camera.zoom;
+    const width = HELD_CARRY_GAP + (columns * (cell.width + gap) - gap) * zoom;
+    const height = HELD_CARRY_GAP + (rows * (cell.height + gap) - gap) * zoom;
+    return {
+      x: fanAxis(screenX, screen.width - screenX, width),
+      y: fanAxis(screen.height - screenY, screenY, height),
+    };
+  }
+
+  // The cell every slot of the carried fan is sized by: the largest cluster the
+  // hand holds. Recomputed on every placement, so a cluster joining or leaving
+  // re-lays the whole hand rather than leaving a hole or an overlap.
+  private carryFanCell(): FanCell {
+    let width = 0;
+    let height = 0;
+    for (const id of this.carriedIds()) {
+      const b = this.groups.get(id)?.localBounds;
+      if (!b) continue;
+      width = Math.max(width, b.maxX - b.minX);
+      height = Math.max(height, b.maxY - b.minY);
+    }
+    return { width, height };
   }
 
   // World-space origin that lands the carried cluster centered on the cursor: its
@@ -2099,14 +2324,28 @@ export class PuzzleStage {
   // the piece under the cursor. Shared by pointer moves and edge-pan, which
   // carries the cluster across the board while the pointer rests at the edge.
   private dragHeldTo(screenX: number, screenY: number): void {
-    if (!this.held) return;
-    const node = this.groups.get(this.held.groupId);
-    if (!node || !this.callbacks) return;
-    const { x: nx, y: ny } = this.held.carry
-      ? this.carryGroupOrigin(node, screenX, screenY)
-      : this.heldGroupOrigin(node, screenX, screenY);
-    this.moveGroup(node, nx, ny);
-    this.pendingDrag = { worldX: nx, worldY: ny };
+    if (!this.held || !this.callbacks) return;
+    if (!this.held.carry) {
+      const node = this.groups.get(this.held.groupId);
+      if (!node) return;
+      const { x, y } = this.heldGroupOrigin(node, screenX, screenY);
+      this.moveGroup(node, x, y);
+      this.pendingDrags.set(node.id, { worldX: x, worldY: y });
+      return;
+    }
+    const ids = this.carriedIds();
+    const cell = this.carryFanCell();
+    const columns = fanColumns(ids.length);
+    const gap = (this.manifest?.pieceSize ?? 0) * CARRY_FAN_GAP_PIECES;
+    const towards = this.carryFanDirection(ids.length, columns, cell, gap, screenX, screenY);
+    ids.forEach((id, i) => {
+      const node = this.groups.get(id);
+      if (!node) return;
+      const slot = fanSlot(i, columns, cell, gap);
+      const { x, y } = this.carryGroupOrigin(node, screenX, screenY, slot, towards);
+      this.moveGroup(node, x, y);
+      this.pendingDrags.set(id, { worldX: x, worldY: y });
+    });
   }
 
   // Per-frame edge-pan: during a press-drag, when the pointer sits in an edge
@@ -2135,6 +2374,13 @@ export class PuzzleStage {
   private onPointerUp(ev: FederatedPointerEvent): void {
     if (this.flagDrag) {
       this.endFlagDrag();
+      return;
+    }
+    if (this.spotPick) {
+      const press = this.spotPress;
+      this.spotPress = null;
+      this.pan.active = false;
+      if (press && !press.moved) this.resolveSpotPick(ev.global.x, ev.global.y);
       return;
     }
     // Sticky carry ignores the button release: the cluster stays in hand until a
@@ -2177,6 +2423,7 @@ export class PuzzleStage {
     this.moveGroup(node, x, y);
     this.setGroupHeldVisual(node, false);
     this.pendingDrops.add(node.id);
+    this.pendingDrags.delete(node.id);
     if (landOn) this.callbacks.onDropNear(node.id, landOn.x, landOn.y);
     else this.callbacks.onDrop(node.id, x, y);
     this.releaseGroupHeld(node.id);
@@ -2209,6 +2456,9 @@ export class PuzzleStage {
   // sticky-carry drop, so it is left to bubble to the stage untouched.
   private onFlagPointerDown(id: string, ev: FederatedPointerEvent): void {
     if (this.pinch || this.mode !== "contributor" || this.held) return;
+    // An armed pick reaches the ground a flag stands on: the press bubbles to the
+    // stage rather than picking the flag up.
+    if (this.spotPick) return;
     const flag = this.flagLayer?.flagAt(id);
     if (!flag) return;
     ev.stopPropagation();
@@ -2346,18 +2596,19 @@ export class PuzzleStage {
       gap,
       maxRing: FLAG_DROP_SEARCH_RINGS,
       clamp: (x, y) => this.clampGroupOrigin(node, x, y),
-      isClear: (box) => this.boxIsClear(box, node.id),
+      isClear: (box) => this.boxIsClear(box, new Set([node.id])),
     });
     this.commitHeldDrop(node, origin.x, origin.y, { x: flag.worldX, y: flag.worldY });
     return true;
   }
 
   // Whether a world box holds none of the clusters and locked pieces this client
-  // has streamed. Both indexes answer at cell granularity, so each candidate is
-  // refined against the real bounds.
-  private boxIsClear(box: Aabb, exceptGroupId: number): boolean {
+  // has streamed, ignoring the groups in `except`: the cluster being placed, and
+  // the rest of a hand still in the air. Both indexes answer at cell granularity,
+  // so each candidate is refined against the real bounds.
+  private boxIsClear(box: Aabb, except: ReadonlySet<number>): boolean {
     for (const gid of this.groupGrid.queryRect(box)) {
-      if (gid === exceptGroupId) continue;
+      if (except.has(gid)) continue;
       const other = this.groups.get(gid);
       if (other && aabbsOverlap(box, this.worldAabb(other))) return false;
     }
@@ -2391,12 +2642,54 @@ export class PuzzleStage {
     return true;
   }
 
+  // A merge takes its clusters out of the hand: the host is no longer the group
+  // that was picked up, and every source group is gone outright. Nothing is
+  // committed here, the merge already placed the result; the hand just gives them
+  // up and carries on with whatever is left.
+  private forgetHeldMerged(hostGroupId: number, removedGroupIds: readonly number[]): void {
+    for (const groupId of this.carriedIds()) {
+      if (groupId === hostGroupId || removedGroupIds.includes(groupId)) {
+        this.dropFromHand(groupId);
+      }
+    }
+  }
+
+  // Every cluster in hand, the one picked first leading, which is the order they
+  // land in. A press-drag hand is always one cluster; only a sticky carry can hold
+  // more.
+  private handEntries(): HeldState[] {
+    return this.held ? [this.held, ...this.carryExtras] : [];
+  }
+
+  private carriedIds(): number[] {
+    return this.handEntries().map((e) => e.groupId);
+  }
+
+  // The hand's own record for a cluster: the lead, one of the ctrl-clicked
+  // extras, or null when the cluster is not in hand at all. Where a cluster sits
+  // in the hand is the caller's business only when it leaves it (dropFromHand),
+  // so everything else reads it through here.
+  private handEntry(groupId: number): HeldState | null {
+    return this.handEntries().find((e) => e.groupId === groupId) ?? null;
+  }
+
+  private isInHand(groupId: number): boolean {
+    return this.handEntry(groupId) !== null;
+  }
+
+  // The hand is empty: every cluster in it has been committed or given up by the
+  // caller, so forget them all and take the carry down with them.
+  private releaseHand(): void {
+    this.held = null;
+    this.carryExtras = [];
+    this.endCarry();
+  }
+
   // Pick a cluster up into sticky carry: grab it (acquiring the server lock), keep
   // it under the cursor, mark it with the carry outline, and arm the idle timeout.
   private beginCarry(node: GroupNode): void {
     if (!this.callbacks || !this.pointerScreen) return;
     const pointer = this.pointerScreen;
-    this.pendingDrops.delete(node.id);
     const world = this.screenToWorld(pointer.x, pointer.y);
     this.held = {
       groupId: node.id,
@@ -2407,35 +2700,152 @@ export class PuzzleStage {
       confirmed: false,
       carry: true,
     };
-    this.markGroupHeld(node);
-    this.setGroupHeldVisual(node, true);
-    this.addCarryHighlight(node);
-    this.callbacks.onGrab(node.id);
+    this.carryExtras = [];
+    this.takeIntoHand(node);
     this.flagLayer?.setInteractive(false);
-    this.onCarryChange?.(true);
+    this.onCarryChange?.(1);
     // Float the cluster off to the upper-right of the cursor the instant it is
     // grabbed, not on the first move, so it never starts under the pointer.
     this.dragHeldTo(pointer.x, pointer.y);
     this.armCarryIdle();
   }
 
-  // Put the carried cluster down centered on the cursor (the drop double-press or
-  // the idle timeout), committing the move and releasing the server lock. It lands
-  // centered on the pointer rather than by its grab point: the carry floats it off
-  // the cursor, so the grab point is irrelevant on drop. Falls back to its current
-  // resting spot if the pointer has left the canvas (a timeout after the cursor
-  // left).
+  // Add a ctrl-clicked cluster to the carried hand. Refused at
+  // CARRY_SELECTION_MAX, which is what keeps a hand from sweeping a region of the
+  // board in one gesture. A cluster already carried is left alone: it travels with
+  // the cursor, so a press on it is a press on the hand, never a pick.
+  private addToCarrySelection(node: GroupNode): void {
+    if (!this.held?.carry || !this.callbacks) return;
+    if (this.isInHand(node.id)) return;
+    if (this.carriedIds().length >= CARRY_SELECTION_MAX) {
+      this.onNotice?.("carry_full");
+      return;
+    }
+    this.carryExtras.push({
+      groupId: node.id,
+      pointerDx: 0,
+      pointerDy: 0,
+      originX: node.worldX,
+      originY: node.worldY,
+      confirmed: false,
+      carry: true,
+    });
+    this.takeIntoHand(node);
+    this.onCarryChange?.(this.carriedIds().length);
+    this.relayoutHand();
+    this.armCarryIdle();
+  }
+
+  // The visuals and the server lock a cluster takes on when it enters the hand,
+  // shared by the first pick and every ctrl-clicked one after it.
+  private takeIntoHand(node: GroupNode): void {
+    this.pendingDrops.delete(node.id);
+    this.markGroupHeld(node);
+    this.setGroupHeldVisual(node, true);
+    this.addCarryHighlight(node);
+    this.callbacks?.onGrab(node.id);
+  }
+
+  // Take a cluster out of the hand without committing anything: the caller has
+  // already placed it, or the server took it away (a denial, a merge, a rebuild).
+  // Promotes the next cluster to the lead so the hand stays well-formed, and ends
+  // the carry once nothing is left.
+  private dropFromHand(groupId: number): void {
+    this.removeCarryHighlight(groupId);
+    this.pendingDrags.delete(groupId);
+    if (this.held?.groupId === groupId) {
+      this.held = this.carryExtras.shift() ?? null;
+    } else {
+      this.carryExtras = this.carryExtras.filter((e) => e.groupId !== groupId);
+    }
+    if (!this.held) {
+      this.releaseHand();
+      return;
+    }
+    // The hand that stays keeps its lifted size: committing the cluster that left
+    // reset the shared scale to rest.
+    this.heldPieceScale = HELD_SCALE;
+    this.onCarryChange?.(this.carriedIds().length);
+    this.relayoutHand();
+  }
+
+  // Re-place the whole hand around the cursor after it gained or lost a cluster,
+  // since a carried hand only moves on a pointer move and would otherwise hold a
+  // layout sized for a different number of clusters.
+  private relayoutHand(): void {
+    const pointer = this.pointerScreen ?? this.lastPointerScreen;
+    if (pointer) this.dragHeldTo(pointer.x, pointer.y);
+  }
+
+  // Put the carried hand down at the cursor (the drop double-press or the idle
+  // timeout), committing the moves and releasing the server locks. A single
+  // cluster lands centered on the pointer: the carry floats it off the cursor, so
+  // the grab point is irrelevant on drop. A hand of several lands as it would on a
+  // flag planted at that point, each cluster on the free patch nearest it, since
+  // stacking them all on the one spot the cursor names would bury nine of them.
+  // Falls back to their resting spots if the pointer has left the canvas (a
+  // timeout after the cursor left).
   private dropCarried(): void {
     if (!this.held?.carry) return;
-    const node = this.groups.get(this.held.groupId);
-    if (node) {
-      const { x, y } = this.pointerScreen
-        ? this.carryDropOrigin(node, this.pointerScreen.x, this.pointerScreen.y)
-        : { x: node.worldX, y: node.worldY };
-      this.commitHeldDrop(node, x, y);
+    const pointer = this.pointerScreen;
+    if (!pointer) {
+      // The pointer has left the canvas, so there is no spot the player is
+      // pointing at: every cluster lands where it was floating rather than on a
+      // guess.
+      for (const id of this.carriedIds()) {
+        const node = this.groups.get(id);
+        if (node) this.commitHeldDrop(node, node.worldX, node.worldY);
+      }
+      this.releaseHand();
+      return;
     }
-    this.held = null;
-    this.endCarry();
+    if (this.carryExtras.length > 0) {
+      const at = this.screenToWorld(pointer.x, pointer.y);
+      this.dropHandNear(at.x, at.y);
+      return;
+    }
+    const lead = this.groups.get(this.held.groupId);
+    if (lead) {
+      const { x, y } = this.carryDropOrigin(lead, pointer.x, pointer.y);
+      this.commitHeldDrop(lead, x, y);
+    }
+    this.releaseHand();
+  }
+
+  // Lay the carried hand out around a world point, each cluster on the free patch
+  // nearest it and each seeing the ones already placed, then commit them as
+  // ordinary drops. The search is the one a flag drop uses, run here rather than
+  // on the server because the point is the one the player double-clicked: it is on
+  // their screen, so the region is streamed and this client's own knowledge of what
+  // stands there is complete.
+  private dropHandNear(atX: number, atY: number): void {
+    const ids = this.carriedIds();
+    if (ids.length === 0 || !this.callbacks) return;
+    // Every cluster still in hand is an obstacle the search must ignore: they are
+    // indexed where they were picked up, which is often the very patch the player
+    // is putting them back on.
+    const airborne = new Set(ids);
+    const gap = (this.manifest?.pieceSize ?? 0) * FLAG_DROP_GAP_PIECES;
+    for (const id of ids) {
+      const node = this.groups.get(id);
+      if (node) {
+        const origin = findFreeOrigin({
+          bounds: node.localBounds,
+          atX,
+          atY,
+          gap,
+          maxRing: FLAG_DROP_SEARCH_RINGS,
+          clamp: (x, y) => this.clampGroupOrigin(node, x, y),
+          isClear: (box) => this.boxIsClear(box, airborne),
+        });
+        this.commitHeldDrop(node, origin.x, origin.y);
+      }
+      // Only once it is placed: until then this cluster is one of the obstacles
+      // its own search has to look past, since it is floating over the very spot
+      // the hand is being put down on.
+      airborne.delete(id);
+    }
+    this.releaseHand();
   }
 
   // Abort an in-progress press-drag (button-held grab) without committing a move:
@@ -2455,26 +2865,26 @@ export class PuzzleStage {
     this.pan.active = false;
   }
 
-  // Return the carried cluster to where it was picked up (Escape), releasing the
-  // lock by dropping it back at its origin.
+  // Return the whole carried hand to where it was picked up (Escape), releasing
+  // each lock by dropping the cluster back at its own origin.
   private cancelCarry(): void {
     if (!this.held?.carry) return;
-    const node = this.groups.get(this.held.groupId);
-    if (node) {
+    for (const entry of this.handEntries()) {
+      const node = this.groups.get(entry.groupId);
+      if (!node) continue;
       this.markDirty(this.worldAabb(node));
-      this.commitHeldDrop(node, this.held.originX, this.held.originY);
+      this.commitHeldDrop(node, entry.originX, entry.originY);
     }
-    this.held = null;
-    this.endCarry();
+    this.releaseHand();
   }
 
   // Clear the carry visuals and idle timer and notify the shell. Leaves this.held
   // to the caller, so the denied/rollback paths can reuse it.
   private endCarry(): void {
     this.clearCarryIdle();
-    this.removeCarryHighlight();
+    this.removeAllCarryHighlights();
     this.flagLayer?.setInteractive(true);
-    this.onCarryChange?.(false);
+    this.onCarryChange?.(0);
   }
 
   private armCarryIdle(): void {
@@ -2491,10 +2901,11 @@ export class PuzzleStage {
     this.carryIdleTimer = null;
   }
 
-  // Outline over the carried cluster: a soft glow plus a crisp stroke around its
-  // bounds, so a sticky-carried piece reads as in-hand with no button held.
+  // Outline over a carried cluster: a soft glow plus a crisp stroke around its
+  // bounds, so a sticky-carried piece reads as in-hand with no button held. One
+  // per cluster, since a hand can hold several.
   private addCarryHighlight(node: GroupNode): void {
-    this.removeCarryHighlight();
+    this.removeCarryHighlight(node.id);
     const pieceSize = this.manifest?.pieceSize ?? 0;
     if (pieceSize === 0) return;
     const b = node.localBounds;
@@ -2518,16 +2929,20 @@ export class PuzzleStage {
     });
     node.container.addChild(g);
     this.effectNodes.add(g);
-    this.carryHighlight = g;
+    this.carryHighlights.set(node.id, g);
   }
 
-  private removeCarryHighlight(): void {
-    const g = this.carryHighlight;
-    this.carryHighlight = null;
+  private removeCarryHighlight(groupId: number): void {
+    const g = this.carryHighlights.get(groupId);
+    this.carryHighlights.delete(groupId);
     if (!g) return;
     this.effectNodes.delete(g);
     g.parent?.removeChild(g);
     if (!g.destroyed) g.destroy({ context: true });
+  }
+
+  private removeAllCarryHighlights(): void {
+    for (const groupId of [...this.carryHighlights.keys()]) this.removeCarryHighlight(groupId);
   }
 
   private setGroupHeldVisual(node: GroupNode, held: boolean): void {
@@ -2637,11 +3052,148 @@ export class PuzzleStage {
     this.centerOn(worldX, worldY);
   }
 
+  // Restore a whole framing rather than a point: a shared link hands over the
+  // scale its sender was reading the board at, which is half of what makes it
+  // the spot they meant. The zoom is set first so centerOn's own clamp runs
+  // against the framing being restored, not the one being left.
+  frameWorld(worldX: number, worldY: number, zoom: number): void {
+    if (!this.app) return;
+    this.camera.zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+    this.centerOn(worldX, worldY);
+  }
+
   // World point at the middle of the view, where a new personal flag is planted.
   viewportCenterWorld(): { x: number; y: number } | null {
     if (!this.app) return null;
     const screen = this.app.renderer.screen;
     return this.screenToWorld(screen.width * 0.5, screen.height * 0.5);
+  }
+
+  // Bookmarks: arms a one-shot spot pick and answers with the next click that is
+  // not a pan, or with null when it is called off. Re-arming supersedes a pick
+  // already waiting, so a caller never has to pair its own cancel with a new arm.
+  // `squareWorld` is the side, in world units, of the square traced under the
+  // cursor: the caller sets it, since the badge it stands for is the caller's,
+  // and zero traces none, which is what an aim for a piece alone asks for.
+  // `onResize` takes the wheel while that square is up, in notches, the caller
+  // turning them into a new side since the size is measured in its own units.
+  pickSpot(
+    squareWorld: number,
+    onResize: ((step: number) => void) | null = null,
+  ): Promise<PickedSpot | null> {
+    this.cancelPickSpot();
+    this.aimSquareWorld = squareWorld;
+    this.spotResize = onResize;
+    return new Promise((resolve) => {
+      this.spotPick = resolve;
+      this.applyAimState();
+    });
+  }
+
+  // The square resized while the aim is up, so the player sees the badge they
+  // are about to take rather than setting its size blind.
+  setPickSquare(squareWorld: number): void {
+    this.aimSquareWorld = squareWorld;
+    this.updateAimSquare();
+  }
+
+  cancelPickSpot(): void {
+    const pending = this.spotPick;
+    this.spotResize = null;
+    this.aimWheelNotches = 0;
+    if (!pending) return;
+    this.spotPick = null;
+    this.spotPress = null;
+    this.applyAimState();
+    pending(null);
+  }
+
+  // The crosshair has to reach the clusters too: Pixi paints the cursor of
+  // whatever container the pointer is over, so a board left on `grab` would keep
+  // offering a grab that the aim has just turned off.
+  private applyAimState(): void {
+    if (this.app) this.app.stage.cursor = this.spotPick ? "crosshair" : "default";
+    for (const node of this.groups.values()) this.applyGroupInteractivity(node);
+    this.updateAimSquare();
+  }
+
+  // Drawn in screen space rather than in the world, so the one thing it has to
+  // follow is the cursor: the side is the world square under the current zoom,
+  // and the strokes stay the same weight at every zoom with no counter-scaling.
+  private updateAimSquare(): void {
+    const app = this.app;
+    const pointer = this.pointerScreen;
+    if (!app || !pointer || !this.spotPick || this.aimSquareWorld <= 0) {
+      this.removeAimSquare();
+      return;
+    }
+    let g = this.aimSquare;
+    if (!g) {
+      g = new Graphics();
+      g.eventMode = "none";
+      app.stage.addChild(g);
+      this.aimSquare = g;
+      this.aimSquareSide = -1;
+    }
+    const side = this.aimSquareWorld * this.camera.zoom;
+    if (side !== this.aimSquareSide) {
+      this.aimSquareSide = side;
+      const x = -side / 2;
+      g.clear();
+      g.rect(x, x, side, side).fill({ color: AIM_SQUARE_COLOR, alpha: 0.12 });
+      g.rect(x, x, side, side).stroke({ color: AIM_SQUARE_SHADOW, width: 4, alpha: 0.5 });
+      g.rect(x, x, side, side).stroke({ color: AIM_SQUARE_COLOR, width: 2, alpha: 1 });
+    }
+    g.position.set(pointer.x, pointer.y);
+  }
+
+  private removeAimSquare(): void {
+    const g = this.aimSquare;
+    this.aimSquare = null;
+    this.aimSquareSide = -1;
+    if (!g) return;
+    g.parent?.removeChild(g);
+    if (!g.destroyed) g.destroy({ context: true });
+  }
+
+  private resolveSpotPick(screenX: number, screenY: number): void {
+    const resolve = this.spotPick;
+    if (!resolve) return;
+    this.spotPick = null;
+    this.spotResize = null;
+    this.aimWheelNotches = 0;
+    this.applyAimState();
+    const world = this.screenToWorld(screenX, screenY);
+    const pieceId = this.loosePieceAt(world.x, world.y);
+    resolve({
+      worldX: world.x,
+      worldY: world.y,
+      pieceFile: pieceId === null ? null : (this.fileById.get(pieceId) ?? null),
+    });
+  }
+
+  // The loose piece whose opaque silhouette covers a world point, topmost in the
+  // unlocked layer's z-order, or null. Only a hydrated piece can answer: its own
+  // tile is both what the alpha is read from and what the caller stores, so a
+  // piece the browser has never fetched is not offered as a badge.
+  private loosePieceAt(worldX: number, worldY: number): number | null {
+    const layer = this.unlockedLayer;
+    if (!layer) return null;
+    const point: Aabb = { minX: worldX, minY: worldY, maxX: worldX, maxY: worldY };
+    let best: number | null = null;
+    let bestZ = -1;
+    for (const id of this.groupGrid.queryRect(point)) {
+      const node = this.groups.get(id);
+      if (!node || node.container.parent !== layer) continue;
+      const piece = this.pieceAtPoint(node, worldX, worldY);
+      if (!piece) continue;
+      const z = layer.getChildIndex(node.container);
+      if (z > bestZ) {
+        bestZ = z;
+        best = piece.id;
+      }
+    }
+    return best;
   }
 
   zoomIn(): void {
@@ -2797,8 +3349,20 @@ export class PuzzleStage {
     this.world.position.set(this.camera.x, this.camera.y);
     this.reglueCarried();
     this.updateFlagLayer();
-    this.onCameraChange?.({ ...this.camera });
+    // The aim's square is a world size drawn on screen, so a zoom resizes it and
+    // a pan leaves it where the cursor is.
+    if (this.spotPick) this.updateAimSquare();
+    this.emitCamera();
     this.reconcile();
+  }
+
+  private emitCamera(): void {
+    const center = this.viewportCenterWorld();
+    this.onCameraChange?.({
+      ...this.camera,
+      centerX: center?.x ?? 0,
+      centerY: center?.y ?? 0,
+    });
   }
 
   // A carried cluster is otherwise only re-placed by a pointer move, so a camera
@@ -3018,11 +3582,15 @@ export class PuzzleStage {
     return joinUrl(this.textureBase, file);
   }
 
-  // Loads one piece texture with a deadline so a stalled CDN connection cannot
-  // pin its hydrate slot forever. Retries a bounded number of times, then
-  // returns null: the caller skips the piece and the group still completes.
+  // Loads one piece texture, admitted to the decode pool first so the pool never
+  // holds a queue of its own (see TEXTURE_DECODE_SLOTS), then with a deadline so a
+  // stalled CDN connection cannot pin its hydrate slot forever. Retries a bounded
+  // number of times, then returns null: the caller skips the piece and the group
+  // still completes. The single Assets.load of the canvas, so every texture the
+  // board fetches, piece or DZI tile, passes through this gate.
   private async loadPieceTexture(url: string): Promise<Texture | null> {
     for (let attempt = 0; ; attempt++) {
+      await acquireDecodeSlot();
       try {
         return (await withTimeout(Assets.load(url), TEXTURE_LOAD_TIMEOUT_MS)) as Texture;
       } catch (e) {
@@ -3030,6 +3598,8 @@ export class PuzzleStage {
           console.warn("[stage] texture load failed", url, e);
           return null;
         }
+      } finally {
+        releaseDecodeSlot();
       }
     }
   }
@@ -3101,8 +3671,13 @@ export class PuzzleStage {
     }
   }
 
-  // Sorts the pending queue nearest-to-viewport-center last, so the pop() above
-  // always serves the closest group next, and drops any entry already removed
+  // Sorts the pending queue so the pop() above serves every on-screen group
+  // before any group that is only in the hydrate margin, nearest-to-viewport-
+  // center last within each block. Distance alone would rank against a point
+  // while the viewport is a rectangle, which fills the screen as a disc: a group
+  // just off-screen on a center axis is closer to the center than one in the
+  // viewport's own corner, so the sides and corners the player is looking at
+  // wait behind pieces they cannot see. Also drops any entry already removed
   // from hydrateQueued (left behind by a group dehydrated or forgotten before its
   // turn came up). Not kept sorted on push: the viewport moves every frame during
   // a pan, so a push-time order would be stale before it was ever used; only
@@ -3113,9 +3688,20 @@ export class PuzzleStage {
     if (!view) return;
     const cx = view.worldX + view.worldW / 2;
     const cy = view.worldY + view.worldH / 2;
-    const live = this.hydrateQueue.filter((gid) => this.hydrateQueued.has(gid));
-    live.sort((a, b) => this.groupDistanceSq(b, cx, cy) - this.groupDistanceSq(a, cx, cy));
-    this.hydrateQueue = live;
+    const onScreen: number[] = [];
+    const inMargin: number[] = [];
+    for (const gid of this.hydrateQueue) {
+      if (!this.hydrateQueued.has(gid)) continue;
+      const node = this.groups.get(gid);
+      const visible =
+        node !== undefined && boundsVisible(node.localBounds, node.worldX, node.worldY, view);
+      (visible ? onScreen : inMargin).push(gid);
+    }
+    const farthestFirst = (a: number, b: number) =>
+      this.groupDistanceSq(b, cx, cy) - this.groupDistanceSq(a, cx, cy);
+    inMargin.sort(farthestFirst);
+    onScreen.sort(farthestFirst);
+    this.hydrateQueue = inMargin.concat(onScreen);
   }
 
   // Squared distance from a group's origin to a point. Ordering only, so the
@@ -3886,6 +4472,7 @@ export class PuzzleStage {
       "wheel",
       (ev) => {
         ev.preventDefault();
+        if (this.wheelResizesAim(ev)) return;
         const rect = canvas.getBoundingClientRect();
         const px = ev.clientX - rect.left;
         const py = ev.clientY - rect.top;
@@ -3898,6 +4485,32 @@ export class PuzzleStage {
       },
       { passive: false },
     );
+  }
+
+  // While the aim traces a square, the wheel is that square's size and not the
+  // camera's scale: the badge is stored in world units, so the zoom the player is
+  // at changes nothing about what a click takes, where the size is the one thing
+  // they are still deciding. An aim for a piece traces no square and keeps the
+  // zoom, and the HUD's own buttons and a pinch keep it in both cases. Up is
+  // bigger, the way up is closer on the same wheel over the same board.
+  private wheelResizesAim(ev: WheelEvent): boolean {
+    const resize = this.spotResize;
+    if (!resize || !this.spotPick || this.aimSquareWorld <= 0 || ev.deltaY === 0) return false;
+    this.aimWheelNotches += wheelNotches(ev);
+    const steps = Math.trunc(this.aimWheelNotches);
+    this.aimWheelNotches -= steps;
+    if (steps !== 0) resize(-steps);
+    return true;
+  }
+
+  // A Mac's secondary click is Ctrl held down, so the press that adds a cluster to
+  // the hand also opens the browser's context menu over the board. Suppressed for
+  // a modified press alone: an unmodified right click keeps the menu it has always
+  // had.
+  private attachContextMenuGuard(canvas: HTMLCanvasElement): void {
+    canvas.addEventListener("contextmenu", (ev) => {
+      if (isAdditive(ev)) ev.preventDefault();
+    });
   }
 
   // Two-finger pinch to zoom, plus the same-gesture 2-finger pan. Bound at
@@ -4051,6 +4664,14 @@ function buildPieceNode(
 // microtask, so the frame actually renders between chunks.
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// Whether a press means "add this to what I am already carrying". Cmd counts
+// alongside Ctrl because a Mac holds Ctrl for its secondary click: the press
+// still arrives (as the right button, which a grab does not care about) but the
+// gesture a Mac player reaches for is Cmd.
+function isAdditive(ev: { ctrlKey: boolean; metaKey: boolean }): boolean {
+  return ev.ctrlKey || ev.metaKey;
 }
 
 function joinUrl(base: string, rel: string): string {
