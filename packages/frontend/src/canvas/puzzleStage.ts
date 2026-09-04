@@ -37,8 +37,8 @@ import {
   type Viewport,
 } from "./cull";
 import {
-  fanAxis,
   fanColumns,
+  fanDirection,
   fanSlot,
   type FanCell,
   type FanDirection,
@@ -2260,12 +2260,14 @@ export class PuzzleStage {
     if (!screen) return { x: 1, y: 1 };
     const rows = Math.ceil(count / columns);
     const zoom = this.camera.zoom;
-    const width = HELD_CARRY_GAP + (columns * (cell.width + gap) - gap) * zoom;
-    const height = HELD_CARRY_GAP + (rows * (cell.height + gap) - gap) * zoom;
-    return {
-      x: fanAxis(screenX, screen.width - screenX, width),
-      y: fanAxis(screen.height - screenY, screenY, height),
-    };
+    return fanDirection(
+      {
+        width: HELD_CARRY_GAP + (columns * (cell.width + gap) - gap) * zoom,
+        height: HELD_CARRY_GAP + (rows * (cell.height + gap) - gap) * zoom,
+      },
+      { x: screenX, y: screenY },
+      screen,
+    );
   }
 
   // The cell every slot of the carried fan is sized by: the largest cluster the

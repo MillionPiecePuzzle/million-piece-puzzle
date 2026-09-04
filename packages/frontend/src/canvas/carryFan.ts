@@ -36,3 +36,22 @@ export function fanAxis(preferred: number, other: number, reach: number): 1 | -1
   if (reach <= other) return -1;
   return preferred >= other ? 1 : -1;
 }
+
+// How far the fan reaches out of the cursor, in screen pixels, on each axis.
+export type FanReach = { width: number; height: number };
+
+// Which way the whole fan grows, both axes at once. The room a side needs is the
+// room on the side it grows into, and pairing the two here is what keeps a caller
+// from crossing them: +1 on x reaches right, so its room is what lies right of
+// the cursor, and +1 on y reaches up, so its room is what lies above (screen y
+// runs down, where the fan's own dy runs up).
+export function fanDirection(
+  reach: FanReach,
+  cursor: { x: number; y: number },
+  screen: { width: number; height: number },
+): FanDirection {
+  return {
+    x: fanAxis(screen.width - cursor.x, cursor.x, reach.width),
+    y: fanAxis(cursor.y, screen.height - cursor.y, reach.height),
+  };
+}

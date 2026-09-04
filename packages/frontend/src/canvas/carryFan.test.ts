@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fanAxis, fanColumns, fanSlot, type FanCell } from "./carryFan";
+import { fanAxis, fanColumns, fanDirection, fanSlot, type FanCell } from "./carryFan";
 
 const CELL: FanCell = { width: 100, height: 80 };
 const GAP = 20;
@@ -54,5 +54,46 @@ describe("carry fan", () => {
         }
       }
     }
+  });
+});
+
+// The axis rule reads two rooms and cannot tell which side it is answering for,
+// so the pairing is what these hold: a fan near an edge has to grow away from it.
+describe("fanDirection", () => {
+  const SCREEN = { width: 1600, height: 900 };
+  const REACH = { width: 570, height: 426 };
+
+  it("grows up and to the right from the middle of the screen", () => {
+    expect(fanDirection(REACH, { x: 800, y: 450 }, SCREEN)).toEqual({ x: 1, y: 1 });
+  });
+
+  it("turns away from whichever edge the cursor is against", () => {
+    expect(fanDirection(REACH, { x: 1570, y: 450 }, SCREEN).x).toBe(-1);
+    expect(fanDirection(REACH, { x: 30, y: 450 }, SCREEN).x).toBe(1);
+    expect(fanDirection(REACH, { x: 800, y: 30 }, SCREEN).y).toBe(-1);
+    expect(fanDirection(REACH, { x: 800, y: 870 }, SCREEN).y).toBe(1);
+  });
+
+  it("keeps the whole fan on screen from every corner", () => {
+    for (const cursor of [
+      { x: 30, y: 30 },
+      { x: 1570, y: 30 },
+      { x: 30, y: 870 },
+      { x: 1570, y: 870 },
+    ]) {
+      const towards = fanDirection(REACH, cursor, SCREEN);
+      const left = towards.x > 0 ? cursor.x : cursor.x - REACH.width;
+      const top = towards.y > 0 ? cursor.y - REACH.height : cursor.y;
+      expect(left, JSON.stringify(cursor)).toBeGreaterThanOrEqual(0);
+      expect(left + REACH.width, JSON.stringify(cursor)).toBeLessThanOrEqual(SCREEN.width);
+      expect(top, JSON.stringify(cursor)).toBeGreaterThanOrEqual(0);
+      expect(top + REACH.height, JSON.stringify(cursor)).toBeLessThanOrEqual(SCREEN.height);
+    }
+  });
+
+  it("shows the most it can of a hand bigger than the screen", () => {
+    const huge = { width: 4000, height: 4000 };
+    expect(fanDirection(huge, { x: 1200, y: 700 }, SCREEN)).toEqual({ x: -1, y: 1 });
+    expect(fanDirection(huge, { x: 400, y: 200 }, SCREEN)).toEqual({ x: 1, y: -1 });
   });
 });
