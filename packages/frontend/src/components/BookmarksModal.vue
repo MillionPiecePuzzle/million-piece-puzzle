@@ -14,12 +14,15 @@ import {
   VIEW_UNTAGGED,
   bookmarksInView,
   filterBookmarks,
-  hasTag,
+  hasAnyTag,
+  knownTagSpelling,
   normalizeBookmarkName,
   normalizeTagName,
   sameTag,
   tagView,
   viewTag,
+  withTag,
+  withoutTag,
   type Bookmark,
   type BookmarkBadge,
   type NewBookmark,
@@ -69,9 +72,9 @@ const { onMousedown, onClick } = useBackdropClick(() => hide());
 // Escape leaves whatever the panel is showing over its list first and the
 // notebook second: what is on screen is what it closes.
 function backOrClose(): void {
-  if (creating.value) cancelCreate();
+  if (tagging.value !== null) closeTagging();
+  else if (creating.value) cancelCreate();
   else if (importing.value) cancelImport();
-  else if (tagging.value !== null) closeTagging();
   else hide();
 }
 
@@ -319,10 +322,12 @@ const nameEl = ref<HTMLInputElement | null>(null);
 const importing = ref(false);
 const importUrl = ref("");
 const importEl = ref<HTMLInputElement | null>(null);
-// The bookmark whose tags are being written, a view of the panel rather than a
-// menu hung off its row: a list of tags is the same shape as the two the panel
+// What the tag picker is writing on: a bookmark of the list by its id, or the
+// entry being created, which has none yet. It is a view of the panel rather than
+// a menu hung off a row: a list of tags is the same shape as the two the panel
 // already shows over its own, so it costs no positioning, it scrolls when there
 // are many, and the focus trap already holds it.
+const TAG_TARGET_DRAFT = "draft";
 const tagging = ref<string | null>(null);
 // One field for both jobs, which is what keeps a notebook of a hundred tags
 // usable: it reads down to the ones that match, and creates what it holds when
@@ -440,7 +445,7 @@ async function aimAtSpot(): Promise<void> {
   if (!stage) return;
   aiming.value = true;
   for (;;) {
-    const spot = await stage.pickSpot(aimSquareWorld.value);
+    const spot = await stage.pickSpot(aimSquareWorld.value, resizeBadge);
     if (!spot) break;
     const badge = badgeFor(spot);
     if (badge !== null) {
@@ -475,6 +480,17 @@ function badgeFor(spot: PickedSpot): BookmarkBadge | null {
   const y = spot.worldY - size / 2;
   const onPicture = x + size > 0 && y + size > 0 && x < m.source.width && y < m.source.height;
   return onPicture ? { kind: "area", x, y, size } : null;
+}
+
+// The wheel over the board sizes the square while the aim is up, one piece a
+// notch, which is what puts the size under the hand that is already aiming
+// instead of back on the slider in the panel. The slider stays: it is the same
+// setting, and it is what a keyboard and a touchscreen have.
+function resizeBadge(step: number): void {
+  badgePieces.value = Math.min(
+    BADGE_PIECES_MAX,
+    Math.max(BADGE_PIECES_MIN, badgePieces.value + step),
+  );
 }
 
 // The square is set while the aim is up, so the board redraws it under the cursor
@@ -521,39 +537,55 @@ function save(): void {
   view.value = inherited === undefined ? VIEW_ALL : tagView(inherited);
 }
 
-const taggedBookmark = computed(() => bookmarks.value.find((b) => b.id === tagging.value) ?? null);
+const taggingDraft = computed(() => tagging.value === TAG_TARGET_DRAFT);
+const taggedBookmark = computed(() =>
+  taggingDraft.value ? null : (bookmarks.value.find((b) => b.id === tagging.value) ?? null),
+);
+// The words the picker is writing, wherever they are held: the draft's own list
+// while the entry is being written, the stored entry's once it is kept.
+const taggedTags = computed<readonly string[]>(() =>
+  taggingDraft.value ? draftTags.value : (taggedBookmark.value?.tags ?? []),
+);
 
-// What the picker lists: every tag the notebook holds, read down to the ones
-// the field matches. The ones this bookmark already wears come first, so what
-// it carries is read before what it could.
+function taggedWears(name: string): boolean {
+  return hasAnyTag(taggedTags.value, name);
+}
+
+// Everything the picker can offer: the tags the notebook holds, plus the words
+// the target already wears. The two are the same list for a bookmark the
+// notebook holds, and differ for an entry being written, whose words are on no
+// bookmark yet: without them a word created here could never be taken back off,
+// since nothing would list it.
+const pickableTags = computed(() => {
+  const known = tags.value;
+  const own = taggedTags.value.filter((name) => !known.some((t) => sameTag(t, name)));
+  return own.length === 0 ? known : [...known, ...own].sort((a, b) => a.localeCompare(b));
+});
+
+// What the picker lists: everything it can offer, read down to the ones the
+// field matches. The ones this bookmark already wears come first, so what it
+// carries is read before what it could.
 const tagChoices = computed(() => {
-  const bookmark = taggedBookmark.value;
   const needle = tagDraft.value.trim().toLocaleLowerCase();
   const matching =
     needle === ""
-      ? tags.value
-      : tags.value.filter((name) => name.toLocaleLowerCase().includes(needle));
-  if (bookmark === null) return matching;
-  return [
-    ...matching.filter((name) => hasTag(bookmark, name)),
-    ...matching.filter((name) => !hasTag(bookmark, name)),
-  ];
+      ? pickableTags.value
+      : pickableTags.value.filter((name) => name.toLocaleLowerCase().includes(needle));
+  return [...matching.filter(taggedWears), ...matching.filter((name) => !taggedWears(name))];
 });
 
 // A word the notebook does not hold yet, which is what the field offers to
 // create: a tag is made by putting it on a bookmark and never before.
 const tagDraftIsNew = computed(() => {
   const name = normalizeTagName(tagDraft.value);
-  return name !== null && !tags.value.some((t) => sameTag(t, name));
+  return name !== null && !pickableTags.value.some((t) => sameTag(t, name));
 });
 
-const taggedIsFull = computed(
-  () => (taggedBookmark.value?.tags.length ?? 0) >= MAX_TAGS_PER_BOOKMARK,
-);
+const taggedIsFull = computed(() => taggedTags.value.length >= MAX_TAGS_PER_BOOKMARK);
 
-function startTagging(bookmark: Bookmark): void {
+function startTagging(target: string): void {
   hidePeek();
-  tagging.value = bookmark.id;
+  tagging.value = target;
   tagDraft.value = "";
   error.value = null;
   void nextTick(() => tagDraftEl.value?.focus());
@@ -565,13 +597,30 @@ function closeTagging(): void {
   error.value = null;
 }
 
+// The two writers the picker works through, one per target: the notebook's own
+// for a bookmark it already holds, the draft's list for one still being written,
+// where nothing is committed until the entry is saved.
+function applyTag(name: string): void {
+  const target = tagging.value;
+  if (target === null) return;
+  if (target === TAG_TARGET_DRAFT) {
+    draftTags.value = withTag(draftTags.value, knownTagSpelling(bookmarks.value, name));
+  } else tag(target, name);
+}
+
+function dropTag(name: string): void {
+  const target = tagging.value;
+  if (target === null) return;
+  if (target === TAG_TARGET_DRAFT) draftTags.value = withoutTag(draftTags.value, name);
+  else untag(target, name);
+}
+
 // One click is the whole change, on or off, since taking a word back is the same
 // click again: a Save button would only stand between the two.
 function toggleTag(name: string): void {
-  const bookmark = taggedBookmark.value;
-  if (bookmark === null) return;
-  if (hasTag(bookmark, name)) {
-    untag(bookmark.id, name);
+  if (tagging.value === null) return;
+  if (taggedWears(name)) {
+    dropTag(name);
     error.value = null;
     return;
   }
@@ -579,21 +628,20 @@ function toggleTag(name: string): void {
     error.value = t("bookmarks.tagsFull", { max: MAX_TAGS_PER_BOOKMARK });
     return;
   }
-  tag(bookmark.id, name);
+  applyTag(name);
   error.value = null;
 }
 
 // The field's other job: what it holds becomes a tag on this bookmark, which is
 // the only way a tag comes into being.
 function createTag(): void {
-  const bookmark = taggedBookmark.value;
-  if (bookmark === null) return;
+  if (tagging.value === null) return;
   const name = normalizeTagName(tagDraft.value);
   if (name === null) {
     error.value = t("bookmarks.tagNeedName");
     return;
   }
-  if (hasTag(bookmark, name)) {
+  if (taggedWears(name)) {
     error.value = t("bookmarks.tagWorn");
     return;
   }
@@ -601,7 +649,7 @@ function createTag(): void {
     error.value = t("bookmarks.tagsFull", { max: MAX_TAGS_PER_BOOKMARK });
     return;
   }
-  tag(bookmark.id, name);
+  applyTag(name);
   tagDraft.value = "";
   error.value = null;
 }
@@ -611,7 +659,7 @@ function createTag(): void {
 function submitTagDraft(): void {
   const name = normalizeTagName(tagDraft.value);
   if (name === null) return;
-  const known = tags.value.find((t) => sameTag(t, name));
+  const known = pickableTags.value.find((t) => sameTag(t, name));
   if (known === undefined) createTag();
   else {
     toggleTag(known);
@@ -620,9 +668,9 @@ function submitTagDraft(): void {
 }
 
 const title = computed(() => {
+  if (tagging.value !== null) return t("bookmarks.tagsTitle");
   if (creating.value) return shared.value ? t("bookmarks.sharedTitle") : t("bookmarks.newTitle");
   if (importing.value) return t("bookmarks.importTitle");
-  if (tagging.value !== null) return t("bookmarks.tagsTitle");
   return t("bookmarks.title");
 });
 </script>
@@ -650,7 +698,73 @@ const title = computed(() => {
           <button class="modal-close" :aria-label="t('common.close')" @click="hide">×</button>
         </header>
 
-        <template v-if="creating">
+        <template v-if="tagging !== null">
+          <p class="modal-lede">
+            {{
+              taggingDraft
+                ? t("bookmarks.tagsDraftLede")
+                : t("bookmarks.tagsLede", { name: taggedBookmark?.name ?? "" })
+            }}
+          </p>
+          <div class="tag-field">
+            <input
+              ref="tagDraftEl"
+              v-model="tagDraft"
+              class="field"
+              type="text"
+              :maxlength="TAG_NAME_MAX"
+              :placeholder="t('bookmarks.tagPlaceholder')"
+              :aria-label="t('bookmarks.tagNew')"
+              autocomplete="off"
+              @keyup.enter="submitTagDraft"
+            />
+            <button
+              type="button"
+              class="ghost"
+              :disabled="!tagDraftIsNew || taggedIsFull"
+              @click="createTag"
+            >
+              {{ t("bookmarks.tagCreate") }}
+            </button>
+          </div>
+          <p v-if="error" class="error" role="alert">{{ error }}</p>
+          <p v-if="tagChoices.length === 0" class="empty">
+            {{ pickableTags.length === 0 ? t("bookmarks.tagsNone") : t("bookmarks.tagNoMatch") }}
+          </p>
+          <ul v-else class="tag-rows">
+            <li v-for="name in tagChoices" :key="name" class="tag-row">
+              <button
+                type="button"
+                class="tag-pick"
+                :class="{ on: taggedWears(name) }"
+                :aria-pressed="taggedWears(name)"
+                :disabled="taggedIsFull && !taggedWears(name)"
+                @click="toggleTag(name)"
+              >
+                <span class="tag-mark" aria-hidden="true">
+                  <svg v-if="taggedWears(name)" class="ic" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M3.5 8.4 6.4 11.3 12.5 5"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span class="tag-name">{{ name }}</span>
+                <span class="tag-count">{{ formatNumber(countIn(name)) }}</span>
+              </button>
+            </li>
+          </ul>
+          <div class="draft-actions">
+            <button type="button" class="ghost" @click="closeTagging">
+              {{ taggingDraft ? t("bookmarks.backToEntry") : t("bookmarks.backToList") }}
+            </button>
+          </div>
+        </template>
+
+        <template v-else-if="creating">
           <p class="modal-lede">
             {{
               shared
@@ -702,6 +816,9 @@ const title = computed(() => {
               {{ t("bookmarks.badgeSizePieces", badgePieces, { named: { n: badgePieces } }) }}
             </span>
           </div>
+          <p v-if="aiming && badgeKind === 'area'" class="size-hint">
+            {{ t("bookmarks.badgeSizeWheel") }}
+          </p>
           <div v-if="!aiming" class="draft">
             <span class="badge" :class="{ empty: !draftBadge }">
               <BookmarkBadgeArt
@@ -725,9 +842,15 @@ const title = computed(() => {
               @keyup.enter="save"
             />
           </div>
-          <div v-if="!aiming && draftTags.length > 0" class="draft-tags">
+          <div v-if="!aiming" class="draft-tags">
             <span class="tag-label">{{ t("bookmarks.tags") }}</span>
             <span v-for="name in draftTags" :key="name" class="chip">{{ name }}</span>
+            <span v-if="draftTags.length === 0" class="none">
+              {{ t("bookmarks.tagsNoneYet") }}
+            </span>
+            <button type="button" class="tag-edit" @click="startTagging(TAG_TARGET_DRAFT)">
+              {{ t("bookmarks.tagsPick") }}
+            </button>
           </div>
           <p v-if="error" class="error" role="alert">{{ error }}</p>
           <div class="draft-actions">
@@ -760,73 +883,6 @@ const title = computed(() => {
             </button>
             <button type="button" class="primary" @click="applyImport">
               {{ t("bookmarks.importAction") }}
-            </button>
-          </div>
-        </template>
-
-        <template v-else-if="tagging !== null">
-          <p class="modal-lede">
-            {{ t("bookmarks.tagsLede", { name: taggedBookmark?.name ?? "" }) }}
-          </p>
-          <div class="tag-field">
-            <input
-              ref="tagDraftEl"
-              v-model="tagDraft"
-              class="field"
-              type="text"
-              :maxlength="TAG_NAME_MAX"
-              :placeholder="t('bookmarks.tagPlaceholder')"
-              :aria-label="t('bookmarks.tagNew')"
-              autocomplete="off"
-              @keyup.enter="submitTagDraft"
-            />
-            <button
-              type="button"
-              class="ghost"
-              :disabled="!tagDraftIsNew || taggedIsFull"
-              @click="createTag"
-            >
-              {{ t("bookmarks.tagCreate") }}
-            </button>
-          </div>
-          <p v-if="error" class="error" role="alert">{{ error }}</p>
-          <p v-if="tagChoices.length === 0" class="empty">
-            {{ tags.length === 0 ? t("bookmarks.tagsNone") : t("bookmarks.tagNoMatch") }}
-          </p>
-          <ul v-else class="tag-rows">
-            <li v-for="name in tagChoices" :key="name" class="tag-row">
-              <button
-                type="button"
-                class="tag-pick"
-                :class="{ on: taggedBookmark !== null && hasTag(taggedBookmark, name) }"
-                :aria-pressed="taggedBookmark !== null && hasTag(taggedBookmark, name)"
-                :disabled="taggedIsFull && taggedBookmark !== null && !hasTag(taggedBookmark, name)"
-                @click="toggleTag(name)"
-              >
-                <span class="tag-mark" aria-hidden="true">
-                  <svg
-                    v-if="taggedBookmark !== null && hasTag(taggedBookmark, name)"
-                    class="ic"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                  >
-                    <path
-                      d="M3.5 8.4 6.4 11.3 12.5 5"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span class="tag-name">{{ name }}</span>
-                <span class="tag-count">{{ formatNumber(countIn(name)) }}</span>
-              </button>
-            </li>
-          </ul>
-          <div class="draft-actions">
-            <button type="button" class="ghost" @click="closeTagging">
-              {{ t("bookmarks.backToList") }}
             </button>
           </div>
         </template>
@@ -972,7 +1028,7 @@ const title = computed(() => {
                 :class="{ tagged: bookmark.tags.length > 0 }"
                 :aria-label="t('bookmarks.tagsOf', { name: bookmark.name })"
                 :title="t('bookmarks.hintTags')"
-                @click="startTagging(bookmark)"
+                @click="startTagging(bookmark.id)"
               >
                 <svg class="ic" viewBox="0 0 16 16" fill="none">
                   <circle cx="5.4" cy="5.4" r="1" fill="currentColor" />
@@ -1408,6 +1464,14 @@ const title = computed(() => {
   font-size: 11px;
   color: var(--ink-4);
 }
+/* The wheel does the same job over the board itself, where the hand already is.
+   Said under the slider rather than instead of it: the slider is what a keyboard
+   and a touchscreen have. */
+.size-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ink-4);
+}
 .error {
   margin: 10px 0 0;
   font-family: var(--mono);
@@ -1459,15 +1523,35 @@ const title = computed(() => {
   outline: none;
   border-color: var(--ink-3);
 }
-/* What the entry being written already carries, under its name: inherited from
-   the list being read, so it is shown rather than sprung on the player when the
-   row appears. */
+/* What the entry being written carries, under its name: the tag it inherited
+   from the list being read, plus whatever the player picks here, so filing a
+   bookmark is part of writing it rather than a second visit to its row. */
 .draft-tags {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 12px;
+}
+.draft-tags .none {
+  font-size: 12px;
+  color: var(--ink-4);
+}
+.tag-edit {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.tag-edit:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
 }
 .tag-label {
   flex: none;

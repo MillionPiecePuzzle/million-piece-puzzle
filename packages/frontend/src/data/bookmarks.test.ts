@@ -24,6 +24,8 @@ import {
   sortBookmarks,
   tagView,
   toggleBookmarkFavorite,
+  withTag,
+  withoutTag,
   type Bookmark,
   type BookmarkBadge,
 } from "./bookmarks";
@@ -373,6 +375,28 @@ describe("tagging a bookmark", () => {
   it("gives a new entry the tags it was written under", () => {
     const list = addBookmark([], { name: "spot", worldX: 0, worldY: 0, badge: BADGE }, ["cats"]);
     expect(list[0]!.tags).toEqual(["cats"]);
+  });
+});
+
+// The same rule the picker writes an entry being created through, where there is
+// no bookmark to hold the words yet.
+describe("tagging an entry being written", () => {
+  it("keeps the words alphabetical", () => {
+    expect(withTag(withTag([], "sky"), "cats")).toEqual(["cats", "sky"]);
+  });
+
+  it("never wears the same word twice, whatever its capitals", () => {
+    expect(withTag(["Cats"], "cats")).toEqual(["Cats"]);
+  });
+
+  it("refuses a sixth rather than dropping one of the five", () => {
+    const five = ["a", "b", "c", "d", "e"];
+    expect(five).toHaveLength(MAX_TAGS_PER_BOOKMARK);
+    expect(withTag(five, "f")).toEqual(five);
+  });
+
+  it("takes a word back off whatever its capitals", () => {
+    expect(withoutTag(["cats", "sky"], "CATS")).toEqual(["sky"]);
   });
 });
 

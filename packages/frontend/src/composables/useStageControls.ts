@@ -14,7 +14,11 @@ export type StageControls = {
   // carries and what a pasted one applies.
   frameWorld: (worldX: number, worldY: number, zoom: number) => void;
   // Bookmarks: let the player mark a spot by aiming at the board itself.
-  pickSpot: (squareWorld: number) => Promise<PickedSpot | null>;
+  // `onResize` takes the wheel while a square is being traced, in notches.
+  pickSpot: (
+    squareWorld: number,
+    onResize?: (step: number) => void,
+  ) => Promise<PickedSpot | null>;
   setPickSquare: (squareWorld: number) => void;
   cancelPickSpot: () => void;
 };

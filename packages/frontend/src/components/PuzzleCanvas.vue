@@ -350,7 +350,7 @@ onMounted(async () => {
     centerOnWorld: (wx, wy) => stage?.centerOnWorld(wx, wy),
     viewportCenterWorld: () => stage?.viewportCenterWorld() ?? null,
     frameWorld: (wx, wy, zoom) => stage?.frameWorld(wx, wy, zoom),
-    pickSpot: (square) => stage?.pickSpot(square) ?? Promise.resolve(null),
+    pickSpot: (square, onResize) => stage?.pickSpot(square, onResize) ?? Promise.resolve(null),
     setPickSquare: (square) => stage?.setPickSquare(square),
     cancelPickSpot: () => stage?.cancelPickSpot(),
   });

@@ -171,8 +171,12 @@ export function allTags(list: readonly Bookmark[]): string[] {
   return [...seen.values()].sort((a, b) => a.localeCompare(b));
 }
 
+export function hasAnyTag(tags: readonly string[], tag: string): boolean {
+  return tags.some((t) => sameTag(t, tag));
+}
+
 export function hasTag(bookmark: Bookmark, tag: string): boolean {
-  return bookmark.tags.some((t) => sameTag(t, tag));
+  return hasAnyTag(bookmark.tags, tag);
 }
 
 // The spelling the notebook already knows for this word, so tagging a second
@@ -186,21 +190,27 @@ export function knownTagSpelling(list: readonly Bookmark[], tag: string): string
   return tag;
 }
 
-// Refused rather than trimmed at the cap: the picker says the bookmark is full
-// and the player drops one, instead of a sixth silently going nowhere.
+// One set of tags with a word added, the rule an entry goes through whether it
+// is kept in the notebook or still being written: no duplicate, nothing past the
+// cap, and the same order in both. Refused rather than trimmed at the cap: the
+// picker says the bookmark is full and the player drops one, instead of a sixth
+// silently going nowhere.
+export function withTag(tags: readonly string[], tag: string): string[] {
+  if (hasAnyTag(tags, tag) || tags.length >= MAX_TAGS_PER_BOOKMARK) return [...tags];
+  return [...tags, tag].sort((a, b) => a.localeCompare(b));
+}
+
+export function withoutTag(tags: readonly string[], tag: string): string[] {
+  return tags.filter((t) => !sameTag(t, tag));
+}
+
 export function addTag(list: readonly Bookmark[], id: string, tag: string): Bookmark[] {
   const spelling = knownTagSpelling(list, tag);
-  return list.map((b) =>
-    b.id === id && !hasTag(b, tag) && b.tags.length < MAX_TAGS_PER_BOOKMARK
-      ? { ...b, tags: [...b.tags, spelling].sort((a, c) => a.localeCompare(c)) }
-      : b,
-  );
+  return list.map((b) => (b.id === id ? { ...b, tags: withTag(b.tags, spelling) } : b));
 }
 
 export function removeTag(list: readonly Bookmark[], id: string, tag: string): Bookmark[] {
-  return list.map((b) =>
-    b.id === id ? { ...b, tags: b.tags.filter((t) => !sameTag(t, tag)) } : b,
-  );
+  return list.map((b) => (b.id === id ? { ...b, tags: withoutTag(b.tags, tag) } : b));
 }
 
 // Positions are rounded to the world unit (one source pixel, far under a piece):

@@ -235,6 +235,19 @@ const SPOT_PICK_SLOP = 4;
 const AIM_SQUARE_COLOR = 0xffffff;
 const AIM_SQUARE_SHADOW = 0x000000;
 
+// A wheel event's travel in notches, whatever unit the browser measures it in:
+// pixels (a notch is about a hundred of them, a trackpad a stream of far smaller
+// ones), lines (three to a notch) or pages. Normalized here because the aim
+// counts discrete steps, where the camera zoom takes the raw delta as it comes.
+const WHEEL_PIXELS_PER_NOTCH = 100;
+const WHEEL_LINES_PER_NOTCH = 3;
+
+function wheelNotches(ev: WheelEvent): number {
+  if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) return ev.deltaY / WHEEL_LINES_PER_NOTCH;
+  if (ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) return ev.deltaY;
+  return ev.deltaY / WHEEL_PIXELS_PER_NOTCH;
+}
+
 // Edge-pan: when the pointer rests within this many screen pixels of a canvas
 // edge, the camera scrolls toward that edge. Speed ramps quadratically from 0 at
 // the inner band to EDGE_PAN_MAX_SPEED (screen px per second) at the very rim, so
@@ -615,6 +628,11 @@ export class PuzzleStage {
   // player brings the spot into view and then clicks it.
   private spotPick: ((spot: PickedSpot | null) => void) | null = null;
   private spotPress: { x: number; y: number; moved: boolean } | null = null;
+  // Where a wheel over the board goes while the aim traces a square, and the
+  // fraction of a notch the last event left behind: a trackpad delivers a stream
+  // of small deltas, which add up to the same step a mouse notch takes in one.
+  private spotResize: ((step: number) => void) | null = null;
+  private aimWheelNotches = 0;
   // The aim's square, in world units a side and as the screen-space Graphics
   // drawing it under the cursor. Its side on screen is the world side times the
   // zoom, so the geometry is redrawn on a zoom or a size change and only moved on
@@ -3056,9 +3074,15 @@ export class PuzzleStage {
   // `squareWorld` is the side, in world units, of the square traced under the
   // cursor: the caller sets it, since the badge it stands for is the caller's,
   // and zero traces none, which is what an aim for a piece alone asks for.
-  pickSpot(squareWorld: number): Promise<PickedSpot | null> {
+  // `onResize` takes the wheel while that square is up, in notches, the caller
+  // turning them into a new side since the size is measured in its own units.
+  pickSpot(
+    squareWorld: number,
+    onResize: ((step: number) => void) | null = null,
+  ): Promise<PickedSpot | null> {
     this.cancelPickSpot();
     this.aimSquareWorld = squareWorld;
+    this.spotResize = onResize;
     return new Promise((resolve) => {
       this.spotPick = resolve;
       this.applyAimState();
@@ -3074,6 +3098,8 @@ export class PuzzleStage {
 
   cancelPickSpot(): void {
     const pending = this.spotPick;
+    this.spotResize = null;
+    this.aimWheelNotches = 0;
     if (!pending) return;
     this.spotPick = null;
     this.spotPress = null;
@@ -3133,6 +3159,8 @@ export class PuzzleStage {
     const resolve = this.spotPick;
     if (!resolve) return;
     this.spotPick = null;
+    this.spotResize = null;
+    this.aimWheelNotches = 0;
     this.applyAimState();
     const world = this.screenToWorld(screenX, screenY);
     const pieceId = this.loosePieceAt(world.x, world.y);
@@ -4443,6 +4471,7 @@ export class PuzzleStage {
       "wheel",
       (ev) => {
         ev.preventDefault();
+        if (this.wheelResizesAim(ev)) return;
         const rect = canvas.getBoundingClientRect();
         const px = ev.clientX - rect.left;
         const py = ev.clientY - rect.top;
@@ -4455,6 +4484,22 @@ export class PuzzleStage {
       },
       { passive: false },
     );
+  }
+
+  // While the aim traces a square, the wheel is that square's size and not the
+  // camera's scale: the badge is stored in world units, so the zoom the player is
+  // at changes nothing about what a click takes, where the size is the one thing
+  // they are still deciding. An aim for a piece traces no square and keeps the
+  // zoom, and the HUD's own buttons and a pinch keep it in both cases. Up is
+  // bigger, the way up is closer on the same wheel over the same board.
+  private wheelResizesAim(ev: WheelEvent): boolean {
+    const resize = this.spotResize;
+    if (!resize || !this.spotPick || this.aimSquareWorld <= 0 || ev.deltaY === 0) return false;
+    this.aimWheelNotches += wheelNotches(ev);
+    const steps = Math.trunc(this.aimWheelNotches);
+    this.aimWheelNotches -= steps;
+    if (steps !== 0) resize(-steps);
+    return true;
   }
 
   // A Mac's secondary click is Ctrl held down, so the press that adds a cluster to
