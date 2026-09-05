@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { FLAG_COLORS, type BoardFlag } from "../data/boardFlags";
+import { FLAG_COLORS, reorderFlag, type BoardFlag } from "../data/boardFlags";
 import type { FlagDropTarget } from "../canvas/flagDrop";
 import { useBoardFlags } from "../composables/useBoardFlags";
 import { useStageControls } from "../composables/useStageControls";
@@ -9,7 +9,7 @@ import { useDisplaySettings } from "../composables/useDisplaySettings";
 
 const { t } = useI18n();
 const { controls } = useStageControls();
-const { flags, canAdd, dropHoverId, add, select, setDropTargetSource } = useBoardFlags();
+const { flags, canAdd, dropHoverId, add, select, reorder, setDropTargetSource } = useBoardFlags();
 
 // Buttons the canvas hit-tests a dragged cluster against, so releasing over one
 // sends the cluster to that flag. Held as elements rather than measured rects:
@@ -50,10 +50,180 @@ function addHere(): void {
   add(center.x, center.y);
 }
 
+// Carrying a flag to another slot of the bar. A press is a jump until it travels
+// DRAG_THRESHOLD, past which the button follows the pointer and the others slide
+// out of its way; the order is committed once, on release, so a slot swept
+// through on the way costs neither a storage write nor a rollback. The preview
+// is `reorderFlag` itself rather than a second copy of the arithmetic: a button
+// is transformed from the slot it sits in to the one that list puts it in, which
+// is also the number it wears and the key that jumps to it.
+const DRAG_THRESHOLD = 5;
+
+type Press = {
+  id: string;
+  index: number;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  grabX: number;
+  grabY: number;
+};
+
+let press: Press | null = null;
+let slots: DOMRect[] = [];
+let suppressClick = false;
+
+const dragId = ref<string | null>(null);
+const dragShift = ref({ x: 0, y: 0 });
+const targetIndex = ref(0);
+const settling = ref(false);
+
+const previewFlags = computed(() =>
+  dragId.value ? reorderFlag(flags.value, dragId.value, targetIndex.value) : flags.value,
+);
+
+function slotOf(flag: BoardFlag): number {
+  return previewFlags.value.findIndex((f) => f.id === flag.id);
+}
+
+function buttonStyle(flag: BoardFlag, index: number): Record<string, string> {
+  const style: Record<string, string> = { "--flag-color": FLAG_COLORS[flag.color] ?? "" };
+  if (!dragId.value) return style;
+  if (flag.id === dragId.value) {
+    style.transform = `translate(${dragShift.value.x}px, ${dragShift.value.y}px) scale(1.08)`;
+    return style;
+  }
+  const home = slots[index];
+  const target = slots[slotOf(flag)];
+  if (home && target) {
+    style.transform = `translate(${target.left - home.left}px, ${target.top - home.top}px)`;
+  }
+  return style;
+}
+
+// Measured once, when the carry starts: the bar keeps that layout for the whole
+// gesture, since the order it draws only changes on release.
+function measureSlots(): DOMRect[] | null {
+  const rects: DOMRect[] = [];
+  for (const flag of flags.value) {
+    const el = buttonEls.get(flag.id);
+    if (!el?.isConnected) return null;
+    rects.push(el.getBoundingClientRect());
+  }
+  return rects;
+}
+
+// Nearest slot center in both axes: the bar wraps inside the strip the two rails
+// leave, so a row is not always the whole list and an x-only reading would drop
+// a carried flag into the wrong one.
+function nearestSlot(x: number, y: number): number {
+  let best = 0;
+  let bestDistance = Infinity;
+  slots.forEach((rect, i) => {
+    const dx = x - (rect.left + rect.width / 2);
+    const dy = y - (rect.top + rect.height / 2);
+    const distance = dx * dx + dy * dy;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  });
+  return best;
+}
+
+function onFlagPointerDown(flag: BoardFlag, index: number, ev: PointerEvent): void {
+  suppressClick = false;
+  if (ev.button !== 0 || flags.value.length < 2) return;
+  const el = ev.currentTarget;
+  if (!(el instanceof HTMLButtonElement)) return;
+  const rect = el.getBoundingClientRect();
+  press = {
+    id: flag.id,
+    index,
+    pointerId: ev.pointerId,
+    startX: ev.clientX,
+    startY: ev.clientY,
+    grabX: ev.clientX - rect.left,
+    grabY: ev.clientY - rect.top,
+  };
+  // Captured from the press so the carry survives the pointer leaving the button
+  // it started on, which it does as soon as the flag has moved a slot.
+  el.setPointerCapture(ev.pointerId);
+}
+
+function onFlagPointerMove(ev: PointerEvent): void {
+  if (!press || ev.pointerId !== press.pointerId) return;
+  if (!dragId.value) {
+    if (Math.hypot(ev.clientX - press.startX, ev.clientY - press.startY) < DRAG_THRESHOLD) return;
+    const measured = measureSlots();
+    if (!measured) {
+      press = null;
+      return;
+    }
+    slots = measured;
+    dragId.value = press.id;
+  }
+  const home = slots[press.index];
+  if (!home) return;
+  const left = ev.clientX - press.grabX;
+  const top = ev.clientY - press.grabY;
+  dragShift.value = { x: left - home.left, y: top - home.top };
+  targetIndex.value = nearestSlot(left + home.width / 2, top + home.height / 2);
+}
+
+function onFlagPointerUp(ev: PointerEvent): void {
+  if (!press || ev.pointerId !== press.pointerId) return;
+  const dragged = dragId.value;
+  const to = targetIndex.value;
+  endPress();
+  if (!dragged) return;
+  // The click this release is about to raise would jump the camera to a flag the
+  // player was carrying, not choosing.
+  suppressClick = true;
+  reorder(dragged, to);
+  settle();
+}
+
+function cancelDrag(): void {
+  if (!press) return;
+  const dragged = dragId.value !== null;
+  endPress();
+  if (dragged) suppressClick = true;
+}
+
+function endPress(): void {
+  const el = press ? buttonEls.get(press.id) : null;
+  if (press && el?.hasPointerCapture(press.pointerId)) el.releasePointerCapture(press.pointerId);
+  press = null;
+  dragId.value = null;
+}
+
+// The layout has just moved the buttons into the order committed, so the
+// transforms that were previewing that same move have to go without animating
+// back through it. Two frames: the first is where Vue's patch lands, the second
+// where the cleared transform is the browser's own base.
+function settle(): void {
+  settling.value = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => (settling.value = false)));
+}
+
+function onFlagClick(flag: BoardFlag): void {
+  if (suppressClick) {
+    suppressClick = false;
+    return;
+  }
+  goTo(flag);
+}
+
 // 1 to 8 jump to the flag in that slot. Ignored while a dialog is open or while
 // the press is going into a field, so typing a pseudo never moves the board.
 function onKeydown(ev: KeyboardEvent): void {
-  if (!shown.value || ev.altKey || ev.ctrlKey || ev.metaKey || ev.repeat) return;
+  if (!shown.value) return;
+  if (dragId.value !== null) {
+    if (ev.key === "Escape") cancelDrag();
+    return;
+  }
+  if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.repeat) return;
   const slot = Number(ev.key);
   if (!Number.isInteger(slot) || slot < 1 || slot > flags.value.length) return;
   const target = ev.target;
@@ -84,7 +254,7 @@ onBeforeUnmount(() => {
   <div
     v-if="shown"
     class="flag-bar"
-    :class="{ dropping: dropHoverId !== null }"
+    :class="{ dropping: dropHoverId !== null, reordering: dragId !== null, settling }"
     role="group"
     :aria-label="t('flags.bar')"
   >
@@ -94,12 +264,16 @@ onBeforeUnmount(() => {
       :ref="(el) => setButtonEl(flag.id, el)"
       type="button"
       class="flag-btn"
-      :class="{ 'flag-btn-drop': dropHoverId === flag.id }"
-      :style="{ '--flag-color': FLAG_COLORS[flag.color] }"
-      :data-tip="t('flags.goTo', { n: i + 1 })"
-      :aria-label="t('flags.goTo', { n: i + 1 })"
+      :class="{ 'flag-btn-drop': dropHoverId === flag.id, 'flag-btn-drag': dragId === flag.id }"
+      :style="buttonStyle(flag, i)"
+      :data-tip="t('flags.goTo', { n: slotOf(flag) + 1 })"
+      :aria-label="t('flags.goTo', { n: slotOf(flag) + 1 })"
       :disabled="!controls"
-      @click="goTo(flag)"
+      @pointerdown="onFlagPointerDown(flag, i, $event)"
+      @pointermove="onFlagPointerMove"
+      @pointerup="onFlagPointerUp"
+      @pointercancel="cancelDrag"
+      @click="onFlagClick(flag)"
     >
       <svg class="ic" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path d="M4.6 14.2V2.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -111,7 +285,7 @@ onBeforeUnmount(() => {
           stroke-linejoin="round"
         />
       </svg>
-      <span class="slot" aria-hidden="true">{{ i + 1 }}</span>
+      <span class="slot" aria-hidden="true">{{ slotOf(flag) + 1 }}</span>
     </button>
     <button
       v-if="canAdd"
@@ -185,6 +359,11 @@ onBeforeUnmount(() => {
 .flag-add {
   color: var(--ink-3);
 }
+/* A carry has to reach the pointer wherever it goes, including through the
+   browser's own touch panning. */
+.flag-btn {
+  touch-action: none;
+}
 .flag-btn .slot {
   position: absolute;
   right: 5px;
@@ -238,6 +417,25 @@ onBeforeUnmount(() => {
   color: var(--ink);
   box-shadow: 0 0 0 3px var(--flag-color);
   transform: scale(1.16);
+}
+/* A carried flag is glued to the pointer, so it takes no transition of its own,
+   and it draws over the buttons sliding out of its way. */
+.flag-bar button.flag-btn-drag {
+  transition: none;
+  z-index: 1;
+  cursor: grabbing;
+  background: var(--paper-2);
+  box-shadow: var(--shadow-panel);
+}
+/* The tooltip names the slot a button stands in, which is the one thing a carry
+   is in the middle of changing. */
+.flag-bar.reordering button::after {
+  opacity: 0;
+}
+/* One frame with the transforms cleared onto the order just committed: the
+   layout has already made that move, and animating it out would play it twice. */
+.flag-bar.settling button {
+  transition: none;
 }
 .ic {
   width: 24px;

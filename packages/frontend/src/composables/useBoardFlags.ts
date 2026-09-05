@@ -6,6 +6,7 @@ import {
   readFlags,
   recolorFlag,
   removeFlag,
+  reorderFlag,
   writeFlags,
   type BoardFlag,
 } from "../data/boardFlags";
@@ -57,6 +58,10 @@ export function useBoardFlags() {
     commit(recolorFlag(flags.value, id, color));
   }
 
+  function reorder(id: string, toIndex: number): void {
+    commit(reorderFlag(flags.value, id, toIndex));
+  }
+
   function select(id: string | null): void {
     selectedId.value = id;
   }
@@ -85,6 +90,7 @@ export function useBoardFlags() {
     remove,
     move,
     recolor,
+    reorder,
     select,
     setDropTargetSource,
     setDropHover,
