@@ -21,6 +21,10 @@ export type BookmarkBadge =
 
 export type Bookmark = {
   id: string;
+  // What the player called this spot, and empty when they called it nothing: a
+  // bookmark is taken in one click and named after, or never. An entry with no
+  // name of its own reads under the first word it is filed under, which is what
+  // `bookmarkLabel` answers.
   name: string;
   worldX: number;
   worldY: number;
@@ -141,12 +145,21 @@ export function parseBookmarkBadge(value: unknown): BookmarkBadge | null {
   return { kind, x: x as number, y: y as number, size: size as number };
 }
 
-// The name as it is stored: trimmed, and refused rather than cut when it is
-// empty or over the cap, so the row always shows what the player typed.
+// The name as it is stored: trimmed, empty where the player wrote nothing, and
+// refused rather than cut when it is over the cap, so the row always shows what
+// they typed.
 export function normalizeBookmarkName(raw: string): string | null {
   const name = raw.trim();
-  if (name.length === 0 || name.length > BOOKMARK_NAME_MAX) return null;
-  return name;
+  return name.length > BOOKMARK_NAME_MAX ? null : name;
+}
+
+// The name a row shows: the player's own where they wrote one, and the first
+// word the entry is filed under where they did not, so an unnamed spot reads as
+// something rather than as a blank line. Empty when it wears neither, which is
+// where the panel puts its own "unnamed" in the player's language: a word stored
+// here would be one locale's, and the notebook read in another would show it.
+export function bookmarkLabel(bookmark: Bookmark): string {
+  return bookmark.name || bookmark.tags[0] || "";
 }
 
 export function normalizeTagName(raw: string): string | null {
@@ -204,13 +217,20 @@ export function withoutTag(tags: readonly string[], tag: string): string[] {
   return tags.filter((t) => !sameTag(t, tag));
 }
 
+// Both writers re-sort, because a word can be the name an entry reads under:
+// filing an unnamed bookmark, or taking that word back off it, moves the row the
+// same way naming it would.
 export function addTag(list: readonly Bookmark[], id: string, tag: string): Bookmark[] {
   const spelling = knownTagSpelling(list, tag);
-  return list.map((b) => (b.id === id ? { ...b, tags: withTag(b.tags, spelling) } : b));
+  return sortBookmarks(
+    list.map((b) => (b.id === id ? { ...b, tags: withTag(b.tags, spelling) } : b)),
+  );
 }
 
 export function removeTag(list: readonly Bookmark[], id: string, tag: string): Bookmark[] {
-  return list.map((b) => (b.id === id ? { ...b, tags: withoutTag(b.tags, tag) } : b));
+  return sortBookmarks(
+    list.map((b) => (b.id === id ? { ...b, tags: withoutTag(b.tags, tag) } : b)),
+  );
 }
 
 // Positions are rounded to the world unit (one source pixel, far under a piece):
@@ -228,14 +248,28 @@ function roundBadge(badge: BookmarkBadge): BookmarkBadge {
 }
 
 // The one order the notebook is ever in, kept by every writer so the stored list
-// and the page the panel shows agree: favorites first, then by name inside each
-// block. A name is what the player wrote to find the place again, so it is what
-// they look down the list for; an age is not something anyone reads a notebook
-// by, and it moved a row every time another was added.
+// and the page the panel shows agree: favorites first, then by the name the row
+// shows inside each block. A name is what the player wrote to find the place
+// again, so it is what they look down the list for; an age is not something
+// anyone reads a notebook by, and it moved a row every time another was added.
+// An entry wearing no word at all sorts under the empty string, which holds the
+// ones still to name at the top of their block rather than under whatever the
+// current locale calls them.
 export function sortBookmarks(list: readonly Bookmark[]): Bookmark[] {
   return [...list].sort((a, b) =>
-    a.favorite === b.favorite ? a.name.localeCompare(b.name) : a.favorite ? -1 : 1,
+    a.favorite === b.favorite
+      ? bookmarkLabel(a).localeCompare(bookmarkLabel(b))
+      : a.favorite
+        ? -1
+        : 1,
   );
+}
+
+// A name is written in place from its row, so the notebook is re-sorted around
+// it the way a star re-sorts it: the entry the player just named reads where its
+// name puts it.
+export function renameBookmark(list: readonly Bookmark[], id: string, name: string): Bookmark[] {
+  return sortBookmarks(list.map((b) => (b.id === id ? { ...b, name } : b)));
 }
 
 export function addBookmark(
@@ -277,10 +311,12 @@ export function toggleBookmarkFavorite(list: readonly Bookmark[], id: string): B
   return sortBookmarks(list.map((b) => (b.id === id ? { ...b, favorite: !b.favorite } : b)));
 }
 
+// Read against the name the row shows, so a spot filed under one word and named
+// nothing is found by that word, which is what the list calls it.
 export function filterBookmarks(list: readonly Bookmark[], query: string): Bookmark[] {
   const needle = query.trim().toLocaleLowerCase();
   if (needle === "") return [...list];
-  return list.filter((b) => b.name.toLocaleLowerCase().includes(needle));
+  return list.filter((b) => bookmarkLabel(b).toLocaleLowerCase().includes(needle));
 }
 
 export function bookmarkStorageKey(puzzleId: string): string {
@@ -310,9 +346,10 @@ function parseTags(value: unknown, distinct: Map<string, string>): string[] {
 }
 
 // localStorage is player-editable and survives a board switch, so a stored list
-// is treated as untrusted input: an entry that is not a named, placed, badged
-// point is dropped whole, the list is cut to the cap, and anything an entry
-// carries beyond those fields (a zoom an older notebook stored) is left behind.
+// is treated as untrusted input: an entry that is not a placed, badged point is
+// dropped whole, the list is cut to the cap, and anything an entry carries beyond
+// those fields (a zoom an older notebook stored) is left behind. A name is not
+// among the fields an entry must have, since a bookmark can be kept unnamed.
 export function parseBookmarks(raw: string | null): Bookmark[] {
   if (!raw) return [];
   let parsed: unknown;
@@ -333,8 +370,8 @@ export function parseBookmarks(raw: string | null): Bookmark[] {
       unknown
     >;
     if (typeof id !== "string" || id === "" || takenIds.has(id)) continue;
-    if (typeof name !== "string") continue;
-    const cleanName = normalizeBookmarkName(name);
+    if (name !== undefined && typeof name !== "string") continue;
+    const cleanName = name === undefined ? "" : normalizeBookmarkName(name);
     if (cleanName === null) continue;
     if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) continue;
     if (!Number.isFinite(createdAt)) continue;
@@ -368,18 +405,19 @@ export function readBookmarks(puzzleId: string): Bookmark[] {
 // The other half of the codec, written field by field like the parser reads:
 // a plain entry carries no flag at all, since the notebook is mostly plain
 // entries and `"favorite":false` on each of them is 17 bytes of a quota the cap
-// is measured against. What is absent reads as false on the way back in.
+// is measured against. What is absent reads as false, or as unnamed, on the way
+// back in.
 export function serializeBookmarks(list: readonly Bookmark[]): string {
   return JSON.stringify(
     list.map((b) => {
       const stored: Record<string, unknown> = {
         id: b.id,
-        name: b.name,
         worldX: b.worldX,
         worldY: b.worldY,
         createdAt: b.createdAt,
         badge: b.badge,
       };
+      if (b.name !== "") stored.name = b.name;
       if (b.favorite) stored.favorite = true;
       if (b.tags.length > 0) stored.tags = b.tags;
       return stored;

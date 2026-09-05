@@ -12,6 +12,7 @@ import {
   TAG_NAME_MAX,
   VIEW_ALL,
   VIEW_UNTAGGED,
+  bookmarkLabel,
   bookmarksInView,
   filterBookmarks,
   hasAnyTag,
@@ -59,6 +60,7 @@ const {
   setPuzzle,
   add,
   remove,
+  rename,
   toggleFavorite,
   tag,
   untag,
@@ -72,7 +74,8 @@ const { onMousedown, onClick } = useBackdropClick(() => hide());
 // Escape leaves whatever the panel is showing over its list first and the
 // notebook second: what is on screen is what it closes.
 function backOrClose(): void {
-  if (tagging.value !== null) closeTagging();
+  if (renaming.value !== null) cancelRename();
+  else if (tagging.value !== null) closeTagging();
   else if (creating.value) cancelCreate();
   else if (importing.value) cancelImport();
   else hide();
@@ -102,6 +105,7 @@ watch(open, (isOpen) => {
     importing.value = false;
     importUrl.value = "";
     closeTagging();
+    cancelRename();
     void loadDziInfo();
     // The trap first: it takes the panel's first control on the next tick, and a
     // handed draft wants the caret in its name field instead, which it gets by
@@ -215,6 +219,21 @@ function positionOf(bookmark: Bookmark): string {
   return formatBoardPoint(worldToBoard(bookmark.worldX, bookmark.worldY, m));
 }
 
+// What a row says the spot is called: the entry's own name, the first word it is
+// filed under where it has none, and the panel's stand-in where it has neither.
+// The stand-in is a word in the player's language, which is why it is here and
+// not in the notebook, whose entries are read back on a browser set to any of
+// the four.
+function labelOf(bookmark: Bookmark): string {
+  return bookmarkLabel(bookmark) || t("bookmarks.unnamed");
+}
+
+// What an entry reads under while it is named nothing, which is what a name
+// field left empty shows behind the caret.
+function fallbackLabel(tags: readonly string[]): string {
+  return tags[0] ?? t("bookmarks.unnamed");
+}
+
 // The badge lifted out of its row at a size you can read it at. Bigger than the
 // max buys nothing (a pyramid tile is 254px native); under the min there is not
 // enough room beside the panel for a preview worth raising, and covering the row
@@ -262,6 +281,47 @@ function goTo(bookmark: Bookmark): void {
   hidePeek();
   controls.value?.centerOnWorld(bookmark.worldX, bookmark.worldY);
   hide();
+}
+
+// The row being renamed, which is where the name is written: a bookmark is
+// named in the list it is read in rather than in a form of its own, since what
+// the player is correcting is the line in front of them. One at a time, so the
+// field is the row.
+const renaming = ref<string | null>(null);
+const renameDraft = ref("");
+const renameEl = ref<HTMLInputElement | null>(null);
+
+function setRenameEl(el: unknown): void {
+  if (el instanceof HTMLInputElement) renameEl.value = el;
+}
+
+// The stored name and not the label: what the player edits is their own words,
+// and clearing the field hands the entry back to its tags, which the placeholder
+// behind the caret is already showing.
+function startRename(bookmark: Bookmark): void {
+  hidePeek();
+  renaming.value = bookmark.id;
+  renameDraft.value = bookmark.name;
+  void nextTick(() => renameEl.value?.select());
+}
+
+// Escape leaves the row as it was, and everything else that takes the caret out
+// of the field keeps what was typed: a name is a line of text, so there is
+// nothing to confirm.
+function cancelRename(): void {
+  renaming.value = null;
+  renameDraft.value = "";
+}
+
+function commitRename(): void {
+  const id = renaming.value;
+  if (id === null) return;
+  // Null is a name past the cap, which the field's own maxlength does not let
+  // through: the row closes on what it already holds rather than on a refusal
+  // nobody can read in a list.
+  const name = normalizeBookmarkName(renameDraft.value);
+  if (name !== null) rename(id, name);
+  cancelRename();
 }
 
 // How long the row says the link is in the clipboard: long enough to read, short
@@ -517,9 +577,12 @@ function save(): void {
     error.value = t("bookmarks.full", { max: formatNumber(MAX_BOOKMARKS) });
     return;
   }
+  // Empty is a name: an entry kept unnamed reads under the first word it is
+  // filed under, and under the panel's stand-in until it wears one. Null is a
+  // name past the cap, which the field's own maxlength does not let through.
   const name = normalizeBookmarkName(draftName.value);
   if (name === null) {
-    error.value = t("bookmarks.needName");
+    error.value = t("bookmarks.nameTooLong", { max: BOOKMARK_NAME_MAX });
     return;
   }
   const spot = draftSpot.value;
@@ -701,9 +764,9 @@ const title = computed(() => {
         <template v-if="tagging !== null">
           <p class="modal-lede">
             {{
-              taggingDraft
+              taggingDraft || !taggedBookmark
                 ? t("bookmarks.tagsDraftLede")
-                : t("bookmarks.tagsLede", { name: taggedBookmark?.name ?? "" })
+                : t("bookmarks.tagsLede", { name: labelOf(taggedBookmark) })
             }}
           </p>
           <div class="tag-field">
@@ -836,7 +899,7 @@ const title = computed(() => {
               class="field"
               type="text"
               :maxlength="BOOKMARK_NAME_MAX"
-              :placeholder="t('bookmarks.namePlaceholder')"
+              :placeholder="fallbackLabel(draftTags)"
               :aria-label="t('bookmarks.nameLabel')"
               autocomplete="off"
               @keyup.enter="save"
@@ -950,11 +1013,35 @@ const title = computed(() => {
           </p>
           <ul v-else class="rows">
             <li v-for="bookmark in pageRows" :key="bookmark.id" class="row">
+              <div v-if="renaming === bookmark.id" class="jump renaming">
+                <span class="badge">
+                  <BookmarkBadgeArt
+                    :badge="bookmark.badge"
+                    :size="BADGE_ROW_SIZE"
+                    :asset-base="assetBase"
+                    :tiles-path="tilesPath"
+                    :dzi="dziInfo"
+                  />
+                </span>
+                <input
+                  :ref="setRenameEl"
+                  v-model="renameDraft"
+                  class="field name-field"
+                  type="text"
+                  :maxlength="BOOKMARK_NAME_MAX"
+                  :placeholder="fallbackLabel(bookmark.tags)"
+                  :aria-label="t('bookmarks.nameLabel')"
+                  autocomplete="off"
+                  @keyup.enter="commitRename"
+                  @blur="commitRename"
+                />
+              </div>
               <button
+                v-else
                 type="button"
                 class="jump"
                 :disabled="!controls"
-                :aria-label="t('bookmarks.goTo', { name: bookmark.name })"
+                :aria-label="t('bookmarks.goTo', { name: labelOf(bookmark) })"
                 @click="goTo(bookmark)"
               >
                 <span
@@ -972,7 +1059,9 @@ const title = computed(() => {
                   />
                 </span>
                 <span class="text">
-                  <span class="name">{{ bookmark.name }}</span>
+                  <span class="name" :class="{ unnamed: bookmarkLabel(bookmark) === '' }">
+                    {{ labelOf(bookmark) }}
+                  </span>
                   <span class="meta">
                     <span class="position">{{ positionOf(bookmark) }}</span>
                     <span
@@ -1001,8 +1090,8 @@ const title = computed(() => {
                 :aria-pressed="bookmark.favorite"
                 :aria-label="
                   bookmark.favorite
-                    ? t('bookmarks.unfavorite', { name: bookmark.name })
-                    : t('bookmarks.favorite', { name: bookmark.name })
+                    ? t('bookmarks.unfavorite', { name: labelOf(bookmark) })
+                    : t('bookmarks.favorite', { name: labelOf(bookmark) })
                 "
                 :title="
                   bookmark.favorite ? t('bookmarks.hintUnfavorite') : t('bookmarks.hintFavorite')
@@ -1025,8 +1114,26 @@ const title = computed(() => {
               <button
                 type="button"
                 class="icon"
+                :class="{ editing: renaming === bookmark.id }"
+                :aria-label="t('bookmarks.rename', { name: labelOf(bookmark) })"
+                :title="t('bookmarks.hintRename')"
+                @click="startRename(bookmark)"
+              >
+                <svg class="ic" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M10.9 2.6 13.4 5.1 5.9 12.6 2.6 13.4 3.4 10.1Z"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linejoin="round"
+                  />
+                  <path d="M9.2 4.3 11.7 6.8" stroke="currentColor" stroke-width="1.4" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="icon"
                 :class="{ tagged: bookmark.tags.length > 0 }"
-                :aria-label="t('bookmarks.tagsOf', { name: bookmark.name })"
+                :aria-label="t('bookmarks.tagsOf', { name: labelOf(bookmark) })"
                 :title="t('bookmarks.hintTags')"
                 @click="startTagging(bookmark.id)"
               >
@@ -1048,7 +1155,7 @@ const title = computed(() => {
                 :aria-label="
                   copiedId === bookmark.id
                     ? t('bookmarks.copied')
-                    : t('bookmarks.copyLink', { name: bookmark.name })
+                    : t('bookmarks.copyLink', { name: labelOf(bookmark) })
                 "
                 :title="
                   copiedId === bookmark.id ? t('bookmarks.copied') : t('bookmarks.hintCopyLink')
@@ -1082,7 +1189,7 @@ const title = computed(() => {
               <button
                 type="button"
                 class="icon delete"
-                :aria-label="t('bookmarks.delete', { name: bookmark.name })"
+                :aria-label="t('bookmarks.delete', { name: labelOf(bookmark) })"
                 :title="t('bookmarks.hintDelete')"
                 @click="remove(bookmark.id)"
               >
@@ -1242,6 +1349,16 @@ const title = computed(() => {
 .jump:disabled {
   cursor: default;
 }
+/* The row while its name is being written: the same line with the name a field
+   where it reads, so nothing moves between reading the list and correcting it. */
+.jump.renaming,
+.jump.renaming:hover {
+  background: none;
+  cursor: default;
+}
+.name-field {
+  padding: 6px 10px;
+}
 /* The badge is a picture of a place, so it carries the same rounded frame in the
    row and in the draft: a photograph, not an icon. Its size here is what
    BADGE_ROW_SIZE names, which is what the level of the pyramid follows. */
@@ -1295,6 +1412,12 @@ const title = computed(() => {
   white-space: nowrap;
   font-size: 14px;
   color: var(--ink);
+}
+/* An entry with no name and no word to borrow one from reads under a stand-in,
+   which is the panel speaking rather than the player: lighter, so a name written
+   by hand is never mistaken for it. */
+.name.unnamed {
+  color: var(--ink-4);
 }
 .meta {
   display: flex;
@@ -1667,5 +1790,9 @@ const title = computed(() => {
    and one click from changing here. */
 .icon.tagged {
   color: var(--ink-3);
+}
+/* Which row the open field belongs to, said on the control that opened it. */
+.icon.editing {
+  color: var(--ink);
 }
 </style>

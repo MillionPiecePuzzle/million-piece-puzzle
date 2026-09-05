@@ -10,6 +10,7 @@ import {
   addBookmark,
   addTag,
   allTags,
+  bookmarkLabel,
   bookmarksInView,
   filterBookmarks,
   hasTag,
@@ -20,6 +21,7 @@ import {
   parseBookmarks,
   removeBookmark,
   removeTag,
+  renameBookmark,
   serializeBookmarks,
   sortBookmarks,
   tagView,
@@ -123,6 +125,32 @@ function entry(name: string, favorite = false): Bookmark {
   };
 }
 
+// An entry the player never named, which reads under the first word it is filed
+// under and under nothing at all when it wears none.
+function unnamed(id: string, tags: string[] = []): Bookmark {
+  return { ...entry(""), id, tags };
+}
+
+describe("bookmarkLabel", () => {
+  it("is the player's own name where they wrote one, tags or no tags", () => {
+    expect(bookmarkLabel(entry("sky pile"))).toBe("sky pile");
+    expect(bookmarkLabel({ ...entry("sky pile"), tags: ["cats"] })).toBe("sky pile");
+  });
+
+  it("takes the word the moment the entry is filed under it", () => {
+    expect(bookmarkLabel(addTag([unnamed("b1")], "b1", "Cat")[0]!)).toBe("Cat");
+  });
+
+  it("falls to the next word when that one is taken back off", () => {
+    const filed = addTag(addTag([unnamed("b1")], "b1", "Cat"), "b1", "Sky");
+    expect(bookmarkLabel(removeTag(filed, "b1", "cat")[0]!)).toBe("Sky");
+  });
+
+  it("is empty where there is neither, the stand-in being the panel's own word", () => {
+    expect(bookmarkLabel(unnamed("b1"))).toBe("");
+  });
+});
+
 describe("sortBookmarks", () => {
   it("puts the favorites first and reads by name inside each block", () => {
     const list = sortBookmarks([
@@ -138,6 +166,28 @@ describe("sortBookmarks", () => {
     expect(
       sortBookmarks([entry("zebre"), entry("Été"), entry("arbre")]).map((b) => b.name),
     ).toEqual(["arbre", "Été", "zebre"]);
+  });
+
+  it("reads an unnamed entry by its first word, and one wearing none at the top", () => {
+    const list = sortBookmarks([entry("apple"), unnamed("b1", ["sky"]), unnamed("b2")]);
+    expect(list.map((b) => b.id)).toEqual(["b2", "apple", "b1"]);
+  });
+});
+
+describe("renameBookmark", () => {
+  it("writes the name and re-sorts the notebook around it", () => {
+    const list = sortBookmarks([entry("apple"), entry("sky")]);
+    expect(renameBookmark(list, "sky", "ant").map((b) => b.name)).toEqual(["ant", "apple"]);
+  });
+
+  it("hands an entry cleared of its name back to the word it is filed under", () => {
+    const list = [{ ...entry("sky pile"), tags: ["cats"] }];
+    expect(bookmarkLabel(renameBookmark(list, "sky pile", "")[0]!)).toBe("cats");
+  });
+
+  it("leaves the rest of the list alone", () => {
+    const list = sortBookmarks([entry("a"), entry("b")]);
+    expect(renameBookmark(list, "nobody", "c")).toEqual(list);
   });
 });
 
@@ -168,8 +218,8 @@ describe("normalizeBookmarkName", () => {
     expect(normalizeBookmarkName("  sky pile  ")).toBe("sky pile");
   });
 
-  it("refuses an empty or blank name", () => {
-    expect(normalizeBookmarkName("   ")).toBeNull();
+  it("reads a blank name as no name, which an entry is allowed to have", () => {
+    expect(normalizeBookmarkName("   ")).toBe("");
   });
 
   it("refuses a name past the cap", () => {
@@ -236,6 +286,10 @@ describe("filterBookmarks", () => {
     const list = make("Tower", make("Sky pile"));
     expect(filterBookmarks(list, "  ")).toHaveLength(2);
   });
+
+  it("matches an unnamed entry on the word it reads under", () => {
+    expect(filterBookmarks([unnamed("b1", ["cats"])], "CAT").map((b) => b.id)).toEqual(["b1"]);
+  });
 });
 
 describe("parseBookmarks", () => {
@@ -285,17 +339,26 @@ describe("parseBookmarks", () => {
     ]);
   });
 
-  it("drops an entry that is not a named, placed, badged point", () => {
+  it("drops an entry that is not a placed, badged point", () => {
     const broken = [
       { ...entry, id: "" },
-      { ...entry, id: "b2", name: "   " },
+      { ...entry, id: "b2", name: "x".repeat(BOOKMARK_NAME_MAX + 1) },
       { ...entry, id: "b3", worldX: Number.NaN },
       { ...entry, id: "b4", worldY: "over there" },
       { ...entry, id: "b5", createdAt: "yesterday" },
       { ...entry, id: "b6", badge: { kind: "area", x: 0, y: 0, size: 0 } },
       { ...entry, id: "b7", badge: undefined },
+      { ...entry, id: "b8", name: 12 },
     ];
     expect(parseBookmarks(JSON.stringify(broken))).toEqual([]);
+  });
+
+  it("keeps an entry that names no name, which is one the player never named", () => {
+    const stored = [
+      { ...entry, name: "   " },
+      { ...entry, id: "b2", name: undefined },
+    ];
+    expect(parseBookmarks(JSON.stringify(stored)).map((b) => b.name)).toEqual(["", ""]);
   });
 
   it("keeps one entry per id", () => {
@@ -317,6 +380,12 @@ describe("serializeBookmarks", () => {
   it("writes no flag for a plain entry, which is most of the notebook", () => {
     expect(serializeBookmarks([entry("plain")])).not.toContain("favorite");
     expect(serializeBookmarks([entry("kept", true)])).toContain('"favorite":true');
+  });
+
+  it("writes no name for an entry that was never named, and reads it back unnamed", () => {
+    const list = [unnamed("b1", ["cats"])];
+    expect(serializeBookmarks(list)).not.toContain('"name"');
+    expect(parseBookmarks(serializeBookmarks(list))).toEqual(list);
   });
 
   it("writes no tags for an entry wearing none, and reads them back", () => {
@@ -370,6 +439,11 @@ describe("tagging a bookmark", () => {
   it("keeps a bookmark's own tags alphabetical, which is how a row reads them", () => {
     const list = addTag(addTag(two, first, "sky"), first, "cats");
     expect(list.find((b) => b.id === first)!.tags).toEqual(["cats", "sky"]);
+  });
+
+  it("moves an unnamed entry to where the word it now reads under sorts", () => {
+    const list = sortBookmarks([entry("apple"), unnamed("b1")]);
+    expect(addTag(list, "b1", "zebra").map((b) => b.id)).toEqual(["apple", "b1"]);
   });
 
   it("gives a new entry the tags it was written under", () => {

@@ -21,6 +21,7 @@ import {
 import {
   BADGE_PIECES_MAX,
   BADGE_PIECES_MIN,
+  bookmarkLabel,
   isPieceFile,
   normalizeBookmarkName,
   type Bookmark,
@@ -102,7 +103,11 @@ export function bookmarkShareUrl(
           dy: (badge.y - bookmark.worldY) / frame.pieceSize,
           size: badge.size / frame.pieceSize,
         };
-  return shareUrl(origin, { ...point, zoom }, { name: bookmark.name, badge: shared });
+  // The name the sender's own row shows, which for an unnamed entry is the word
+  // it is filed under: what travels is what they see, and it is empty only when
+  // they see nothing either, since the stand-in the panel draws then is in their
+  // language and not the recipient's.
+  return shareUrl(origin, { ...point, zoom }, { name: bookmarkLabel(bookmark), badge: shared });
 }
 
 // A link as it arrives from a paste rather than from the address bar: the whole
@@ -168,8 +173,10 @@ export function parseSharedBadge(raw: unknown): SharedBadge | null {
 }
 
 // The draft a link offers, or nothing: a name with no emblem could not be saved
-// and an emblem with no name is not the bookmark that was shared, so the pair is
-// refused together. The name is trimmed and capped like one the player typed.
+// and an emblem with no name parameter at all is not the bookmark that was
+// shared, so the pair is refused together. The name is trimmed and capped like
+// one the player typed, and empty where the sender's own entry reads under no
+// word, which the recipient's notebook shows in their language.
 export function parseSharedBookmark(nameRaw: unknown, badgeRaw: unknown): SharedBookmark | null {
   if (typeof nameRaw !== "string") return null;
   const name = normalizeBookmarkName(nameRaw);

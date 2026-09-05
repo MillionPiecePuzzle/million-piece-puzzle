@@ -63,6 +63,12 @@ describe("bookmarkShareUrl", () => {
     expect(url.length).toBeLessThan(100);
   });
 
+  it("carries the word an unnamed entry reads under, which is what its sender sees", () => {
+    const filed = { ...bookmark, name: "", tags: ["cats"] };
+    const url = bookmarkShareUrl("https://example.org", filed, board1m, senderZoom);
+    expect(new URL(url).searchParams.get("n")).toBe("cats");
+  });
+
   it("hands over the scale the sender is reading the board at", () => {
     const url = bookmarkShareUrl("https://example.org", bookmark, board1m, 2.5);
     expect(parseSharedView(new URL(url).searchParams.get("at"))?.zoom).toBe(2.5);
@@ -154,7 +160,10 @@ describe("parseSharedBookmark", () => {
   it("trims and caps the name like one the player typed", () => {
     expect(parseSharedBookmark("  sky pile  ", "-6,-6,12")?.name).toBe("sky pile");
     expect(parseSharedBookmark("x".repeat(41), "-6,-6,12")).toBeNull();
-    expect(parseSharedBookmark("   ", "-6,-6,12")).toBeNull();
+  });
+
+  it("reads an empty name as the draft of an entry its sender named nothing", () => {
+    expect(parseSharedBookmark("   ", "-6,-6,12")?.name).toBe("");
   });
 
   it("refuses a half link rather than offering a draft that cannot be saved", () => {

@@ -338,7 +338,8 @@ const de: MessageSchema = {
     pickSpot:
       "Klicke auf dem Spielfeld dorthin, wo das Lesezeichen sein soll. Der Bildausschnitt unter dem Zeiger wird sein Bildchen.",
     pickPiece: "Klicke ein Teil auf dem Spielfeld an. Dieses Teil steht dann für das Lesezeichen.",
-    nameSpot: "Benenne dieses Lesezeichen.",
+    nameSpot:
+      "Benenne dieses Lesezeichen, oder überlass ihm das erste Wort, unter dem du es ablegst.",
     sharedTitle: "Ein Lesezeichen, das dir jemand geschickt hat",
     sharedLede:
       "Behalte dieses Lesezeichen in deinem Notizbuch, unter diesem Namen oder deinem eigenen.",
@@ -352,10 +353,11 @@ const de: MessageSchema = {
     noPieceHere:
       "Hier ist kein Teil. Klicke eines an, das das Spielfeld zeigt, oder nimm einen Ausschnitt.",
     nameLabel: "Name des Lesezeichens",
-    namePlaceholder: "dieses Lesezeichen benennen",
-    needName: "Benenne dieses Lesezeichen, bevor du es speicherst.",
+    unnamed: "Ohne Namen",
+    nameTooLong: "Ein Lesezeichenname fasst {max} Zeichen.",
     needBadge: "Wähle ein Bildchen, bevor du speicherst.",
     goTo: "Zu {name}",
+    rename: "{name} umbenennen",
     favorite: "{name} zu deinen Favoriten hinzufügen",
     unfavorite: "{name} aus deinen Favoriten entfernen",
     copyLink: "Link zu {name} kopieren",
@@ -385,6 +387,7 @@ const de: MessageSchema = {
     backToEntry: "Zurück zum Lesezeichen",
     hintFavorite: "Zu Favoriten hinzufügen",
     hintUnfavorite: "Aus Favoriten entfernen",
+    hintRename: "Umbenennen",
     hintTags: "Tags",
     hintCopyLink: "Link kopieren",
     hintDelete: "Löschen",

@@ -8,6 +8,7 @@ import {
   readBookmarks,
   removeBookmark,
   removeTag,
+  renameBookmark,
   toggleBookmarkFavorite,
   writeBookmarks,
   type BadgeKind,
@@ -51,6 +52,10 @@ export function useBookmarks() {
     commit(removeBookmark(bookmarks.value, id));
   }
 
+  function rename(id: string, name: string): void {
+    commit(renameBookmark(bookmarks.value, id, name));
+  }
+
   function toggleFavorite(id: string): void {
     commit(toggleBookmarkFavorite(bookmarks.value, id));
   }
@@ -78,6 +83,7 @@ export function useBookmarks() {
     setPuzzle,
     add,
     remove,
+    rename,
     toggleFavorite,
     tag,
     untag,
