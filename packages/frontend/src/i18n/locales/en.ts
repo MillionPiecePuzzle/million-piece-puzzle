@@ -354,6 +354,8 @@ const en = {
     tags: "Tags",
     tagAll: "All",
     tagUntagged: "Untagged",
+    viewPick: "Filter by tag",
+    viewDrop: "Stop filtering by {name}",
     viewEmpty: "No bookmark here.",
     tagsTitle: "Tags",
     tagsLede: "Pick the tags for {name}.",

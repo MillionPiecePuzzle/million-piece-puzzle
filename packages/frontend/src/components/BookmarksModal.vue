@@ -14,6 +14,7 @@ import {
   VIEW_UNTAGGED,
   bookmarkLabel,
   bookmarksInView,
+  dropGoneTags,
   filterBookmarks,
   hasAnyTag,
   knownTagSpelling,
@@ -21,6 +22,7 @@ import {
   normalizeTagName,
   sameTag,
   tagView,
+  tagsInView,
   viewTag,
   withTag,
   withoutTag,
@@ -101,7 +103,7 @@ watch(open, (isOpen) => {
   if (isOpen) {
     query.value = "";
     page.value = 0;
-    view.value = VIEW_ALL;
+    view.value = [];
     importing.value = false;
     importUrl.value = "";
     closeTagging();
@@ -147,30 +149,31 @@ watch(
 
 const query = ref("");
 const page = ref(0);
-// Which tag the list is reading, or one of the two views that are not a tag.
-// Reset on every open like the filter and the page: an open is a fresh read of
-// the notebook.
-const view = ref<string>(VIEW_ALL);
+// The words the list is being read through, intersected: a notebook whose words
+// overlap is narrowed by as many of them as the player picks, and holding
+// nothing is the whole of it. Reset on every open like the filter and the page:
+// an open is a fresh read of the notebook.
+const view = ref<string[]>([]);
+const inView = computed(() => bookmarksInView(bookmarks.value, view.value));
 // The selector narrows the notebook and the name filter narrows what is left: a
 // tag is a word the player put on a bookmark, a name is what they called it, and
-// reading for a name inside one tag is what both are for.
-const filtered = computed(() =>
-  filterBookmarks(bookmarksInView(bookmarks.value, view.value), query.value),
-);
+// reading for a name inside a tag or two is what both are for.
+const filtered = computed(() => filterBookmarks(inView.value, query.value));
 
-// One walk of the notebook for every option the selector shows. A count is what
-// makes a tag worth opening, and filtering once per tag to get them would be one
-// walk each.
+// One walk for every option the selector shows. A word counts inside the current
+// reading, since picking it narrows what is already there: a word that would
+// empty the list reads as zero before it is picked. The untagged block counts
+// against the whole notebook instead, because picking it replaces the reading
+// rather than narrowing it: nothing wears a word and no word at the same time.
 const tagCounts = computed(() => {
   const worn = new Map<string, number>();
-  let untagged = 0;
-  for (const bookmark of bookmarks.value) {
-    if (bookmark.tags.length === 0) untagged += 1;
+  for (const bookmark of inView.value) {
     for (const name of bookmark.tags) {
       const key = name.toLocaleLowerCase();
       worn.set(key, (worn.get(key) ?? 0) + 1);
     }
   }
+  const untagged = bookmarks.value.filter((b) => b.tags.length === 0).length;
   return { worn, untagged };
 });
 
@@ -178,12 +181,19 @@ function countIn(name: string): number {
   return tagCounts.value.worn.get(name.toLocaleLowerCase()) ?? 0;
 }
 
-// The tag the list is reading, gone as soon as the last bookmark wearing it
-// drops it: a view of a word nobody uses any more would be an empty list under a
-// selector offering it, so the notebook falls back to everything.
+// What is left to narrow by, which is every word the notebook holds that the
+// list is not already read through.
+const pickableViewTags = computed(() =>
+  tags.value.filter((name) => !view.value.includes(tagView(name))),
+);
+
+// A word is gone as soon as the last bookmark wearing it drops it: a reading
+// through a word nobody uses any more would be an empty list under a selector
+// offering it. Only that word goes, so what the list was narrowed by besides it
+// still holds.
 watch([tags, view], () => {
-  const reading = viewTag(view.value);
-  if (reading !== null && !tags.value.some((t) => sameTag(t, reading))) view.value = VIEW_ALL;
+  const kept = dropGoneTags(view.value, tags.value);
+  if (kept.length !== view.value.length) view.value = kept;
 });
 
 const pageCount = computed(() =>
@@ -418,11 +428,45 @@ async function loadDziInfo(): Promise<void> {
   }
 }
 
-// The tag a new entry inherits, which is the one the list is reading and nothing
-// at all in the two views that are not a tag.
+// The selector is a picker rather than the reading itself: it adds a word to
+// what the list is narrowed by and falls back to its own label, the row of
+// chips under it saying what is being read and taking a word back off.
+const VIEW_PICK = "";
+
+function pickView(event: Event): void {
+  const el = event.target as HTMLSelectElement;
+  const picked = el.value;
+  el.value = VIEW_PICK;
+  if (picked === VIEW_ALL) view.value = [];
+  // The untagged block is the one reading that narrows nothing: a bookmark
+  // wearing a word is not in it, so it replaces the words rather than joining
+  // them, and a word picked next replaces it back.
+  else if (picked === VIEW_UNTAGGED) view.value = [VIEW_UNTAGGED];
+  else if (!view.value.includes(picked))
+    view.value = [...view.value.filter((entry) => entry !== VIEW_UNTAGGED), picked];
+}
+
+function dropView(picked: string): void {
+  view.value = view.value.filter((entry) => entry !== picked);
+}
+
+// What a picked reading reads as under the selector: the word itself, and the
+// panel's own name for the block wearing none, which is a word in the player's
+// language rather than the stored `VIEW_UNTAGGED`.
+function viewLabel(picked: string): string {
+  return viewTag(picked) ?? t("bookmarks.tagUntagged");
+}
+
+// The tags a new entry inherits, which are the words the list is being read
+// through and nothing at all in the untagged block. Sorted and cut to the cap
+// like a stored entry's own, since a reading can run past what one bookmark
+// wears.
 function viewTags(): string[] {
-  const reading = viewTag(view.value);
-  return reading === null ? [] : [reading];
+  return view.value
+    .map((entry) => viewTag(entry))
+    .filter((tag): tag is string => tag !== null)
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, MAX_TAGS_PER_BOOKMARK);
 }
 
 function startCreate(): void {
@@ -593,11 +637,11 @@ function save(): void {
   add({ name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value }, draftTags.value);
   creating.value = false;
   // The list is left showing the entry just written, wherever its name sorts:
-  // the filter and the page go, and the view stays on the tag it inherited.
+  // the filter and the page go, and the reading keeps the words the entry
+  // actually wears, so a tag taken back off the draft is not what hides it.
   query.value = "";
   page.value = 0;
-  const inherited = draftTags.value[0];
-  view.value = inherited === undefined ? VIEW_ALL : tagView(inherited);
+  view.value = view.value.filter((entry) => tagsInView(draftTags.value, [entry]));
 }
 
 const taggingDraft = computed(() => tagging.value === TAG_TARGET_DRAFT);
@@ -976,17 +1020,19 @@ const title = computed(() => {
           <div class="tools">
             <select
               v-if="tags.length > 0"
-              v-model="view"
               class="tag-select"
+              :value="VIEW_PICK"
               :aria-label="t('bookmarks.tag')"
+              @change="pickView"
             >
+              <option :value="VIEW_PICK" disabled>{{ t("bookmarks.viewPick") }}</option>
               <option :value="VIEW_ALL">
                 {{ t("bookmarks.tagAll") }} ({{ formatNumber(bookmarks.length) }})
               </option>
-              <option :value="VIEW_UNTAGGED">
+              <option v-if="!view.includes(VIEW_UNTAGGED)" :value="VIEW_UNTAGGED">
                 {{ t("bookmarks.tagUntagged") }} ({{ formatNumber(tagCounts.untagged) }})
               </option>
-              <option v-for="name in tags" :key="name" :value="tagView(name)">
+              <option v-for="name in pickableViewTags" :key="name" :value="tagView(name)">
                 {{ name }} ({{ formatNumber(countIn(name)) }})
               </option>
             </select>
@@ -1005,6 +1051,21 @@ const title = computed(() => {
                 })
               }}
             </span>
+          </div>
+
+          <div v-if="view.length > 0" class="view-tags">
+            <button
+              v-for="picked in view"
+              :key="picked"
+              type="button"
+              class="view-chip"
+              :aria-label="t('bookmarks.viewDrop', { name: viewLabel(picked) })"
+              :title="t('bookmarks.viewDrop', { name: viewLabel(picked) })"
+              @click="dropView(picked)"
+            >
+              <span class="view-name">{{ viewLabel(picked) }}</span>
+              <span class="view-drop" aria-hidden="true">×</span>
+            </button>
           </div>
 
           <p v-if="bookmarks.length === 0" class="empty">{{ t("bookmarks.empty") }}</p>
@@ -1628,10 +1689,11 @@ const title = computed(() => {
   opacity: 0.4;
   cursor: not-allowed;
 }
-/* The tag the list is reading, beside the filter it composes with: the selector
-   says which word a bookmark was put under and the filter says what it was
-   called. A native control, since nothing bounds the list at the three a row of
-   chips would hold. */
+/* What the list is read through, beside the filter it composes with: the
+   selector says which words a bookmark was put under and the filter says what it
+   was called. A native control, since nothing bounds the notebook's words at the
+   three a row of chips would hold; what is picked out of it is bounded, and that
+   is the row under it. */
 .tag-select {
   flex: none;
   max-width: 45%;
@@ -1645,6 +1707,41 @@ const title = computed(() => {
 .tag-select:focus {
   outline: none;
   border-color: var(--ink-3);
+}
+/* The words the list is being read through, under the selector that adds them:
+   the control offers what is left to narrow by and each word here comes back off
+   in one click, which is the whole of what reading through several needs. */
+.view-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.view-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 6px 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--ground-2);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.view-chip:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.view-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.view-drop {
+  flex: none;
+  font-size: 15px;
+  line-height: 1;
 }
 /* What the entry being written carries, under its name: the tag it inherited
    from the list being read, plus whatever the player picks here, so filing a

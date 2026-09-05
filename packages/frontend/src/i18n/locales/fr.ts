@@ -363,6 +363,8 @@ const fr: MessageSchema = {
     tags: "Tags",
     tagAll: "Tous",
     tagUntagged: "Sans tag",
+    viewPick: "Filtrer par tag",
+    viewDrop: "Ne plus filtrer par {name}",
     viewEmpty: "Aucun signet ici.",
     tagsTitle: "Tags",
     tagsLede: "Choisissez les tags de {name}.",

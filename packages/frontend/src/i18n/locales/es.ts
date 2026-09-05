@@ -362,6 +362,8 @@ const es: MessageSchema = {
     tags: "Etiquetas",
     tagAll: "Todos",
     tagUntagged: "Sin etiqueta",
+    viewPick: "Filtrar por etiqueta",
+    viewDrop: "Dejar de filtrar por {name}",
     viewEmpty: "Aquí no hay ningún marcador.",
     tagsTitle: "Etiquetas",
     tagsLede: "Elige las etiquetas de {name}.",

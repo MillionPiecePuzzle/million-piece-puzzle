@@ -46,7 +46,10 @@ export type Bookmark = {
 // entry rather than inside it.
 export type NewBookmark = Omit<Bookmark, "id" | "createdAt" | "favorite" | "tags">;
 
-// The two views the selector offers that are not a tag. A tag view carries the
+// What the list is read through is a set of these, so the two the selector
+// offers that are not a tag stand beside the words rather than instead of them:
+// `VIEW_ALL` puts the whole notebook back and is held by nothing, and
+// `VIEW_UNTAGGED` is the block wearing no word at all. A tag view carries the
 // tag behind a prefix, so a bookmark tagged "all" is still its own view.
 export const VIEW_ALL = "all";
 export const VIEW_UNTAGGED = "untagged";
@@ -188,10 +191,6 @@ export function hasAnyTag(tags: readonly string[], tag: string): boolean {
   return tags.some((t) => sameTag(t, tag));
 }
 
-export function hasTag(bookmark: Bookmark, tag: string): boolean {
-  return hasAnyTag(bookmark.tags, tag);
-}
-
 // The spelling the notebook already knows for this word, so tagging a second
 // bookmark "chats" when the first wears "Chats" joins that tag instead of
 // standing a near-twin of it next to it in the selector.
@@ -291,13 +290,32 @@ export function addBookmark(
   return sortBookmarks([bookmark, ...list]);
 }
 
+// Whether one entry's words answer a reading: it wears every word of it, which
+// is what makes a reading of several words a narrowing rather than a pile. A
+// reading holding nothing is answered by everything, which is what `VIEW_ALL`
+// puts back; `VIEW_UNTAGGED` is answered by the entries wearing nothing, so it
+// only ever stands alone.
+export function tagsInView(tags: readonly string[], view: readonly string[]): boolean {
+  return view.every((entry) => {
+    if (entry === VIEW_UNTAGGED) return tags.length === 0;
+    const tag = viewTag(entry);
+    return tag !== null && hasAnyTag(tags, tag);
+  });
+}
+
 // What the selector narrows the list to, the name filter applying after it.
-export function bookmarksInView(list: readonly Bookmark[], view: string): Bookmark[] {
-  if (view === VIEW_ALL) return [...list];
-  if (view === VIEW_UNTAGGED) return list.filter((b) => b.tags.length === 0);
-  const tag = viewTag(view);
-  if (tag === null) return [];
-  return list.filter((b) => hasTag(b, tag));
+export function bookmarksInView(list: readonly Bookmark[], view: readonly string[]): Bookmark[] {
+  return list.filter((b) => tagsInView(b.tags, view));
+}
+
+// The reading with the words the notebook no longer holds taken out of it: a tag
+// goes with the last bookmark to wear it, and the rest of what the list was
+// narrowed by stands rather than falling back to the whole notebook.
+export function dropGoneTags(view: readonly string[], tags: readonly string[]): string[] {
+  return view.filter((entry) => {
+    const tag = viewTag(entry);
+    return tag === null || hasAnyTag(tags, tag);
+  });
 }
 
 export function removeBookmark(list: readonly Bookmark[], id: string): Bookmark[] {

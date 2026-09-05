@@ -12,8 +12,9 @@ import {
   allTags,
   bookmarkLabel,
   bookmarksInView,
+  dropGoneTags,
   filterBookmarks,
-  hasTag,
+  hasAnyTag,
   isPieceFile,
   normalizeBookmarkName,
   normalizeTagName,
@@ -499,23 +500,42 @@ describe("normalizeTagName", () => {
 });
 
 describe("bookmarksInView", () => {
-  let list = make("kitten", make("sky"));
-  list = addTag(list, list[0]!.id, "cats");
+  const base = make("cloud", make("kitten", make("sky")));
+  const kitten = base.find((b) => b.name === "kitten")!.id;
+  const sky = base.find((b) => b.name === "sky")!.id;
+  const list = addTag(addTag(addTag(base, kitten, "cats"), kitten, "soft"), sky, "soft");
 
-  it("narrows to one tag, to the untagged block, or to nothing", () => {
-    expect(bookmarksInView(list, VIEW_ALL)).toHaveLength(2);
-    expect(bookmarksInView(list, tagView("cats")).map((b) => b.name)).toEqual(["kitten"]);
-    expect(bookmarksInView(list, tagView("CATS")).map((b) => b.name)).toEqual(["kitten"]);
-    expect(bookmarksInView(list, VIEW_UNTAGGED).map((b) => b.name)).toEqual(["sky"]);
-    expect(bookmarksInView(list, tagView("nobody uses this"))).toEqual([]);
+  it("narrows to one word, to the untagged block, or to nothing", () => {
+    expect(bookmarksInView(list, [])).toHaveLength(3);
+    expect(bookmarksInView(list, [tagView("cats")]).map((b) => b.name)).toEqual(["kitten"]);
+    expect(bookmarksInView(list, [tagView("CATS")]).map((b) => b.name)).toEqual(["kitten"]);
+    expect(bookmarksInView(list, [VIEW_UNTAGGED]).map((b) => b.name)).toEqual(["cloud"]);
+    expect(bookmarksInView(list, [tagView("nobody uses this")])).toEqual([]);
   });
 
-  it("tells a tag from the two views that are not one, whatever it is called", () => {
+  it("keeps the bookmarks wearing every word of the reading, not any of them", () => {
+    expect(bookmarksInView(list, [tagView("soft")]).map((b) => b.name)).toEqual(["kitten", "sky"]);
+    expect(bookmarksInView(list, [tagView("soft"), tagView("cats")]).map((b) => b.name)).toEqual([
+      "kitten",
+    ]);
+    expect(bookmarksInView(list, [tagView("soft"), VIEW_UNTAGGED])).toEqual([]);
+  });
+
+  it("tells a tag from the two readings that are not one, whatever it is called", () => {
     let named = make("all named all");
     named = addTag(named, named[0]!.id, VIEW_ALL);
-    expect(bookmarksInView(named, VIEW_ALL)).toHaveLength(1);
-    expect(bookmarksInView(named, tagView(VIEW_ALL))).toHaveLength(1);
-    expect(bookmarksInView(named, VIEW_UNTAGGED)).toEqual([]);
+    expect(bookmarksInView(named, [])).toHaveLength(1);
+    expect(bookmarksInView(named, [tagView(VIEW_ALL)])).toHaveLength(1);
+    expect(bookmarksInView(named, [VIEW_UNTAGGED])).toEqual([]);
+  });
+});
+
+describe("dropGoneTags", () => {
+  it("takes out the words the notebook lost and leaves the rest of the reading", () => {
+    const view = [tagView("cats"), VIEW_UNTAGGED, tagView("sky")];
+    expect(dropGoneTags(view, ["Cats"])).toEqual([tagView("cats"), VIEW_UNTAGGED]);
+    expect(dropGoneTags(view, [])).toEqual([VIEW_UNTAGGED]);
+    expect(dropGoneTags([], ["cats"])).toEqual([]);
   });
 });
 
@@ -570,11 +590,11 @@ describe("parseBookmarks, tags", () => {
   });
 });
 
-describe("hasTag", () => {
+describe("hasAnyTag", () => {
   it("reads a word off a bookmark whatever its capitals", () => {
     const list = addTag(make("spot"), make("spot")[0]!.id, "cats");
     const [only] = addTag(make("spot"), "nobody", "cats");
-    expect(hasTag(addTag(list, list[0]!.id, "Sky")[0]!, "sky")).toBe(true);
-    expect(hasTag(only!, "cats")).toBe(false);
+    expect(hasAnyTag(addTag(list, list[0]!.id, "Sky")[0]!.tags, "sky")).toBe(true);
+    expect(hasAnyTag(only!.tags, "cats")).toBe(false);
   });
 });
