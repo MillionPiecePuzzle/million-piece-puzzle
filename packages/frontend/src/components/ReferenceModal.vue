@@ -2,10 +2,11 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ImageManifest } from "@mpp/shared";
+import { formatBoardPoint, worldToBoard } from "../canvas/boardCoords";
 import { useOverview } from "../composables/useOverview";
 import { useFocusTrap } from "../composables/useFocusTrap";
 import { useBackdropClick } from "../composables/useBackdropClick";
-import ReferenceViewer from "./ReferenceViewer.vue";
+import ReferenceViewer, { type ViewerPoint } from "./ReferenceViewer.vue";
 
 const { t } = useI18n();
 const props = defineProps<{ manifest: ImageManifest }>();
@@ -30,15 +31,64 @@ function fit(): void {
   viewer.value?.fit();
 }
 
-// Aim the board from the photo. The pyramid is the cropped source
-// (`cols * pieceSize` by `rows * pieceSize`), so it maps 1:1 onto the puzzle
-// frame and an image pixel names a world point.
-function onPick(image: { x: number; y: number }): void {
+// The pyramid is the cropped source (`cols * pieceSize` by `rows * pieceSize`),
+// so it maps 1:1 onto the puzzle frame and an image pixel names a world point.
+function toWorld(image: { x: number; y: number }): { x: number; y: number } {
   const { rows, cols, pieceSize, source } = props.manifest;
-  navigate.value?.(
-    (image.x / source.width) * cols * pieceSize,
-    (image.y / source.height) * rows * pieceSize,
-  );
+  return {
+    x: (image.x / source.width) * cols * pieceSize,
+    y: (image.y / source.height) * rows * pieceSize,
+  };
+}
+
+// Aim the board from the photo.
+function onPick(image: { x: number; y: number }): void {
+  const world = toWorld(image);
+  navigate.value?.(world.x, world.y);
+}
+
+// Clear of the cursor, so the arrow's own tip stays on the pixel being named.
+const PROBE_GAP = 14;
+
+const probeEl = ref<HTMLElement | null>(null);
+// The last reading is kept once the cursor leaves, rather than emptied: the
+// readout stays laid out while it is out of sight, which is the only way the
+// next hover has a box to place it from.
+const probe = ref({ label: "", left: 0, top: 0 });
+const probing = ref(false);
+
+// Held at the widest reading the frame can produce, as the zoom pillar's own row
+// is, so the readout does not resize under the player's hand and the flip below
+// can trust the box it measured. The hover only fires over the photo, which maps
+// onto the frame exactly, so its far corner is the longest label there is, and
+// every character of a coordinate is one advance wide in the mono face.
+const probeChars = computed(
+  () => formatBoardPoint({ x: -props.manifest.cols / 2, y: -props.manifest.rows / 2 }).length,
+);
+
+// Name the point under the cursor in the coordinates the rest of the game reads
+// out: whole pieces from the centre of the frame, as the overview's own row
+// gives them.
+function onHover(point: ViewerPoint | null): void {
+  const shell = shellEl.value;
+  if (!point || !shell) {
+    probing.value = false;
+    return;
+  }
+  const world = toWorld(point.image);
+  // Turned back inside the window where it would otherwise hang off the right or
+  // bottom edge. The box is the one drawn last, which is the one about to be
+  // drawn: neither side of it moves with the reading.
+  const width = probeEl.value?.offsetWidth ?? 0;
+  const height = probeEl.value?.offsetHeight ?? 0;
+  const flipX = point.viewer.x + PROBE_GAP + width > shell.clientWidth;
+  const flipY = point.viewer.y + PROBE_GAP + height > shell.clientHeight;
+  probe.value = {
+    label: formatBoardPoint(worldToBoard(world.x, world.y, props.manifest)),
+    left: flipX ? point.viewer.x - PROBE_GAP - width : point.viewer.x + PROBE_GAP,
+    top: flipY ? point.viewer.y - PROBE_GAP - height : point.viewer.y + PROBE_GAP,
+  };
+  probing.value = true;
 }
 
 onMounted(trap.activate);
@@ -64,7 +114,16 @@ onMounted(trap.activate);
           :manifest="manifest"
           :aiming="aiming"
           @pick="onPick"
+          @hover="onHover"
         />
+        <div
+          ref="probeEl"
+          class="probe"
+          :class="{ probing }"
+          :style="{ left: `${probe.left}px`, top: `${probe.top}px`, '--probe-ch': probeChars }"
+        >
+          {{ probe.label }}
+        </div>
         <div class="zoom">
           <button type="button" :aria-label="t('zoom.in')" @click="zoomBy(1.4)">
             <svg class="ic" viewBox="0 0 16 16" fill="none">
@@ -204,6 +263,34 @@ onMounted(trap.activate);
 }
 .close:hover {
   color: var(--ink);
+}
+.probe {
+  position: absolute;
+  z-index: 2;
+  /* The reserved width is the reading's own, so the pill's padding is added to
+     it rather than eaten out of it. */
+  box-sizing: content-box;
+  min-width: calc(var(--probe-ch) * 1ch);
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--ink-2);
+  text-align: center;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-panel);
+  /* The readout must not take the moves the viewer is tracking, nor stand
+     between the cursor and the pick it is a reading of. */
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+.probe.probing {
+  opacity: 1;
 }
 .zoom {
   position: absolute;
