@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { MIN_OVERVIEW_ASPECT, drawOverview, overviewAspect } from "../canvas/overviewView";
-import { formatBoardPoint, worldToBoard } from "../canvas/boardCoords";
+import {
+  boardToWorld,
+  clampWorldToZone,
+  formatBoardPoint,
+  parseBoardPoint,
+  worldToBoard,
+} from "../canvas/boardCoords";
+import { pushEscapeHandler } from "../escapeStack";
 import { useOverview } from "../composables/useOverview";
 import { useOverviewPointer } from "../composables/useOverviewPointer";
 import { useBoardFlags } from "../composables/useBoardFlags";
@@ -13,7 +20,7 @@ import { useRafLoop } from "../composables/useRafLoop";
 import OverviewModal from "./OverviewModal.vue";
 
 const { t } = useI18n();
-const { source } = useOverview();
+const { source, navigate } = useOverview();
 const { flags } = useBoardFlags();
 const { onlineCount, state } = usePuzzleSession();
 const { camera } = useStageControls();
@@ -37,6 +44,87 @@ const position = computed(() => {
   const s = state.value;
   if (s.kind !== "ready") return null;
   return formatBoardPoint(worldToBoard(camera.value.centerX, camera.value.centerY, s.manifest));
+});
+
+// The row reads a point in as well as out, since it is the one control in the
+// game that already speaks board coordinates: what someone reads out to another
+// player has somewhere to be typed, and the camera moves there at the zoom it is
+// already at, a written point standing for a place and no scale like a bookmark.
+const editing = ref(false);
+const draft = ref("");
+const fieldEl = ref<HTMLInputElement | null>(null);
+const readingEl = ref<HTMLButtonElement | null>(null);
+
+// A field the player is still filling is unfinished rather than wrong, so the
+// mark waits until there is something to read.
+const readable = computed(() => draft.value.trim() === "" || parseBoardPoint(draft.value) !== null);
+
+// The box the reading and the field share, held at the widest reading there is:
+// the camera roams the whole play zone, not the frame, so a spot out past the
+// board's edge is where a coordinate spends its characters.
+const positionChars = computed(() => {
+  const s = state.value;
+  if (s.kind !== "ready") return 0;
+  const zone = s.welcome.playZone;
+  const min = worldToBoard(zone.minX, zone.minY, s.manifest);
+  const max = worldToBoard(zone.maxX, zone.maxY, s.manifest);
+  return formatBoardPoint({ x: wider(min.x, max.x), y: wider(min.y, max.y) }).length;
+});
+
+// Whichever end of an axis writes the most characters, a minus sign counted.
+function wider(a: number, b: number): number {
+  return String(Math.round(a)).length >= String(Math.round(b)).length ? a : b;
+}
+
+function startEditing(): void {
+  if (!position.value) return;
+  draft.value = position.value;
+  editing.value = true;
+  // Selected rather than only focused: the reading is already in the box, and a
+  // player opening it means to write another point, not to amend this one.
+  void nextTick(() => fieldEl.value?.select());
+}
+
+// Escape and a click away both put the reading back untouched. The field moves
+// the camera on Enter alone, so reaching for the board while a point is half
+// written never teleports the player away from what they were reading.
+function stopEditing(): void {
+  // Escape leaves the field holding the focus it took, so it is handed back to
+  // the reading it reopens from. A click away is not followed: the focus is
+  // already where the player just put it.
+  const held = document.activeElement === fieldEl.value;
+  editing.value = false;
+  if (held) void nextTick(() => readingEl.value?.focus());
+}
+
+function submit(): void {
+  const s = state.value;
+  if (s.kind !== "ready") return;
+  const point = parseBoardPoint(draft.value);
+  // An unreadable point leaves the camera where it stands and the field open on
+  // what was typed, so the player fixes it rather than writes it again.
+  if (point === null) return;
+  const world = clampWorldToZone(boardToWorld(point.x, point.y, s.manifest), s.welcome.playZone);
+  stopEditing();
+  navigate.value?.(world.x, world.y);
+}
+
+let releaseEscape: (() => void) | null = null;
+watch(editing, (open) => {
+  if (open) {
+    releaseEscape = pushEscapeHandler(stopEditing);
+    return;
+  }
+  releaseEscape?.();
+  releaseEscape = null;
+});
+onBeforeUnmount(() => releaseEscape?.());
+
+// A window narrowing onto the compact breakpoint takes the field down with the
+// row, so no press of Escape is caught by a field nobody can see.
+const showPosition = computed(() => position.value !== null && !compact.value);
+watch(showPosition, (shown) => {
+  if (!shown) stopEditing();
 });
 
 function draw(): void {
@@ -114,10 +202,38 @@ useRafLoop(draw);
         @pointercancel="onPointerUp"
       ></canvas>
     </div>
-    <p v-if="position && !compact" class="coords" :title="t('overview.coordinatesHint')">
+    <div
+      v-if="showPosition"
+      class="coords"
+      :style="{ '--coords-ch': positionChars }"
+      :title="t('overview.coordinatesHint')"
+    >
       <span class="coords-label">{{ t("overview.coordinates") }}</span>
-      <span class="coords-value">{{ position }}</span>
-    </p>
+      <input
+        v-if="editing"
+        ref="fieldEl"
+        v-model="draft"
+        class="coords-value coords-field"
+        :class="{ unreadable: !readable }"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        :aria-label="t('overview.coordinatesField')"
+        :aria-invalid="!readable"
+        @keyup.enter="submit"
+        @blur="stopEditing"
+      />
+      <button
+        v-else
+        ref="readingEl"
+        type="button"
+        class="coords-value coords-open"
+        :title="t('overview.coordinatesGo')"
+        @click="startEditing"
+      >
+        {{ position }}
+      </button>
+    </div>
   </aside>
 
   <OverviewModal v-if="enlarged" @close="enlarged = false" />
@@ -187,16 +303,59 @@ useRafLoop(draw);
   gap: 8px;
   margin: 8px 0 0;
   padding: 0 4px;
+  /* The widest reading there is, plus the insets box-sizing then takes back out
+     of the content box. Every character of a coordinate is one advance wide in
+     the mono face, so the count is the whole measurement. */
+  --coords-box: calc(var(--coords-ch) * 1ch + 10px);
 }
+/* The box holds its width, so the label is what gives when the panel is at its
+   narrowest above the compact breakpoint (a short window shrinks it through the
+   map's aspect): cut with an ellipsis rather than wrapped under the reading. */
 .coords-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: var(--ink-3);
 }
+/* The reading and the field are one box in two states, down to the border the
+   reading carries unpainted: same width whatever it reads, same insets, same
+   baseline, so the row holds still under the player's hand as they pan and
+   neither it nor the panel above it (sized against its own chrome) moves when
+   one opens over the other. Reaching back out to the row's inset, the box ends
+   on the map's right edge. */
 .coords-value {
+  flex: none;
+  min-width: var(--coords-box);
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-btn);
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-2);
   white-space: nowrap;
+  text-align: right;
+}
+.coords-open:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+/* An input carries a default width of its own, so the box is set on it rather
+   than only allowed for. */
+.coords-field {
+  width: var(--coords-box);
+  border-color: var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+.coords-field:focus {
+  outline: none;
+  border-color: var(--ink-3);
+}
+.coords-field.unreadable {
+  border-color: oklch(0.55 0.18 30);
 }
 .expand {
   flex: none;

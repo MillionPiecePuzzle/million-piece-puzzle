@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { boardToWorld, formatBoardPoint, worldToBoard, type BoardFrame } from "./boardCoords";
+import {
+  boardToWorld,
+  clampWorldToZone,
+  formatBoardPoint,
+  parseBoardPoint,
+  worldToBoard,
+  type BoardFrame,
+} from "./boardCoords";
 
 // The 1M board: 1000x1000 pieces of 120 source pixels, so the frame spans
 // (0, 0) to (120000, 120000) in world space.
@@ -58,5 +65,60 @@ describe("formatBoardPoint", () => {
 
   it("shows a point just short of the center as zero, never as minus zero", () => {
     expect(formatBoardPoint(worldToBoard(59999, 59999, board1m))).toBe("(0, 0)");
+  });
+});
+
+describe("parseBoardPoint", () => {
+  it("reads back what the readout writes", () => {
+    for (const [x, y] of [
+      [0, 0],
+      [12, -38],
+      [-500, 500],
+    ] as const) {
+      expect(parseBoardPoint(formatBoardPoint({ x, y }))).toEqual({ x, y });
+    }
+  });
+
+  it("reads the forms a player types instead of the readout's own", () => {
+    expect(parseBoardPoint("12,-38")).toEqual({ x: 12, y: -38 });
+    expect(parseBoardPoint("12, -38")).toEqual({ x: 12, y: -38 });
+    expect(parseBoardPoint("12 -38")).toEqual({ x: 12, y: -38 });
+    expect(parseBoardPoint("  (12 , -38)  ")).toEqual({ x: 12, y: -38 });
+  });
+
+  it("reads a fraction of a piece", () => {
+    expect(parseBoardPoint("(12.5, -0.25)")).toEqual({ x: 12.5, y: -0.25 });
+  });
+
+  it("refuses anything that is not two numbers", () => {
+    for (const raw of [
+      "",
+      "   ",
+      "12",
+      "12, 38, 5",
+      "twelve, -38",
+      "12; -38",
+      "1e3, 2",
+      "(12, -38))",
+      "-, 38",
+    ]) {
+      expect(parseBoardPoint(raw)).toBeNull();
+    }
+  });
+
+  it("refuses a number too long to stay finite", () => {
+    expect(parseBoardPoint(`${"9".repeat(400)}, 0`)).toBeNull();
+  });
+});
+
+describe("clampWorldToZone", () => {
+  const zone = { minX: -4800, minY: -4800, maxX: 124800, maxY: 124800 };
+
+  it("leaves a point inside the zone alone", () => {
+    expect(clampWorldToZone({ x: 60000, y: 60000 }, zone)).toEqual({ x: 60000, y: 60000 });
+  });
+
+  it("pulls a point outside it back to the nearest corner", () => {
+    expect(clampWorldToZone({ x: -1e6, y: 1e6 }, zone)).toEqual({ x: -4800, y: 124800 });
   });
 });

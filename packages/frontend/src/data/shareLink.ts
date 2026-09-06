@@ -14,6 +14,7 @@
 
 import {
   boardToWorld,
+  clampWorldToZone,
   worldToBoard,
   type BoardFrame,
   type BoardPoint,
@@ -196,11 +197,7 @@ export function sharedViewWorldPoint(
   frame: BoardFrame,
   zone: PlayZone,
 ): BoardPoint {
-  const world = boardToWorld(view.x, view.y, frame);
-  return {
-    x: Math.min(Math.max(world.x, zone.minX), zone.maxX),
-    y: Math.min(Math.max(world.y, zone.minY), zone.maxY),
-  };
+  return clampWorldToZone(boardToWorld(view.x, view.y, frame), zone);
 }
 
 // The emblem in the recipient's own world units, anchored on the point their

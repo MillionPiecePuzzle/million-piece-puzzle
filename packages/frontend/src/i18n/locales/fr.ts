@@ -85,6 +85,8 @@ const fr: MessageSchema = {
     enlarge: "Agrandir l'aperçu",
     coordinates: "Coordonnées",
     coordinatesHint: "Votre position sur le plateau, en pièces depuis son centre",
+    coordinatesGo: "Saisissez une position pour vous y rendre",
+    coordinatesField: "Position où se rendre",
   },
   auth: {
     title: "Synchroniser votre compte",

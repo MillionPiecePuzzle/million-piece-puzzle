@@ -83,6 +83,8 @@ const en = {
     enlarge: "Enlarge the overview",
     coordinates: "Coordinates",
     coordinatesHint: "Your position on the board, in pieces from its center",
+    coordinatesGo: "Type a position to go there",
+    coordinatesField: "Position to go to",
   },
   auth: {
     title: "Sync your account",

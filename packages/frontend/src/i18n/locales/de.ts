@@ -85,6 +85,8 @@ const de: MessageSchema = {
     enlarge: "Übersicht vergrößern",
     coordinates: "Koordinaten",
     coordinatesHint: "Deine Position auf dem Spielfeld, in Teilen ab der Mitte",
+    coordinatesGo: "Gib eine Position ein, um dorthin zu springen",
+    coordinatesField: "Position zum Hinspringen",
   },
   auth: {
     title: "Konto synchronisieren",

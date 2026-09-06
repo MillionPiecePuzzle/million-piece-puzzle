@@ -85,6 +85,8 @@ const es: MessageSchema = {
     enlarge: "Ampliar la vista general",
     coordinates: "Coordenadas",
     coordinatesHint: "Tu posición en el tablero, en piezas desde su centro",
+    coordinatesGo: "Escribe una posición para ir allí",
+    coordinatesField: "Posición a la que ir",
   },
   auth: {
     title: "Sincroniza tu cuenta",
