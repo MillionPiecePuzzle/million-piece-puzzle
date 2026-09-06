@@ -1,16 +1,16 @@
 import { computed, ref } from "vue";
 import {
-  BADGE_PIECES_DEFAULT,
   MAX_BOOKMARKS,
   addBookmark,
   addTag,
   allTags,
+  mergeBookmarks,
   readBookmarks,
   removeBookmark,
   removeTag,
+  renameBookmark,
   toggleBookmarkFavorite,
   writeBookmarks,
-  type BadgeKind,
   type Bookmark,
   type NewBookmark,
 } from "../data/bookmarks";
@@ -20,16 +20,6 @@ import {
 // never resurrects coordinates from another puzzle.
 const bookmarks = ref<Bookmark[]>([]);
 const puzzleId = ref<string | null>(null);
-// How wide the next badge square is traced, in pieces. Held for the page rather
-// than stored: it is a choice about the spot being marked, not a preference about
-// the board, and the one thing worth carrying is not having to set it again for
-// the second bookmark of the same pile.
-const badgePieces = ref(BADGE_PIECES_DEFAULT);
-// Which badge the next aim takes, held for the page for the same reason: the
-// player who marks one pile by its pieces marks the next one the same way. The
-// piece leads because it is the simpler aim, one click on a thing that is
-// already there against a square whose size is a second decision.
-const badgeKind = ref<BadgeKind>("piece");
 
 function commit(next: Bookmark[]): void {
   bookmarks.value = next;
@@ -47,8 +37,21 @@ export function useBookmarks() {
     commit(addBookmark(bookmarks.value, entry, tags));
   }
 
+  // A notebook read off a file, poured into this one: it answers how many
+  // entries were written, since a file whose spots are all kept already is a
+  // successful import that changes nothing on screen.
+  function merge(entries: readonly Bookmark[]): number {
+    const merged = mergeBookmarks(bookmarks.value, entries);
+    commit(merged.list);
+    return merged.added;
+  }
+
   function remove(id: string): void {
     commit(removeBookmark(bookmarks.value, id));
+  }
+
+  function rename(id: string, name: string): void {
+    commit(renameBookmark(bookmarks.value, id, name));
   }
 
   function toggleFavorite(id: string): void {
@@ -72,12 +75,12 @@ export function useBookmarks() {
   return {
     bookmarks,
     tags,
-    badgePieces,
-    badgeKind,
     canAdd,
     setPuzzle,
     add,
+    merge,
     remove,
+    rename,
     toggleFavorite,
     tag,
     untag,

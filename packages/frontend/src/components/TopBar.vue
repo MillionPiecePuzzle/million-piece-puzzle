@@ -19,7 +19,7 @@ const { countryName } = useCountryNames();
 const { totalPieces, lockedCount } = usePuzzleSession();
 const { user } = useAuth();
 const { show: showOptions } = useOptionsModal();
-const { showFrom: showBookmarks } = useBookmarksModal();
+const { open: bookmarksOpen, toggleFrom } = useBookmarksModal();
 // The notebook is a desktop affordance: a compact viewport has no room for the
 // list, so the control that opens it is not offered there either.
 const { compact } = useCompactViewport();
@@ -27,8 +27,10 @@ const { unseen: unseenUpdates } = useUpdatesSeen();
 
 const bookmarksEl = ref<HTMLElement | null>(null);
 
-function openBookmarks() {
-  showBookmarks(bookmarksEl.value);
+// The one control that both opens the notebook and puts it away: it is a window
+// over a live board rather than a dialog, so the button it hangs off is a switch.
+function toggleBookmarks() {
+  toggleFrom(bookmarksEl.value);
 }
 
 // The dot marks what is behind the gear, so it has to reach the name a screen
@@ -68,7 +70,8 @@ const progressPct = computed(() =>
           class="bookmarks"
           :title="t('bookmarks.title')"
           :aria-label="t('bookmarks.title')"
-          @click="openBookmarks"
+          :aria-expanded="bookmarksOpen"
+          @click="toggleBookmarks"
         >
           <svg
             viewBox="0 0 16 16"

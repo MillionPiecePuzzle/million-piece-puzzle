@@ -3,12 +3,17 @@ import { computed } from "vue";
 import type { BookmarkBadge } from "../data/bookmarks";
 import { badgeSquareLevel, dziTileImages, type DziInfo } from "../canvas/dziTiles";
 
-// What stands for a spot, drawn at whatever size it is given: one piece tile, or
-// the square of the board the player traced, laid out from the one to four
-// pyramid tiles it touches and cropped to the box. The level follows the size on
-// screen, so the same badge is sharp in a 40px row and under the pointer at 192.
+// What stands for a spot, drawn at whatever size it is given: the square of the
+// board the player traced, laid out from the one to four pyramid tiles it touches
+// and cropped to the box. The level follows the size on screen, so the same badge
+// is sharp in a 40px row and under the pointer at 192.
+//
+// A spot with no picture under it draws the default badge instead, a mark rather
+// than a photograph: an entry off the picture (bare ground, where most of the
+// pieces are scattered) wears no square at all, and one that does can still name
+// a place the pyramid does not cover, which the tiles would answer with holes.
 const props = defineProps<{
-  badge: BookmarkBadge;
+  badge: BookmarkBadge | null;
   size: number;
   assetBase: string;
   tilesPath: string;
@@ -16,10 +21,24 @@ const props = defineProps<{
   lazy?: boolean;
 }>();
 
+// Whether the square this badge names has any of the picture in it at all, read
+// against the pyramid's own dimensions, which is what the tiles are cut from.
+const onPicture = computed(() => {
+  const info = props.dzi;
+  const badge = props.badge;
+  if (!info || !badge) return false;
+  return (
+    badge.x + badge.size > 0 &&
+    badge.y + badge.size > 0 &&
+    badge.x < info.width &&
+    badge.y < info.height
+  );
+});
+
 const tiles = computed(() => {
   const info = props.dzi;
   const badge = props.badge;
-  if (!info || badge.kind !== "area") return [];
+  if (!info || !badge || !onPicture.value) return [];
   const level = badgeSquareLevel(info, badge.size, props.size * (window.devicePixelRatio || 1));
   const rect = {
     minX: badge.x,
@@ -38,22 +57,16 @@ const tiles = computed(() => {
     },
   }));
 });
+
+// The default badge is drawn, never fetched, so it costs nothing and is the same
+// mark at 40px and at 192: a point on bare ground, which is what the entry is.
+const showDefault = computed(() => props.dzi !== null && !onPicture.value);
 </script>
 
 <template>
   <span class="art">
     <img
-      v-if="badge.kind === 'piece'"
-      class="piece"
-      :src="assetBase + badge.file"
-      alt=""
-      crossorigin="anonymous"
-      :loading="lazy ? 'lazy' : 'eager'"
-      decoding="async"
-    />
-    <img
       v-for="tile in tiles"
-      v-else
       :key="tile.url"
       class="tile"
       :src="tile.url"
@@ -63,6 +76,15 @@ const tiles = computed(() => {
       :loading="lazy ? 'lazy' : 'eager'"
       decoding="async"
     />
+    <svg v-if="showDefault" class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.6" />
+      <path
+        d="M12 3.4v3.4M12 17.2v3.4M3.4 12h3.4M17.2 12h3.4"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+      />
+    </svg>
   </span>
 </template>
 
@@ -81,15 +103,13 @@ const tiles = computed(() => {
      overlapping by design and the seam between two is the same pixels twice. */
   max-width: none;
 }
-/* A piece tile is its own cell plus a margin a side that only its tabs reach
-   into: measured on the prod board, a piece spans 63% of its tile with blanks all
-   round and 92% with tabs all round. This is the zoom that lets the quiet ones
-   read at 40px, and it costs a fully tabbed piece about a third of one tab tip. */
-.piece {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transform: scale(1.2);
+/* Held to a share of the box rather than to a size, so the one mark reads in a
+   row and under the pointer. */
+.mark {
+  position: absolute;
+  inset: 25%;
+  width: 50%;
+  height: 50%;
+  color: var(--ink-4);
 }
 </style>

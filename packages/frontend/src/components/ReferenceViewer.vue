@@ -13,8 +13,10 @@ const props = withDefaults(defineProps<{ manifest: ImageManifest; aiming?: boole
 });
 // A point of the source image (its own pixels), which the caller reads in the
 // frame it cares about: the world for a camera jump, the pyramid's tile grid for
-// a badge.
-const emit = defineEmits<{ pick: [{ x: number; y: number }] }>();
+// a badge. `hover` carries the same point as the cursor passes over it, plus
+// where it sits in this viewer's own box, so the caller can put a readout there.
+export type ViewerPoint = { image: { x: number; y: number }; viewer: { x: number; y: number } };
+const emit = defineEmits<{ pick: [{ x: number; y: number }]; hover: [ViewerPoint | null] }>();
 
 const host = ref<HTMLDivElement | null>(null);
 let viewer: OpenSeadragon.Viewer | null = null;
@@ -65,6 +67,29 @@ function onCanvasClick(event: OpenSeadragon.CanvasClickEvent): void {
   if (!vp) return;
   const image = vp.viewerElementToImageCoordinates(event.position);
   emit("pick", { x: image.x, y: image.y });
+}
+
+// The point under the cursor, read out on the way past rather than on a click.
+// Off the image there is nothing to name (the margins keep an empty band on
+// every side), so the reading clears rather than running past the photo's edge.
+// The window's own capture handler swallows this while a pan is under way,
+// which is right: the image travels with the cursor, so the point under it does
+// not move.
+function onPointerMove(event: PointerEvent): void {
+  if (event.pointerType !== "mouse") return;
+  const el = host.value;
+  const vp = viewer?.viewport;
+  const item = viewer?.world.getItemAt(0);
+  if (!el || !vp || !item) return;
+  const rect = el.getBoundingClientRect();
+  const at = new OpenSeadragon.Point(event.clientX - rect.left, event.clientY - rect.top);
+  const image = vp.viewerElementToImageCoordinates(at);
+  const size = item.getContentSize();
+  const inside = image.x >= 0 && image.y >= 0 && image.x <= size.x && image.y <= size.y;
+  emit(
+    "hover",
+    inside ? { image: { x: image.x, y: image.y }, viewer: { x: at.x, y: at.y } } : null,
+  );
 }
 
 onMounted(() => {
@@ -126,7 +151,13 @@ defineExpose({ fit, zoomBy });
 </script>
 
 <template>
-  <div ref="host" class="osd" :class="{ aiming }" />
+  <div
+    ref="host"
+    class="osd"
+    :class="{ aiming }"
+    @pointermove="onPointerMove"
+    @pointerleave="emit('hover', null)"
+  />
 </template>
 
 <style scoped>

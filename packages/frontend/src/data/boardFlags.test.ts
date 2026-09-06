@@ -7,6 +7,7 @@ import {
   parseFlags,
   recolorFlag,
   removeFlag,
+  reorderFlag,
   type BoardFlag,
 } from "./boardFlags";
 
@@ -66,10 +67,51 @@ describe("moveFlag", () => {
   });
 });
 
+describe("reorderFlag", () => {
+  it("carries a flag forward, closing the slot it left", () => {
+    const flags = fill(4);
+    const next = reorderFlag(flags, flags[0]!.id, 2);
+    expect(next.map((f) => f.color)).toEqual([1, 2, 0, 3]);
+  });
+
+  it("carries a flag back, pushing the slot it takes along", () => {
+    const flags = fill(4);
+    const next = reorderFlag(flags, flags[3]!.id, 1);
+    expect(next.map((f) => f.color)).toEqual([0, 3, 1, 2]);
+  });
+
+  it("leaves the color, the point and the count alone", () => {
+    const flags = fill(3);
+    const next = reorderFlag(flags, flags[2]!.id, 0);
+    expect(next).toHaveLength(3);
+    expect(next[0]).toEqual(flags[2]);
+  });
+
+  it("clamps a slot past either end", () => {
+    const flags = fill(3);
+    expect(reorderFlag(flags, flags[0]!.id, 9).map((f) => f.color)).toEqual([1, 2, 0]);
+    expect(reorderFlag(flags, flags[2]!.id, -4).map((f) => f.color)).toEqual([2, 0, 1]);
+  });
+
+  it("ignores a flag that is not in the bar", () => {
+    const flags = fill(3);
+    expect(reorderFlag(flags, "nobody", 0)).toEqual(flags);
+  });
+});
+
 describe("parseFlags", () => {
   it("reads back what was stored", () => {
     const flags = fill(2);
     expect(parseFlags(JSON.stringify(flags))).toEqual(flags);
+  });
+
+  // The bar's order is the player's own, so the codec is what makes it survive a
+  // reload: a stored list is read back as it stands, never sorted by color.
+  it("keeps the order it is given", () => {
+    const flags = fill(4);
+    const stored = reorderFlag(flags, flags[0]!.id, 3);
+    expect(stored.map((f) => f.color)).toEqual([1, 2, 3, 0]);
+    expect(parseFlags(JSON.stringify(stored))).toEqual(stored);
   });
 
   it("answers empty for absent or malformed storage", () => {

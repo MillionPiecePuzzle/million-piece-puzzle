@@ -3,23 +3,23 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ImageManifest, PlayZone } from "@mpp/shared";
 import {
-  BADGE_PIECES_MAX,
-  BADGE_PIECES_MIN,
+  BADGE_PIECES,
   BOOKMARK_NAME_MAX,
   BOOKMARK_PAGE_SIZE,
   MAX_BOOKMARKS,
   MAX_TAGS_PER_BOOKMARK,
-  TAG_NAME_MAX,
   VIEW_ALL,
   VIEW_UNTAGGED,
+  badgeAround,
+  bookmarkLabel,
   bookmarksInView,
+  dropGoneTags,
   filterBookmarks,
-  hasAnyTag,
+  hasSameBookmark,
   knownTagSpelling,
   normalizeBookmarkName,
-  normalizeTagName,
-  sameTag,
   tagView,
+  tagsInView,
   viewTag,
   withTag,
   withoutTag,
@@ -32,33 +32,37 @@ import { fetchDziInfo, type DziInfo } from "../canvas/dziTiles";
 import type { PickedSpot } from "../canvas/puzzleStage";
 import { formatBoardPoint, worldToBoard } from "../canvas/boardCoords";
 import {
-  bookmarkShareUrl,
-  parseShareLink,
+  NOTEBOOK_FILE_MAX_BYTES,
+  formatBookmarkCode,
+  notebookFile,
+  notebookFileName,
+  parseBookmarkCode,
+  parseNotebookFile,
   sharedBadgeToBadge,
-  sharedViewWorldPoint,
-} from "../data/shareLink";
+} from "../data/bookmarkTransfer";
+import { sharedViewWorldPoint } from "../data/viewLink";
 import BookmarkBadgeArt from "./BookmarkBadgeArt.vue";
+import BookmarkTagsField from "./BookmarkTagsField.vue";
 import { useBookmarks } from "../composables/useBookmarks";
 import { useBookmarksModal } from "../composables/useBookmarksModal";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useFocusTrap } from "../composables/useFocusTrap";
-import { useBackdropClick } from "../composables/useBackdropClick";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
-const { open, hide, anchorInset, takeDraft } = useBookmarksModal();
+const { open, hide, anchorInset, pressedAnchor } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
 const {
   bookmarks,
   tags,
-  badgePieces,
-  badgeKind,
   canAdd,
   setPuzzle,
   add,
+  merge,
   remove,
+  rename,
   toggleFavorite,
   tag,
   untag,
@@ -67,12 +71,15 @@ const { formatNumber } = useLocaleFormat();
 
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => backOrClose() });
-const { onMousedown, onClick } = useBackdropClick(() => hide());
 
 // Escape leaves whatever the panel is showing over its list first and the
 // notebook second: what is on screen is what it closes.
 function backOrClose(): void {
-  if (tagging.value !== null) closeTagging();
+  if (tagsFor.value !== null) closeRowTags();
+  else if (renaming.value !== null) cancelRename();
+  // The aim first, since it is what the press is over: the form it belongs to
+  // stays, with whatever is already written in it.
+  else if (aiming.value) controls.value?.cancelPickSpot();
   else if (creating.value) cancelCreate();
   else if (importing.value) cancelImport();
   else hide();
@@ -91,25 +98,21 @@ const openOrigin = computed(() => {
   return { transformOrigin: `calc(100% - ${fromRight}px) top` };
 });
 // An open is a fresh read of the notebook: an abandoned draft, a filter and a
-// page from a previous open never come back with it. A bookmark handed over in a
-// link is the one thing that survives an open, and it is consumed by it.
+// page from a previous open never come back with it.
 watch(open, (isOpen) => {
   clearCopyFeedback();
+  clearFileFeedback();
   if (isOpen) {
     query.value = "";
     page.value = 0;
-    view.value = VIEW_ALL;
+    view.value = [];
+    creating.value = false;
     importing.value = false;
-    importUrl.value = "";
-    closeTagging();
+    importCode.value = "";
+    closeRowTags();
+    cancelRename();
     void loadDziInfo();
-    // The trap first: it takes the panel's first control on the next tick, and a
-    // handed draft wants the caret in its name field instead, which it gets by
-    // asking for it after.
     trap.activate();
-    const handed = takeDraft();
-    if (handed) startShared(handed);
-    else creating.value = false;
   } else {
     // A closed notebook leaves no aim armed on the board behind it.
     controls.value?.cancelPickSpot();
@@ -133,7 +136,7 @@ const tilesPath = computed(() => (manifest.value ? dziTilesPath(manifest.value.s
 // The traced square in world units, which is what the stage draws and what the
 // badge stores. Zero until the board is known, which is also when the notebook
 // offers nothing to create.
-const squareWorld = computed(() => badgePieces.value * (manifest.value?.pieceSize ?? 0));
+const squareWorld = computed(() => BADGE_PIECES * (manifest.value?.pieceSize ?? 0));
 
 watch(
   () => manifest.value?.puzzleId ?? null,
@@ -143,30 +146,31 @@ watch(
 
 const query = ref("");
 const page = ref(0);
-// Which tag the list is reading, or one of the two views that are not a tag.
-// Reset on every open like the filter and the page: an open is a fresh read of
-// the notebook.
-const view = ref<string>(VIEW_ALL);
+// The words the list is being read through, intersected: a notebook whose words
+// overlap is narrowed by as many of them as the player picks, and holding
+// nothing is the whole of it. Reset on every open like the filter and the page:
+// an open is a fresh read of the notebook.
+const view = ref<string[]>([]);
+const inView = computed(() => bookmarksInView(bookmarks.value, view.value));
 // The selector narrows the notebook and the name filter narrows what is left: a
 // tag is a word the player put on a bookmark, a name is what they called it, and
-// reading for a name inside one tag is what both are for.
-const filtered = computed(() =>
-  filterBookmarks(bookmarksInView(bookmarks.value, view.value), query.value),
-);
+// reading for a name inside a tag or two is what both are for.
+const filtered = computed(() => filterBookmarks(inView.value, query.value));
 
-// One walk of the notebook for every option the selector shows. A count is what
-// makes a tag worth opening, and filtering once per tag to get them would be one
-// walk each.
+// One walk for every option the selector shows. A word counts inside the current
+// reading, since picking it narrows what is already there: a word that would
+// empty the list reads as zero before it is picked. The untagged block counts
+// against the whole notebook instead, because picking it replaces the reading
+// rather than narrowing it: nothing wears a word and no word at the same time.
 const tagCounts = computed(() => {
   const worn = new Map<string, number>();
-  let untagged = 0;
-  for (const bookmark of bookmarks.value) {
-    if (bookmark.tags.length === 0) untagged += 1;
+  for (const bookmark of inView.value) {
     for (const name of bookmark.tags) {
       const key = name.toLocaleLowerCase();
       worn.set(key, (worn.get(key) ?? 0) + 1);
     }
   }
+  const untagged = bookmarks.value.filter((b) => b.tags.length === 0).length;
   return { worn, untagged };
 });
 
@@ -174,12 +178,19 @@ function countIn(name: string): number {
   return tagCounts.value.worn.get(name.toLocaleLowerCase()) ?? 0;
 }
 
-// The tag the list is reading, gone as soon as the last bookmark wearing it
-// drops it: a view of a word nobody uses any more would be an empty list under a
-// selector offering it, so the notebook falls back to everything.
+// What is left to narrow by, which is every word the notebook holds that the
+// list is not already read through.
+const pickableViewTags = computed(() =>
+  tags.value.filter((name) => !view.value.includes(tagView(name))),
+);
+
+// A word is gone as soon as the last bookmark wearing it drops it: a reading
+// through a word nobody uses any more would be an empty list under a selector
+// offering it. Only that word goes, so what the list was narrowed by besides it
+// still holds.
 watch([tags, view], () => {
-  const reading = viewTag(view.value);
-  if (reading !== null && !tags.value.some((t) => sameTag(t, reading))) view.value = VIEW_ALL;
+  const kept = dropGoneTags(view.value, tags.value);
+  if (kept.length !== view.value.length) view.value = kept;
 });
 
 const pageCount = computed(() =>
@@ -215,6 +226,31 @@ function positionOf(bookmark: Bookmark): string {
   return formatBoardPoint(worldToBoard(bookmark.worldX, bookmark.worldY, m));
 }
 
+// Where the entry being written stands, in the coordinates every other reading
+// of a place uses: it is what the form has to show of the spot besides its
+// badge, and what the player reads back to check they took the right one.
+const draftPosition = computed(() => {
+  const m = manifest.value;
+  const spot = draftSpot.value;
+  if (!m || !spot) return "";
+  return formatBoardPoint(worldToBoard(spot.worldX, spot.worldY, m));
+});
+
+// What a row says the spot is called: the entry's own name, the first word it is
+// filed under where it has none, and the panel's stand-in where it has neither.
+// The stand-in is a word in the player's language, which is why it is here and
+// not in the notebook, whose entries are read back on a browser set to any of
+// the four.
+function labelOf(bookmark: Bookmark): string {
+  return bookmarkLabel(bookmark) || t("bookmarks.unnamed");
+}
+
+// What an entry reads under while it is named nothing, which is what a name
+// field left empty shows behind the caret.
+function fallbackLabel(tags: readonly string[]): string {
+  return tags[0] ?? t("bookmarks.unnamed");
+}
+
 // The badge lifted out of its row at a size you can read it at. Bigger than the
 // max buys nothing (a pyramid tile is 254px native); under the min there is not
 // enough room beside the panel for a preview worth raising, and covering the row
@@ -232,10 +268,12 @@ const peek = ref<{ badge: BookmarkBadge; size: number; top: number; left: number
 // follows its row, held inside the screen so one near the bottom comes back up
 // rather than hanging under the fold. A square badge is re-cut at the size it is
 // raised to, so the preview is sharp rather than the row's own tiles stretched.
-function showPeek(badge: BookmarkBadge, ev: MouseEvent): void {
+function showPeek(badge: BookmarkBadge | null, ev: MouseEvent): void {
   const el = ev.currentTarget;
   const shell = shellEl.value;
-  if (!(el instanceof HTMLElement) || !shell) return;
+  // Nothing to lift out of a row wearing the default badge: the mark is the same
+  // mark at any size.
+  if (badge === null || !(el instanceof HTMLElement) || !shell) return;
   const room = shell.getBoundingClientRect().left - BADGE_PEEK_GAP - PEEK_EDGE_GAP;
   if (room < BADGE_PEEK_MIN) return;
   const size = Math.min(BADGE_PEEK_MAX, room);
@@ -264,8 +302,49 @@ function goTo(bookmark: Bookmark): void {
   hide();
 }
 
-// How long the row says the link is in the clipboard: long enough to read, short
-// enough that the row is back to itself by the time the player looks again.
+// The row being renamed, which is where the name is written: a bookmark is
+// named in the list it is read in rather than in a form of its own, since what
+// the player is correcting is the line in front of them. One at a time, so the
+// field is the row.
+const renaming = ref<string | null>(null);
+const renameDraft = ref("");
+const renameEl = ref<HTMLInputElement | null>(null);
+
+function setRenameEl(el: unknown): void {
+  if (el instanceof HTMLInputElement) renameEl.value = el;
+}
+
+// The stored name and not the label: what the player edits is their own words,
+// and clearing the field hands the entry back to its tags, which the placeholder
+// behind the caret is already showing.
+function startRename(bookmark: Bookmark): void {
+  hidePeek();
+  renaming.value = bookmark.id;
+  renameDraft.value = bookmark.name;
+  void nextTick(() => renameEl.value?.select());
+}
+
+// Escape leaves the row as it was, and everything else that takes the caret out
+// of the field keeps what was typed: a name is a line of text, so there is
+// nothing to confirm.
+function cancelRename(): void {
+  renaming.value = null;
+  renameDraft.value = "";
+}
+
+function commitRename(): void {
+  const id = renaming.value;
+  if (id === null) return;
+  // Null is a name past the cap, which the field's own maxlength does not let
+  // through: the row closes on what it already holds rather than on a refusal
+  // nobody can read in a list.
+  const name = normalizeBookmarkName(renameDraft.value);
+  if (name !== null) rename(id, name);
+  cancelRename();
+}
+
+// How long the row says the bookmark is in the clipboard: long enough to read,
+// short enough that the row is back to itself by the time the player looks again.
 const COPIED_FEEDBACK_MS = 2500;
 
 const copiedId = ref<string | null>(null);
@@ -282,23 +361,26 @@ function clearCopyFeedback(): void {
 onBeforeUnmount(() => {
   clearCopyFeedback();
   controls.value?.cancelPickSpot();
+  window.removeEventListener("pointerdown", onPressOutsideTags, true);
+  window.removeEventListener("pointerdown", onPressOutside, true);
 });
 
-// The spot and the bookmark of it both travel, in the player coordinates the
-// readout already shows: what the recipient gets is a draft of this entry, so
-// the name and the emblem go with the framing and the entry's own id stays here.
-// The scale is the sender's own, since the entry holds none.
-async function copyLink(bookmark: Bookmark): Promise<void> {
+// The row itself, in one line someone can paste into a message: the place in the
+// player coordinates the readout already shows, the emblem, the name and the
+// words it is filed under. What the recipient gets is a draft of this entry, so
+// the id and the star stay here. The scale is the sender's own, since the entry
+// holds none.
+async function copyCode(bookmark: Bookmark): Promise<void> {
   const m = manifest.value;
   if (!m) return;
-  const url = bookmarkShareUrl(window.location.origin, bookmark, m, camera.value.zoom);
+  const code = formatBookmarkCode(bookmark, m, camera.value.zoom);
   clearCopyFeedback();
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(code);
     copiedId.value = bookmark.id;
   } catch {
     // No clipboard at all (an insecure origin), or a browser refusing the write:
-    // an unwritten link is worth nothing, so say so rather than leave the row
+    // an unwritten line is worth nothing, so say so rather than leave the row
     // looking like it worked.
     copyFailed.value = true;
   }
@@ -307,33 +389,21 @@ async function copyLink(bookmark: Bookmark): Promise<void> {
 
 const creating = ref(false);
 const aiming = ref(false);
-// A draft filled from a link rather than from an aim: nothing is written until
-// the recipient saves, and the panel says where it came from so a name someone
-// else wrote is read before it is kept.
+// A draft filled from a bookmark someone sent rather than from an aim: nothing
+// is written until the recipient saves, and the panel says where it came from so
+// a name someone else wrote is read before it is kept.
 const shared = ref(false);
 const draftName = ref("");
 const draftBadge = ref<BookmarkBadge | null>(null);
 const draftSpot = ref<{ worldX: number; worldY: number } | null>(null);
 const error = ref<string | null>(null);
 const nameEl = ref<HTMLInputElement | null>(null);
-// A link pasted into the notebook itself, which is the other way one arrives:
-// opening it in the address bar reloads the board and drops the hand the player
-// is in the middle of, where this reads the same parameters live.
+// A bookmark someone sent, pasted into the notebook: it is read against the
+// board already on screen, so keeping a spot someone handed over never costs the
+// player the hand they are in the middle of.
 const importing = ref(false);
-const importUrl = ref("");
+const importCode = ref("");
 const importEl = ref<HTMLInputElement | null>(null);
-// What the tag picker is writing on: a bookmark of the list by its id, or the
-// entry being created, which has none yet. It is a view of the panel rather than
-// a menu hung off a row: a list of tags is the same shape as the two the panel
-// already shows over its own, so it costs no positioning, it scrolls when there
-// are many, and the focus trap already holds it.
-const TAG_TARGET_DRAFT = "draft";
-const tagging = ref<string | null>(null);
-// One field for both jobs, which is what keeps a notebook of a hundred tags
-// usable: it reads down to the ones that match, and creates what it holds when
-// nothing does.
-const tagDraft = ref("");
-const tagDraftEl = ref<HTMLInputElement | null>(null);
 // The tags the entry being written carries, inherited from the list being read:
 // marking a second bookmark under the tag you are already working from costs
 // nothing.
@@ -358,15 +428,49 @@ async function loadDziInfo(): Promise<void> {
   }
 }
 
-// The tag a new entry inherits, which is the one the list is reading and nothing
-// at all in the two views that are not a tag.
+// The selector is a picker rather than the reading itself: it adds a word to
+// what the list is narrowed by and falls back to its own label, the row of
+// chips under it saying what is being read and taking a word back off.
+const VIEW_PICK = "";
+
+function pickView(event: Event): void {
+  const el = event.target as HTMLSelectElement;
+  const picked = el.value;
+  el.value = VIEW_PICK;
+  if (picked === VIEW_ALL) view.value = [];
+  // The untagged block is the one reading that narrows nothing: a bookmark
+  // wearing a word is not in it, so it replaces the words rather than joining
+  // them, and a word picked next replaces it back.
+  else if (picked === VIEW_UNTAGGED) view.value = [VIEW_UNTAGGED];
+  else if (!view.value.includes(picked))
+    view.value = [...view.value.filter((entry) => entry !== VIEW_UNTAGGED), picked];
+}
+
+function dropView(picked: string): void {
+  view.value = view.value.filter((entry) => entry !== picked);
+}
+
+// What a picked reading reads as under the selector: the word itself, and the
+// panel's own name for the block wearing none, which is a word in the player's
+// language rather than the stored `VIEW_UNTAGGED`.
+function viewLabel(picked: string): string {
+  return viewTag(picked) ?? t("bookmarks.tagUntagged");
+}
+
+// The tags a new entry inherits, which are the words the list is being read
+// through and nothing at all in the untagged block, in the order they were
+// picked and cut to the cap like a stored entry's own, since a reading can run
+// past what one bookmark wears.
 function viewTags(): string[] {
-  const reading = viewTag(view.value);
-  return reading === null ? [] : [reading];
+  return view.value
+    .map((entry) => viewTag(entry))
+    .filter((tag): tag is string => tag !== null)
+    .slice(0, MAX_TAGS_PER_BOOKMARK);
 }
 
 function startCreate(): void {
   if (!canAdd.value || !controls.value) return;
+  clearFileFeedback();
   creating.value = true;
   shared.value = false;
   draftName.value = "";
@@ -374,137 +478,194 @@ function startCreate(): void {
   draftSpot.value = null;
   draftTags.value = viewTags();
   error.value = null;
-  void aimAtSpot();
 }
 
+// The one window the notebook takes in from: a bookmark someone sent, pasted,
+// and the notebook itself as a file, written and read back.
 function startImport(): void {
   importing.value = true;
-  importUrl.value = "";
+  importCode.value = "";
   error.value = null;
+  clearFileFeedback();
   void nextTick(() => importEl.value?.focus());
 }
 
 function cancelImport(): void {
   importing.value = false;
-  importUrl.value = "";
+  importCode.value = "";
   error.value = null;
+  clearFileFeedback();
 }
 
-// A pasted link, applied where an opened one would have been: the board is
-// framed on the spot it names and the notebook offers the same draft, so the
-// player sees what they are about to keep without losing the board they are on.
+// A pasted bookmark: the board is framed on the spot it names and the notebook
+// offers it as a draft, so the player sees what they are about to keep without
+// losing the board they are on.
 function applyImport(): void {
   const m = manifest.value;
   const zone = playZone.value;
   if (!m || !zone) return;
-  const link = parseShareLink(importUrl.value);
-  if (link === null) {
+  const sent = parseBookmarkCode(importCode.value);
+  if (sent === null) {
     error.value = t("bookmarks.importBad");
     return;
   }
-  const point = sharedViewWorldPoint(link.view, m, zone);
-  controls.value?.frameWorld(point.x, point.y, link.view.zoom);
+  const point = sharedViewWorldPoint(sent.view, m, zone);
+  controls.value?.frameWorld(point.x, point.y, sent.view.zoom);
   importing.value = false;
-  importUrl.value = "";
-  startShared({
-    name: link.bookmark.name,
-    badge: sharedBadgeToBadge(link.bookmark.badge, point, m),
-    worldX: point.x,
-    worldY: point.y,
-  });
+  importCode.value = "";
+  startShared(
+    {
+      name: sent.name,
+      badge: sharedBadgeToBadge(sent.badge, point, m),
+      worldX: point.x,
+      worldY: point.y,
+    },
+    sent.tags,
+  );
 }
 
-// A bookmark that arrived in a link: the same fields an aim fills, filled from
-// someone else's entry. The name is selected rather than only focused, since it
-// is a stranger's and retyping it should cost one keystroke.
-function startShared(entry: NewBookmark): void {
+// A bookmark someone sent: the same fields an aim fills, filled from their own
+// entry. The name is selected rather than only focused, since it is a stranger's
+// and retyping it should cost one keystroke.
+function startShared(entry: NewBookmark, tags: readonly string[]): void {
+  clearFileFeedback();
   creating.value = true;
   shared.value = true;
   draftName.value = entry.name;
   draftBadge.value = entry.badge;
   draftSpot.value = { worldX: entry.worldX, worldY: entry.worldY };
-  // No tag travels in a link: what a bookmark is filed under is the recipient's
-  // own reading of their notebook, not the sender's, and a URL that wrote words
-  // into someone else's would be a strange gift. It lands where they are
-  // reading.
-  draftTags.value = viewTags();
+  // The words the sender filed it under, under the spelling this notebook
+  // already gives them, so a word it already holds is joined rather than stood
+  // next to. An entry sent wearing none lands where the player is reading, like
+  // one of their own.
+  draftTags.value =
+    tags.length > 0 ? tags.map((name) => knownTagSpelling(bookmarks.value, name)) : viewTags();
   error.value = null;
   void nextTick(() => nameEl.value?.select());
 }
 
-// The side the aim traces, which is nothing at all when the badge being taken is
-// a piece: the square would then promise something the click does not take.
-const aimSquareWorld = computed(() => (badgeKind.value === "area" ? squareWorld.value : 0));
+// The notebook itself, written to a file and read back from one: a list kept per
+// browser has no other way of following its player to another one. What a row
+// hands to someone else is one spot; what this carries is the notebook whole,
+// every entry with its star, its words and its age. A read that wrote something
+// closes the window on the list, where the entries it just added are.
+const fileEl = ref<HTMLInputElement | null>(null);
+const fileNotice = ref<string | null>(null);
+const fileError = ref<string | null>(null);
+
+function clearFileFeedback(): void {
+  fileNotice.value = null;
+  fileError.value = null;
+}
+
+function exportNotebook(): void {
+  const m = manifest.value;
+  if (!m) return;
+  clearFileFeedback();
+  const blob = new Blob([notebookFile(m.puzzleId, bookmarks.value, new Date())], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = notebookFileName(m.puzzleId, new Date());
+  link.click();
+  // Freed on the next turn rather than straight after the click, which some
+  // browsers read as the download being cancelled.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// The picked file, read against the board on screen. The input is cleared before
+// anything else, so picking the same file twice is two imports and not one: a
+// player who edited it in between is asking for it to be read again.
+async function importNotebook(event: Event): Promise<void> {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  const file = input.files?.[0];
+  input.value = "";
+  const m = manifest.value;
+  if (!file || !m) return;
+  clearFileFeedback();
+  if (file.size > NOTEBOOK_FILE_MAX_BYTES) {
+    fileError.value = t("bookmarks.fileTooBig");
+    return;
+  }
+  let text: string;
+  try {
+    text = await file.text();
+  } catch {
+    fileError.value = t("bookmarks.fileBad");
+    return;
+  }
+  const read = parseNotebookFile(text, m.puzzleId);
+  if (read.kind === "other-board") {
+    fileError.value = t("bookmarks.fileOtherBoard");
+    return;
+  }
+  if (read.kind === "bad") {
+    fileError.value = t("bookmarks.fileBad");
+    return;
+  }
+  const added = merge(read.bookmarks);
+  // The list is left showing what was just written: a reading and a page from
+  // before the import would hide most of it.
+  importing.value = false;
+  importCode.value = "";
+  query.value = "";
+  page.value = 0;
+  view.value = [];
+  fileNotice.value =
+    added === 0
+      ? t("bookmarks.fileNothingNew")
+      : t("bookmarks.fileAdded", added, { named: { n: formatNumber(added) } });
+}
 
 // The spot and its badge are one click on the board: what the player pressed is
-// where the bookmark is, and what they chose beforehand is what stands for it.
-// The notebook stays on screen with its backdrop let through, so the board it is
-// a notebook of is the thing being aimed at.
+// where the bookmark is, and the square around it is what stands for it. The
+// notebook stays on screen with its backdrop let through, so the board it is a
+// notebook of is the thing being aimed at. Every point answers, since a spot on
+// bare ground is a spot worth keeping: it comes back with no badge rather than
+// with a refusal.
+// The aim is a step of the form the player asks for and leaves: it is armed from
+// the control beside the badge, one click on the board takes the spot, and the
+// board is its own again straight after, with the form still open. The place can
+// be taken again the same way, so nothing about the entry is held hostage to it.
 async function aimAtSpot(): Promise<void> {
   const stage = controls.value;
   if (!stage) return;
   aiming.value = true;
-  for (;;) {
-    const spot = await stage.pickSpot(aimSquareWorld.value, resizeBadge);
-    if (!spot) break;
-    const badge = badgeFor(spot);
-    if (badge !== null) {
-      draftBadge.value = badge;
-      draftSpot.value = { worldX: spot.worldX, worldY: spot.worldY };
-      error.value = null;
-      break;
-    }
-    // Nothing here to stand for the spot: a square of bare ground off the
-    // picture, or no loose piece under a click that asked for one. The aim stays
-    // armed rather than handing back a draft that would badge an empty box.
-    error.value =
-      badgeKind.value === "piece" ? t("bookmarks.noPieceHere") : t("bookmarks.nothingHere");
+  const spot = await stage.pickSpot(squareWorld.value);
+  if (spot) {
+    draftBadge.value = badgeFor(spot);
+    draftSpot.value = { worldX: spot.worldX, worldY: spot.worldY };
+    error.value = null;
+    void nextTick(() => nameEl.value?.focus());
   }
   aiming.value = false;
-  if (draftBadge.value !== null) void nextTick(() => nameEl.value?.focus());
 }
 
-// What the click takes is what was chosen before it, and only that: a piece is
-// the loose piece under the point, refused where there is none rather than
-// falling back to the ground it sits on, and a square is the one traced around
-// the point. A square with no picture in it at all is refused; one hanging off
-// the edge keeps the part that has one.
+// The same control arms the aim and gives it up, since while it is up the board
+// is what the player is looking at and the panel is out of their way.
+function toggleAim(): void {
+  if (aiming.value) controls.value?.cancelPickSpot();
+  else void aimAtSpot();
+}
+
+// What the click takes: the square traced around the point, the one side every
+// aim traces, and nothing at all where there is no picture to cut it from. One
+// hanging off the edge keeps the part that has one.
 function badgeFor(spot: PickedSpot): BookmarkBadge | null {
-  if (badgeKind.value === "piece") {
-    return spot.pieceFile === null ? null : { kind: "piece", file: spot.pieceFile };
-  }
   const m = manifest.value;
   const size = squareWorld.value;
   if (!m || size <= 0) return null;
-  const x = spot.worldX - size / 2;
-  const y = spot.worldY - size / 2;
-  const onPicture = x + size > 0 && y + size > 0 && x < m.source.width && y < m.source.height;
-  return onPicture ? { kind: "area", x, y, size } : null;
+  const badge = badgeAround(spot.worldX, spot.worldY, size);
+  const onPicture =
+    badge.x + size > 0 &&
+    badge.y + size > 0 &&
+    badge.x < m.source.width &&
+    badge.y < m.source.height;
+  return onPicture ? badge : null;
 }
-
-// The wheel over the board sizes the square while the aim is up, one piece a
-// notch, which is what puts the size under the hand that is already aiming
-// instead of back on the slider in the panel. The slider stays: it is the same
-// setting, and it is what a keyboard and a touchscreen have.
-function resizeBadge(step: number): void {
-  badgePieces.value = Math.min(
-    BADGE_PIECES_MAX,
-    Math.max(BADGE_PIECES_MIN, badgePieces.value + step),
-  );
-}
-
-// The square is set while the aim is up, so the board redraws it under the cursor
-// as the player changes their mind about how much of it the badge holds, and
-// drops it whole when they change their mind about taking a square at all.
-watch(aimSquareWorld, (side) => {
-  if (aiming.value) controls.value?.setPickSquare(side);
-});
-
-// A refusal is about the badge that was being taken, so switching badges takes
-// it back rather than leaving the panel explaining the other one.
-watch(badgeKind, () => {
-  if (aiming.value) error.value = null;
-});
 
 function cancelCreate(): void {
   creating.value = false;
@@ -517,158 +678,151 @@ function save(): void {
     error.value = t("bookmarks.full", { max: formatNumber(MAX_BOOKMARKS) });
     return;
   }
+  // Empty is a name: an entry kept unnamed reads under the first word it is
+  // filed under, and under the panel's stand-in until it wears one. Null is a
+  // name past the cap, which the field's own maxlength does not let through.
   const name = normalizeBookmarkName(draftName.value);
   if (name === null) {
-    error.value = t("bookmarks.needName");
+    error.value = t("bookmarks.nameTooLong", { max: BOOKMARK_NAME_MAX });
     return;
   }
+  // The place is the whole of what an entry must have: its badge is a picture of
+  // that place where there is one, and the panel's own mark where there is not.
   const spot = draftSpot.value;
-  if (spot === null || draftBadge.value === null) {
-    error.value = t("bookmarks.needBadge");
+  if (spot === null) {
+    error.value = t("bookmarks.needSpot");
     return;
   }
-  add({ name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value }, draftTags.value);
+  const entry = { name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value };
+  // The same place under the same name, badge and words is the entry already in
+  // the notebook: `addBookmark` refuses it, and the form says so rather than
+  // closing on a save that wrote nothing.
+  if (hasSameBookmark(bookmarks.value, entry, draftTags.value)) {
+    error.value = t("bookmarks.duplicate");
+    return;
+  }
+  add(entry, draftTags.value);
   creating.value = false;
+  // The aim outlives the click that answered it now, so the save is what takes
+  // it back off the board.
+  controls.value?.cancelPickSpot();
   // The list is left showing the entry just written, wherever its name sorts:
-  // the filter and the page go, and the view stays on the tag it inherited.
+  // the filter and the page go, and the reading keeps the words the entry
+  // actually wears, so a tag taken back off the draft is not what hides it.
   query.value = "";
   page.value = 0;
-  const inherited = draftTags.value[0];
-  view.value = inherited === undefined ? VIEW_ALL : tagView(inherited);
+  view.value = view.value.filter((entry) => tagsInView(draftTags.value, [entry]));
 }
 
-const taggingDraft = computed(() => tagging.value === TAG_TARGET_DRAFT);
-const taggedBookmark = computed(() =>
-  taggingDraft.value ? null : (bookmarks.value.find((b) => b.id === tagging.value) ?? null),
-);
-// The words the picker is writing, wherever they are held: the draft's own list
-// while the entry is being written, the stored entry's once it is kept.
-const taggedTags = computed<readonly string[]>(() =>
-  taggingDraft.value ? draftTags.value : (taggedBookmark.value?.tags ?? []),
-);
-
-function taggedWears(name: string): boolean {
-  return hasAnyTag(taggedTags.value, name);
+// The draft's own words, which are committed by the save and by nothing else:
+// the spelling the notebook already knows wins, so a word typed back with other
+// capitals joins the tag it already is.
+function tagDraftEntry(name: string): void {
+  draftTags.value = withTag(draftTags.value, knownTagSpelling(bookmarks.value, name));
 }
 
-// Everything the picker can offer: the tags the notebook holds, plus the words
-// the target already wears. The two are the same list for a bookmark the
-// notebook holds, and differ for an entry being written, whose words are on no
-// bookmark yet: without them a word created here could never be taken back off,
-// since nothing would list it.
-const pickableTags = computed(() => {
-  const known = tags.value;
-  const own = taggedTags.value.filter((name) => !known.some((t) => sameTag(t, name)));
-  return own.length === 0 ? known : [...known, ...own].sort((a, b) => a.localeCompare(b));
-});
+function untagDraftEntry(name: string): void {
+  draftTags.value = withoutTag(draftTags.value, name);
+}
 
-// What the picker lists: everything it can offer, read down to the ones the
-// field matches. The ones this bookmark already wears come first, so what it
-// carries is read before what it could.
-const tagChoices = computed(() => {
-  const needle = tagDraft.value.trim().toLocaleLowerCase();
-  const matching =
-    needle === ""
-      ? pickableTags.value
-      : pickableTags.value.filter((name) => name.toLocaleLowerCase().includes(needle));
-  return [...matching.filter(taggedWears), ...matching.filter((name) => !taggedWears(name))];
-});
+// The row whose words are open, in a popup hung under its own control rather
+// than in a view of the panel: filing an entry is a line of the list changing,
+// not a screen to walk into and back out of. A child of the panel, so the focus
+// trap already holds it and it travels with the list it hangs off, and placed in
+// the panel's own layout coordinates rather than against the window, which the
+// transform the panel opens with would put somewhere else entirely.
+const TAGS_POPUP_WIDTH = 260;
+const TAGS_POPUP_GAP = 6;
 
-// A word the notebook does not hold yet, which is what the field offers to
-// create: a tag is made by putting it on a bookmark and never before.
-const tagDraftIsNew = computed(() => {
-  const name = normalizeTagName(tagDraft.value);
-  return name !== null && !pickableTags.value.some((t) => sameTag(t, name));
-});
+const tagsFor = ref<string | null>(null);
+const tagsAt = ref<{ top: number; left: number }>({ top: 0, left: 0 });
+const tagsPopupEl = ref<HTMLElement | null>(null);
+const tagsAnchorEl = ref<HTMLElement | null>(null);
 
-const taggedIsFull = computed(() => taggedTags.value.length >= MAX_TAGS_PER_BOOKMARK);
+const tagsForBookmark = computed(() => bookmarks.value.find((b) => b.id === tagsFor.value) ?? null);
 
-function startTagging(target: string): void {
+function toggleRowTags(bookmark: Bookmark, ev: MouseEvent): void {
+  const el = ev.currentTarget;
+  if (!(el instanceof HTMLElement)) return;
+  if (tagsFor.value === bookmark.id) {
+    closeRowTags();
+    return;
+  }
   hidePeek();
-  tagging.value = target;
-  tagDraft.value = "";
-  error.value = null;
-  void nextTick(() => tagDraftEl.value?.focus());
+  tagsAt.value = {
+    top: el.offsetTop + el.offsetHeight + TAGS_POPUP_GAP,
+    left: Math.max(0, el.offsetLeft + el.offsetWidth - TAGS_POPUP_WIDTH),
+  };
+  tagsAnchorEl.value = el;
+  tagsFor.value = bookmark.id;
+  void settleRowTags(el);
 }
 
-function closeTagging(): void {
-  tagging.value = null;
-  tagDraft.value = "";
-  error.value = null;
+// The row it hangs off can be the last one of a page, where the popup would open
+// past the panel's own fold: it goes above its control instead, once it has been
+// drawn and its height is a fact rather than a guess.
+async function settleRowTags(anchor: HTMLElement): Promise<void> {
+  await nextTick();
+  const shell = shellEl.value;
+  const popup = tagsPopupEl.value;
+  if (!shell || !popup) return;
+  const above = anchor.offsetTop - popup.offsetHeight - TAGS_POPUP_GAP;
+  const fold = shell.scrollTop + shell.clientHeight - TAGS_POPUP_GAP;
+  if (tagsAt.value.top + popup.offsetHeight > fold && above >= shell.scrollTop) {
+    tagsAt.value = { ...tagsAt.value, top: above };
+  }
 }
 
-// The two writers the picker works through, one per target: the notebook's own
-// for a bookmark it already holds, the draft's list for one still being written,
-// where nothing is committed until the entry is saved.
-function applyTag(name: string): void {
-  const target = tagging.value;
-  if (target === null) return;
-  if (target === TAG_TARGET_DRAFT) {
-    draftTags.value = withTag(draftTags.value, knownTagSpelling(bookmarks.value, name));
-  } else tag(target, name);
+function closeRowTags(): void {
+  tagsFor.value = null;
+  tagsAnchorEl.value = null;
 }
 
-function dropTag(name: string): void {
-  const target = tagging.value;
-  if (target === null) return;
-  if (target === TAG_TARGET_DRAFT) draftTags.value = withoutTag(draftTags.value, name);
-  else untag(target, name);
+// A press anywhere else puts the popup away, its own control excepted, which
+// closes it by toggling. The press itself is left alone rather than swallowed:
+// it is a popup over a list and not a layer in front of it, so a row pressed
+// while it is open does what pressing that row does.
+function onPressOutsideTags(ev: PointerEvent): void {
+  const target = ev.target;
+  if (!(target instanceof Node)) return;
+  if (tagsPopupEl.value?.contains(target) || tagsAnchorEl.value?.contains(target)) return;
+  closeRowTags();
 }
 
-// One click is the whole change, on or off, since taking a word back is the same
-// click again: a Save button would only stand between the two.
-function toggleTag(name: string): void {
-  if (tagging.value === null) return;
-  if (taggedWears(name)) {
-    dropTag(name);
-    error.value = null;
-    return;
-  }
-  if (taggedIsFull.value) {
-    error.value = t("bookmarks.tagsFull", { max: MAX_TAGS_PER_BOOKMARK });
-    return;
-  }
-  applyTag(name);
-  error.value = null;
+watch(tagsFor, (id) => {
+  if (id === null) window.removeEventListener("pointerdown", onPressOutsideTags, true);
+  else window.addEventListener("pointerdown", onPressOutsideTags, true);
+});
+
+// The row it hangs off can go while it is open: the last word of a reading is
+// taken back off, or the entry itself is deleted.
+watch(tagsForBookmark, (bookmark) => {
+  if (tagsFor.value !== null && bookmark === null) closeRowTags();
+});
+
+// A press anywhere else puts the notebook away, which its backdrop cannot do for
+// it: that backdrop catches nothing so the board stays live underneath, so the
+// close is read off the press itself. The control it hangs off is excepted, since
+// it closes the panel by toggling. The form that places an entry is excepted
+// whole: it is filled by clicks on the board behind it, and a draft is not
+// something a press meant for the puzzle should cost.
+function onPressOutside(ev: PointerEvent): void {
+  const target = ev.target;
+  if (!(target instanceof Node)) return;
+  if (shellEl.value?.contains(target) || pressedAnchor(target)) return;
+  // A name being typed in the list keeps what was typed, as it does whenever the
+  // caret leaves the field: the panel goes before the blur could commit it.
+  commitRename();
+  hide();
 }
 
-// The field's other job: what it holds becomes a tag on this bookmark, which is
-// the only way a tag comes into being.
-function createTag(): void {
-  if (tagging.value === null) return;
-  const name = normalizeTagName(tagDraft.value);
-  if (name === null) {
-    error.value = t("bookmarks.tagNeedName");
-    return;
-  }
-  if (taggedWears(name)) {
-    error.value = t("bookmarks.tagWorn");
-    return;
-  }
-  if (taggedIsFull.value) {
-    error.value = t("bookmarks.tagsFull", { max: MAX_TAGS_PER_BOOKMARK });
-    return;
-  }
-  applyTag(name);
-  tagDraft.value = "";
-  error.value = null;
-}
-
-// Enter takes what is in the field: the tag it names when the notebook already
-// holds it, and a new one when it does not.
-function submitTagDraft(): void {
-  const name = normalizeTagName(tagDraft.value);
-  if (name === null) return;
-  const known = pickableTags.value.find((t) => sameTag(t, name));
-  if (known === undefined) createTag();
-  else {
-    toggleTag(known);
-    tagDraft.value = "";
-  }
-}
+watch([open, creating, importing], ([isOpen, isCreating, isImporting]) => {
+  if (isOpen && !isCreating && !isImporting)
+    window.addEventListener("pointerdown", onPressOutside, true);
+  else window.removeEventListener("pointerdown", onPressOutside, true);
+});
 
 const title = computed(() => {
-  if (tagging.value !== null) return t("bookmarks.tagsTitle");
   if (creating.value) return shared.value ? t("bookmarks.sharedTitle") : t("bookmarks.newTitle");
   if (importing.value) return t("bookmarks.importTitle");
   return t("bookmarks.title");
@@ -677,19 +831,13 @@ const title = computed(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      class="modal-backdrop bookmarks-backdrop"
-      :class="{ aiming }"
-      @mousedown="onMousedown"
-      @click="onClick"
-    >
+    <div v-if="open" class="modal-backdrop bookmarks-backdrop">
       <div
         ref="shellEl"
         class="modal-shell bookmarks-modal"
         :style="openOrigin"
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-labelledby="bookmarks-title"
         @scroll="hidePeek"
       >
@@ -698,131 +846,31 @@ const title = computed(() => {
           <button class="modal-close" :aria-label="t('common.close')" @click="hide">×</button>
         </header>
 
-        <template v-if="tagging !== null">
-          <p class="modal-lede">
-            {{
-              taggingDraft
-                ? t("bookmarks.tagsDraftLede")
-                : t("bookmarks.tagsLede", { name: taggedBookmark?.name ?? "" })
-            }}
-          </p>
-          <div class="tag-field">
-            <input
-              ref="tagDraftEl"
-              v-model="tagDraft"
-              class="field"
-              type="text"
-              :maxlength="TAG_NAME_MAX"
-              :placeholder="t('bookmarks.tagPlaceholder')"
-              :aria-label="t('bookmarks.tagNew')"
-              autocomplete="off"
-              @keyup.enter="submitTagDraft"
-            />
+        <template v-if="creating">
+          <p v-if="shared" class="modal-lede">{{ t("bookmarks.sharedLede") }}</p>
+          <div v-if="!shared" class="aim">
             <button
               type="button"
-              class="ghost"
-              :disabled="!tagDraftIsNew || taggedIsFull"
-              @click="createTag"
+              class="aim-button"
+              :class="{ on: aiming }"
+              :disabled="!controls"
+              :aria-pressed="aiming"
+              @click="toggleAim"
             >
-              {{ t("bookmarks.tagCreate") }}
+              {{
+                aiming
+                  ? t("bookmarks.aimClick")
+                  : draftSpot
+                    ? t("bookmarks.aimMove")
+                    : t("bookmarks.aimPlace")
+              }}
             </button>
+            <span class="aim-position">{{ draftPosition }}</span>
           </div>
-          <p v-if="error" class="error" role="alert">{{ error }}</p>
-          <p v-if="tagChoices.length === 0" class="empty">
-            {{ pickableTags.length === 0 ? t("bookmarks.tagsNone") : t("bookmarks.tagNoMatch") }}
-          </p>
-          <ul v-else class="tag-rows">
-            <li v-for="name in tagChoices" :key="name" class="tag-row">
-              <button
-                type="button"
-                class="tag-pick"
-                :class="{ on: taggedWears(name) }"
-                :aria-pressed="taggedWears(name)"
-                :disabled="taggedIsFull && !taggedWears(name)"
-                @click="toggleTag(name)"
-              >
-                <span class="tag-mark" aria-hidden="true">
-                  <svg v-if="taggedWears(name)" class="ic" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M3.5 8.4 6.4 11.3 12.5 5"
-                      stroke="currentColor"
-                      stroke-width="1.6"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span class="tag-name">{{ name }}</span>
-                <span class="tag-count">{{ formatNumber(countIn(name)) }}</span>
-              </button>
-            </li>
-          </ul>
-          <div class="draft-actions">
-            <button type="button" class="ghost" @click="closeTagging">
-              {{ taggingDraft ? t("bookmarks.backToEntry") : t("bookmarks.backToList") }}
-            </button>
-          </div>
-        </template>
-
-        <template v-else-if="creating">
-          <p class="modal-lede">
-            {{
-              shared
-                ? t("bookmarks.sharedLede")
-                : !aiming
-                  ? t("bookmarks.nameSpot")
-                  : badgeKind === "piece"
-                    ? t("bookmarks.pickPiece")
-                    : t("bookmarks.pickSpot")
-            }}
-          </p>
-          <div v-if="aiming" class="kind" role="group" :aria-label="t('bookmarks.badgeKind')">
-            <span class="kind-label">{{ t("bookmarks.badgeKind") }}</span>
-            <span class="kind-options">
-              <button
-                type="button"
-                class="kind-option"
-                :class="{ on: badgeKind === 'piece' }"
-                :aria-pressed="badgeKind === 'piece'"
-                @click="badgeKind = 'piece'"
-              >
-                {{ t("bookmarks.badgeKindPiece") }}
-              </button>
-              <button
-                type="button"
-                class="kind-option"
-                :class="{ on: badgeKind === 'area' }"
-                :aria-pressed="badgeKind === 'area'"
-                @click="badgeKind = 'area'"
-              >
-                {{ t("bookmarks.badgeKindArea") }}
-              </button>
-            </span>
-          </div>
-          <div v-if="aiming && badgeKind === 'area'" class="size">
-            <label class="size-label" for="bookmark-badge-size">
-              {{ t("bookmarks.badgeSize") }}
-            </label>
-            <input
-              id="bookmark-badge-size"
-              v-model.number="badgePieces"
-              class="size-range"
-              type="range"
-              :min="BADGE_PIECES_MIN"
-              :max="BADGE_PIECES_MAX"
-              step="1"
-            />
-            <span class="size-value">
-              {{ t("bookmarks.badgeSizePieces", badgePieces, { named: { n: badgePieces } }) }}
-            </span>
-          </div>
-          <p v-if="aiming && badgeKind === 'area'" class="size-hint">
-            {{ t("bookmarks.badgeSizeWheel") }}
-          </p>
-          <div v-if="!aiming" class="draft">
-            <span class="badge" :class="{ empty: !draftBadge }">
+          <div class="draft">
+            <span class="badge" :class="{ unplaced: !draftSpot }">
               <BookmarkBadgeArt
-                v-if="draftBadge"
+                v-if="draftSpot"
                 :badge="draftBadge"
                 :size="BADGE_ROW_SIZE"
                 :asset-base="assetBase"
@@ -836,38 +884,34 @@ const title = computed(() => {
               class="field"
               type="text"
               :maxlength="BOOKMARK_NAME_MAX"
-              :placeholder="t('bookmarks.namePlaceholder')"
+              :placeholder="fallbackLabel(draftTags)"
               :aria-label="t('bookmarks.nameLabel')"
               autocomplete="off"
               @keyup.enter="save"
             />
           </div>
-          <div v-if="!aiming" class="draft-tags">
-            <span class="tag-label">{{ t("bookmarks.tags") }}</span>
-            <span v-for="name in draftTags" :key="name" class="chip">{{ name }}</span>
-            <span v-if="draftTags.length === 0" class="none">
-              {{ t("bookmarks.tagsNoneYet") }}
-            </span>
-            <button type="button" class="tag-edit" @click="startTagging(TAG_TARGET_DRAFT)">
-              {{ t("bookmarks.tagsPick") }}
-            </button>
-          </div>
+          <BookmarkTagsField
+            class="draft-tags"
+            :tags="draftTags"
+            :known="tags"
+            @add="tagDraftEntry"
+            @remove="untagDraftEntry"
+          />
           <p v-if="error" class="error" role="alert">{{ error }}</p>
           <div class="draft-actions">
             <button type="button" class="ghost" @click="cancelCreate">
               {{ t("common.cancel") }}
             </button>
-            <button v-if="!aiming" type="button" class="primary" @click="save">
+            <button type="button" class="primary" :disabled="!draftSpot" @click="save">
               {{ t("common.save") }}
             </button>
           </div>
         </template>
 
         <template v-else-if="importing">
-          <p class="modal-lede">{{ t("bookmarks.importLede") }}</p>
           <input
             ref="importEl"
-            v-model="importUrl"
+            v-model="importCode"
             class="field"
             type="text"
             :placeholder="t('bookmarks.importPlaceholder')"
@@ -885,6 +929,33 @@ const title = computed(() => {
               {{ t("bookmarks.importAction") }}
             </button>
           </div>
+
+          <div class="file-actions">
+            <button
+              type="button"
+              class="ghost"
+              :disabled="!manifest || !canAdd"
+              @click="fileEl?.click()"
+            >
+              {{ t("bookmarks.fileImport") }}
+            </button>
+            <button
+              type="button"
+              class="ghost"
+              :disabled="!manifest || bookmarks.length === 0"
+              @click="exportNotebook"
+            >
+              {{ t("bookmarks.fileExport") }}
+            </button>
+            <input
+              ref="fileEl"
+              class="file-input"
+              type="file"
+              accept="application/json,.json"
+              @change="importNotebook"
+            />
+          </div>
+          <p v-if="fileError" class="error" role="alert">{{ fileError }}</p>
         </template>
 
         <template v-else>
@@ -909,21 +980,24 @@ const title = computed(() => {
           <p v-if="!canAdd" class="full" role="alert">
             {{ t("bookmarks.full", { max: formatNumber(MAX_BOOKMARKS) }) }}
           </p>
+          <p v-if="fileNotice" class="notice" role="status">{{ fileNotice }}</p>
 
           <div class="tools">
             <select
               v-if="tags.length > 0"
-              v-model="view"
               class="tag-select"
+              :value="VIEW_PICK"
               :aria-label="t('bookmarks.tag')"
+              @change="pickView"
             >
+              <option :value="VIEW_PICK" disabled>{{ t("bookmarks.viewPick") }}</option>
               <option :value="VIEW_ALL">
                 {{ t("bookmarks.tagAll") }} ({{ formatNumber(bookmarks.length) }})
               </option>
-              <option :value="VIEW_UNTAGGED">
+              <option v-if="!view.includes(VIEW_UNTAGGED)" :value="VIEW_UNTAGGED">
                 {{ t("bookmarks.tagUntagged") }} ({{ formatNumber(tagCounts.untagged) }})
               </option>
-              <option v-for="name in tags" :key="name" :value="tagView(name)">
+              <option v-for="name in pickableViewTags" :key="name" :value="tagView(name)">
                 {{ name }} ({{ formatNumber(countIn(name)) }})
               </option>
             </select>
@@ -944,17 +1018,56 @@ const title = computed(() => {
             </span>
           </div>
 
+          <div v-if="view.length > 0" class="view-tags">
+            <button
+              v-for="picked in view"
+              :key="picked"
+              type="button"
+              class="view-chip"
+              :aria-label="t('bookmarks.viewDrop', { name: viewLabel(picked) })"
+              :title="t('bookmarks.viewDrop', { name: viewLabel(picked) })"
+              @click="dropView(picked)"
+            >
+              <span class="view-name">{{ viewLabel(picked) }}</span>
+              <span class="view-drop" aria-hidden="true">×</span>
+            </button>
+          </div>
+
           <p v-if="bookmarks.length === 0" class="empty">{{ t("bookmarks.empty") }}</p>
           <p v-else-if="filtered.length === 0" class="empty">
             {{ query.trim() === "" ? t("bookmarks.viewEmpty") : t("bookmarks.noMatch") }}
           </p>
           <ul v-else class="rows">
             <li v-for="bookmark in pageRows" :key="bookmark.id" class="row">
+              <div v-if="renaming === bookmark.id" class="jump renaming">
+                <span class="badge">
+                  <BookmarkBadgeArt
+                    :badge="bookmark.badge"
+                    :size="BADGE_ROW_SIZE"
+                    :asset-base="assetBase"
+                    :tiles-path="tilesPath"
+                    :dzi="dziInfo"
+                  />
+                </span>
+                <input
+                  :ref="setRenameEl"
+                  v-model="renameDraft"
+                  class="field name-field"
+                  type="text"
+                  :maxlength="BOOKMARK_NAME_MAX"
+                  :placeholder="fallbackLabel(bookmark.tags)"
+                  :aria-label="t('bookmarks.nameLabel')"
+                  autocomplete="off"
+                  @keyup.enter="commitRename"
+                  @blur="commitRename"
+                />
+              </div>
               <button
+                v-else
                 type="button"
                 class="jump"
                 :disabled="!controls"
-                :aria-label="t('bookmarks.goTo', { name: bookmark.name })"
+                :aria-label="t('bookmarks.goTo', { name: labelOf(bookmark) })"
                 @click="goTo(bookmark)"
               >
                 <span
@@ -972,7 +1085,9 @@ const title = computed(() => {
                   />
                 </span>
                 <span class="text">
-                  <span class="name">{{ bookmark.name }}</span>
+                  <span class="name" :class="{ unnamed: bookmarkLabel(bookmark) === '' }">
+                    {{ labelOf(bookmark) }}
+                  </span>
                   <span class="meta">
                     <span class="position">{{ positionOf(bookmark) }}</span>
                     <span
@@ -1001,8 +1116,8 @@ const title = computed(() => {
                 :aria-pressed="bookmark.favorite"
                 :aria-label="
                   bookmark.favorite
-                    ? t('bookmarks.unfavorite', { name: bookmark.name })
-                    : t('bookmarks.favorite', { name: bookmark.name })
+                    ? t('bookmarks.unfavorite', { name: labelOf(bookmark) })
+                    : t('bookmarks.favorite', { name: labelOf(bookmark) })
                 "
                 :title="
                   bookmark.favorite ? t('bookmarks.hintUnfavorite') : t('bookmarks.hintFavorite')
@@ -1025,10 +1140,29 @@ const title = computed(() => {
               <button
                 type="button"
                 class="icon"
-                :class="{ tagged: bookmark.tags.length > 0 }"
-                :aria-label="t('bookmarks.tagsOf', { name: bookmark.name })"
+                :class="{ editing: renaming === bookmark.id }"
+                :aria-label="t('bookmarks.rename', { name: labelOf(bookmark) })"
+                :title="t('bookmarks.hintRename')"
+                @click="startRename(bookmark)"
+              >
+                <svg class="ic" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M10.9 2.6 13.4 5.1 5.9 12.6 2.6 13.4 3.4 10.1Z"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linejoin="round"
+                  />
+                  <path d="M9.2 4.3 11.7 6.8" stroke="currentColor" stroke-width="1.4" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="icon"
+                :class="{ tagged: bookmark.tags.length > 0, editing: tagsFor === bookmark.id }"
+                :aria-label="t('bookmarks.tagsOf', { name: labelOf(bookmark) })"
+                :aria-expanded="tagsFor === bookmark.id"
                 :title="t('bookmarks.hintTags')"
-                @click="startTagging(bookmark.id)"
+                @click="toggleRowTags(bookmark, $event)"
               >
                 <svg class="ic" viewBox="0 0 16 16" fill="none">
                   <circle cx="5.4" cy="5.4" r="1" fill="currentColor" />
@@ -1048,12 +1182,10 @@ const title = computed(() => {
                 :aria-label="
                   copiedId === bookmark.id
                     ? t('bookmarks.copied')
-                    : t('bookmarks.copyLink', { name: bookmark.name })
+                    : t('bookmarks.copy', { name: labelOf(bookmark) })
                 "
-                :title="
-                  copiedId === bookmark.id ? t('bookmarks.copied') : t('bookmarks.hintCopyLink')
-                "
-                @click="copyLink(bookmark)"
+                :title="copiedId === bookmark.id ? t('bookmarks.copied') : t('bookmarks.hintCopy')"
+                @click="copyCode(bookmark)"
               >
                 <svg v-if="copiedId === bookmark.id" class="ic" viewBox="0 0 16 16" fill="none">
                   <path
@@ -1065,24 +1197,28 @@ const title = computed(() => {
                   />
                 </svg>
                 <svg v-else class="ic" viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.1-2.1a2.6 2.6 0 0 0-3.7-3.7l-1 1"
+                  <rect
+                    x="5.6"
+                    y="5.6"
+                    width="8"
+                    height="8"
+                    rx="1.6"
                     stroke="currentColor"
                     stroke-width="1.4"
-                    stroke-linecap="round"
                   />
                   <path
-                    d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.4 8.9a2.6 2.6 0 0 0 3.7 3.7l1-1"
+                    d="M10.4 5.6V4a1.6 1.6 0 0 0-1.6-1.6H4A1.6 1.6 0 0 0 2.4 4v4.8A1.6 1.6 0 0 0 4 10.4h1.6"
                     stroke="currentColor"
                     stroke-width="1.4"
                     stroke-linecap="round"
+                    stroke-linejoin="round"
                   />
                 </svg>
               </button>
               <button
                 type="button"
                 class="icon delete"
-                :aria-label="t('bookmarks.delete', { name: bookmark.name })"
+                :aria-label="t('bookmarks.delete', { name: labelOf(bookmark) })"
                 :title="t('bookmarks.hintDelete')"
                 @click="remove(bookmark.id)"
               >
@@ -1102,6 +1238,23 @@ const title = computed(() => {
             </button>
           </div>
         </template>
+
+        <div
+          v-if="tagsForBookmark"
+          ref="tagsPopupEl"
+          class="tags-popup"
+          role="group"
+          :aria-label="t('bookmarks.tagsOf', { name: labelOf(tagsForBookmark) })"
+          :style="{ top: `${tagsAt.top}px`, left: `${tagsAt.left}px` }"
+        >
+          <BookmarkTagsField
+            :tags="tagsForBookmark.tags"
+            :known="tags"
+            autofocus
+            @add="tag(tagsForBookmark.id, $event)"
+            @remove="untag(tagsForBookmark.id, $event)"
+          />
+        </div>
       </div>
 
       <Transition name="peek">
@@ -1132,28 +1285,31 @@ const title = computed(() => {
 <style scoped>
 /* A window opened from the topbar, not a dialog dropped over the board: it hangs
    under the bar it was opened from, and the board it is a notebook of stays lit
-   behind it. The backdrop is still there, invisible, to catch the click that
-   closes it. */
+   behind it. The press always belongs to the board: the backdrop catches nothing
+   and the panel takes it back, so the board pans, zooms and plays under an open
+   notebook. It is the one panel of the game that works this way, because it is
+   the one whose whole subject is out there: a spot is aimed at, read against the
+   picture, and reached, all with the list of the others still in front of you.
+   The press that lands outside still puts the list away, read off the press
+   rather than caught by the backdrop; the form that places an entry is what it
+   leaves alone, that form being filled by clicks on the board behind it. */
 .bookmarks-backdrop {
   z-index: 111;
   background: none;
   backdrop-filter: none;
   place-items: start end;
   padding: calc(52px + var(--notice-h, 0px) + 8px) 16px 16px;
-}
-/* While the player aims, the press belongs to the board: the backdrop stops
-   catching it and the panel takes it back, so the notebook stays on screen with
-   its own cancel while the click lands on the puzzle. */
-.bookmarks-backdrop.aiming {
   pointer-events: none;
 }
-.bookmarks-backdrop.aiming .bookmarks-modal {
+.bookmarks-backdrop .bookmarks-modal {
   pointer-events: auto;
 }
 .bookmarks-modal {
   /* Wide enough for a row to carry its badge, its name and its coordinates on
      one line. */
   width: min(560px, 100%);
+  /* The box the tag popup is placed in, which is also the box it scrolls with. */
+  position: relative;
   /* Grown from the control that opened it, whose place in the panel's own box
      `openOrigin` computes. */
   animation: bookmarks-open 160ms ease-out;
@@ -1242,6 +1398,16 @@ const title = computed(() => {
 .jump:disabled {
   cursor: default;
 }
+/* The row while its name is being written: the same line with the name a field
+   where it reads, so nothing moves between reading the list and correcting it. */
+.jump.renaming,
+.jump.renaming:hover {
+  background: none;
+  cursor: default;
+}
+.name-field {
+  padding: 6px 10px;
+}
 /* The badge is a picture of a place, so it carries the same rounded frame in the
    row and in the draft: a photograph, not an icon. Its size here is what
    BADGE_ROW_SIZE names, which is what the level of the pyramid follows. */
@@ -1254,7 +1420,10 @@ const title = computed(() => {
   border-radius: var(--radius-btn);
   background: var(--ground-2);
 }
-.badge.empty {
+/* The box a badge will be, while the entry has no place yet. Its own modifier
+   rather than `empty`, which is the panel's word for a list with nothing in it
+   and carries that message's margins. */
+.badge.unplaced {
   border-style: dashed;
 }
 /* The badge lifted out of its row, out to the left where the panel leaves room.
@@ -1296,6 +1465,12 @@ const title = computed(() => {
   font-size: 14px;
   color: var(--ink);
 }
+/* An entry with no name and no word to borrow one from reads under a stand-in,
+   which is the panel speaking rather than the player: lighter, so a name written
+   by hand is never mistaken for it. */
+.name.unnamed {
+  color: var(--ink-4);
+}
 .meta {
   display: flex;
   align-items: center;
@@ -1328,8 +1503,8 @@ const title = computed(() => {
   opacity: 0.4;
   cursor: not-allowed;
 }
-/* The row's own confirmation that the link is in the clipboard, which nothing
-   else on screen would say. */
+/* The row's own confirmation that the bookmark is in the clipboard, which
+   nothing else on screen would say. */
 .icon.done {
   color: var(--ink);
 }
@@ -1371,6 +1546,28 @@ const title = computed(() => {
   opacity: 0.5;
   cursor: default;
 }
+/* The notebook as a whole, under the one bookmark a paste carries: the same
+   window, since both are the notebook taking in what it did not write, and a
+   rule between them because a file is the whole list where a line is one spot. */
+.file-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.file-actions .ghost {
+  flex: 1;
+}
+.file-input {
+  display: none;
+}
+.notice {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
 .primary {
   width: 100%;
   padding: 10px 14px;
@@ -1397,80 +1594,52 @@ const title = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-top: 12px;
 }
-/* What the aim takes, chosen before it lands: two options reading as one control,
-   so the click has one meaning rather than whichever of the two the board happens
-   to offer under it. */
-.kind {
+/* Where the spot is and the control that takes it, on one quiet line: the entry
+   is the name and the badge, and this is the place they are about to be about.
+   The aim is asked for and given up from that one control, so the board is only
+   ever taken over while the player is holding it, and it lights up while it is,
+   since what is waiting for them is out on the board and not in this panel. */
+.aim {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-top: 12px;
 }
-.kind-label {
-  flex: none;
-  font-size: 13px;
-  color: var(--ink-3);
-}
-.kind-options {
-  flex: 1;
-  display: flex;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-btn);
-}
-.kind-option {
-  flex: 1;
-  padding: 5px 10px;
-  border-radius: calc(var(--radius-btn) - 2px);
-  font-size: 13px;
-  color: var(--ink-3);
-  transition:
-    background 160ms ease,
-    color 160ms ease;
-}
-.kind-option:hover:not(.on) {
-  background: var(--ground-2);
-  color: var(--ink);
-}
-.kind-option.on {
-  background: var(--ink);
-  color: var(--ground);
-}
-/* The square's size, set while the aim is up: one row under the instruction, so
-   the slider and the square it resizes are both in view. */
-.size {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-}
-.size-label {
-  flex: none;
-  font-size: 13px;
-  color: var(--ink-3);
-}
-.size-range {
+.aim-position {
   flex: 1;
   min-width: 0;
-  accent-color: var(--ink);
-}
-.size-value {
-  flex: none;
-  min-width: 66px;
   text-align: right;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-4);
 }
-/* The wheel does the same job over the board itself, where the hand already is.
-   Said under the slider rather than instead of it: the slider is what a keyboard
-   and a touchscreen have. */
-.size-hint {
-  margin: 4px 0 0;
+.aim-button {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
   font-size: 12px;
-  color: var(--ink-4);
+  color: var(--ink-3);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+.aim-button:hover:not(:disabled) {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.aim-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.aim-button.on,
+.aim-button.on:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ground);
 }
 .error {
   margin: 10px 0 0;
@@ -1505,10 +1674,11 @@ const title = computed(() => {
   opacity: 0.4;
   cursor: not-allowed;
 }
-/* The tag the list is reading, beside the filter it composes with: the selector
-   says which word a bookmark was put under and the filter says what it was
-   called. A native control, since nothing bounds the list at the three a row of
-   chips would hold. */
+/* What the list is read through, beside the filter it composes with: the
+   selector says which words a bookmark was put under and the filter says what it
+   was called. A native control, since nothing bounds the notebook's words at the
+   three a row of chips would hold; what is picked out of it is bounded, and that
+   is the row under it. */
 .tag-select {
   flex: none;
   max-width: 45%;
@@ -1523,45 +1693,61 @@ const title = computed(() => {
   outline: none;
   border-color: var(--ink-3);
 }
-/* What the entry being written carries, under its name: the tag it inherited
-   from the list being read, plus whatever the player picks here, so filing a
-   bookmark is part of writing it rather than a second visit to its row. */
-.draft-tags {
+/* The words the list is being read through, under the selector that adds them:
+   the control offers what is left to narrow by and each word here comes back off
+   in one click, which is the whole of what reading through several needs. */
+.view-tags {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 12px;
+  margin-bottom: 10px;
 }
-.draft-tags .none {
-  font-size: 12px;
-  color: var(--ink-4);
-}
-.tag-edit {
-  flex: none;
-  margin-left: auto;
-  padding: 2px 8px;
+.view-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 6px 2px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
-  background: none;
-  font: inherit;
+  background: var(--ground-2);
   font-size: 12px;
   color: var(--ink-3);
-  cursor: pointer;
 }
-.tag-edit:hover {
+.view-chip:hover {
   border-color: var(--ink-3);
   color: var(--ink);
 }
-.tag-label {
-  flex: none;
-  font-size: 13px;
-  color: var(--ink-3);
+.view-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-/* The draft has the whole panel's width for one or two words, where a row has
-   what its name leaves: nothing is cut here. */
-.draft-tags .chip {
-  max-width: none;
+.view-drop {
+  flex: none;
+  font-size: 15px;
+  line-height: 1;
+}
+/* What the entry being written carries, under its name: the tag it inherited
+   from the list being read, plus whatever is written here, so filing a bookmark
+   is part of writing it rather than a second visit to its row. */
+.draft-tags {
+  margin-top: 12px;
+}
+/* The same field a draft is filed through, hung under the row's own control and
+   inside the panel's own box, so it travels with the list rather than hanging
+   over it. Its width is what `TAGS_POPUP_WIDTH` places it by. */
+.tags-popup {
+  position: absolute;
+  z-index: 1;
+  width: 260px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--paper);
+  box-shadow: var(--shadow-panel);
 }
 /* The row's own tags, after the coordinates: two of them at most and a count for
    the rest, each held to a width that leaves the line readable however long the
@@ -1592,80 +1778,13 @@ const title = computed(() => {
 .position {
   flex: none;
 }
-.tag-rows {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-/* A tag goes on and comes off in one click, so the whole row is the control: the
-   tick says whether this bookmark wears it and the count says how many others
-   do. */
-.tag-pick {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: var(--radius-row);
-  text-align: left;
-  transition: background 160ms ease;
-}
-.tag-pick:hover:not(:disabled) {
-  background: var(--ground-2);
-}
-/* At five tags the rest of the list is not a choice any more, so it stops
-   offering itself rather than answering with a refusal. */
-.tag-pick:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.tag-mark {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  color: var(--ink);
-}
-.tag-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  color: var(--ink);
-}
-.tag-pick.on .tag-name {
-  color: var(--ink);
-}
-.tag-count {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-4);
-}
-/* One field for both jobs: it reads the list down to what it holds, and makes
-   that word a tag when the notebook does not have it yet. */
-.tag-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-}
-.tag-field .ghost {
-  flex: none;
-  padding: 8px 12px;
-  font-size: 13px;
-}
 /* A tagged row says so standing still: which words is a hover away in the list,
    and one click from changing here. */
 .icon.tagged {
   color: var(--ink-3);
+}
+/* Which row the open field belongs to, said on the control that opened it. */
+.icon.editing {
+  color: var(--ink);
 }
 </style>

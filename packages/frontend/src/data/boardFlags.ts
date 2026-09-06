@@ -82,6 +82,20 @@ export function moveFlag(
   return flags.map((f) => (f.id === id ? { ...f, worldX, worldY } : f));
 }
 
+// The array order is the bar's order, which is also the slot the number key
+// jumps to, so a flag carried to another position in the bar takes its key with
+// it. `moveFlag` is the board move, this is the bar one.
+export function reorderFlag(flags: readonly BoardFlag[], id: string, toIndex: number): BoardFlag[] {
+  const from = flags.findIndex((f) => f.id === id);
+  if (from === -1) return [...flags];
+  const to = Math.min(Math.max(Math.trunc(toIndex), 0), flags.length - 1);
+  if (to === from) return [...flags];
+  const next = [...flags];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved!);
+  return next;
+}
+
 // Colors stay a permutation: whoever holds the requested color takes the one
 // being given up, so no two flags ever share a color and none is left blank.
 export function recolorFlag(flags: readonly BoardFlag[], id: string, color: number): BoardFlag[] {

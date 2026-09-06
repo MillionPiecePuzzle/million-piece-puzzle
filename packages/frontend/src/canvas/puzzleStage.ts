@@ -89,10 +89,9 @@ export type OverviewSnapshot = {
 // position is (dx * pieceSize, dy * pieceSize).
 type PieceOffset = { dx: number; dy: number };
 
-// What a click on the board answers with: the world point pressed, and the asset
-// path of the loose piece under it when there is one. Null over locked content, a
-// transparent gap or bare ground, which the caller badges its own way.
-export type PickedSpot = { worldX: number; worldY: number; pieceFile: string | null };
+// What a click on the board answers with: the world point pressed, which the
+// caller badges its own way.
+export type PickedSpot = { worldX: number; worldY: number };
 
 type PieceNode = {
   id: number;
@@ -234,19 +233,6 @@ const SPOT_PICK_SLOP = 4;
 // legible under it.
 const AIM_SQUARE_COLOR = 0xffffff;
 const AIM_SQUARE_SHADOW = 0x000000;
-
-// A wheel event's travel in notches, whatever unit the browser measures it in:
-// pixels (a notch is about a hundred of them, a trackpad a stream of far smaller
-// ones), lines (three to a notch) or pages. Normalized here because the aim
-// counts discrete steps, where the camera zoom takes the raw delta as it comes.
-const WHEEL_PIXELS_PER_NOTCH = 100;
-const WHEEL_LINES_PER_NOTCH = 3;
-
-function wheelNotches(ev: WheelEvent): number {
-  if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) return ev.deltaY / WHEEL_LINES_PER_NOTCH;
-  if (ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) return ev.deltaY;
-  return ev.deltaY / WHEEL_PIXELS_PER_NOTCH;
-}
 
 // Edge-pan: when the pointer rests within this many screen pixels of a canvas
 // edge, the camera scrolls toward that edge. Speed ramps quadratically from 0 at
@@ -628,15 +614,9 @@ export class PuzzleStage {
   // player brings the spot into view and then clicks it.
   private spotPick: ((spot: PickedSpot | null) => void) | null = null;
   private spotPress: { x: number; y: number; moved: boolean } | null = null;
-  // Where a wheel over the board goes while the aim traces a square, and the
-  // fraction of a notch the last event left behind: a trackpad delivers a stream
-  // of small deltas, which add up to the same step a mouse notch takes in one.
-  private spotResize: ((step: number) => void) | null = null;
-  private aimWheelNotches = 0;
   // The aim's square, in world units a side and as the screen-space Graphics
   // drawing it under the cursor. Its side on screen is the world side times the
-  // zoom, so the geometry is redrawn on a zoom or a size change and only moved on
-  // a pointer move.
+  // zoom, so the geometry is redrawn on a zoom and only moved on a pointer move.
   private aimSquareWorld = 0;
   private aimSquare: Graphics | null = null;
   private aimSquareSide = -1;
@@ -3074,33 +3054,18 @@ export class PuzzleStage {
   // already waiting, so a caller never has to pair its own cancel with a new arm.
   // `squareWorld` is the side, in world units, of the square traced under the
   // cursor: the caller sets it, since the badge it stands for is the caller's,
-  // and zero traces none, which is what an aim for a piece alone asks for.
-  // `onResize` takes the wheel while that square is up, in notches, the caller
-  // turning them into a new side since the size is measured in its own units.
-  pickSpot(
-    squareWorld: number,
-    onResize: ((step: number) => void) | null = null,
-  ): Promise<PickedSpot | null> {
+  // and zero traces none.
+  pickSpot(squareWorld: number): Promise<PickedSpot | null> {
     this.cancelPickSpot();
     this.aimSquareWorld = squareWorld;
-    this.spotResize = onResize;
     return new Promise((resolve) => {
       this.spotPick = resolve;
       this.applyAimState();
     });
   }
 
-  // The square resized while the aim is up, so the player sees the badge they
-  // are about to take rather than setting its size blind.
-  setPickSquare(squareWorld: number): void {
-    this.aimSquareWorld = squareWorld;
-    this.updateAimSquare();
-  }
-
   cancelPickSpot(): void {
     const pending = this.spotPick;
-    this.spotResize = null;
-    this.aimWheelNotches = 0;
     if (!pending) return;
     this.spotPick = null;
     this.spotPress = null;
@@ -3127,6 +3092,12 @@ export class PuzzleStage {
       this.removeAimSquare();
       return;
     }
+    // Off the picture the square would promise an extract there is none of: the
+    // spot is still taken by the click, and the caller badges it its own way.
+    if (!this.aimSquareOnPicture(pointer.x, pointer.y)) {
+      this.removeAimSquare();
+      return;
+    }
     let g = this.aimSquare;
     if (!g) {
       g = new Graphics();
@@ -3147,6 +3118,21 @@ export class PuzzleStage {
     g.position.set(pointer.x, pointer.y);
   }
 
+  // Whether the square the cursor is over holds any of the source picture, which
+  // spans the frame from its own origin.
+  private aimSquareOnPicture(screenX: number, screenY: number): boolean {
+    const m = this.manifest;
+    if (!m) return false;
+    const world = this.screenToWorld(screenX, screenY);
+    const half = this.aimSquareWorld / 2;
+    return (
+      world.x + half > 0 &&
+      world.y + half > 0 &&
+      world.x - half < m.source.width &&
+      world.y - half < m.source.height
+    );
+  }
+
   private removeAimSquare(): void {
     const g = this.aimSquare;
     this.aimSquare = null;
@@ -3160,40 +3146,9 @@ export class PuzzleStage {
     const resolve = this.spotPick;
     if (!resolve) return;
     this.spotPick = null;
-    this.spotResize = null;
-    this.aimWheelNotches = 0;
     this.applyAimState();
     const world = this.screenToWorld(screenX, screenY);
-    const pieceId = this.loosePieceAt(world.x, world.y);
-    resolve({
-      worldX: world.x,
-      worldY: world.y,
-      pieceFile: pieceId === null ? null : (this.fileById.get(pieceId) ?? null),
-    });
-  }
-
-  // The loose piece whose opaque silhouette covers a world point, topmost in the
-  // unlocked layer's z-order, or null. Only a hydrated piece can answer: its own
-  // tile is both what the alpha is read from and what the caller stores, so a
-  // piece the browser has never fetched is not offered as a badge.
-  private loosePieceAt(worldX: number, worldY: number): number | null {
-    const layer = this.unlockedLayer;
-    if (!layer) return null;
-    const point: Aabb = { minX: worldX, minY: worldY, maxX: worldX, maxY: worldY };
-    let best: number | null = null;
-    let bestZ = -1;
-    for (const id of this.groupGrid.queryRect(point)) {
-      const node = this.groups.get(id);
-      if (!node || node.container.parent !== layer) continue;
-      const piece = this.pieceAtPoint(node, worldX, worldY);
-      if (!piece) continue;
-      const z = layer.getChildIndex(node.container);
-      if (z > bestZ) {
-        bestZ = z;
-        best = piece.id;
-      }
-    }
-    return best;
+    resolve({ worldX: world.x, worldY: world.y });
   }
 
   zoomIn(): void {
@@ -4472,7 +4427,6 @@ export class PuzzleStage {
       "wheel",
       (ev) => {
         ev.preventDefault();
-        if (this.wheelResizesAim(ev)) return;
         const rect = canvas.getBoundingClientRect();
         const px = ev.clientX - rect.left;
         const py = ev.clientY - rect.top;
@@ -4485,22 +4439,6 @@ export class PuzzleStage {
       },
       { passive: false },
     );
-  }
-
-  // While the aim traces a square, the wheel is that square's size and not the
-  // camera's scale: the badge is stored in world units, so the zoom the player is
-  // at changes nothing about what a click takes, where the size is the one thing
-  // they are still deciding. An aim for a piece traces no square and keeps the
-  // zoom, and the HUD's own buttons and a pinch keep it in both cases. Up is
-  // bigger, the way up is closer on the same wheel over the same board.
-  private wheelResizesAim(ev: WheelEvent): boolean {
-    const resize = this.spotResize;
-    if (!resize || !this.spotPick || this.aimSquareWorld <= 0 || ev.deltaY === 0) return false;
-    this.aimWheelNotches += wheelNotches(ev);
-    const steps = Math.trunc(this.aimWheelNotches);
-    this.aimWheelNotches -= steps;
-    if (steps !== 0) resize(-steps);
-    return true;
   }
 
   // A Mac's secondary click is Ctrl held down, so the press that adds a cluster to
