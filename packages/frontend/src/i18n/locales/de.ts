@@ -349,6 +349,7 @@ const de: MessageSchema = {
     unnamed: "Ohne Namen",
     nameTooLong: "Ein Lesezeichenname fasst {max} Zeichen.",
     needSpot: "Klicke aufs Spielfeld, bevor du speicherst.",
+    duplicate: "Genau dieses Lesezeichen steht schon in deinem Notizbuch.",
     goTo: "Zu {name}",
     rename: "{name} umbenennen",
     favorite: "{name} zu deinen Favoriten hinzufügen",

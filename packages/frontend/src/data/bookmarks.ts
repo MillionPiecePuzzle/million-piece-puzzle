@@ -270,12 +270,15 @@ export function renameBookmark(list: readonly Bookmark[], id: string, name: stri
   return sortBookmarks(list.map((b) => (b.id === id ? { ...b, name } : b)));
 }
 
+// Refused rather than doubled: a spot taken a second time under the same name,
+// badge and words is the entry the notebook already holds, and a row the list
+// cannot tell from the one above it is a row nobody can act on separately.
 export function addBookmark(
   list: readonly Bookmark[],
   entry: NewBookmark,
   tags: readonly string[] = [],
 ): Bookmark[] {
-  if (list.length >= MAX_BOOKMARKS) return [...list];
+  if (list.length >= MAX_BOOKMARKS || hasSameBookmark(list, entry, tags)) return [...list];
   const bookmark: Bookmark = {
     id: nextBookmarkId(),
     name: entry.name,
@@ -289,19 +292,63 @@ export function addBookmark(
   return sortBookmarks([bookmark, ...list]);
 }
 
-// Two entries are the same spot when they name the same place under the same
-// name: an id is a browser's own and never a place's, so it is not what a
-// notebook read twice can be told by.
-function spotKey(bookmark: Bookmark): string {
-  return `${bookmark.worldX}:${bookmark.worldY}:${bookmark.name}`;
+// What two entries have to share to be the same entry: the place, and everything
+// the player wrote about it. The id and the age are the browser's own rather
+// than the spot's, and the star is what the player says about a place after
+// keeping it, so none of the three stands between an entry and its twin.
+// Positions are keyed rounded, the way they are stored, and words without their
+// capitals, the way `sameTag` reads them.
+function entryKey(
+  worldX: number,
+  worldY: number,
+  name: string,
+  badge: BookmarkBadge | null,
+  tags: readonly string[],
+): string {
+  const square = badge
+    ? `${Math.round(badge.x)},${Math.round(badge.y)},${Math.round(badge.size)}`
+    : "";
+  // Joined on a character no field can hold: a name and the words beside it both
+  // arrive percent-decoded from a pasted line, so a printable separator would let
+  // one field's text read as part of the next one's.
+  return [
+    Math.round(worldX),
+    Math.round(worldY),
+    name,
+    square,
+    tags.map((t) => t.toLocaleLowerCase()).join(","),
+  ].join("\u0000");
+}
+
+function bookmarkKey(bookmark: Bookmark): string {
+  return entryKey(bookmark.worldX, bookmark.worldY, bookmark.name, bookmark.badge, bookmark.tags);
+}
+
+// Whether the notebook already holds this exact entry, which is what the save
+// form asks before writing one: the same spot aimed at twice, or the same line
+// pasted twice, is one bookmark and the refusal says so.
+export function hasSameBookmark(
+  list: readonly Bookmark[],
+  entry: NewBookmark,
+  tags: readonly string[] = [],
+): boolean {
+  const key = entryKey(
+    entry.worldX,
+    entry.worldY,
+    entry.name,
+    entry.badge,
+    tags.slice(0, MAX_TAGS_PER_BOOKMARK),
+  );
+  return list.some((b) => bookmarkKey(b) === key);
 }
 
 // A notebook read off a file poured into the one the browser already keeps: what
 // is kept stays, what is new is added under the spelling this notebook already
-// gives each word, and the cap is the same bound one entry at a time meets. A
-// spot already kept is not written a second time, so importing the same file
-// twice adds nothing; an id that would collide with one already in the list is
-// minted fresh, since two browsers mint their own.
+// gives each word, and the cap is the same bound one entry at a time meets. An
+// entry the notebook already holds to the word is not written a second time, the
+// same rule the save form is refused by, so importing the same file twice adds
+// nothing; an id that would collide with one already in the list is minted
+// fresh, since two browsers mint their own.
 //
 // Both readings are indexed up front rather than walked per entry: a file can
 // carry as many entries as the notebook holds, and a scan per incoming entry
@@ -312,7 +359,7 @@ export function mergeBookmarks(
 ): { list: Bookmark[]; added: number } {
   const kept = [...list];
   const takenIds = new Set(kept.map((b) => b.id));
-  const spots = new Set(kept.map(spotKey));
+  const keys = new Set(kept.map(bookmarkKey));
   const spellings = new Map<string, string>();
   for (const bookmark of kept) {
     for (const tag of bookmark.tags) {
@@ -323,9 +370,9 @@ export function mergeBookmarks(
   let added = 0;
   for (const entry of incoming) {
     if (kept.length >= MAX_BOOKMARKS) break;
-    const spot = spotKey(entry);
-    if (spots.has(spot)) continue;
-    spots.add(spot);
+    const key = bookmarkKey(entry);
+    if (keys.has(key)) continue;
+    keys.add(key);
     const id = takenIds.has(entry.id) ? nextBookmarkId() : entry.id;
     takenIds.add(id);
     const tags = entry.tags.map((tag) => {

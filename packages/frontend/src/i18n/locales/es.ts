@@ -346,6 +346,7 @@ const es: MessageSchema = {
     unnamed: "Sin nombre",
     nameTooLong: "El nombre de un marcador admite {max} caracteres.",
     needSpot: "Pulsa el tablero antes de guardar.",
+    duplicate: "Ese marcador ya está en tu cuaderno, idéntico.",
     goTo: "Ir a {name}",
     rename: "Cambiar el nombre de {name}",
     favorite: "Añadir {name} a tus favoritos",

@@ -347,6 +347,7 @@ const fr: MessageSchema = {
     unnamed: "Sans nom",
     nameTooLong: "Un nom de signet fait {max} caractères au maximum.",
     needSpot: "Cliquez sur le plateau avant d'enregistrer.",
+    duplicate: "Ce signet est déjà dans votre carnet, à l'identique.",
     goTo: "Aller à {name}",
     rename: "Renommer {name}",
     favorite: "Ajouter {name} à vos favoris",

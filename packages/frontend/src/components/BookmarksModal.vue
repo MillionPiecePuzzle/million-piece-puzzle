@@ -15,6 +15,7 @@ import {
   bookmarksInView,
   dropGoneTags,
   filterBookmarks,
+  hasSameBookmark,
   knownTagSpelling,
   normalizeBookmarkName,
   tagView,
@@ -692,7 +693,15 @@ function save(): void {
     error.value = t("bookmarks.needSpot");
     return;
   }
-  add({ name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value }, draftTags.value);
+  const entry = { name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value };
+  // The same place under the same name, badge and words is the entry already in
+  // the notebook: `addBookmark` refuses it, and the form says so rather than
+  // closing on a save that wrote nothing.
+  if (hasSameBookmark(bookmarks.value, entry, draftTags.value)) {
+    error.value = t("bookmarks.duplicate");
+    return;
+  }
+  add(entry, draftTags.value);
   creating.value = false;
   // The aim outlives the click that answered it now, so the save is what takes
   // it back off the board.

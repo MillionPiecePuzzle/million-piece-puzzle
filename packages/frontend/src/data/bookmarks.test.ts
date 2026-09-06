@@ -16,6 +16,7 @@ import {
   dropGoneTags,
   filterBookmarks,
   hasAnyTag,
+  hasSameBookmark,
   mergeBookmarks,
   normalizeBookmarkName,
   normalizeTagName,
@@ -105,6 +106,47 @@ describe("addBookmark", () => {
     const starred = toggleBookmarkFavorite(kept, kept[0]!.id);
     const list = addBookmark(starred, { name: "apple", worldX: 0, worldY: 0, badge: BADGE });
     expect(list.map((b) => b.name)).toEqual(["zebra", "apple"]);
+  });
+
+  it("refuses an entry the notebook already holds to the word", () => {
+    expect(make("apple", make("apple"))).toHaveLength(1);
+  });
+
+  it("refuses the twin of a starred entry, the star being no part of the entry", () => {
+    const kept = make("apple");
+    const starred = toggleBookmarkFavorite(kept, kept[0]!.id);
+    expect(make("apple", starred)).toHaveLength(1);
+  });
+
+  it("keeps the same place under another name", () => {
+    expect(make("apple", make("cherry"))).toHaveLength(2);
+  });
+
+  it("keeps the same place filed under another word", () => {
+    const spot = { name: "apple", worldX: 10, worldY: 20, badge: BADGE };
+    expect(addBookmark(addBookmark([], spot, ["cats"]), spot, ["dogs"])).toHaveLength(2);
+  });
+
+  it("reads a word back as the one it already knows, so its capitals are no second entry", () => {
+    const spot = { name: "apple", worldX: 10, worldY: 20, badge: BADGE };
+    expect(addBookmark(addBookmark([], spot, ["Cats"]), spot, ["cats"])).toHaveLength(1);
+  });
+});
+
+describe("hasSameBookmark", () => {
+  it("answers for the entry the notebook holds, and not for its neighbours", () => {
+    const kept = make("apple");
+    const spot = { name: "apple", worldX: 10, worldY: 20, badge: BADGE };
+    expect(hasSameBookmark(kept, spot)).toBe(true);
+    expect(hasSameBookmark(kept, { ...spot, name: "cherry" })).toBe(false);
+    expect(hasSameBookmark(kept, { ...spot, worldX: 11 })).toBe(false);
+    expect(hasSameBookmark(kept, { ...spot, badge: null })).toBe(false);
+  });
+
+  it("keys the place as it is stored, so a fraction of a world unit is the same spot", () => {
+    expect(
+      hasSameBookmark(make("apple"), { name: "apple", worldX: 10.4, worldY: 20, badge: BADGE }),
+    ).toBe(true);
   });
 });
 
@@ -625,6 +667,12 @@ describe("mergeBookmarks", () => {
 
   it("keeps two entries of one name at two places, which are two spots", () => {
     const { list } = mergeBookmarks([], [fileEntry("apple", 100), fileEntry("apple", 200)]);
+    expect(list).toHaveLength(2);
+  });
+
+  it("writes an entry of that place filed under another word, which is not the one kept", () => {
+    const kept = mergeBookmarks([], [fileEntry("apple", 100)]).list;
+    const { list } = mergeBookmarks(kept, [fileEntry("apple", 100, { tags: ["cats"] })]);
     expect(list).toHaveLength(2);
   });
 

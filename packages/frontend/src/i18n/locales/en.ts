@@ -338,6 +338,7 @@ const en = {
     unnamed: "Unnamed",
     nameTooLong: "A bookmark name runs to {max} characters.",
     needSpot: "Click the board before saving.",
+    duplicate: "That exact bookmark is already in your notebook.",
     goTo: "Go to {name}",
     rename: "Rename {name}",
     favorite: "Add {name} to your favorites",
