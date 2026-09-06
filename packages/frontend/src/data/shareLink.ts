@@ -7,10 +7,9 @@
 // A link copied from a bookmark carries that bookmark too, in two more
 // parameters: `b` for the emblem and `n` for the name. The emblem is the square
 // in pieces relative to the shared point, three short numbers rather than the six
-// digits an axis a world rect costs, or the piece's own tile path when that is
-// what stands for the spot. What arrives is a draft and never an entry: the
-// recipient reads the name a stranger wrote, changes it if they want to, and it
-// is their save that writes it to their notebook.
+// digits an axis a world rect costs. What arrives is a draft and never an entry:
+// the recipient reads the name a stranger wrote, changes it if they want to, and
+// it is their save that writes it to their notebook.
 
 import {
   boardToWorld,
@@ -19,10 +18,10 @@ import {
   type BoardPoint,
 } from "../canvas/boardCoords";
 import {
+  BADGE_PIECES_DEFAULT,
   BADGE_PIECES_MAX,
   BADGE_PIECES_MIN,
   bookmarkLabel,
-  isPieceFile,
   normalizeBookmarkName,
   type Bookmark,
   type BookmarkBadge,
@@ -35,10 +34,19 @@ export const SHARE_NAME_PARAM = "n";
 
 export type SharedView = { x: number; y: number; zoom: number };
 
-// The emblem as a link carries it: one piece tile named by its path, or a square
-// given in pieces from the shared point, which is what keeps it three numbers on
-// a board whose world coordinates run to six digits an axis.
-export type SharedBadge = { file: string } | { dx: number; dy: number; size: number };
+// The emblem as a link carries it: the square, given in pieces from the shared
+// point, which is what keeps it three numbers on a board whose world coordinates
+// run to six digits an axis.
+export type SharedBadge = { dx: number; dy: number; size: number };
+
+// A link written when a bookmark could stand for one loose piece carried that
+// piece's tile path as its emblem, which is not a square and cannot be made into
+// one, so it lands on the default square around the point the link frames.
+const LEGACY_BADGE: SharedBadge = {
+  dx: -BADGE_PIECES_DEFAULT / 2,
+  dy: -BADGE_PIECES_DEFAULT / 2,
+  size: BADGE_PIECES_DEFAULT,
+};
 
 export type SharedBookmark = { name: string; badge: SharedBadge };
 
@@ -61,10 +69,7 @@ export function formatSharedView(view: SharedView): string {
   return `${x},${y},${short(view.zoom, ZOOM_DECIMALS)}`;
 }
 
-// A piece path is written as it is: every character the path may hold is legal in
-// a query, so encoding it would only make the link longer and harder to read.
 export function formatSharedBadge(badge: SharedBadge): string {
-  if ("file" in badge) return badge.file;
   const dx = short(badge.dx, COORD_DECIMALS);
   const dy = short(badge.dy, COORD_DECIMALS);
   return `${dx},${dy},${short(badge.size, COORD_DECIMALS)}`;
@@ -95,14 +100,11 @@ export function bookmarkShareUrl(
 ): string {
   const point = worldToBoard(bookmark.worldX, bookmark.worldY, frame);
   const badge = bookmark.badge;
-  const shared: SharedBadge =
-    badge.kind === "piece"
-      ? { file: badge.file }
-      : {
-          dx: (badge.x - bookmark.worldX) / frame.pieceSize,
-          dy: (badge.y - bookmark.worldY) / frame.pieceSize,
-          size: badge.size / frame.pieceSize,
-        };
+  const shared: SharedBadge = {
+    dx: (badge.x - bookmark.worldX) / frame.pieceSize,
+    dy: (badge.y - bookmark.worldY) / frame.pieceSize,
+    size: badge.size / frame.pieceSize,
+  };
   // The name the sender's own row shows, which for an unnamed entry is the word
   // it is filed under: what travels is what they see, and it is empty only when
   // they see nothing either, since the stand-in the panel draws then is in their
@@ -155,14 +157,17 @@ export function parseSharedView(raw: unknown): SharedView | null {
   return { x, y, zoom };
 }
 
-// The emblem parameter, which is a stranger's string like any other: a square is
-// held to the sizes the panel itself offers, and a piece is held to a relative
-// path under this puzzle's own bucket, so neither can name an asset elsewhere or
-// a square wide enough to be worth fetching a level of the pyramid for.
+// The emblem parameter, which is a stranger's string like any other: the square
+// is held to the sizes the panel itself offers, so no link can name one wide
+// enough to be worth fetching a level of the pyramid for. A value carrying no
+// comma at all is an emblem from before the square was the only one, read as the
+// default square rather than sniffed for the tile path it used to be: an old
+// link lands on a badge that draws, and a mangled one costs a draft the recipient
+// cancels.
 export function parseSharedBadge(raw: unknown): SharedBadge | null {
   if (typeof raw !== "string" || raw === "") return null;
   const parts = raw.split(",");
-  if (parts.length === 1) return isPieceFile(raw) ? { file: raw } : null;
+  if (parts.length === 1) return LEGACY_BADGE;
   if (parts.length !== 3) return null;
   const dx = finiteNumber(parts[0]!);
   const dy = finiteNumber(parts[1]!);
@@ -209,9 +214,7 @@ export function sharedBadgeToBadge(
   point: BoardPoint,
   frame: BoardFrame,
 ): BookmarkBadge {
-  if ("file" in badge) return { kind: "piece", file: badge.file };
   return {
-    kind: "area",
     x: point.x + badge.dx * frame.pieceSize,
     y: point.y + badge.dy * frame.pieceSize,
     size: badge.size * frame.pieceSize,

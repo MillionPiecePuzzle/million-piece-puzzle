@@ -337,21 +337,15 @@ const de: MessageSchema = {
     full: "Dein Notizbuch ist mit {max} Lesezeichen voll. Lösche eines, um ein neues anzulegen.",
     pickSpot:
       "Klicke auf dem Spielfeld dorthin, wo das Lesezeichen sein soll. Der Bildausschnitt unter dem Zeiger wird sein Bildchen.",
-    pickPiece: "Klicke ein Teil auf dem Spielfeld an. Dieses Teil steht dann für das Lesezeichen.",
     nameSpot:
       "Benenne dieses Lesezeichen, oder überlass ihm das erste Wort, unter dem du es ablegst.",
     sharedTitle: "Ein Lesezeichen, das dir jemand geschickt hat",
     sharedLede:
       "Behalte dieses Lesezeichen in deinem Notizbuch, unter diesem Namen oder deinem eigenen.",
-    badgeKind: "Bildchen",
-    badgeKindArea: "Ein Ausschnitt",
-    badgeKindPiece: "Ein Teil",
     badgeSize: "Größe",
     badgeSizePieces: "{n} Teil | {n} Teile",
     badgeSizeWheel: "Mit dem Mausrad über dem Brett änderst du die Größe des Quadrats.",
     nothingHere: "Hier ist kein Bild. Ziele ins Bild hinein.",
-    noPieceHere:
-      "Hier ist kein Teil. Klicke eines an, das das Spielfeld zeigt, oder nimm einen Ausschnitt.",
     nameLabel: "Name des Lesezeichens",
     unnamed: "Ohne Namen",
     nameTooLong: "Ein Lesezeichenname fasst {max} Zeichen.",

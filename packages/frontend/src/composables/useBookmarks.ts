@@ -11,7 +11,6 @@ import {
   renameBookmark,
   toggleBookmarkFavorite,
   writeBookmarks,
-  type BadgeKind,
   type Bookmark,
   type NewBookmark,
 } from "../data/bookmarks";
@@ -26,11 +25,6 @@ const puzzleId = ref<string | null>(null);
 // the board, and the one thing worth carrying is not having to set it again for
 // the second bookmark of the same pile.
 const badgePieces = ref(BADGE_PIECES_DEFAULT);
-// Which badge the next aim takes, held for the page for the same reason: the
-// player who marks one pile by its pieces marks the next one the same way. The
-// piece leads because it is the simpler aim, one click on a thing that is
-// already there against a square whose size is a second decision.
-const badgeKind = ref<BadgeKind>("piece");
 
 function commit(next: Bookmark[]): void {
   bookmarks.value = next;
@@ -38,10 +32,13 @@ function commit(next: Bookmark[]): void {
 }
 
 export function useBookmarks() {
-  function setPuzzle(next: string | null): void {
+  // The piece size rides along because the notebook is read against it: an entry
+  // whose badge cannot be read is drawn with the default square, which is a
+  // number of pieces.
+  function setPuzzle(next: string | null, pieceSize: number): void {
     if (puzzleId.value === next) return;
     puzzleId.value = next;
-    bookmarks.value = next ? readBookmarks(next) : [];
+    bookmarks.value = next ? readBookmarks(next, pieceSize) : [];
   }
 
   function add(entry: NewBookmark, tags: readonly string[] = []): void {
@@ -78,7 +75,6 @@ export function useBookmarks() {
     bookmarks,
     tags,
     badgePieces,
-    badgeKind,
     canAdd,
     setPuzzle,
     add,

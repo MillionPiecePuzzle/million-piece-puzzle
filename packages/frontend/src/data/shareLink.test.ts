@@ -50,7 +50,7 @@ const bookmark: Bookmark = {
   worldX: 81_600,
   worldY: 120_000,
   createdAt: 1_700_000_000_000,
-  badge: { kind: "area", x: 80_880, y: 119_280, size: 1440 },
+  badge: { x: 80_880, y: 119_280, size: 1440 },
   favorite: false,
   tags: [],
 };
@@ -84,13 +84,6 @@ describe("bookmarkShareUrl", () => {
     );
     expect(url.length).toBeLessThan(140);
   });
-
-  it("hands a piece emblem over as the piece's own tile, unencoded", () => {
-    const badge = { kind: "piece", file: "pieces/0123/012345.avif" } as const;
-    expect(
-      bookmarkShareUrl("https://example.org", { ...bookmark, badge }, board1m, senderZoom),
-    ).toBe("https://example.org/play?at=180,500,0.85&b=pieces/0123/012345.avif&n=sky%20pile");
-  });
 });
 
 describe("parseShareLink", () => {
@@ -123,11 +116,14 @@ describe("parseShareLink", () => {
 });
 
 describe("parseSharedBadge", () => {
-  it("reads back a square and a piece", () => {
+  it("reads back the square", () => {
     expect(parseSharedBadge("-6,-6,12")).toEqual({ dx: -6, dy: -6, size: 12 });
-    expect(parseSharedBadge("pieces/0123/012345.avif")).toEqual({
-      file: "pieces/0123/012345.avif",
-    });
+  });
+
+  it("reads an emblem from before the square as the default square", () => {
+    const fallback = { dx: -6, dy: -6, size: 12 };
+    expect(parseSharedBadge("pieces/0123/012345.avif")).toEqual(fallback);
+    expect(parseSharedBadge("anything")).toEqual(fallback);
   });
 
   it("refuses a square no panel would have traced", () => {
@@ -137,9 +133,7 @@ describe("parseSharedBadge", () => {
     expect(parseSharedBadge("-6,-6,0")).toBeNull();
   });
 
-  it("refuses a badge that is neither three numbers nor a piece of this bucket", () => {
-    expect(parseSharedBadge("https://elsewhere.example/tile.avif")).toBeNull();
-    expect(parseSharedBadge("source_files/12/3_4.webp")).toBeNull();
+  it("refuses a badge that is not three numbers", () => {
     expect(parseSharedBadge("-6,-6")).toBeNull();
     expect(parseSharedBadge("-6,-6,12,4")).toBeNull();
     expect(parseSharedBadge("sky,pile,12")).toBeNull();
@@ -195,7 +189,6 @@ describe("sharedBadgeToBadge", () => {
   it("lands on the same picture on a board sliced at another piece size", () => {
     const smaller: BoardFrame = { cols: 1000, rows: 1000, pieceSize: 72 };
     expect(sharedBadgeToBadge({ dx: -6, dy: -6, size: 12 }, { x: 0, y: 0 }, smaller)).toEqual({
-      kind: "area",
       x: -432,
       y: -432,
       size: 864,

@@ -89,10 +89,9 @@ export type OverviewSnapshot = {
 // position is (dx * pieceSize, dy * pieceSize).
 type PieceOffset = { dx: number; dy: number };
 
-// What a click on the board answers with: the world point pressed, and the asset
-// path of the loose piece under it when there is one. Null over locked content, a
-// transparent gap or bare ground, which the caller badges its own way.
-export type PickedSpot = { worldX: number; worldY: number; pieceFile: string | null };
+// What a click on the board answers with: the world point pressed, which the
+// caller badges its own way.
+export type PickedSpot = { worldX: number; worldY: number };
 
 type PieceNode = {
   id: number;
@@ -3074,7 +3073,7 @@ export class PuzzleStage {
   // already waiting, so a caller never has to pair its own cancel with a new arm.
   // `squareWorld` is the side, in world units, of the square traced under the
   // cursor: the caller sets it, since the badge it stands for is the caller's,
-  // and zero traces none, which is what an aim for a piece alone asks for.
+  // and zero traces none.
   // `onResize` takes the wheel while that square is up, in notches, the caller
   // turning them into a new side since the size is measured in its own units.
   pickSpot(
@@ -3164,36 +3163,7 @@ export class PuzzleStage {
     this.aimWheelNotches = 0;
     this.applyAimState();
     const world = this.screenToWorld(screenX, screenY);
-    const pieceId = this.loosePieceAt(world.x, world.y);
-    resolve({
-      worldX: world.x,
-      worldY: world.y,
-      pieceFile: pieceId === null ? null : (this.fileById.get(pieceId) ?? null),
-    });
-  }
-
-  // The loose piece whose opaque silhouette covers a world point, topmost in the
-  // unlocked layer's z-order, or null. Only a hydrated piece can answer: its own
-  // tile is both what the alpha is read from and what the caller stores, so a
-  // piece the browser has never fetched is not offered as a badge.
-  private loosePieceAt(worldX: number, worldY: number): number | null {
-    const layer = this.unlockedLayer;
-    if (!layer) return null;
-    const point: Aabb = { minX: worldX, minY: worldY, maxX: worldX, maxY: worldY };
-    let best: number | null = null;
-    let bestZ = -1;
-    for (const id of this.groupGrid.queryRect(point)) {
-      const node = this.groups.get(id);
-      if (!node || node.container.parent !== layer) continue;
-      const piece = this.pieceAtPoint(node, worldX, worldY);
-      if (!piece) continue;
-      const z = layer.getChildIndex(node.container);
-      if (z > bestZ) {
-        bestZ = z;
-        best = piece.id;
-      }
-    }
-    return best;
+    resolve({ worldX: world.x, worldY: world.y });
   }
 
   zoomIn(): void {

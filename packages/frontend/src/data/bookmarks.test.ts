@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  BADGE_PIECES_DEFAULT,
   BOOKMARK_NAME_MAX,
   MAX_BOOKMARKS,
   MAX_TAGS,
@@ -10,12 +11,12 @@ import {
   addBookmark,
   addTag,
   allTags,
+  badgeAround,
   bookmarkLabel,
   bookmarksInView,
   dropGoneTags,
   filterBookmarks,
   hasAnyTag,
-  isPieceFile,
   normalizeBookmarkName,
   normalizeTagName,
   parseBookmarkBadge,
@@ -33,8 +34,14 @@ import {
   type BookmarkBadge,
 } from "./bookmarks";
 
-const BADGE: BookmarkBadge = { kind: "area", x: 1200, y: 2400, size: 1440 };
-const PIECE_BADGE: BookmarkBadge = { kind: "piece", file: "pieces/0123/012345.avif" };
+// The 1M board's piece size, which every notebook here is read against: it is
+// what an entry whose badge cannot be read falls back to a square of.
+const PIECE_SIZE = 120;
+const BADGE: BookmarkBadge = { x: 1200, y: 2400, size: 1440 };
+
+function parseStored(raw: string | null): Bookmark[] {
+  return parseBookmarks(raw, PIECE_SIZE);
+}
 
 function make(name: string, list: readonly Bookmark[] = []): Bookmark[] {
   return addBookmark(list, { name, worldX: 10, worldY: 20, badge: BADGE });
@@ -61,21 +68,14 @@ describe("addBookmark", () => {
     expect(saved).not.toHaveProperty("zoom");
   });
 
-  it("rounds the badge square to the world unit and leaves a piece alone", () => {
+  it("rounds the badge square to the world unit", () => {
     const [square] = addBookmark([], {
       name: "spot",
       worldX: 0,
       worldY: 0,
-      badge: { kind: "area", x: 11.4, y: -22.6, size: 1440.2 },
+      badge: { x: 11.4, y: -22.6, size: 1440.2 },
     });
-    expect(square!.badge).toEqual({ kind: "area", x: 11, y: -23, size: 1440 });
-    const [piece] = addBookmark([], {
-      name: "spot",
-      worldX: 0,
-      worldY: 0,
-      badge: PIECE_BADGE,
-    });
-    expect(piece!.badge).toEqual(PIECE_BADGE);
+    expect(square!.badge).toEqual({ x: 11, y: -23, size: 1440 });
   });
 
   it("mints distinct ids", () => {
@@ -228,52 +228,33 @@ describe("normalizeBookmarkName", () => {
   });
 });
 
-describe("isPieceFile", () => {
-  it("takes the tile path the manifest gives a piece", () => {
-    expect(isPieceFile("pieces/0123/012345.avif")).toBe(true);
+describe("parseBookmarkBadge", () => {
+  it("reads back the square", () => {
+    expect(parseBookmarkBadge({ ...BADGE })).toEqual(BADGE);
   });
 
-  it("refuses anything that is not a piece path under this bucket", () => {
+  it("keeps nothing an entry carries beyond the badge itself", () => {
+    expect(parseBookmarkBadge({ kind: "area", ...BADGE, onload: "alert(1)" })).toEqual(BADGE);
+  });
+
+  it("refuses a badge that is not a drawable square", () => {
     for (const bad of [
-      "https://elsewhere.example/pieces/0123/012345.avif",
-      "javascript:alert(1)",
-      "/pieces/0123/012345.avif",
-      "pieces/../../etc/passwd",
-      "pieces/0123/012345",
-      "source_files/12/3_4.webp",
-      "",
-      42,
       null,
+      "pieces/0123/012345.avif",
+      { kind: "piece", file: "pieces/0123/012345.avif" },
+      { x: 0, y: 0, size: 0 },
+      { x: 0, y: 0, size: -10 },
+      { x: Number.NaN, y: 0, size: 10 },
+      { x: 0, y: 0 },
     ]) {
-      expect(isPieceFile(bad), String(bad)).toBe(false);
+      expect(parseBookmarkBadge(bad), JSON.stringify(bad)).toBeNull();
     }
   });
 });
 
-describe("parseBookmarkBadge", () => {
-  it("reads back a square and a piece", () => {
-    expect(parseBookmarkBadge({ ...BADGE })).toEqual(BADGE);
-    expect(parseBookmarkBadge({ ...PIECE_BADGE })).toEqual(PIECE_BADGE);
-  });
-
-  it("keeps nothing an entry carries beyond the badge itself", () => {
-    expect(parseBookmarkBadge({ ...BADGE, onload: "alert(1)" })).toEqual(BADGE);
-  });
-
-  it("refuses a badge that is neither a drawable square nor a piece", () => {
-    for (const bad of [
-      null,
-      "pieces/0123/012345.avif",
-      { kind: "photo", x: 0, y: 0, size: 10 },
-      { kind: "area", x: 0, y: 0, size: 0 },
-      { kind: "area", x: 0, y: 0, size: -10 },
-      { kind: "area", x: Number.NaN, y: 0, size: 10 },
-      { kind: "area", x: 0, y: 0 },
-      { kind: "piece", file: "https://elsewhere.example/tile.avif" },
-      { kind: "piece" },
-    ]) {
-      expect(parseBookmarkBadge(bad), JSON.stringify(bad)).toBeNull();
-    }
+describe("badgeAround", () => {
+  it("traces the square around the point it is given", () => {
+    expect(badgeAround(1000, 2000, 480)).toEqual({ x: 760, y: 1760, size: 480 });
   });
 });
 
@@ -305,18 +286,16 @@ describe("parseBookmarks", () => {
   const parsed = { ...entry, favorite: false, tags: [] };
 
   it("reads back what was written", () => {
-    expect(parseBookmarks(JSON.stringify([entry]))).toEqual([parsed]);
+    expect(parseStored(JSON.stringify([entry]))).toEqual([parsed]);
   });
 
   it("leaves behind the zoom an older notebook stored", () => {
-    expect(parseBookmarks(JSON.stringify([{ ...entry, zoom: 1.5 }]))).toEqual([parsed]);
+    expect(parseStored(JSON.stringify([{ ...entry, zoom: 1.5 }]))).toEqual([parsed]);
   });
 
   it("reads a starred entry back starred, and anything but the flag as plain", () => {
-    expect(parseBookmarks(JSON.stringify([{ ...entry, favorite: true }]))[0]!.favorite).toBe(true);
-    expect(parseBookmarks(JSON.stringify([{ ...entry, favorite: "yes" }]))[0]!.favorite).toBe(
-      false,
-    );
+    expect(parseStored(JSON.stringify([{ ...entry, favorite: true }]))[0]!.favorite).toBe(true);
+    expect(parseStored(JSON.stringify([{ ...entry, favorite: "yes" }]))[0]!.favorite).toBe(false);
   });
 
   it("opens a hand-edited file in the order the panel pages", () => {
@@ -324,34 +303,42 @@ describe("parseBookmarks", () => {
       { ...entry, id: "b1", createdAt: 300 },
       { ...entry, id: "b2", createdAt: 100, favorite: true },
     ];
-    expect(parseBookmarks(JSON.stringify(stored)).map((b) => b.id)).toEqual(["b2", "b1"]);
+    expect(parseStored(JSON.stringify(stored)).map((b) => b.id)).toEqual(["b2", "b1"]);
   });
 
   it("returns an empty list for junk, a non-array, or nothing at all", () => {
-    expect(parseBookmarks(null)).toEqual([]);
-    expect(parseBookmarks("{oops")).toEqual([]);
-    expect(parseBookmarks('{"id":"b1"}')).toEqual([]);
+    expect(parseStored(null)).toEqual([]);
+    expect(parseStored("{oops")).toEqual([]);
+    expect(parseStored('{"id":"b1"}')).toEqual([]);
   });
 
-  it("reads back a piece badge too", () => {
-    const piece = { ...entry, badge: PIECE_BADGE };
-    expect(parseBookmarks(JSON.stringify([piece]))).toEqual([
-      { ...piece, favorite: false, tags: [] },
-    ]);
+  // A notebook written when a bookmark could stand for one loose piece, which is
+  // a badge no square can be read out of: the point is what the entry is for, so
+  // the row keeps it and draws the default square around it.
+  it("reads a badge that is no square as the default square on the entry's point", () => {
+    const piece = { ...entry, badge: { kind: "piece", file: "pieces/0123/012345.avif" } };
+    expect(parseStored(JSON.stringify([piece]))[0]!.badge).toEqual(
+      badgeAround(entry.worldX, entry.worldY, BADGE_PIECES_DEFAULT * PIECE_SIZE),
+    );
   });
 
-  it("drops an entry that is not a placed, badged point", () => {
+  it("drops an entry that is not a placed point", () => {
     const broken = [
       { ...entry, id: "" },
       { ...entry, id: "b2", name: "x".repeat(BOOKMARK_NAME_MAX + 1) },
       { ...entry, id: "b3", worldX: Number.NaN },
       { ...entry, id: "b4", worldY: "over there" },
       { ...entry, id: "b5", createdAt: "yesterday" },
-      { ...entry, id: "b6", badge: { kind: "area", x: 0, y: 0, size: 0 } },
-      { ...entry, id: "b7", badge: undefined },
       { ...entry, id: "b8", name: 12 },
     ];
-    expect(parseBookmarks(JSON.stringify(broken))).toEqual([]);
+    expect(parseStored(JSON.stringify(broken))).toEqual([]);
+  });
+
+  // The board is not known while the session is still connecting, and a square
+  // of no width would draw nothing, so the fallback is not offered then.
+  it("drops an unreadable badge rather than falling back with no board to size it", () => {
+    const piece = { ...entry, badge: undefined };
+    expect(parseBookmarks(JSON.stringify([piece]), 0)).toEqual([]);
   });
 
   it("keeps an entry that names no name, which is one the player never named", () => {
@@ -359,23 +346,23 @@ describe("parseBookmarks", () => {
       { ...entry, name: "   " },
       { ...entry, id: "b2", name: undefined },
     ];
-    expect(parseBookmarks(JSON.stringify(stored)).map((b) => b.name)).toEqual(["", ""]);
+    expect(parseStored(JSON.stringify(stored)).map((b) => b.name)).toEqual(["", ""]);
   });
 
   it("keeps one entry per id", () => {
-    expect(parseBookmarks(JSON.stringify([entry, { ...entry, name: "Twin" }]))).toHaveLength(1);
+    expect(parseStored(JSON.stringify([entry, { ...entry, name: "Twin" }]))).toHaveLength(1);
   });
 
   it("cuts the list at the cap", () => {
     const many = Array.from({ length: MAX_BOOKMARKS + 20 }, (_, i) => ({ ...entry, id: `b${i}` }));
-    expect(parseBookmarks(JSON.stringify(many))).toHaveLength(MAX_BOOKMARKS);
+    expect(parseStored(JSON.stringify(many))).toHaveLength(MAX_BOOKMARKS);
   });
 });
 
 describe("serializeBookmarks", () => {
   it("survives a round trip, starred entries included", () => {
     const list = sortBookmarks([entry("kept", true), entry("plain")]);
-    expect(parseBookmarks(serializeBookmarks(list))).toEqual(list);
+    expect(parseStored(serializeBookmarks(list))).toEqual(list);
   });
 
   it("writes no flag for a plain entry, which is most of the notebook", () => {
@@ -386,14 +373,14 @@ describe("serializeBookmarks", () => {
   it("writes no name for an entry that was never named, and reads it back unnamed", () => {
     const list = [unnamed("b1", ["cats"])];
     expect(serializeBookmarks(list)).not.toContain('"name"');
-    expect(parseBookmarks(serializeBookmarks(list))).toEqual(list);
+    expect(parseStored(serializeBookmarks(list))).toEqual(list);
   });
 
   it("writes no tags for an entry wearing none, and reads them back", () => {
     expect(serializeBookmarks([entry("plain")])).not.toContain("tags");
     const tagged = addTag([entry("tagged")], "tagged", "cats");
     expect(serializeBookmarks(tagged)).toContain('"tags":["cats"]');
-    expect(parseBookmarks(serializeBookmarks(tagged))).toEqual(tagged);
+    expect(parseStored(serializeBookmarks(tagged))).toEqual(tagged);
   });
 });
 
@@ -550,24 +537,25 @@ describe("parseBookmarks, tags", () => {
   };
 
   it("reads a tagged entry back tagged, in order", () => {
-    expect(parseBookmarks(JSON.stringify([{ ...stored, tags: ["sky", "cats"] }]))[0]!.tags).toEqual(
-      ["cats", "sky"],
-    );
+    expect(parseStored(JSON.stringify([{ ...stored, tags: ["sky", "cats"] }]))[0]!.tags).toEqual([
+      "cats",
+      "sky",
+    ]);
   });
 
   it("drops what is not a tag and keeps the entry that carried it", () => {
     const hand = [{ ...stored, tags: ["cats", 7, "", "   ", "x".repeat(200), "CATS"] }];
-    expect(parseBookmarks(JSON.stringify(hand))[0]!.tags).toEqual(["cats"]);
+    expect(parseStored(JSON.stringify(hand))[0]!.tags).toEqual(["cats"]);
   });
 
   it("reads a file that names no tags at all as untagged", () => {
-    expect(parseBookmarks(JSON.stringify([stored]))[0]!.tags).toEqual([]);
-    expect(parseBookmarks(JSON.stringify([{ ...stored, tags: "cats" }]))[0]!.tags).toEqual([]);
+    expect(parseStored(JSON.stringify([stored]))[0]!.tags).toEqual([]);
+    expect(parseStored(JSON.stringify([{ ...stored, tags: "cats" }]))[0]!.tags).toEqual([]);
   });
 
   it("cuts an entry at five tags", () => {
     const many = [{ ...stored, tags: ["a", "b", "c", "d", "e", "f", "g"] }];
-    expect(parseBookmarks(JSON.stringify(many))[0]!.tags).toHaveLength(MAX_TAGS_PER_BOOKMARK);
+    expect(parseStored(JSON.stringify(many))[0]!.tags).toHaveLength(MAX_TAGS_PER_BOOKMARK);
   });
 
   it("holds the notebook to its own bound on distinct tags", () => {
@@ -576,7 +564,7 @@ describe("parseBookmarks, tags", () => {
       id: `b${i}`,
       tags: [`t${i * 2}`, `t${i * 2 + 1}`],
     }));
-    const read = parseBookmarks(JSON.stringify(entries));
+    const read = parseStored(JSON.stringify(entries));
     expect(read).toHaveLength(entries.length);
     expect(allTags(read)).toHaveLength(MAX_TAGS);
   });
@@ -586,7 +574,7 @@ describe("parseBookmarks, tags", () => {
       { ...stored, id: "b1", tags: ["Cats"] },
       { ...stored, id: "b2", tags: ["cats"] },
     ];
-    expect(allTags(parseBookmarks(JSON.stringify(hand)))).toEqual(["Cats"]);
+    expect(allTags(parseStored(JSON.stringify(hand)))).toEqual(["Cats"]);
   });
 });
 

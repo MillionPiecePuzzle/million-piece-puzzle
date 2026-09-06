@@ -12,6 +12,7 @@ import {
   TAG_NAME_MAX,
   VIEW_ALL,
   VIEW_UNTAGGED,
+  badgeAround,
   bookmarkLabel,
   bookmarksInView,
   dropGoneTags,
@@ -57,7 +58,6 @@ const {
   bookmarks,
   tags,
   badgePieces,
-  badgeKind,
   canAdd,
   setPuzzle,
   add,
@@ -143,7 +143,7 @@ const squareWorld = computed(() => badgePieces.value * (manifest.value?.pieceSiz
 
 watch(
   () => manifest.value?.puzzleId ?? null,
-  (id) => setPuzzle(id),
+  (id) => setPuzzle(id, manifest.value?.pieceSize ?? 0),
   { immediate: true },
 );
 
@@ -536,10 +536,6 @@ function startShared(entry: NewBookmark): void {
   void nextTick(() => nameEl.value?.select());
 }
 
-// The side the aim traces, which is nothing at all when the badge being taken is
-// a piece: the square would then promise something the click does not take.
-const aimSquareWorld = computed(() => (badgeKind.value === "area" ? squareWorld.value : 0));
-
 // The spot and its badge are one click on the board: what the player pressed is
 // where the bookmark is, and what they chose beforehand is what stands for it.
 // The notebook stays on screen with its backdrop let through, so the board it is
@@ -549,7 +545,7 @@ async function aimAtSpot(): Promise<void> {
   if (!stage) return;
   aiming.value = true;
   for (;;) {
-    const spot = await stage.pickSpot(aimSquareWorld.value, resizeBadge);
+    const spot = await stage.pickSpot(squareWorld.value, resizeBadge);
     if (!spot) break;
     const badge = badgeFor(spot);
     if (badge !== null) {
@@ -559,31 +555,28 @@ async function aimAtSpot(): Promise<void> {
       break;
     }
     // Nothing here to stand for the spot: a square of bare ground off the
-    // picture, or no loose piece under a click that asked for one. The aim stays
-    // armed rather than handing back a draft that would badge an empty box.
-    error.value =
-      badgeKind.value === "piece" ? t("bookmarks.noPieceHere") : t("bookmarks.nothingHere");
+    // picture. The aim stays armed rather than handing back a draft that would
+    // badge an empty box.
+    error.value = t("bookmarks.nothingHere");
   }
   aiming.value = false;
   if (draftBadge.value !== null) void nextTick(() => nameEl.value?.focus());
 }
 
-// What the click takes is what was chosen before it, and only that: a piece is
-// the loose piece under the point, refused where there is none rather than
-// falling back to the ground it sits on, and a square is the one traced around
-// the point. A square with no picture in it at all is refused; one hanging off
+// What the click takes: the square traced around the point, at the side the aim
+// was showing. A square with no picture in it at all is refused; one hanging off
 // the edge keeps the part that has one.
 function badgeFor(spot: PickedSpot): BookmarkBadge | null {
-  if (badgeKind.value === "piece") {
-    return spot.pieceFile === null ? null : { kind: "piece", file: spot.pieceFile };
-  }
   const m = manifest.value;
   const size = squareWorld.value;
   if (!m || size <= 0) return null;
-  const x = spot.worldX - size / 2;
-  const y = spot.worldY - size / 2;
-  const onPicture = x + size > 0 && y + size > 0 && x < m.source.width && y < m.source.height;
-  return onPicture ? { kind: "area", x, y, size } : null;
+  const badge = badgeAround(spot.worldX, spot.worldY, size);
+  const onPicture =
+    badge.x + size > 0 &&
+    badge.y + size > 0 &&
+    badge.x < m.source.width &&
+    badge.y < m.source.height;
+  return onPicture ? badge : null;
 }
 
 // The wheel over the board sizes the square while the aim is up, one piece a
@@ -598,16 +591,9 @@ function resizeBadge(step: number): void {
 }
 
 // The square is set while the aim is up, so the board redraws it under the cursor
-// as the player changes their mind about how much of it the badge holds, and
-// drops it whole when they change their mind about taking a square at all.
-watch(aimSquareWorld, (side) => {
+// as the player changes their mind about how much of it the badge holds.
+watch(squareWorld, (side) => {
   if (aiming.value) controls.value?.setPickSquare(side);
-});
-
-// A refusal is about the badge that was being taken, so switching badges takes
-// it back rather than leaving the panel explaining the other one.
-watch(badgeKind, () => {
-  if (aiming.value) error.value = null;
 });
 
 function cancelCreate(): void {
@@ -876,37 +862,12 @@ const title = computed(() => {
             {{
               shared
                 ? t("bookmarks.sharedLede")
-                : !aiming
-                  ? t("bookmarks.nameSpot")
-                  : badgeKind === "piece"
-                    ? t("bookmarks.pickPiece")
-                    : t("bookmarks.pickSpot")
+                : aiming
+                  ? t("bookmarks.pickSpot")
+                  : t("bookmarks.nameSpot")
             }}
           </p>
-          <div v-if="aiming" class="kind" role="group" :aria-label="t('bookmarks.badgeKind')">
-            <span class="kind-label">{{ t("bookmarks.badgeKind") }}</span>
-            <span class="kind-options">
-              <button
-                type="button"
-                class="kind-option"
-                :class="{ on: badgeKind === 'piece' }"
-                :aria-pressed="badgeKind === 'piece'"
-                @click="badgeKind = 'piece'"
-              >
-                {{ t("bookmarks.badgeKindPiece") }}
-              </button>
-              <button
-                type="button"
-                class="kind-option"
-                :class="{ on: badgeKind === 'area' }"
-                :aria-pressed="badgeKind === 'area'"
-                @click="badgeKind = 'area'"
-              >
-                {{ t("bookmarks.badgeKindArea") }}
-              </button>
-            </span>
-          </div>
-          <div v-if="aiming && badgeKind === 'area'" class="size">
+          <div v-if="aiming" class="size">
             <label class="size-label" for="bookmark-badge-size">
               {{ t("bookmarks.badgeSize") }}
             </label>
@@ -923,7 +884,7 @@ const title = computed(() => {
               {{ t("bookmarks.badgeSizePieces", badgePieces, { named: { n: badgePieces } }) }}
             </span>
           </div>
-          <p v-if="aiming && badgeKind === 'area'" class="size-hint">
+          <p v-if="aiming" class="size-hint">
             {{ t("bookmarks.badgeSizeWheel") }}
           </p>
           <div v-if="!aiming" class="draft">
@@ -1581,46 +1542,6 @@ const title = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-/* What the aim takes, chosen before it lands: two options reading as one control,
-   so the click has one meaning rather than whichever of the two the board happens
-   to offer under it. */
-.kind {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-}
-.kind-label {
-  flex: none;
-  font-size: 13px;
-  color: var(--ink-3);
-}
-.kind-options {
-  flex: 1;
-  display: flex;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-btn);
-}
-.kind-option {
-  flex: 1;
-  padding: 5px 10px;
-  border-radius: calc(var(--radius-btn) - 2px);
-  font-size: 13px;
-  color: var(--ink-3);
-  transition:
-    background 160ms ease,
-    color 160ms ease;
-}
-.kind-option:hover:not(.on) {
-  background: var(--ground-2);
-  color: var(--ink);
-}
-.kind-option.on {
-  background: var(--ink);
-  color: var(--ground);
 }
 /* The square's size, set while the aim is up: one row under the instruction, so
    the slider and the square it resizes are both in view. */
