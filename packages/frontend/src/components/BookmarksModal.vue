@@ -3,8 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ImageManifest, PlayZone } from "@mpp/shared";
 import {
-  BADGE_PIECES_MAX,
-  BADGE_PIECES_MIN,
+  BADGE_PIECES,
   BOOKMARK_NAME_MAX,
   BOOKMARK_PAGE_SIZE,
   MAX_BOOKMARKS,
@@ -44,37 +43,27 @@ import { useBookmarksModal } from "../composables/useBookmarksModal";
 import { usePuzzleSession } from "../composables/usePuzzleSession";
 import { useStageControls } from "../composables/useStageControls";
 import { useFocusTrap } from "../composables/useFocusTrap";
-import { useBackdropClick } from "../composables/useBackdropClick";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
 const { open, hide, anchorInset, takeDraft } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
-const {
-  bookmarks,
-  tags,
-  badgePieces,
-  canAdd,
-  setPuzzle,
-  add,
-  remove,
-  rename,
-  toggleFavorite,
-  tag,
-  untag,
-} = useBookmarks();
+const { bookmarks, tags, canAdd, setPuzzle, add, remove, rename, toggleFavorite, tag, untag } =
+  useBookmarks();
 const { formatNumber } = useLocaleFormat();
 
 const shellEl = ref<HTMLElement | null>(null);
 const trap = useFocusTrap(shellEl, { onEscape: () => backOrClose() });
-const { onMousedown, onClick } = useBackdropClick(() => hide());
 
 // Escape leaves whatever the panel is showing over its list first and the
 // notebook second: what is on screen is what it closes.
 function backOrClose(): void {
   if (tagsFor.value !== null) closeRowTags();
   else if (renaming.value !== null) cancelRename();
+  // The aim first, since it is what the press is over: the form it belongs to
+  // stays, with whatever is already written in it.
+  else if (aiming.value) controls.value?.cancelPickSpot();
   else if (creating.value) cancelCreate();
   else if (importing.value) cancelImport();
   else hide();
@@ -136,7 +125,7 @@ const tilesPath = computed(() => (manifest.value ? dziTilesPath(manifest.value.s
 // The traced square in world units, which is what the stage draws and what the
 // badge stores. Zero until the board is known, which is also when the notebook
 // offers nothing to create.
-const squareWorld = computed(() => badgePieces.value * (manifest.value?.pieceSize ?? 0));
+const squareWorld = computed(() => BADGE_PIECES * (manifest.value?.pieceSize ?? 0));
 
 watch(
   () => manifest.value?.puzzleId ?? null,
@@ -225,6 +214,16 @@ function positionOf(bookmark: Bookmark): string {
   if (!m) return "";
   return formatBoardPoint(worldToBoard(bookmark.worldX, bookmark.worldY, m));
 }
+
+// Where the entry being written stands, in the coordinates every other reading
+// of a place uses: it is what the form has to show of the spot besides its
+// badge, and what the player reads back to check they took the right one.
+const draftPosition = computed(() => {
+  const m = manifest.value;
+  const spot = draftSpot.value;
+  if (!m || !spot) return "";
+  return formatBoardPoint(worldToBoard(spot.worldX, spot.worldY, m));
+});
 
 // What a row says the spot is called: the entry's own name, the first word it is
 // filed under where it has none, and the panel's stand-in where it has neither.
@@ -465,7 +464,6 @@ function startCreate(): void {
   draftSpot.value = null;
   draftTags.value = viewTags();
   error.value = null;
-  void aimAtSpot();
 }
 
 function startImport(): void {
@@ -529,22 +527,33 @@ function startShared(entry: NewBookmark): void {
 // notebook of is the thing being aimed at. Every point answers, since a spot on
 // bare ground is a spot worth keeping: it comes back with no badge rather than
 // with a refusal.
+// The aim is a step of the form the player asks for and leaves: it is armed from
+// the control beside the badge, one click on the board takes the spot, and the
+// board is its own again straight after, with the form still open. The place can
+// be taken again the same way, so nothing about the entry is held hostage to it.
 async function aimAtSpot(): Promise<void> {
   const stage = controls.value;
   if (!stage) return;
   aiming.value = true;
-  const spot = await stage.pickSpot(squareWorld.value, resizeBadge);
+  const spot = await stage.pickSpot(squareWorld.value);
   if (spot) {
     draftBadge.value = badgeFor(spot);
     draftSpot.value = { worldX: spot.worldX, worldY: spot.worldY };
     error.value = null;
+    void nextTick(() => nameEl.value?.focus());
   }
   aiming.value = false;
-  if (draftSpot.value !== null) void nextTick(() => nameEl.value?.focus());
 }
 
-// What the click takes: the square traced around the point, at the side the aim
-// was showing, and nothing at all where there is no picture to cut it from. One
+// The same control arms the aim and gives it up, since while it is up the board
+// is what the player is looking at and the panel is out of their way.
+function toggleAim(): void {
+  if (aiming.value) controls.value?.cancelPickSpot();
+  else void aimAtSpot();
+}
+
+// What the click takes: the square traced around the point, the one side every
+// aim traces, and nothing at all where there is no picture to cut it from. One
 // hanging off the edge keeps the part that has one.
 function badgeFor(spot: PickedSpot): BookmarkBadge | null {
   const m = manifest.value;
@@ -558,23 +567,6 @@ function badgeFor(spot: PickedSpot): BookmarkBadge | null {
     badge.y < m.source.height;
   return onPicture ? badge : null;
 }
-
-// The wheel over the board sizes the square while the aim is up, one piece a
-// notch, which is what puts the size under the hand that is already aiming
-// instead of back on the slider in the panel. The slider stays: it is the same
-// setting, and it is what a keyboard and a touchscreen have.
-function resizeBadge(step: number): void {
-  badgePieces.value = Math.min(
-    BADGE_PIECES_MAX,
-    Math.max(BADGE_PIECES_MIN, badgePieces.value + step),
-  );
-}
-
-// The square is set while the aim is up, so the board redraws it under the cursor
-// as the player changes their mind about how much of it the badge holds.
-watch(squareWorld, (side) => {
-  if (aiming.value) controls.value?.setPickSquare(side);
-});
 
 function cancelCreate(): void {
   creating.value = false;
@@ -604,6 +596,9 @@ function save(): void {
   }
   add({ name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value }, draftTags.value);
   creating.value = false;
+  // The aim outlives the click that answered it now, so the save is what takes
+  // it back off the board.
+  controls.value?.cancelPickSpot();
   // The list is left showing the entry just written, wherever its name sorts:
   // the filter and the page go, and the reading keeps the words the entry
   // actually wears, so a tag taken back off the draft is not what hides it.
@@ -707,19 +702,13 @@ const title = computed(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      class="modal-backdrop bookmarks-backdrop"
-      :class="{ aiming }"
-      @mousedown="onMousedown"
-      @click="onClick"
-    >
+    <div v-if="open" class="modal-backdrop bookmarks-backdrop">
       <div
         ref="shellEl"
         class="modal-shell bookmarks-modal"
         :style="openOrigin"
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-labelledby="bookmarks-title"
         @scroll="hidePeek"
       >
@@ -729,37 +718,28 @@ const title = computed(() => {
         </header>
 
         <template v-if="creating">
-          <p class="modal-lede">
-            {{
-              shared
-                ? t("bookmarks.sharedLede")
-                : aiming
-                  ? t("bookmarks.pickSpot")
-                  : t("bookmarks.nameSpot")
-            }}
-          </p>
-          <div v-if="aiming" class="size">
-            <label class="size-label" for="bookmark-badge-size">
-              {{ t("bookmarks.badgeSize") }}
-            </label>
-            <input
-              id="bookmark-badge-size"
-              v-model.number="badgePieces"
-              class="size-range"
-              type="range"
-              :min="BADGE_PIECES_MIN"
-              :max="BADGE_PIECES_MAX"
-              step="1"
-            />
-            <span class="size-value">
-              {{ t("bookmarks.badgeSizePieces", badgePieces, { named: { n: badgePieces } }) }}
-            </span>
+          <p v-if="shared" class="modal-lede">{{ t("bookmarks.sharedLede") }}</p>
+          <div v-if="!shared" class="aim">
+            <button
+              type="button"
+              class="aim-button"
+              :class="{ on: aiming }"
+              :disabled="!controls"
+              :aria-pressed="aiming"
+              @click="toggleAim"
+            >
+              {{
+                aiming
+                  ? t("bookmarks.aimClick")
+                  : draftSpot
+                    ? t("bookmarks.aimMove")
+                    : t("bookmarks.aimPlace")
+              }}
+            </button>
+            <span class="aim-position">{{ draftPosition }}</span>
           </div>
-          <p v-if="aiming" class="size-hint">
-            {{ t("bookmarks.badgeSizeWheel") }}
-          </p>
-          <div v-if="!aiming" class="draft">
-            <span class="badge" :class="{ empty: !draftSpot }">
+          <div class="draft">
+            <span class="badge" :class="{ unplaced: !draftSpot }">
               <BookmarkBadgeArt
                 v-if="draftSpot"
                 :badge="draftBadge"
@@ -782,7 +762,6 @@ const title = computed(() => {
             />
           </div>
           <BookmarkTagsField
-            v-if="!aiming"
             class="draft-tags"
             :tags="draftTags"
             :known="tags"
@@ -794,7 +773,7 @@ const title = computed(() => {
             <button type="button" class="ghost" @click="cancelCreate">
               {{ t("common.cancel") }}
             </button>
-            <button v-if="!aiming" type="button" class="primary" @click="save">
+            <button type="button" class="primary" :disabled="!draftSpot" @click="save">
               {{ t("common.save") }}
             </button>
           </div>
@@ -1150,20 +1129,22 @@ const title = computed(() => {
    under the bar it was opened from, and the board it is a notebook of stays lit
    behind it. The backdrop is still there, invisible, to catch the click that
    closes it. */
+/* The press always belongs to the board: the backdrop catches nothing and the
+   panel takes it back, so the notebook is a window over a board that stays live
+   under it. It is the one panel of the game that works this way, because it is
+   the one whose whole subject is out there: a spot is aimed at, read against the
+   picture, and reached, all with the list of the others still in front of you.
+   It closes by its own control, by Escape, or by the topbar button that opened
+   it, never by a press meant for the puzzle. */
 .bookmarks-backdrop {
   z-index: 111;
   background: none;
   backdrop-filter: none;
   place-items: start end;
   padding: calc(52px + var(--notice-h, 0px) + 8px) 16px 16px;
-}
-/* While the player aims, the press belongs to the board: the backdrop stops
-   catching it and the panel takes it back, so the notebook stays on screen with
-   its own cancel while the click lands on the puzzle. */
-.bookmarks-backdrop.aiming {
   pointer-events: none;
 }
-.bookmarks-backdrop.aiming .bookmarks-modal {
+.bookmarks-backdrop .bookmarks-modal {
   pointer-events: auto;
 }
 .bookmarks-modal {
@@ -1282,7 +1263,10 @@ const title = computed(() => {
   border-radius: var(--radius-btn);
   background: var(--ground-2);
 }
-.badge.empty {
+/* The box a badge will be, while the entry has no place yet. Its own modifier
+   rather than `empty`, which is the panel's word for a list with nothing in it
+   and carries that message's margins. */
+.badge.unplaced {
   border-style: dashed;
 }
 /* The badge lifted out of its row, out to the left where the panel leaves room.
@@ -1431,40 +1415,52 @@ const title = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-top: 12px;
 }
-/* The square's size, set while the aim is up: one row under the instruction, so
-   the slider and the square it resizes are both in view. */
-.size {
+/* Where the spot is and the control that takes it, on one quiet line: the entry
+   is the name and the badge, and this is the place they are about to be about.
+   The aim is asked for and given up from that one control, so the board is only
+   ever taken over while the player is holding it, and it lights up while it is,
+   since what is waiting for them is out on the board and not in this panel. */
+.aim {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-top: 12px;
 }
-.size-label {
-  flex: none;
-  font-size: 13px;
-  color: var(--ink-3);
-}
-.size-range {
+.aim-position {
   flex: 1;
   min-width: 0;
-  accent-color: var(--ink);
-}
-.size-value {
-  flex: none;
-  min-width: 66px;
   text-align: right;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-4);
 }
-/* The wheel does the same job over the board itself, where the hand already is.
-   Said under the slider rather than instead of it: the slider is what a keyboard
-   and a touchscreen have. */
-.size-hint {
-  margin: 4px 0 0;
+.aim-button {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
   font-size: 12px;
-  color: var(--ink-4);
+  color: var(--ink-3);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+.aim-button:hover:not(:disabled) {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.aim-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.aim-button.on,
+.aim-button.on:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ground);
 }
 .error {
   margin: 10px 0 0;

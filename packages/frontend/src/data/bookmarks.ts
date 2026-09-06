@@ -65,12 +65,18 @@ export function viewTag(view: string): string | null {
   return view.startsWith(VIEW_TAG_PREFIX) ? view.slice(VIEW_TAG_PREFIX.length) : null;
 }
 
-// The badge square's side, in pieces. A photo of a board like this one holds 8 to
-// 12 pieces, which is what a place looks like to the eye, so that is the middle
-// of the range and the default; the ends are one pile and one whole corner.
+// The badge square's side, in pieces: one size, the same for every aim. A photo
+// of a board like this one holds 8 to 12 pieces, which is what a place looks like
+// to the eye, and 8 is the end of that which still reads at 40px in a row. It is
+// not a decision the player has to make before marking a spot, and one size is
+// what makes two badges comparable down the list.
+export const BADGE_PIECES = 8;
+
+// What a link's own square is held to, which is wider than what an aim traces:
+// links written before the size was settled carry theirs, and a stored badge
+// keeps whatever side it was taken at.
 export const BADGE_PIECES_MIN = 4;
 export const BADGE_PIECES_MAX = 24;
-export const BADGE_PIECES_DEFAULT = 12;
 
 // A cut, not a quota: a notebook has no natural depth the way the flag palette
 // has 8, so this is the bound that keeps one hand-edited (or runaway) list from

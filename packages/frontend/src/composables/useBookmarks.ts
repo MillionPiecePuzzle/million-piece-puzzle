@@ -1,6 +1,5 @@
 import { computed, ref } from "vue";
 import {
-  BADGE_PIECES_DEFAULT,
   MAX_BOOKMARKS,
   addBookmark,
   addTag,
@@ -20,11 +19,6 @@ import {
 // never resurrects coordinates from another puzzle.
 const bookmarks = ref<Bookmark[]>([]);
 const puzzleId = ref<string | null>(null);
-// How wide the next badge square is traced, in pieces. Held for the page rather
-// than stored: it is a choice about the spot being marked, not a preference about
-// the board, and the one thing worth carrying is not having to set it again for
-// the second bookmark of the same pile.
-const badgePieces = ref(BADGE_PIECES_DEFAULT);
 
 function commit(next: Bookmark[]): void {
   bookmarks.value = next;
@@ -71,7 +65,6 @@ export function useBookmarks() {
   return {
     bookmarks,
     tags,
-    badgePieces,
     canAdd,
     setPuzzle,
     add,

@@ -335,16 +335,12 @@ const de: MessageSchema = {
     importAction: "Öffnen",
     importBad: "Dieser Link trägt kein Lesezeichen. Kopiere die ganze Zeile, die du bekommen hast.",
     full: "Dein Notizbuch ist mit {max} Lesezeichen voll. Lösche eines, um ein neues anzulegen.",
-    pickSpot:
-      "Klicke auf dem Spielfeld dorthin, wo das Lesezeichen sein soll. Der Bildausschnitt unter dem Zeiger wird sein Bildchen.",
-    nameSpot:
-      "Benenne dieses Lesezeichen, oder überlass ihm das erste Wort, unter dem du es ablegst.",
+    aimPlace: "Auf dem Spielfeld setzen",
+    aimMove: "Punkt verschieben",
+    aimClick: "Klicke aufs Spielfeld",
     sharedTitle: "Ein Lesezeichen, das dir jemand geschickt hat",
     sharedLede:
       "Behalte dieses Lesezeichen in deinem Notizbuch, unter diesem Namen oder deinem eigenen.",
-    badgeSize: "Größe",
-    badgeSizePieces: "{n} Teil | {n} Teile",
-    badgeSizeWheel: "Mit dem Mausrad über dem Brett änderst du die Größe des Quadrats.",
     nameLabel: "Name des Lesezeichens",
     unnamed: "Ohne Namen",
     nameTooLong: "Ein Lesezeichenname fasst {max} Zeichen.",
