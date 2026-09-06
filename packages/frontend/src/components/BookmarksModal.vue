@@ -446,14 +446,13 @@ function viewLabel(picked: string): string {
 }
 
 // The tags a new entry inherits, which are the words the list is being read
-// through and nothing at all in the untagged block. Sorted and cut to the cap
-// like a stored entry's own, since a reading can run past what one bookmark
-// wears.
+// through and nothing at all in the untagged block, in the order they were
+// picked and cut to the cap like a stored entry's own, since a reading can run
+// past what one bookmark wears.
 function viewTags(): string[] {
   return view.value
     .map((entry) => viewTag(entry))
     .filter((tag): tag is string => tag !== null)
-    .sort((a, b) => a.localeCompare(b))
     .slice(0, MAX_TAGS_PER_BOOKMARK);
 }
 

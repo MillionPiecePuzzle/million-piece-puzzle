@@ -423,9 +423,9 @@ describe("tagging a bookmark", () => {
     ]);
   });
 
-  it("keeps a bookmark's own tags alphabetical, which is how a row reads them", () => {
+  it("keeps a bookmark's own tags in the order they were put on it", () => {
     const list = addTag(addTag(two, first, "sky"), first, "cats");
-    expect(list.find((b) => b.id === first)!.tags).toEqual(["cats", "sky"]);
+    expect(list.find((b) => b.id === first)!.tags).toEqual(["sky", "cats"]);
   });
 
   it("moves an unnamed entry to where the word it now reads under sorts", () => {
@@ -442,8 +442,8 @@ describe("tagging a bookmark", () => {
 // The same rule the picker writes an entry being created through, where there is
 // no bookmark to hold the words yet.
 describe("tagging an entry being written", () => {
-  it("keeps the words alphabetical", () => {
-    expect(withTag(withTag([], "sky"), "cats")).toEqual(["cats", "sky"]);
+  it("keeps the words in the order they were written", () => {
+    expect(withTag(withTag([], "sky"), "cats")).toEqual(["sky", "cats"]);
   });
 
   it("never wears the same word twice, whatever its capitals", () => {
@@ -535,10 +535,10 @@ describe("parseBookmarks, tags", () => {
     badge: BADGE,
   };
 
-  it("reads a tagged entry back tagged, in order", () => {
+  it("reads a tagged entry back tagged, in the order it was written", () => {
     expect(parseStored(JSON.stringify([{ ...stored, tags: ["sky", "cats"] }]))[0]!.tags).toEqual([
-      "cats",
       "sky",
+      "cats",
     ]);
   });
 

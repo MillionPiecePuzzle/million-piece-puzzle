@@ -195,12 +195,15 @@ export function knownTagSpelling(list: readonly Bookmark[], tag: string): string
 
 // One set of tags with a word added, the rule an entry goes through whether it
 // is kept in the notebook or still being written: no duplicate, nothing past the
-// cap, and the same order in both. Refused rather than trimmed at the cap: the
-// picker says the bookmark is full and the player drops one, instead of a sixth
-// silently going nowhere.
+// cap, and the same order in both. A word goes at the end, since what an entry
+// wears is read in the order it was put on: the first word is the one the player
+// filed it under, which is also the one an unnamed row reads under, and an
+// alphabet nobody chose would move that around. Refused rather than trimmed at
+// the cap: the field says the bookmark is full and the player drops one, instead
+// of a sixth silently going nowhere.
 export function withTag(tags: readonly string[], tag: string): string[] {
   if (hasAnyTag(tags, tag) || tags.length >= MAX_TAGS_PER_BOOKMARK) return [...tags];
-  return [...tags, tag].sort((a, b) => a.localeCompare(b));
+  return [...tags, tag];
 }
 
 export function withoutTag(tags: readonly string[], tag: string): string[] {
@@ -331,10 +334,11 @@ export function bookmarkStorageKey(puzzleId: string): string {
   return `${STORAGE_PREFIX}${puzzleId}`;
 }
 
-// An entry's tags as they arrive from storage: read against the notebook's
-// running set of distinct tags, which is where both caps land. A word past the
-// notebook's own bound is dropped rather than the entry it rode in on, and a
-// spelling the file already used earlier wins over a later one.
+// An entry's tags as they arrive from storage, in the order they were written:
+// read against the notebook's running set of distinct tags, which is where both
+// caps land. A word past the notebook's own bound is dropped rather than the
+// entry it rode in on, and a spelling the file already used earlier wins over a
+// later one.
 function parseTags(value: unknown, distinct: Map<string, string>): string[] {
   if (!Array.isArray(value)) return [];
   const tags: string[] = [];
@@ -350,7 +354,7 @@ function parseTags(value: unknown, distinct: Map<string, string>): string[] {
     if (known === undefined) distinct.set(key, name);
     tags.push(known ?? name);
   }
-  return tags.sort((a, b) => a.localeCompare(b));
+  return tags;
 }
 
 // localStorage is player-editable and survives a board switch, so a stored list

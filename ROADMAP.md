@@ -52,6 +52,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 - [x] `frontend-shell`: a spot off the picture is bookmarked too, and wears the default badge.
 
+- [x] `frontend-shell`: a bookmark wears its tags in the order they were put on it.
+
 - [x] `frontend-shell`: the notebook reads several tags at once.
 
 - [ ] `frontend-shell`: a spot is filed by a key, with the notebook closed. Exit criterion: the key files the square under the cursor at the size the aim would have used, unnamed and under the tag the list was last reading, confirms it where the player is looking, and does nothing while a field holds the caret; the entry is then found in the notebook like any other. A spot is worth keeping at the moment it matters, which is mid-sort with a hand full of pieces, and that currently costs opening the notebook, arming the aim, clicking and saving. Nothing new has to be invented for it: a name is optional and a tag is inherited, so the key is the aim run once at the cursor with the defaults it already has. Open: which key it is, and whether the confirmation is a toast or the topbar button answering.
