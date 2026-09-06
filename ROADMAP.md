@@ -48,7 +48,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 - [x] `frontend-shell`: a bookmark stands for a square of the board and nothing else.
 
-- [ ] `frontend-shell`: a new bookmark is filed under its words in the form that names it. Exit criterion: saving an aimed spot under two tags, one the notebook already holds and one new, costs no popover and no trip back to the list, the five-tag cap and the 24-character cut are enforced in the form itself, and a word written there is offered to the next entry like any other. A draft is filed through the same picker a saved row uses, opened from a button and closed again before the save: a layer over the panel and three clicks for a word the player is already typing next to it. The tags belong beside the name in the save form, a field completing on the notebook's own words that turns what is written into a chip on Enter or on a click in the suggestions, the row picker staying as it is for an entry that is already in the list.
+- [x] `frontend-shell`: a bookmark is filed under its words by one field, beside its name and in a popup on its row.
 
 - [x] `frontend-shell`: the notebook reads several tags at once.
 
