@@ -140,6 +140,10 @@ const en = {
   },
   updates: {
     title: "Update notes",
+    v141: {
+      ux: "Improved experience for bookmarks and coordinates.",
+      flags: "Flags can now be reordered in the bar.",
+    },
     v140: {
       bookmarks:
         "Bookmarks: keep the spots on the board that matter to you in a notebook, opened from the button in the top bar. Aim at the board to take one, name it, file it under words of your own, star the ones you keep coming back to, and one click brings you back.",

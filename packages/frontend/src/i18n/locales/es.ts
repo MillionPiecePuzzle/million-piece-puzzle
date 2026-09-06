@@ -143,6 +143,10 @@ const es: MessageSchema = {
   },
   updates: {
     title: "Notas de actualización",
+    v141: {
+      ux: "Experiencia mejorada para los marcadores y las coordenadas.",
+      flags: "Ahora las banderas se pueden reordenar en la barra.",
+    },
     v140: {
       bookmarks:
         "Marcadores: guarda en un cuaderno los lugares del tablero que te importan, que se abre desde el botón de la barra superior. Apunta al tablero para crear uno, ponle nombre, archívalo bajo tus propias palabras, marca con una estrella aquellos a los que vuelves siempre, y un clic te lleva de vuelta.",

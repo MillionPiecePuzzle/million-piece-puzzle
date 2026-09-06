@@ -143,6 +143,10 @@ const fr: MessageSchema = {
   },
   updates: {
     title: "Notes de mises à jour",
+    v141: {
+      ux: "Amélioration de l'expérience des signets et des coordonnées.",
+      flags: "Les drapeaux peuvent maintenant être réordonnés dans la barre.",
+    },
     v140: {
       bookmarks:
         "Signets : gardez dans un carnet les endroits du plateau qui comptent pour vous, ouvert depuis le bouton de la barre du haut. Visez le plateau pour en créer un, nommez-le, classez-le sous vos propres mots, mettez une étoile à ceux où vous revenez sans cesse, et un clic vous y ramène.",

@@ -143,6 +143,10 @@ const de: MessageSchema = {
   },
   updates: {
     title: "Versionshinweise",
+    v141: {
+      ux: "Verbesserte Bedienung von Lesezeichen und Koordinaten.",
+      flags: "Fahnen lassen sich jetzt in der Leiste neu anordnen.",
+    },
     v140: {
       bookmarks:
         "Lesezeichen: Merk dir die Stellen auf dem Board, die dir wichtig sind, in einem Notizbuch, das der Knopf in der oberen Leiste öffnet. Ziel auf das Board, um eines anzulegen, benenne es, sortiere es unter deine eigenen Wörter, gib den Stellen einen Stern, zu denen du immer wieder zurückkehrst, und ein Klick bringt dich dorthin.",
