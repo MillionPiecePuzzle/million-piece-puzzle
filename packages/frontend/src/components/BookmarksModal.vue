@@ -31,11 +31,15 @@ import { fetchDziInfo, type DziInfo } from "../canvas/dziTiles";
 import type { PickedSpot } from "../canvas/puzzleStage";
 import { formatBoardPoint, worldToBoard } from "../canvas/boardCoords";
 import {
-  bookmarkShareUrl,
-  parseShareLink,
+  NOTEBOOK_FILE_MAX_BYTES,
+  formatBookmarkCode,
+  notebookFile,
+  notebookFileName,
+  parseBookmarkCode,
+  parseNotebookFile,
   sharedBadgeToBadge,
-  sharedViewWorldPoint,
-} from "../data/shareLink";
+} from "../data/bookmarkTransfer";
+import { sharedViewWorldPoint } from "../data/viewLink";
 import BookmarkBadgeArt from "./BookmarkBadgeArt.vue";
 import BookmarkTagsField from "./BookmarkTagsField.vue";
 import { useBookmarks } from "../composables/useBookmarks";
@@ -46,11 +50,22 @@ import { useFocusTrap } from "../composables/useFocusTrap";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
-const { open, hide, anchorInset, pressedAnchor, takeDraft } = useBookmarksModal();
+const { open, hide, anchorInset, pressedAnchor } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
-const { bookmarks, tags, canAdd, setPuzzle, add, remove, rename, toggleFavorite, tag, untag } =
-  useBookmarks();
+const {
+  bookmarks,
+  tags,
+  canAdd,
+  setPuzzle,
+  add,
+  merge,
+  remove,
+  rename,
+  toggleFavorite,
+  tag,
+  untag,
+} = useBookmarks();
 const { formatNumber } = useLocaleFormat();
 
 const shellEl = ref<HTMLElement | null>(null);
@@ -82,26 +97,21 @@ const openOrigin = computed(() => {
   return { transformOrigin: `calc(100% - ${fromRight}px) top` };
 });
 // An open is a fresh read of the notebook: an abandoned draft, a filter and a
-// page from a previous open never come back with it. A bookmark handed over in a
-// link is the one thing that survives an open, and it is consumed by it.
+// page from a previous open never come back with it.
 watch(open, (isOpen) => {
   clearCopyFeedback();
+  clearFileFeedback();
   if (isOpen) {
     query.value = "";
     page.value = 0;
     view.value = [];
+    creating.value = false;
     importing.value = false;
-    importUrl.value = "";
+    importCode.value = "";
     closeRowTags();
     cancelRename();
     void loadDziInfo();
-    // The trap first: it takes the panel's first control on the next tick, and a
-    // handed draft wants the caret in its name field instead, which it gets by
-    // asking for it after.
     trap.activate();
-    const handed = takeDraft();
-    if (handed) startShared(handed);
-    else creating.value = false;
   } else {
     // A closed notebook leaves no aim armed on the board behind it.
     controls.value?.cancelPickSpot();
@@ -332,8 +342,8 @@ function commitRename(): void {
   cancelRename();
 }
 
-// How long the row says the link is in the clipboard: long enough to read, short
-// enough that the row is back to itself by the time the player looks again.
+// How long the row says the bookmark is in the clipboard: long enough to read,
+// short enough that the row is back to itself by the time the player looks again.
 const COPIED_FEEDBACK_MS = 2500;
 
 const copiedId = ref<string | null>(null);
@@ -354,21 +364,22 @@ onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", onPressOutside, true);
 });
 
-// The spot and the bookmark of it both travel, in the player coordinates the
-// readout already shows: what the recipient gets is a draft of this entry, so
-// the name and the emblem go with the framing and the entry's own id stays here.
-// The scale is the sender's own, since the entry holds none.
-async function copyLink(bookmark: Bookmark): Promise<void> {
+// The row itself, in one line someone can paste into a message: the place in the
+// player coordinates the readout already shows, the emblem, the name and the
+// words it is filed under. What the recipient gets is a draft of this entry, so
+// the id and the star stay here. The scale is the sender's own, since the entry
+// holds none.
+async function copyCode(bookmark: Bookmark): Promise<void> {
   const m = manifest.value;
   if (!m) return;
-  const url = bookmarkShareUrl(window.location.origin, bookmark, m, camera.value.zoom);
+  const code = formatBookmarkCode(bookmark, m, camera.value.zoom);
   clearCopyFeedback();
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(code);
     copiedId.value = bookmark.id;
   } catch {
     // No clipboard at all (an insecure origin), or a browser refusing the write:
-    // an unwritten link is worth nothing, so say so rather than leave the row
+    // an unwritten line is worth nothing, so say so rather than leave the row
     // looking like it worked.
     copyFailed.value = true;
   }
@@ -377,20 +388,20 @@ async function copyLink(bookmark: Bookmark): Promise<void> {
 
 const creating = ref(false);
 const aiming = ref(false);
-// A draft filled from a link rather than from an aim: nothing is written until
-// the recipient saves, and the panel says where it came from so a name someone
-// else wrote is read before it is kept.
+// A draft filled from a bookmark someone sent rather than from an aim: nothing
+// is written until the recipient saves, and the panel says where it came from so
+// a name someone else wrote is read before it is kept.
 const shared = ref(false);
 const draftName = ref("");
 const draftBadge = ref<BookmarkBadge | null>(null);
 const draftSpot = ref<{ worldX: number; worldY: number } | null>(null);
 const error = ref<string | null>(null);
 const nameEl = ref<HTMLInputElement | null>(null);
-// A link pasted into the notebook itself, which is the other way one arrives:
-// opening it in the address bar reloads the board and drops the hand the player
-// is in the middle of, where this reads the same parameters live.
+// A bookmark someone sent, pasted into the notebook: it is read against the
+// board already on screen, so keeping a spot someone handed over never costs the
+// player the hand they are in the middle of.
 const importing = ref(false);
-const importUrl = ref("");
+const importCode = ref("");
 const importEl = ref<HTMLInputElement | null>(null);
 // The tags the entry being written carries, inherited from the list being read:
 // marking a second bookmark under the tag you are already working from costs
@@ -469,57 +480,134 @@ function startCreate(): void {
 
 function startImport(): void {
   importing.value = true;
-  importUrl.value = "";
+  importCode.value = "";
   error.value = null;
   void nextTick(() => importEl.value?.focus());
 }
 
 function cancelImport(): void {
   importing.value = false;
-  importUrl.value = "";
+  importCode.value = "";
   error.value = null;
 }
 
-// A pasted link, applied where an opened one would have been: the board is
-// framed on the spot it names and the notebook offers the same draft, so the
-// player sees what they are about to keep without losing the board they are on.
+// A pasted bookmark: the board is framed on the spot it names and the notebook
+// offers it as a draft, so the player sees what they are about to keep without
+// losing the board they are on.
 function applyImport(): void {
   const m = manifest.value;
   const zone = playZone.value;
   if (!m || !zone) return;
-  const link = parseShareLink(importUrl.value);
-  if (link === null) {
+  const sent = parseBookmarkCode(importCode.value);
+  if (sent === null) {
     error.value = t("bookmarks.importBad");
     return;
   }
-  const point = sharedViewWorldPoint(link.view, m, zone);
-  controls.value?.frameWorld(point.x, point.y, link.view.zoom);
+  const point = sharedViewWorldPoint(sent.view, m, zone);
+  controls.value?.frameWorld(point.x, point.y, sent.view.zoom);
   importing.value = false;
-  importUrl.value = "";
-  startShared({
-    name: link.bookmark.name,
-    badge: sharedBadgeToBadge(link.bookmark.badge, point, m),
-    worldX: point.x,
-    worldY: point.y,
-  });
+  importCode.value = "";
+  startShared(
+    {
+      name: sent.name,
+      badge: sharedBadgeToBadge(sent.badge, point, m),
+      worldX: point.x,
+      worldY: point.y,
+    },
+    sent.tags,
+  );
 }
 
-// A bookmark that arrived in a link: the same fields an aim fills, filled from
-// someone else's entry. The name is selected rather than only focused, since it
-// is a stranger's and retyping it should cost one keystroke.
-function startShared(entry: NewBookmark): void {
+// A bookmark someone sent: the same fields an aim fills, filled from their own
+// entry. The name is selected rather than only focused, since it is a stranger's
+// and retyping it should cost one keystroke.
+function startShared(entry: NewBookmark, tags: readonly string[]): void {
   creating.value = true;
   shared.value = true;
   draftName.value = entry.name;
   draftBadge.value = entry.badge;
   draftSpot.value = { worldX: entry.worldX, worldY: entry.worldY };
-  // No tag travels in a link: what a bookmark is filed under is the recipient's
-  // own reading of their notebook, not the sender's, and a URL that wrote words
-  // into someone else's would be a strange gift. It lands where they are
-  // reading.
-  draftTags.value = viewTags();
+  // The words the sender filed it under, under the spelling this notebook
+  // already gives them, so a word it already holds is joined rather than stood
+  // next to. An entry sent wearing none lands where the player is reading, like
+  // one of their own.
+  draftTags.value =
+    tags.length > 0 ? tags.map((name) => knownTagSpelling(bookmarks.value, name)) : viewTags();
   error.value = null;
   void nextTick(() => nameEl.value?.select());
+}
+
+// The notebook itself, written to a file and read back from one: a list kept per
+// browser has no other way of following its player to another one. What a row
+// hands to someone else is one spot; what this carries is the notebook whole,
+// every entry with its star, its words and its age.
+const fileEl = ref<HTMLInputElement | null>(null);
+const fileNotice = ref<string | null>(null);
+const fileError = ref<string | null>(null);
+
+function clearFileFeedback(): void {
+  fileNotice.value = null;
+  fileError.value = null;
+}
+
+function exportNotebook(): void {
+  const m = manifest.value;
+  if (!m) return;
+  clearFileFeedback();
+  const blob = new Blob([notebookFile(m.puzzleId, bookmarks.value, new Date())], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = notebookFileName(m.puzzleId, new Date());
+  link.click();
+  // Freed on the next turn rather than straight after the click, which some
+  // browsers read as the download being cancelled.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+// The picked file, read against the board on screen. The input is cleared before
+// anything else, so picking the same file twice is two imports and not one: a
+// player who edited it in between is asking for it to be read again.
+async function importNotebook(event: Event): Promise<void> {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  const file = input.files?.[0];
+  input.value = "";
+  const m = manifest.value;
+  if (!file || !m) return;
+  clearFileFeedback();
+  if (file.size > NOTEBOOK_FILE_MAX_BYTES) {
+    fileError.value = t("bookmarks.fileTooBig");
+    return;
+  }
+  let text: string;
+  try {
+    text = await file.text();
+  } catch {
+    fileError.value = t("bookmarks.fileBad");
+    return;
+  }
+  const read = parseNotebookFile(text, m.puzzleId);
+  if (read.kind === "other-board") {
+    fileError.value = t("bookmarks.fileOtherBoard");
+    return;
+  }
+  if (read.kind === "bad") {
+    fileError.value = t("bookmarks.fileBad");
+    return;
+  }
+  const added = merge(read.bookmarks);
+  // The list is left showing what was just written: a reading and a page from
+  // before the import would hide most of it.
+  query.value = "";
+  page.value = 0;
+  view.value = [];
+  fileNotice.value =
+    added === 0
+      ? t("bookmarks.fileNothingNew")
+      : t("bookmarks.fileAdded", added, { named: { n: formatNumber(added) } });
 }
 
 // The spot and its badge are one click on the board: what the player pressed is
@@ -806,7 +894,7 @@ const title = computed(() => {
           <p class="modal-lede">{{ t("bookmarks.importLede") }}</p>
           <input
             ref="importEl"
-            v-model="importUrl"
+            v-model="importCode"
             class="field"
             type="text"
             :placeholder="t('bookmarks.importPlaceholder')"
@@ -1049,12 +1137,10 @@ const title = computed(() => {
                 :aria-label="
                   copiedId === bookmark.id
                     ? t('bookmarks.copied')
-                    : t('bookmarks.copyLink', { name: labelOf(bookmark) })
+                    : t('bookmarks.copy', { name: labelOf(bookmark) })
                 "
-                :title="
-                  copiedId === bookmark.id ? t('bookmarks.copied') : t('bookmarks.hintCopyLink')
-                "
-                @click="copyLink(bookmark)"
+                :title="copiedId === bookmark.id ? t('bookmarks.copied') : t('bookmarks.hintCopy')"
+                @click="copyCode(bookmark)"
               >
                 <svg v-if="copiedId === bookmark.id" class="ic" viewBox="0 0 16 16" fill="none">
                   <path
@@ -1066,17 +1152,21 @@ const title = computed(() => {
                   />
                 </svg>
                 <svg v-else class="ic" viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.1-2.1a2.6 2.6 0 0 0-3.7-3.7l-1 1"
+                  <rect
+                    x="5.6"
+                    y="5.6"
+                    width="8"
+                    height="8"
+                    rx="1.6"
                     stroke="currentColor"
                     stroke-width="1.4"
-                    stroke-linecap="round"
                   />
                   <path
-                    d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.4 8.9a2.6 2.6 0 0 0 3.7 3.7l1-1"
+                    d="M10.4 5.6V4a1.6 1.6 0 0 0-1.6-1.6H4A1.6 1.6 0 0 0 2.4 4v4.8A1.6 1.6 0 0 0 4 10.4h1.6"
                     stroke="currentColor"
                     stroke-width="1.4"
                     stroke-linecap="round"
+                    stroke-linejoin="round"
                   />
                 </svg>
               </button>
@@ -1102,6 +1192,28 @@ const title = computed(() => {
               {{ t("bookmarks.next") }} &rarr;
             </button>
           </div>
+
+          <div class="file-actions">
+            <button
+              type="button"
+              :disabled="!manifest || bookmarks.length === 0"
+              @click="exportNotebook"
+            >
+              {{ t("bookmarks.fileExport") }}
+            </button>
+            <button type="button" :disabled="!manifest || !canAdd" @click="fileEl?.click()">
+              {{ t("bookmarks.fileImport") }}
+            </button>
+            <input
+              ref="fileEl"
+              class="file-input"
+              type="file"
+              accept="application/json,.json"
+              @change="importNotebook"
+            />
+          </div>
+          <p v-if="fileError" class="error" role="alert">{{ fileError }}</p>
+          <p v-else-if="fileNotice" class="notice" role="status">{{ fileNotice }}</p>
         </template>
 
         <div
@@ -1368,8 +1480,8 @@ const title = computed(() => {
   opacity: 0.4;
   cursor: not-allowed;
 }
-/* The row's own confirmation that the link is in the clipboard, which nothing
-   else on screen would say. */
+/* The row's own confirmation that the bookmark is in the clipboard, which
+   nothing else on screen would say. */
 .icon.done {
   color: var(--ink);
 }
@@ -1410,6 +1522,42 @@ const title = computed(() => {
   color: var(--ink-4);
   opacity: 0.5;
   cursor: default;
+}
+/* The notebook as a whole, under the list it is a notebook of: a file is what
+   carries it to another browser, where a row carries one spot to another
+   player. */
+.file-actions {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.file-actions button {
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--ink-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.file-actions button:hover:not(:disabled) {
+  color: var(--ink);
+}
+.file-actions button:disabled {
+  color: var(--ink-4);
+  opacity: 0.5;
+  cursor: default;
+}
+.file-input {
+  display: none;
+}
+.notice {
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
 }
 .primary {
   width: 100%;

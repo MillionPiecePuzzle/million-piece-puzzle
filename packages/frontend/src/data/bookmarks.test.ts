@@ -16,6 +16,7 @@ import {
   dropGoneTags,
   filterBookmarks,
   hasAnyTag,
+  mergeBookmarks,
   normalizeBookmarkName,
   normalizeTagName,
   parseBookmarkBadge,
@@ -583,5 +584,75 @@ describe("hasAnyTag", () => {
     const [only] = addTag(make("spot"), "nobody", "cats");
     expect(hasAnyTag(addTag(list, list[0]!.id, "Sky")[0]!.tags, "sky")).toBe(true);
     expect(hasAnyTag(only!.tags, "cats")).toBe(false);
+  });
+});
+
+// A notebook read off a file, poured into the one this browser keeps.
+function fileEntry(name: string, worldX: number, over: Partial<Bookmark> = {}): Bookmark {
+  return {
+    id: `f-${name}`,
+    name,
+    worldX,
+    worldY: 20,
+    createdAt: 1_700_000_000_000,
+    badge: BADGE,
+    favorite: false,
+    tags: [],
+    ...over,
+  };
+}
+
+describe("mergeBookmarks", () => {
+  it("keeps what the notebook holds and adds what the file carries", () => {
+    const kept = make("cherry");
+    const { list, added } = mergeBookmarks(kept, [fileEntry("apple", 100)]);
+    expect(list.map((b) => b.name)).toEqual(["apple", "cherry"]);
+    expect(added).toBe(1);
+  });
+
+  it("carries a star and an age over, since the file is the player's own notebook", () => {
+    const starred = fileEntry("apple", 100, { favorite: true, createdAt: 42 });
+    const [first] = mergeBookmarks([], [starred]).list;
+    expect(first).toMatchObject({ favorite: true, createdAt: 42 });
+  });
+
+  it("writes a spot already kept only once, so the same file twice adds nothing", () => {
+    const once = mergeBookmarks([], [fileEntry("apple", 100)]).list;
+    const twice = mergeBookmarks(once, [fileEntry("apple", 100)]);
+    expect(twice.list).toHaveLength(1);
+    expect(twice.added).toBe(0);
+  });
+
+  it("keeps two entries of one name at two places, which are two spots", () => {
+    const { list } = mergeBookmarks([], [fileEntry("apple", 100), fileEntry("apple", 200)]);
+    expect(list).toHaveLength(2);
+  });
+
+  it("mints an id for one colliding with an entry already kept", () => {
+    const kept = mergeBookmarks([], [fileEntry("apple", 100)]).list;
+    const { list } = mergeBookmarks(kept, [fileEntry("banana", 200, { id: kept[0]!.id })]);
+    expect(new Set(list.map((b) => b.id)).size).toBe(2);
+  });
+
+  it("gives an incoming word the spelling the notebook already knows", () => {
+    const cherry = make("cherry");
+    const kept = addTag(cherry, cherry[0]!.id, "Cats");
+    const { list } = mergeBookmarks(kept, [fileEntry("apple", 100, { tags: ["cats"] })]);
+    expect(allTags(list)).toEqual(["Cats"]);
+  });
+
+  it("refuses to grow past the cap", () => {
+    const full = Array.from({ length: MAX_BOOKMARKS }, (_, i) => fileEntry(`spot ${i}`, i));
+    const { list, added } = mergeBookmarks(full, [fileEntry("one more", -1)]);
+    expect(list).toHaveLength(MAX_BOOKMARKS);
+    expect(added).toBe(0);
+  });
+
+  it("comes out in the one order the notebook is read in", () => {
+    const { list } = mergeBookmarks(make("cherry"), [
+      fileEntry("zebra", 100, { favorite: true }),
+      fileEntry("apple", 200),
+    ]);
+    expect(list.map((b) => b.name)).toEqual(["zebra", "apple", "cherry"]);
   });
 });

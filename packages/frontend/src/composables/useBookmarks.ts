@@ -4,6 +4,7 @@ import {
   addBookmark,
   addTag,
   allTags,
+  mergeBookmarks,
   readBookmarks,
   removeBookmark,
   removeTag,
@@ -34,6 +35,15 @@ export function useBookmarks() {
 
   function add(entry: NewBookmark, tags: readonly string[] = []): void {
     commit(addBookmark(bookmarks.value, entry, tags));
+  }
+
+  // A notebook read off a file, poured into this one: it answers how many
+  // entries were written, since a file whose spots are all kept already is a
+  // successful import that changes nothing on screen.
+  function merge(entries: readonly Bookmark[]): number {
+    const merged = mergeBookmarks(bookmarks.value, entries);
+    commit(merged.list);
+    return merged.added;
   }
 
   function remove(id: string): void {
@@ -68,6 +78,7 @@ export function useBookmarks() {
     canAdd,
     setPuzzle,
     add,
+    merge,
     remove,
     rename,
     toggleFavorite,

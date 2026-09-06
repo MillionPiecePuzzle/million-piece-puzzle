@@ -1,6 +1,5 @@
 import { readonly, ref } from "vue";
 import { useModal } from "./useModal";
-import type { NewBookmark } from "../data/bookmarks";
 
 const modal = useModal();
 // How far the control that opened the notebook sits from the right edge of the
@@ -11,11 +10,6 @@ const anchorInset = ref<number | null>(null);
 // what it opened by toggling, so the press that closes the notebook from outside
 // has to leave that one control alone or the click behind it would reopen it.
 const anchorEl = ref<HTMLElement | null>(null);
-// A bookmark someone handed this player in a link, waiting for the notebook to
-// open on it. It is a draft and never an entry: the panel fills its fields with
-// it, and only the recipient's own save writes it. Taken rather than read, so a
-// draft is offered once and a later open shows the list.
-const draft = ref<NewBookmark | null>(null);
 
 function showFrom(el: HTMLElement | null): void {
   const rect = el?.getBoundingClientRect();
@@ -35,17 +29,6 @@ export function useBookmarksModal() {
     },
     pressedAnchor(target: Node): boolean {
       return anchorEl.value?.contains(target) ?? false;
-    },
-    showDraft(entry: NewBookmark): void {
-      draft.value = entry;
-      anchorInset.value = null;
-      anchorEl.value = null;
-      modal.show();
-    },
-    takeDraft(): NewBookmark | null {
-      const entry = draft.value;
-      draft.value = null;
-      return entry;
     },
   };
 }

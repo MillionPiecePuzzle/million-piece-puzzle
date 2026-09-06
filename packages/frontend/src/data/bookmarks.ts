@@ -289,6 +289,58 @@ export function addBookmark(
   return sortBookmarks([bookmark, ...list]);
 }
 
+// Two entries are the same spot when they name the same place under the same
+// name: an id is a browser's own and never a place's, so it is not what a
+// notebook read twice can be told by.
+function spotKey(bookmark: Bookmark): string {
+  return `${bookmark.worldX}:${bookmark.worldY}:${bookmark.name}`;
+}
+
+// A notebook read off a file poured into the one the browser already keeps: what
+// is kept stays, what is new is added under the spelling this notebook already
+// gives each word, and the cap is the same bound one entry at a time meets. A
+// spot already kept is not written a second time, so importing the same file
+// twice adds nothing; an id that would collide with one already in the list is
+// minted fresh, since two browsers mint their own.
+//
+// Both readings are indexed up front rather than walked per entry: a file can
+// carry as many entries as the notebook holds, and a scan per incoming entry
+// would make a full one quadratic in a tab the player is playing in.
+export function mergeBookmarks(
+  list: readonly Bookmark[],
+  incoming: readonly Bookmark[],
+): { list: Bookmark[]; added: number } {
+  const kept = [...list];
+  const takenIds = new Set(kept.map((b) => b.id));
+  const spots = new Set(kept.map(spotKey));
+  const spellings = new Map<string, string>();
+  for (const bookmark of kept) {
+    for (const tag of bookmark.tags) {
+      const key = tag.toLocaleLowerCase();
+      if (!spellings.has(key)) spellings.set(key, tag);
+    }
+  }
+  let added = 0;
+  for (const entry of incoming) {
+    if (kept.length >= MAX_BOOKMARKS) break;
+    const spot = spotKey(entry);
+    if (spots.has(spot)) continue;
+    spots.add(spot);
+    const id = takenIds.has(entry.id) ? nextBookmarkId() : entry.id;
+    takenIds.add(id);
+    const tags = entry.tags.map((tag) => {
+      const key = tag.toLocaleLowerCase();
+      const known = spellings.get(key);
+      if (known !== undefined) return known;
+      spellings.set(key, tag);
+      return tag;
+    });
+    kept.push({ ...entry, id, tags });
+    added += 1;
+  }
+  return { list: sortBookmarks(kept), added };
+}
+
 // Whether one entry's words answer a reading: it wears every word of it, which
 // is what makes a reading of several words a narrowing rather than a pile. A
 // reading holding nothing is answered by everything, which is what `VIEW_ALL`
@@ -373,12 +425,17 @@ function parseTags(value: unknown, distinct: Map<string, string>): string[] {
 // could stand for one loose piece) reads under the default badge instead.
 export function parseBookmarks(raw: string | null): Bookmark[] {
   if (!raw) return [];
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    return parseBookmarkList(JSON.parse(raw));
   } catch {
     return [];
   }
+}
+
+// The list itself, wherever it arrives from: the origin's storage, or a file the
+// player picked off their disk (bookmarkTransfer.ts). Both are editable by hand,
+// so both go through the same reading.
+export function parseBookmarkList(parsed: unknown): Bookmark[] {
   if (!Array.isArray(parsed)) return [];
   const bookmarks: Bookmark[] = [];
   const takenIds = new Set<string>();
@@ -426,22 +483,22 @@ export function readBookmarks(puzzleId: string): Bookmark[] {
 // entries and `"favorite":false` on each of them is 17 bytes of a quota the cap
 // is measured against. What is absent reads as false, or as unnamed, on the way
 // back in.
+export function storedBookmark(bookmark: Bookmark): Record<string, unknown> {
+  const stored: Record<string, unknown> = {
+    id: bookmark.id,
+    worldX: bookmark.worldX,
+    worldY: bookmark.worldY,
+    createdAt: bookmark.createdAt,
+  };
+  if (bookmark.badge) stored.badge = bookmark.badge;
+  if (bookmark.name !== "") stored.name = bookmark.name;
+  if (bookmark.favorite) stored.favorite = true;
+  if (bookmark.tags.length > 0) stored.tags = bookmark.tags;
+  return stored;
+}
+
 export function serializeBookmarks(list: readonly Bookmark[]): string {
-  return JSON.stringify(
-    list.map((b) => {
-      const stored: Record<string, unknown> = {
-        id: b.id,
-        worldX: b.worldX,
-        worldY: b.worldY,
-        createdAt: b.createdAt,
-      };
-      if (b.badge) stored.badge = b.badge;
-      if (b.name !== "") stored.name = b.name;
-      if (b.favorite) stored.favorite = true;
-      if (b.tags.length > 0) stored.tags = b.tags;
-      return stored;
-    }),
-  );
+  return JSON.stringify(list.map(storedBookmark));
 }
 
 export function writeBookmarks(puzzleId: string, list: readonly Bookmark[]): void {
