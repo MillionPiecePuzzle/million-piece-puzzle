@@ -469,6 +469,7 @@ function viewTags(): string[] {
 
 function startCreate(): void {
   if (!canAdd.value || !controls.value) return;
+  clearFileFeedback();
   creating.value = true;
   shared.value = false;
   draftName.value = "";
@@ -478,10 +479,13 @@ function startCreate(): void {
   error.value = null;
 }
 
+// The one window the notebook takes in from: a bookmark someone sent, pasted,
+// and the notebook itself as a file, written and read back.
 function startImport(): void {
   importing.value = true;
   importCode.value = "";
   error.value = null;
+  clearFileFeedback();
   void nextTick(() => importEl.value?.focus());
 }
 
@@ -489,6 +493,7 @@ function cancelImport(): void {
   importing.value = false;
   importCode.value = "";
   error.value = null;
+  clearFileFeedback();
 }
 
 // A pasted bookmark: the board is framed on the spot it names and the notebook
@@ -522,6 +527,7 @@ function applyImport(): void {
 // entry. The name is selected rather than only focused, since it is a stranger's
 // and retyping it should cost one keystroke.
 function startShared(entry: NewBookmark, tags: readonly string[]): void {
+  clearFileFeedback();
   creating.value = true;
   shared.value = true;
   draftName.value = entry.name;
@@ -540,7 +546,8 @@ function startShared(entry: NewBookmark, tags: readonly string[]): void {
 // The notebook itself, written to a file and read back from one: a list kept per
 // browser has no other way of following its player to another one. What a row
 // hands to someone else is one spot; what this carries is the notebook whole,
-// every entry with its star, its words and its age.
+// every entry with its star, its words and its age. A read that wrote something
+// closes the window on the list, where the entries it just added are.
 const fileEl = ref<HTMLInputElement | null>(null);
 const fileNotice = ref<string | null>(null);
 const fileError = ref<string | null>(null);
@@ -601,6 +608,8 @@ async function importNotebook(event: Event): Promise<void> {
   const added = merge(read.bookmarks);
   // The list is left showing what was just written: a reading and a page from
   // before the import would hide most of it.
+  importing.value = false;
+  importCode.value = "";
   query.value = "";
   page.value = 0;
   view.value = [];
@@ -891,7 +900,6 @@ const title = computed(() => {
         </template>
 
         <template v-else-if="importing">
-          <p class="modal-lede">{{ t("bookmarks.importLede") }}</p>
           <input
             ref="importEl"
             v-model="importCode"
@@ -912,6 +920,33 @@ const title = computed(() => {
               {{ t("bookmarks.importAction") }}
             </button>
           </div>
+
+          <div class="file-actions">
+            <button
+              type="button"
+              class="ghost"
+              :disabled="!manifest || !canAdd"
+              @click="fileEl?.click()"
+            >
+              {{ t("bookmarks.fileImport") }}
+            </button>
+            <button
+              type="button"
+              class="ghost"
+              :disabled="!manifest || bookmarks.length === 0"
+              @click="exportNotebook"
+            >
+              {{ t("bookmarks.fileExport") }}
+            </button>
+            <input
+              ref="fileEl"
+              class="file-input"
+              type="file"
+              accept="application/json,.json"
+              @change="importNotebook"
+            />
+          </div>
+          <p v-if="fileError" class="error" role="alert">{{ fileError }}</p>
         </template>
 
         <template v-else>
@@ -936,6 +971,7 @@ const title = computed(() => {
           <p v-if="!canAdd" class="full" role="alert">
             {{ t("bookmarks.full", { max: formatNumber(MAX_BOOKMARKS) }) }}
           </p>
+          <p v-if="fileNotice" class="notice" role="status">{{ fileNotice }}</p>
 
           <div class="tools">
             <select
@@ -1192,28 +1228,6 @@ const title = computed(() => {
               {{ t("bookmarks.next") }} &rarr;
             </button>
           </div>
-
-          <div class="file-actions">
-            <button
-              type="button"
-              :disabled="!manifest || bookmarks.length === 0"
-              @click="exportNotebook"
-            >
-              {{ t("bookmarks.fileExport") }}
-            </button>
-            <button type="button" :disabled="!manifest || !canAdd" @click="fileEl?.click()">
-              {{ t("bookmarks.fileImport") }}
-            </button>
-            <input
-              ref="fileEl"
-              class="file-input"
-              type="file"
-              accept="application/json,.json"
-              @change="importNotebook"
-            />
-          </div>
-          <p v-if="fileError" class="error" role="alert">{{ fileError }}</p>
-          <p v-else-if="fileNotice" class="notice" role="status">{{ fileNotice }}</p>
         </template>
 
         <div
@@ -1523,41 +1537,27 @@ const title = computed(() => {
   opacity: 0.5;
   cursor: default;
 }
-/* The notebook as a whole, under the list it is a notebook of: a file is what
-   carries it to another browser, where a row carries one spot to another
-   player. */
+/* The notebook as a whole, under the one bookmark a paste carries: the same
+   window, since both are the notebook taking in what it did not write, and a
+   rule between them because a file is the whole list where a line is one spot. */
 .file-actions {
   display: flex;
-  justify-content: center;
-  gap: 14px;
-  margin-top: 10px;
-  padding-top: 10px;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 16px;
   border-top: 1px solid var(--line);
 }
-.file-actions button {
-  padding: 2px 4px;
-  font-size: 11px;
-  color: var(--ink-3);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.file-actions button:hover:not(:disabled) {
-  color: var(--ink);
-}
-.file-actions button:disabled {
-  color: var(--ink-4);
-  opacity: 0.5;
-  cursor: default;
+.file-actions .ghost {
+  flex: 1;
 }
 .file-input {
   display: none;
 }
 .notice {
-  margin: 10px 0 0;
+  margin: 0 0 10px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-3);
-  text-align: center;
 }
 .primary {
   width: 100%;
