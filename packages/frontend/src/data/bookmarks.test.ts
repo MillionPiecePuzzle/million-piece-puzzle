@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  BADGE_PIECES_DEFAULT,
   BOOKMARK_NAME_MAX,
   MAX_BOOKMARKS,
   MAX_TAGS,
@@ -34,13 +33,10 @@ import {
   type BookmarkBadge,
 } from "./bookmarks";
 
-// The 1M board's piece size, which every notebook here is read against: it is
-// what an entry whose badge cannot be read falls back to a square of.
-const PIECE_SIZE = 120;
 const BADGE: BookmarkBadge = { x: 1200, y: 2400, size: 1440 };
 
 function parseStored(raw: string | null): Bookmark[] {
-  return parseBookmarks(raw, PIECE_SIZE);
+  return parseBookmarks(raw);
 }
 
 function make(name: string, list: readonly Bookmark[] = []): Bookmark[] {
@@ -314,12 +310,16 @@ describe("parseBookmarks", () => {
 
   // A notebook written when a bookmark could stand for one loose piece, which is
   // a badge no square can be read out of: the point is what the entry is for, so
-  // the row keeps it and draws the default square around it.
-  it("reads a badge that is no square as the default square on the entry's point", () => {
-    const piece = { ...entry, badge: { kind: "piece", file: "pieces/0123/012345.avif" } };
-    expect(parseStored(JSON.stringify([piece]))[0]!.badge).toEqual(
-      badgeAround(entry.worldX, entry.worldY, BADGE_PIECES_DEFAULT * PIECE_SIZE),
-    );
+  // the row keeps it and reads under the default badge.
+  it("keeps an entry whose badge is no square, wearing none", () => {
+    const stored = [
+      { ...entry, id: "b1", badge: { kind: "piece", file: "pieces/0123/012345.avif" } },
+      { ...entry, id: "b2", badge: undefined },
+      { ...entry, id: "b3", badge: { x: 0, y: 0, size: 0 } },
+    ];
+    const read = parseStored(JSON.stringify(stored));
+    expect(read.map((b) => b.id)).toEqual(["b1", "b2", "b3"]);
+    expect(read.map((b) => b.badge)).toEqual([null, null, null]);
   });
 
   it("drops an entry that is not a placed point", () => {
@@ -332,13 +332,6 @@ describe("parseBookmarks", () => {
       { ...entry, id: "b8", name: 12 },
     ];
     expect(parseStored(JSON.stringify(broken))).toEqual([]);
-  });
-
-  // The board is not known while the session is still connecting, and a square
-  // of no width would draw nothing, so the fallback is not offered then.
-  it("drops an unreadable badge rather than falling back with no board to size it", () => {
-    const piece = { ...entry, badge: undefined };
-    expect(parseBookmarks(JSON.stringify([piece]), 0)).toEqual([]);
   });
 
   it("keeps an entry that names no name, which is one the player never named", () => {
@@ -381,6 +374,12 @@ describe("serializeBookmarks", () => {
     const tagged = addTag([entry("tagged")], "tagged", "cats");
     expect(serializeBookmarks(tagged)).toContain('"tags":["cats"]');
     expect(parseStored(serializeBookmarks(tagged))).toEqual(tagged);
+  });
+
+  it("writes no badge for a spot off the picture, and reads it back wearing none", () => {
+    const bare = [{ ...entry("bare ground"), badge: null }];
+    expect(serializeBookmarks(bare)).not.toContain("badge");
+    expect(parseStored(serializeBookmarks(bare))).toEqual(bare);
   });
 });
 

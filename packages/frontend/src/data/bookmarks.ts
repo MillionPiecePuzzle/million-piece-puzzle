@@ -14,6 +14,11 @@
 // canvas capture, which would cost a renderer.extract GPU readback, a blob store
 // outside localStorage's quota, and would be lying minutes later on a board a
 // million pieces move across.
+//
+// An entry can wear none, and many do: a spot off the picture (the ground the
+// pieces are scattered over, which is most of the play zone) has nothing to cut
+// a square from, and so does an entry from a notebook where a bookmark could
+// stand for one loose piece. Those read under the panel's own default badge.
 export type BookmarkBadge = { x: number; y: number; size: number };
 
 export type Bookmark = {
@@ -26,7 +31,7 @@ export type Bookmark = {
   worldX: number;
   worldY: number;
   createdAt: number;
-  badge: BookmarkBadge;
+  badge: BookmarkBadge | null;
   // The spots the player keeps coming back to, held at the top of the list. A
   // flag rather than a slot: there is no cap on it, since it orders the notebook
   // and never competes for anything on the board.
@@ -129,10 +134,7 @@ export function parseBookmarkBadge(value: unknown): BookmarkBadge | null {
 }
 
 // The square an aim traces around a point, which is the only badge there is: the
-// side is the player's, the place is the spot itself. It is also what an entry
-// whose badge cannot be read falls back to, a notebook written when a bookmark
-// could stand for one loose piece carrying tile paths where a square is now
-// expected.
+// side is the player's, the place is the spot itself.
 export function badgeAround(worldX: number, worldY: number, size: number): BookmarkBadge {
   return { x: worldX - size / 2, y: worldY - size / 2, size };
 }
@@ -225,7 +227,8 @@ export function removeTag(list: readonly Bookmark[], id: string, tag: string): B
 // a float straight off the board costs 15 characters an axis in storage and names
 // a spot no more precisely. The badge square is a position too, so it is rounded
 // the same way.
-function roundBadge(badge: BookmarkBadge): BookmarkBadge {
+function roundBadge(badge: BookmarkBadge | null): BookmarkBadge | null {
+  if (badge === null) return null;
   return {
     x: Math.round(badge.x),
     y: Math.round(badge.y),
@@ -354,14 +357,11 @@ function parseTags(value: unknown, distinct: Map<string, string>): string[] {
 // is treated as untrusted input: an entry that is not a placed point is dropped
 // whole, the list is cut to the cap, and anything an entry carries beyond those
 // fields (a zoom an older notebook stored) is left behind. A name is not among
-// the fields an entry must have, since a bookmark can be kept unnamed.
-//
-// A badge that does not read as a square is not what drops an entry: the point
-// is what the notebook is for, so the row is drawn with the default square
-// around it. That is what a bookmark written when one could stand for a loose
-// piece becomes, and it is why the puzzle's piece size is read alongside the
-// list: the fallback is measured in pieces like every square the aim traces.
-export function parseBookmarks(raw: string | null, pieceSize: number): Bookmark[] {
+// the fields an entry must have, since a bookmark can be kept unnamed, and
+// neither is a badge: the point is what the notebook is for, and an entry whose
+// badge does not read as a square (a tile path from a notebook where a bookmark
+// could stand for one loose piece) reads under the default badge instead.
+export function parseBookmarks(raw: string | null): Bookmark[] {
   if (!raw) return [];
   let parsed: unknown;
   try {
@@ -386,17 +386,13 @@ export function parseBookmarks(raw: string | null, pieceSize: number): Bookmark[
     if (cleanName === null) continue;
     if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) continue;
     if (!Number.isFinite(createdAt)) continue;
-    const cleanBadge =
-      parseBookmarkBadge(badge) ??
-      badgeAround(worldX as number, worldY as number, BADGE_PIECES_DEFAULT * pieceSize);
-    if (cleanBadge.size <= 0) continue;
     bookmarks.push({
       id,
       name: cleanName,
       worldX: worldX as number,
       worldY: worldY as number,
       createdAt: createdAt as number,
-      badge: cleanBadge,
+      badge: parseBookmarkBadge(badge),
       favorite: favorite === true,
       tags: parseTags(tags, distinctTags),
     });
@@ -407,9 +403,9 @@ export function parseBookmarks(raw: string | null, pieceSize: number): Bookmark[
   return sortBookmarks(bookmarks);
 }
 
-export function readBookmarks(puzzleId: string, pieceSize: number): Bookmark[] {
+export function readBookmarks(puzzleId: string): Bookmark[] {
   try {
-    return parseBookmarks(localStorage.getItem(bookmarkStorageKey(puzzleId)), pieceSize);
+    return parseBookmarks(localStorage.getItem(bookmarkStorageKey(puzzleId)));
   } catch {
     return [];
   }
@@ -428,8 +424,8 @@ export function serializeBookmarks(list: readonly Bookmark[]): string {
         worldX: b.worldX,
         worldY: b.worldY,
         createdAt: b.createdAt,
-        badge: b.badge,
       };
+      if (b.badge) stored.badge = b.badge;
       if (b.name !== "") stored.name = b.name;
       if (b.favorite) stored.favorite = true;
       if (b.tags.length > 0) stored.tags = b.tags;

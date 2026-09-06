@@ -4,12 +4,13 @@
 // and the numbers are cut for the same reason: a tenth of a piece is already
 // finer than the spot anyone means.
 //
-// A link copied from a bookmark carries that bookmark too, in two more
-// parameters: `b` for the emblem and `n` for the name. The emblem is the square
-// in pieces relative to the shared point, three short numbers rather than the six
-// digits an axis a world rect costs. What arrives is a draft and never an entry:
-// the recipient reads the name a stranger wrote, changes it if they want to, and
-// it is their save that writes it to their notebook.
+// A link copied from a bookmark carries that bookmark too, in one or two more
+// parameters: `n` for the name, and `b` for the emblem when the entry wears one.
+// The emblem is the square in pieces relative to the shared point, three short
+// numbers rather than the six digits an axis a world rect costs; a spot off the
+// picture has none and its link carries none. What arrives is a draft and never
+// an entry: the recipient reads the name a stranger wrote, changes it if they
+// want to, and it is their save that writes it to their notebook.
 
 import {
   boardToWorld,
@@ -18,7 +19,6 @@ import {
   type BoardPoint,
 } from "../canvas/boardCoords";
 import {
-  BADGE_PIECES_DEFAULT,
   BADGE_PIECES_MAX,
   BADGE_PIECES_MIN,
   bookmarkLabel,
@@ -39,16 +39,7 @@ export type SharedView = { x: number; y: number; zoom: number };
 // run to six digits an axis.
 export type SharedBadge = { dx: number; dy: number; size: number };
 
-// A link written when a bookmark could stand for one loose piece carried that
-// piece's tile path as its emblem, which is not a square and cannot be made into
-// one, so it lands on the default square around the point the link frames.
-const LEGACY_BADGE: SharedBadge = {
-  dx: -BADGE_PIECES_DEFAULT / 2,
-  dy: -BADGE_PIECES_DEFAULT / 2,
-  size: BADGE_PIECES_DEFAULT,
-};
-
-export type SharedBookmark = { name: string; badge: SharedBadge };
+export type SharedBookmark = { name: string; badge: SharedBadge | null };
 
 const COORD_DECIMALS = 1;
 // Three decimals of zoom: the scale steps of the camera are multiplicative and
@@ -82,8 +73,11 @@ export function shareUrl(
 ): string {
   const at = `${SHARE_VIEW_PARAM}=${formatSharedView(view)}`;
   if (!bookmark) return `${origin}/play?${at}`;
-  const badge = `${SHARE_BADGE_PARAM}=${formatSharedBadge(bookmark.badge)}`;
   const name = `${SHARE_NAME_PARAM}=${encodeURIComponent(bookmark.name)}`;
+  // The name is what says a link carries a bookmark, so an entry wearing no
+  // emblem simply travels without one rather than with an empty parameter.
+  if (!bookmark.badge) return `${origin}/play?${at}&${name}`;
+  const badge = `${SHARE_BADGE_PARAM}=${formatSharedBadge(bookmark.badge)}`;
   return `${origin}/play?${at}&${badge}&${name}`;
 }
 
@@ -100,7 +94,7 @@ export function bookmarkShareUrl(
 ): string {
   const point = worldToBoard(bookmark.worldX, bookmark.worldY, frame);
   const badge = bookmark.badge;
-  const shared: SharedBadge = {
+  const shared: SharedBadge | null = badge && {
     dx: (badge.x - bookmark.worldX) / frame.pieceSize,
     dy: (badge.y - bookmark.worldY) / frame.pieceSize,
     size: badge.size / frame.pieceSize,
@@ -159,15 +153,10 @@ export function parseSharedView(raw: unknown): SharedView | null {
 
 // The emblem parameter, which is a stranger's string like any other: the square
 // is held to the sizes the panel itself offers, so no link can name one wide
-// enough to be worth fetching a level of the pyramid for. A value carrying no
-// comma at all is an emblem from before the square was the only one, read as the
-// default square rather than sniffed for the tile path it used to be: an old
-// link lands on a badge that draws, and a mangled one costs a draft the recipient
-// cancels.
+// enough to be worth fetching a level of the pyramid for.
 export function parseSharedBadge(raw: unknown): SharedBadge | null {
   if (typeof raw !== "string" || raw === "") return null;
   const parts = raw.split(",");
-  if (parts.length === 1) return LEGACY_BADGE;
   if (parts.length !== 3) return null;
   const dx = finiteNumber(parts[0]!);
   const dy = finiteNumber(parts[1]!);
@@ -177,15 +166,23 @@ export function parseSharedBadge(raw: unknown): SharedBadge | null {
   return { dx, dy, size };
 }
 
-// The draft a link offers, or nothing: a name with no emblem could not be saved
-// and an emblem with no name parameter at all is not the bookmark that was
-// shared, so the pair is refused together. The name is trimmed and capped like
-// one the player typed, and empty where the sender's own entry reads under no
-// word, which the recipient's notebook shows in their language.
+// The draft a link offers, or nothing: the name is what says the link carries a
+// bookmark at all, so an emblem with no name parameter is not the bookmark that
+// was shared and is refused. The name is trimmed and capped like one the player
+// typed, and empty where the sender's own entry reads under no word, which the
+// recipient's notebook shows in their language.
+//
+// No emblem parameter is a whole bookmark and not a half one: a spot off the
+// picture wears none. A parameter that is there and reads as no square is
+// refused, one written when a bookmark could stand for a loose piece excepted,
+// which carried a tile path (no comma in it) and lands on the default badge like
+// any spot with no picture under it.
 export function parseSharedBookmark(nameRaw: unknown, badgeRaw: unknown): SharedBookmark | null {
   if (typeof nameRaw !== "string") return null;
   const name = normalizeBookmarkName(nameRaw);
   if (name === null) return null;
+  if (badgeRaw === undefined || badgeRaw === null) return { name, badge: null };
+  if (typeof badgeRaw === "string" && !badgeRaw.includes(",")) return { name, badge: null };
   const badge = parseSharedBadge(badgeRaw);
   return badge === null ? null : { name, badge };
 }
@@ -210,10 +207,11 @@ export function sharedViewWorldPoint(
 // camera was sent to rather than on the raw one: the draft they save has to badge
 // the spot they are looking at, held inside the same zone.
 export function sharedBadgeToBadge(
-  badge: SharedBadge,
+  badge: SharedBadge | null,
   point: BoardPoint,
   frame: BoardFrame,
-): BookmarkBadge {
+): BookmarkBadge | null {
+  if (badge === null) return null;
   return {
     x: point.x + badge.dx * frame.pieceSize,
     y: point.y + badge.dy * frame.pieceSize,

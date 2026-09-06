@@ -3126,6 +3126,12 @@ export class PuzzleStage {
       this.removeAimSquare();
       return;
     }
+    // Off the picture the square would promise an extract there is none of: the
+    // spot is still taken by the click, and the caller badges it its own way.
+    if (!this.aimSquareOnPicture(pointer.x, pointer.y)) {
+      this.removeAimSquare();
+      return;
+    }
     let g = this.aimSquare;
     if (!g) {
       g = new Graphics();
@@ -3144,6 +3150,21 @@ export class PuzzleStage {
       g.rect(x, x, side, side).stroke({ color: AIM_SQUARE_COLOR, width: 2, alpha: 1 });
     }
     g.position.set(pointer.x, pointer.y);
+  }
+
+  // Whether the square the cursor is over holds any of the source picture, which
+  // spans the frame from its own origin.
+  private aimSquareOnPicture(screenX: number, screenY: number): boolean {
+    const m = this.manifest;
+    if (!m) return false;
+    const world = this.screenToWorld(screenX, screenY);
+    const half = this.aimSquareWorld / 2;
+    return (
+      world.x + half > 0 &&
+      world.y + half > 0 &&
+      world.x - half < m.source.width &&
+      world.y - half < m.source.height
+    );
   }
 
   private removeAimSquare(): void {

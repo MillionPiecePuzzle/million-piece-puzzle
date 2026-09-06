@@ -32,13 +32,10 @@ function commit(next: Bookmark[]): void {
 }
 
 export function useBookmarks() {
-  // The piece size rides along because the notebook is read against it: an entry
-  // whose badge cannot be read is drawn with the default square, which is a
-  // number of pieces.
-  function setPuzzle(next: string | null, pieceSize: number): void {
+  function setPuzzle(next: string | null): void {
     if (puzzleId.value === next) return;
     puzzleId.value = next;
-    bookmarks.value = next ? readBookmarks(next, pieceSize) : [];
+    bookmarks.value = next ? readBookmarks(next) : [];
   }
 
   function add(entry: NewBookmark, tags: readonly string[] = []): void {

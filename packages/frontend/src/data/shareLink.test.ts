@@ -69,6 +69,13 @@ describe("bookmarkShareUrl", () => {
     expect(new URL(url).searchParams.get("n")).toBe("cats");
   });
 
+  it("carries no emblem for a spot off the picture, which wears none", () => {
+    const bare = { ...bookmark, badge: null };
+    expect(bookmarkShareUrl("https://example.org", bare, board1m, senderZoom)).toBe(
+      "https://example.org/play?at=180,500,0.85&n=sky%20pile",
+    );
+  });
+
   it("hands over the scale the sender is reading the board at", () => {
     const url = bookmarkShareUrl("https://example.org", bookmark, board1m, 2.5);
     expect(parseSharedView(new URL(url).searchParams.get("at"))?.zoom).toBe(2.5);
@@ -120,12 +127,6 @@ describe("parseSharedBadge", () => {
     expect(parseSharedBadge("-6,-6,12")).toEqual({ dx: -6, dy: -6, size: 12 });
   });
 
-  it("reads an emblem from before the square as the default square", () => {
-    const fallback = { dx: -6, dy: -6, size: 12 };
-    expect(parseSharedBadge("pieces/0123/012345.avif")).toEqual(fallback);
-    expect(parseSharedBadge("anything")).toEqual(fallback);
-  });
-
   it("refuses a square no panel would have traced", () => {
     expect(parseSharedBadge("-6,-6,3")).toBeNull();
     expect(parseSharedBadge("-6,-6,25")).toBeNull();
@@ -134,6 +135,7 @@ describe("parseSharedBadge", () => {
   });
 
   it("refuses a badge that is not three numbers", () => {
+    expect(parseSharedBadge("pieces/0123/012345.avif")).toBeNull();
     expect(parseSharedBadge("-6,-6")).toBeNull();
     expect(parseSharedBadge("-6,-6,12,4")).toBeNull();
     expect(parseSharedBadge("sky,pile,12")).toBeNull();
@@ -160,10 +162,22 @@ describe("parseSharedBookmark", () => {
     expect(parseSharedBookmark("   ", "-6,-6,12")?.name).toBe("");
   });
 
-  it("refuses a half link rather than offering a draft that cannot be saved", () => {
-    expect(parseSharedBookmark("sky pile", undefined)).toBeNull();
+  it("reads a link with no emblem as a whole bookmark, wearing none", () => {
+    expect(parseSharedBookmark("sky pile", undefined)).toEqual({ name: "sky pile", badge: null });
+    expect(parseSharedBookmark("sky pile", null)).toEqual({ name: "sky pile", badge: null });
+  });
+
+  it("reads an emblem from before the square as a bookmark wearing none", () => {
+    expect(parseSharedBookmark("sky pile", "pieces/0123/012345.avif")).toEqual({
+      name: "sky pile",
+      badge: null,
+    });
+  });
+
+  it("refuses a link with no name, and an emblem that reads as no square", () => {
     expect(parseSharedBookmark(undefined, "-6,-6,12")).toBeNull();
     expect(parseSharedBookmark("sky pile", "-6,-6,99")).toBeNull();
+    expect(parseSharedBookmark("sky pile", "-6,-6,12,4")).toBeNull();
   });
 });
 

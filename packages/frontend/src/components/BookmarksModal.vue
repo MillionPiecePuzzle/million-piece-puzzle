@@ -140,7 +140,7 @@ const squareWorld = computed(() => badgePieces.value * (manifest.value?.pieceSiz
 
 watch(
   () => manifest.value?.puzzleId ?? null,
-  (id) => setPuzzle(id, manifest.value?.pieceSize ?? 0),
+  (id) => setPuzzle(id),
   { immediate: true },
 );
 
@@ -258,10 +258,12 @@ const peek = ref<{ badge: BookmarkBadge; size: number; top: number; left: number
 // follows its row, held inside the screen so one near the bottom comes back up
 // rather than hanging under the fold. A square badge is re-cut at the size it is
 // raised to, so the preview is sharp rather than the row's own tiles stretched.
-function showPeek(badge: BookmarkBadge, ev: MouseEvent): void {
+function showPeek(badge: BookmarkBadge | null, ev: MouseEvent): void {
   const el = ev.currentTarget;
   const shell = shellEl.value;
-  if (!(el instanceof HTMLElement) || !shell) return;
+  // Nothing to lift out of a row wearing the default badge: the mark is the same
+  // mark at any size.
+  if (badge === null || !(el instanceof HTMLElement) || !shell) return;
   const room = shell.getBoundingClientRect().left - BADGE_PEEK_GAP - PEEK_EDGE_GAP;
   if (room < BADGE_PEEK_MIN) return;
   const size = Math.min(BADGE_PEEK_MAX, room);
@@ -523,35 +525,28 @@ function startShared(entry: NewBookmark): void {
 }
 
 // The spot and its badge are one click on the board: what the player pressed is
-// where the bookmark is, and what they chose beforehand is what stands for it.
-// The notebook stays on screen with its backdrop let through, so the board it is
-// a notebook of is the thing being aimed at.
+// where the bookmark is, and the square around it is what stands for it. The
+// notebook stays on screen with its backdrop let through, so the board it is a
+// notebook of is the thing being aimed at. Every point answers, since a spot on
+// bare ground is a spot worth keeping: it comes back with no badge rather than
+// with a refusal.
 async function aimAtSpot(): Promise<void> {
   const stage = controls.value;
   if (!stage) return;
   aiming.value = true;
-  for (;;) {
-    const spot = await stage.pickSpot(squareWorld.value, resizeBadge);
-    if (!spot) break;
-    const badge = badgeFor(spot);
-    if (badge !== null) {
-      draftBadge.value = badge;
-      draftSpot.value = { worldX: spot.worldX, worldY: spot.worldY };
-      error.value = null;
-      break;
-    }
-    // Nothing here to stand for the spot: a square of bare ground off the
-    // picture. The aim stays armed rather than handing back a draft that would
-    // badge an empty box.
-    error.value = t("bookmarks.nothingHere");
+  const spot = await stage.pickSpot(squareWorld.value, resizeBadge);
+  if (spot) {
+    draftBadge.value = badgeFor(spot);
+    draftSpot.value = { worldX: spot.worldX, worldY: spot.worldY };
+    error.value = null;
   }
   aiming.value = false;
-  if (draftBadge.value !== null) void nextTick(() => nameEl.value?.focus());
+  if (draftSpot.value !== null) void nextTick(() => nameEl.value?.focus());
 }
 
 // What the click takes: the square traced around the point, at the side the aim
-// was showing. A square with no picture in it at all is refused; one hanging off
-// the edge keeps the part that has one.
+// was showing, and nothing at all where there is no picture to cut it from. One
+// hanging off the edge keeps the part that has one.
 function badgeFor(spot: PickedSpot): BookmarkBadge | null {
   const m = manifest.value;
   const size = squareWorld.value;
@@ -601,9 +596,11 @@ function save(): void {
     error.value = t("bookmarks.nameTooLong", { max: BOOKMARK_NAME_MAX });
     return;
   }
+  // The place is the whole of what an entry must have: its badge is a picture of
+  // that place where there is one, and the panel's own mark where there is not.
   const spot = draftSpot.value;
-  if (spot === null || draftBadge.value === null) {
-    error.value = t("bookmarks.needBadge");
+  if (spot === null) {
+    error.value = t("bookmarks.needSpot");
     return;
   }
   add({ name, worldX: spot.worldX, worldY: spot.worldY, badge: draftBadge.value }, draftTags.value);
@@ -763,9 +760,9 @@ const title = computed(() => {
             {{ t("bookmarks.badgeSizeWheel") }}
           </p>
           <div v-if="!aiming" class="draft">
-            <span class="badge" :class="{ empty: !draftBadge }">
+            <span class="badge" :class="{ empty: !draftSpot }">
               <BookmarkBadgeArt
-                v-if="draftBadge"
+                v-if="draftSpot"
                 :badge="draftBadge"
                 :size="BADGE_ROW_SIZE"
                 :asset-base="assetBase"
