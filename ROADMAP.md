@@ -62,6 +62,8 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 - [x] `frontend-canvas`: the flag bar is in the order the player put it in.
 
+- [x] `frontend-shell`: the notebook is put away by a press outside it and by the button that opened it.
+
 - [ ] `frontend-shell`: change how bookmarks are shared.
 
 ---

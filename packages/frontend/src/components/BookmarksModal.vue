@@ -46,7 +46,7 @@ import { useFocusTrap } from "../composables/useFocusTrap";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
-const { open, hide, anchorInset, takeDraft } = useBookmarksModal();
+const { open, hide, anchorInset, pressedAnchor, takeDraft } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
 const { bookmarks, tags, canAdd, setPuzzle, add, remove, rename, toggleFavorite, tag, untag } =
@@ -351,6 +351,7 @@ onBeforeUnmount(() => {
   clearCopyFeedback();
   controls.value?.cancelPickSpot();
   window.removeEventListener("pointerdown", onPressOutsideTags, true);
+  window.removeEventListener("pointerdown", onPressOutside, true);
 });
 
 // The spot and the bookmark of it both travel, in the player coordinates the
@@ -691,6 +692,28 @@ watch(tagsFor, (id) => {
 // taken back off, or the entry itself is deleted.
 watch(tagsForBookmark, (bookmark) => {
   if (tagsFor.value !== null && bookmark === null) closeRowTags();
+});
+
+// A press anywhere else puts the notebook away, which its backdrop cannot do for
+// it: that backdrop catches nothing so the board stays live underneath, so the
+// close is read off the press itself. The control it hangs off is excepted, since
+// it closes the panel by toggling. The form that places an entry is excepted
+// whole: it is filled by clicks on the board behind it, and a draft is not
+// something a press meant for the puzzle should cost.
+function onPressOutside(ev: PointerEvent): void {
+  const target = ev.target;
+  if (!(target instanceof Node)) return;
+  if (shellEl.value?.contains(target) || pressedAnchor(target)) return;
+  // A name being typed in the list keeps what was typed, as it does whenever the
+  // caret leaves the field: the panel goes before the blur could commit it.
+  commitRename();
+  hide();
+}
+
+watch([open, creating, importing], ([isOpen, isCreating, isImporting]) => {
+  if (isOpen && !isCreating && !isImporting)
+    window.addEventListener("pointerdown", onPressOutside, true);
+  else window.removeEventListener("pointerdown", onPressOutside, true);
 });
 
 const title = computed(() => {
@@ -1127,15 +1150,14 @@ const title = computed(() => {
 <style scoped>
 /* A window opened from the topbar, not a dialog dropped over the board: it hangs
    under the bar it was opened from, and the board it is a notebook of stays lit
-   behind it. The backdrop is still there, invisible, to catch the click that
-   closes it. */
-/* The press always belongs to the board: the backdrop catches nothing and the
-   panel takes it back, so the notebook is a window over a board that stays live
-   under it. It is the one panel of the game that works this way, because it is
+   behind it. The press always belongs to the board: the backdrop catches nothing
+   and the panel takes it back, so the board pans, zooms and plays under an open
+   notebook. It is the one panel of the game that works this way, because it is
    the one whose whole subject is out there: a spot is aimed at, read against the
    picture, and reached, all with the list of the others still in front of you.
-   It closes by its own control, by Escape, or by the topbar button that opened
-   it, never by a press meant for the puzzle. */
+   The press that lands outside still puts the list away, read off the press
+   rather than caught by the backdrop; the form that places an entry is what it
+   leaves alone, that form being filled by clicks on the board behind it. */
 .bookmarks-backdrop {
   z-index: 111;
   background: none;
