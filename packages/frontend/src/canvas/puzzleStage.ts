@@ -37,8 +37,9 @@ import {
   type Viewport,
 } from "./cull";
 import {
-  fanAxis,
   fanColumns,
+  fanDirection,
+  fanShift,
   fanSlot,
   type FanCell,
   type FanDirection,
@@ -614,6 +615,10 @@ export class PuzzleStage {
   // player brings the spot into view and then clicks it.
   private spotPick: ((spot: PickedSpot | null) => void) | null = null;
   private spotPress: { x: number; y: number; moved: boolean } | null = null;
+  // The spot a bookmark being written already stands on, which wears the same
+  // square as the aim: the aim's follows the cursor while it is armed, this one
+  // stands on the board, so a pan or a zoom carries it with the picture under it.
+  private spotMark: PickedSpot | null = null;
   // The aim's square, in world units a side and as the screen-space Graphics
   // drawing it under the cursor. Its side on screen is the world side times the
   // zoom, so the geometry is redrawn on a zoom and only moved on a pointer move.
@@ -1195,6 +1200,7 @@ export class PuzzleStage {
     this.stopConfetti();
     this.clearCarryIdle();
     this.cancelPickSpot();
+    this.clearSpotMark();
     this.releaseEscape?.();
     this.releaseEscape = null;
     window.removeEventListener("blur", this.onWindowBlur);
@@ -2235,32 +2241,37 @@ export class PuzzleStage {
     return this.originForScreenAnchor(node, screenX, screenY, anchorX, anchorY);
   }
 
-  // Which way the fan grows out of the cursor: up and to the right, where a
-  // carried cluster floats, and it keeps that side over the whole board the player
-  // works on. Each axis is tested against the room behind the hand rather than the
-  // room ahead of it, and that is deliberate: the fan is sized in world units, so
-  // at the zoom pieces are actually placed at a hand covers a large part of the
-  // screen, and a test for the room ahead turns it over across most of the
-  // viewport. A hand that jumps sides while the player is working reads as broken
-  // where one that runs past an edge does not, so the side is what is held onto.
-  private carryFanDirection(
+  // Where the hand stands relative to the cursor: which way it grows on each axis,
+  // and how far it then slides to stay inside the view. It grows up and to the
+  // right where it fits there and into the room it has otherwise, then slides back
+  // in where the cursor stands too close to an edge for it. The fan is sized in
+  // world units, so at the zoom pieces are actually placed at it covers a real
+  // part of the screen: without both, a hand fans straight off the edge and the
+  // player cannot see what they are holding.
+  private carryFanPlacement(
     count: number,
     columns: number,
     cell: FanCell,
     gap: number,
     screenX: number,
     screenY: number,
-  ): FanDirection {
+  ): { towards: FanDirection; shift: { x: number; y: number } } {
     const screen = this.app?.renderer.screen;
-    if (!screen) return { x: 1, y: 1 };
+    if (!screen) return { towards: { x: 1, y: 1 }, shift: { x: 0, y: 0 } };
     const rows = Math.ceil(count / columns);
     const zoom = this.camera.zoom;
-    const width = HELD_CARRY_GAP + (columns * (cell.width + gap) - gap) * zoom;
-    const height = HELD_CARRY_GAP + (rows * (cell.height + gap) - gap) * zoom;
-    return {
-      x: fanAxis(screenX, screen.width - screenX, width),
-      y: fanAxis(screen.height - screenY, screenY, height),
+    const reach = {
+      x: HELD_CARRY_GAP + (columns * (cell.width + gap) - gap) * zoom,
+      y: HELD_CARRY_GAP + (rows * (cell.height + gap) - gap) * zoom,
     };
+    const view = { width: screen.width, height: screen.height };
+    const towards = fanDirection(reach.x, reach.y, {
+      left: screenX,
+      right: view.width - screenX,
+      up: screenY,
+      down: view.height - screenY,
+    });
+    return { towards, shift: fanShift({ x: screenX, y: screenY }, reach, towards, view) };
   }
 
   // The cell every slot of the carried fan is sized by: the largest cluster the
@@ -2317,12 +2328,25 @@ export class PuzzleStage {
     const cell = this.carryFanCell();
     const columns = fanColumns(ids.length);
     const gap = (this.manifest?.pieceSize ?? 0) * CARRY_FAN_GAP_PIECES;
-    const towards = this.carryFanDirection(ids.length, columns, cell, gap, screenX, screenY);
+    const { towards, shift } = this.carryFanPlacement(
+      ids.length,
+      columns,
+      cell,
+      gap,
+      screenX,
+      screenY,
+    );
     ids.forEach((id, i) => {
       const node = this.groups.get(id);
       if (!node) return;
       const slot = fanSlot(i, columns, cell, gap);
-      const { x, y } = this.carryGroupOrigin(node, screenX, screenY, slot, towards);
+      const { x, y } = this.carryGroupOrigin(
+        node,
+        screenX + shift.x,
+        screenY + shift.y,
+        slot,
+        towards,
+      );
       this.moveGroup(node, x, y);
       this.pendingDrags.set(id, { worldX: x, worldY: y });
     });
@@ -2561,7 +2585,7 @@ export class PuzzleStage {
   }
 
   // Sends the dragged cluster to the hovered flag and leaves the camera where the
-  // player was working. The server picks the landing patch, against the whole
+  // player was working. The server picks the landing cell, against the whole
   // board; the same search runs here on release so the cluster leaves the hand
   // immediately, over the regions this client has actually streamed, which is
   // nothing at all under a flag planted where it has never looked.
@@ -2574,6 +2598,7 @@ export class PuzzleStage {
       atX: flag.worldX,
       atY: flag.worldY,
       gap,
+      tileSize: this.manifest?.tileSize ?? 0,
       maxRing: FLAG_DROP_SEARCH_RINGS,
       clamp: (x, y) => this.clampGroupOrigin(node, x, y),
       isClear: (box) => this.boxIsClear(box, new Set([node.id])),
@@ -2792,12 +2817,13 @@ export class PuzzleStage {
     this.releaseHand();
   }
 
-  // Lay the carried hand out around a world point, each cluster on the free patch
-  // nearest it and each seeing the ones already placed, then commit them as
-  // ordinary drops. The search is the one a flag drop uses, run here rather than
-  // on the server because the point is the one the player double-clicked: it is on
-  // their screen, so the region is streamed and this client's own knowledge of what
-  // stands there is complete.
+  // Lay the carried hand out around a world point, each cluster on the first free
+  // cell of the lattice there and each seeing the ones already placed, then commit
+  // them as ordinary drops, so a hand is put down in rows rather than in a heap.
+  // The search is the one a flag drop uses, run here rather than on the server
+  // because the point is the one the player double-clicked: it is on their screen,
+  // so the region is streamed and this client's own knowledge of what stands there
+  // is complete.
   private dropHandNear(atX: number, atY: number): void {
     const ids = this.carriedIds();
     if (ids.length === 0 || !this.callbacks) return;
@@ -2814,6 +2840,7 @@ export class PuzzleStage {
           atX,
           atY,
           gap,
+          tileSize: this.manifest?.tileSize ?? 0,
           maxRing: FLAG_DROP_SEARCH_RINGS,
           clamp: (x, y) => this.clampGroupOrigin(node, x, y),
           isClear: (box) => this.boxIsClear(box, airborne),
@@ -3073,6 +3100,21 @@ export class PuzzleStage {
     pending(null);
   }
 
+  // Stands the aim's square on a world point rather than under the cursor: the
+  // spot a bookmark being written holds, marked on the board it was taken from
+  // for as long as its form is open. Off the picture nothing is drawn, the spot
+  // being a place either way.
+  markSpot(worldX: number, worldY: number, squareWorld: number): void {
+    this.spotMark = { worldX, worldY };
+    this.aimSquareWorld = squareWorld;
+    this.updateAimSquare();
+  }
+
+  clearSpotMark(): void {
+    this.spotMark = null;
+    this.updateAimSquare();
+  }
+
   // The crosshair has to reach the clusters too: Pixi paints the cursor of
   // whatever container the pointer is over, so a board left on `grab` would keep
   // offering a grab that the aim has just turned off.
@@ -3082,19 +3124,20 @@ export class PuzzleStage {
     this.updateAimSquare();
   }
 
-  // Drawn in screen space rather than in the world, so the one thing it has to
-  // follow is the cursor: the side is the world square under the current zoom,
-  // and the strokes stay the same weight at every zoom with no counter-scaling.
+  // Drawn in screen space rather than in the world: the side is the world square
+  // under the current zoom, and the strokes stay the same weight at every zoom
+  // with no counter-scaling. An armed aim owns it and it follows the cursor;
+  // otherwise it stands on the marked spot, which the camera moves it with.
   private updateAimSquare(): void {
     const app = this.app;
-    const pointer = this.pointerScreen;
-    if (!app || !pointer || !this.spotPick || this.aimSquareWorld <= 0) {
+    const at = this.spotPick ? this.pointerScreen : this.markScreen();
+    if (!app || !at || this.aimSquareWorld <= 0) {
       this.removeAimSquare();
       return;
     }
     // Off the picture the square would promise an extract there is none of: the
     // spot is still taken by the click, and the caller badges it its own way.
-    if (!this.aimSquareOnPicture(pointer.x, pointer.y)) {
+    if (!this.aimSquareOnPicture(at.x, at.y)) {
       this.removeAimSquare();
       return;
     }
@@ -3115,7 +3158,18 @@ export class PuzzleStage {
       g.rect(x, x, side, side).stroke({ color: AIM_SQUARE_SHADOW, width: 4, alpha: 0.5 });
       g.rect(x, x, side, side).stroke({ color: AIM_SQUARE_COLOR, width: 2, alpha: 1 });
     }
-    g.position.set(pointer.x, pointer.y);
+    g.position.set(at.x, at.y);
+  }
+
+  // The marked spot in screen space, which is where the square stands when no aim
+  // is armed to carry it.
+  private markScreen(): { x: number; y: number } | null {
+    const mark = this.spotMark;
+    if (!mark) return null;
+    return {
+      x: mark.worldX * this.camera.zoom + this.camera.x,
+      y: mark.worldY * this.camera.zoom + this.camera.y,
+    };
   }
 
   // Whether the square the cursor is over holds any of the source picture, which
@@ -3146,8 +3200,11 @@ export class PuzzleStage {
     const resolve = this.spotPick;
     if (!resolve) return;
     this.spotPick = null;
-    this.applyAimState();
     const world = this.screenToWorld(screenX, screenY);
+    // The square stays where it was clicked rather than blinking off until the
+    // form marks the spot it has just been handed.
+    this.spotMark = { worldX: world.x, worldY: world.y };
+    this.applyAimState();
     resolve({ worldX: world.x, worldY: world.y });
   }
 
@@ -3304,9 +3361,9 @@ export class PuzzleStage {
     this.world.position.set(this.camera.x, this.camera.y);
     this.reglueCarried();
     this.updateFlagLayer();
-    // The aim's square is a world size drawn on screen, so a zoom resizes it and
-    // a pan leaves it where the cursor is.
-    if (this.spotPick) this.updateAimSquare();
+    // The square is a world size drawn on screen, so a zoom resizes it; an armed
+    // aim keeps it under the cursor, a marked spot travels with the board.
+    this.updateAimSquare();
     this.emitCamera();
     this.reconcile();
   }

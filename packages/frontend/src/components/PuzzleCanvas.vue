@@ -334,6 +334,8 @@ onMounted(async () => {
     frameWorld: (wx, wy, zoom) => stage?.frameWorld(wx, wy, zoom),
     pickSpot: (square) => stage?.pickSpot(square) ?? Promise.resolve(null),
     cancelPickSpot: () => stage?.cancelPickSpot(),
+    markSpot: (worldX, worldY, square) => stage?.markSpot(worldX, worldY, square),
+    clearSpotMark: () => stage?.clearSpotMark(),
   });
   setOverviewSource(() => stage?.getOverviewSnapshot() ?? null);
   setOverviewNavigate((wx, wy) => stage?.centerOnWorld(wx, wy));

@@ -1023,9 +1023,10 @@ describe("drop_near", () => {
 
     await dispatch(ctx, client, dropNear(1000, 1000));
 
-    // One patch up: the piece, its tile margins and the clearance gap on either
-    // side (100 + 2 * 20 + 2 * 15).
-    expect(state.groups.get(4)?.worldX).toBe(850);
+    // The first cell of the border, read row by row, which is its top-left
+    // corner: one lattice pitch out on both axes, a piece tile and the clearance
+    // gap on either side (100 + 2 * 20 + 2 * 15).
+    expect(state.groups.get(4)?.worldX).toBe(680);
     expect(state.groups.get(4)?.worldY).toBe(680);
   });
 

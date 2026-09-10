@@ -3,9 +3,9 @@ import { resolveDropNearOrigin, type DropNearIndexes } from "./dropNear.js";
 import { GroupIndex } from "./groupIndex.js";
 import { LockedPieceIndex } from "./lockedPieces.js";
 
-// 10x10 board of 100px pieces on a 1000px world grid, so one cell holds exactly
-// the solved 10x10 block and a step of one patch (piece + margin + gap on both
-// sides, 170) is small enough to keep a ring inside its cell.
+// 10x10 board of 100px pieces on a 1000px world grid, so one tile holds exactly
+// the solved 10x10 block and a lattice pitch (piece + margin + gap on both
+// sides, 170) is small enough to keep a ring inside its tile.
 const PIECE = 100;
 // A piece's artwork runs this far past its grid cell on every side, which is what
 // the client sizes a cluster by and what the spacing here has to match.
@@ -54,12 +54,13 @@ describe("resolveDropNearOrigin", () => {
     });
   });
 
-  it("steps one patch aside from a resting cluster", () => {
+  it("steps one cell aside from a resting cluster", () => {
     const indexes = makeIndexes();
     rest(indexes.groupIndex, 7, 2450, 2450);
-    // One patch up: the cluster's own extent, its margins, and a gap on either
-    // side (100 + 2 * 20 + 2 * 15).
-    expect(resolveDropNearOrigin(indexes, CLUSTER, 2500, 2500)).toEqual({ x: 2450, y: 2280 });
+    // The first cell of the border, read row by row, which is its top-left
+    // corner: one lattice pitch out on both axes, a piece tile and a gap on
+    // either side (100 + 2 * 20 + 2 * 15).
+    expect(resolveDropNearOrigin(indexes, CLUSTER, 2500, 2500)).toEqual({ x: 2280, y: 2280 });
   });
 
   it("ignores the cluster being dropped, which still rests where it was picked up", () => {
@@ -72,7 +73,7 @@ describe("resolveDropNearOrigin", () => {
     const indexes = makeIndexes();
     // Piece 22 is solved at (200, 200); the flag stands on it.
     indexes.lockedPieces.lock([22]);
-    expect(resolveDropNearOrigin(indexes, CLUSTER, 250, 250)).toEqual({ x: 200, y: 30 });
+    expect(resolveDropNearOrigin(indexes, CLUSTER, 250, 250)).toEqual({ x: 30, y: 30 });
   });
 
   it("lands in a neighbouring tile when the flag's own is at the piece cap", () => {
@@ -80,9 +81,9 @@ describe("resolveDropNearOrigin", () => {
     // Cell (0,0) is full, with the resting cluster far enough from the flag to
     // leave its patch clear: only the cap stands in the way there.
     rest(indexes.groupIndex, 7, 100, 100, 4);
-    // The flag sits one patch short of the cell boundary at x = 1000.
+    // The flag sits one cell short of the tile boundary at x = 1000.
     const origin = resolveDropNearOrigin(indexes, CLUSTER, 990, 500);
-    expect(origin).toEqual({ x: 1110, y: 450 });
+    expect(origin).toEqual({ x: 1110, y: 280 });
     expect(indexes.groupIndex.cellPieceCount(origin.x, origin.y, CLUSTER.groupId)).toBe(0);
   });
 
