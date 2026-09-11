@@ -1,6 +1,6 @@
 # Roadmap
 
-Work is tracked by version, numbered `major.minor.patch`. v1.4.1 is live in prod and v1.4.2 is open, filled as backlog items are promoted into it. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Only the open version carries checkboxes: a released version is condensed here to what it achieved, its reasoning kept in [DECISIONS.md](DECISIONS.md) and its player-facing notes in `releases.ts`.
+Work is tracked by version, numbered `major.minor.patch`. v1.4.2 is live in prod and no version is open yet; the next one is filled as backlog items are promoted into it. The eleven tracks below cut across every version. A version ships only when its exit criterion is met, and each task carries an exit criterion, not a description. Only the open version carries checkboxes: a released version is condensed here to what it achieved, its reasoning kept in [DECISIONS.md](DECISIONS.md) and its player-facing notes in `releases.ts`.
 
 Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
@@ -38,19 +38,7 @@ Statuses: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 **v1.4.1.** The notebook settled around what a player does with it. A bookmark is placed and written in one window: the aim is armed from the form, one click on the board takes the spot and the square around it, and the form keeps what is already typed, over a board that stays live behind a backdrop catching nothing. The badge is that square and nothing else, always 8 pieces a side, and a spot with no picture under it is bookmarked too, wearing the default mark. A name is optional and written in place from its row, an entry with none reading under the first word it is filed under. Filing is one field, beside the name in the form and in a popup on a saved row, an entry wearing its words in the order they were put on and the list read through several of them at once. A bookmark is handed over as one pasteable line rather than a URL, and the whole notebook as a file, refused whole when it was written for another board and merged into what the browser already keeps rather than replacing it. No notebook holds one entry twice: a place saved again under the same name, badge and words is refused rather than doubled, whether it was aimed at, pasted or poured in from a file. The panel is put away by the button that opened it, its list going where a draft stays. Elsewhere on the board, the overview's position row takes a point as well as giving one, clamped into the play zone and moved on Enter alone, the enlarged reference names the board point under the cursor, and a flag is carried to another slot of the bar by pointer, its number key following it.
 
----
-
-## v1.4.2
-
-**Exit criterion**: everything below is deployed and verified in prod.
-
-- [x] `frontend-canvas`: a cluster sent to a flag lands on a fixed grid around it rather than on the free patch nearest it.
-
-- [x] `frontend-shell`: a new bookmark opens already standing on the middle of the screen, traced on the board where there is a picture under it.
-
-- [x] `frontend-shell`: the notebook is put away by a button and never by a press on the board.
-
-- [x] `frontend-canvas`: a carried hand stays where the player can see it, in whatever corner of the screen they hold it.
+**v1.4.2.** What is sent to a flag now lands in rows: the search steps on a fixed lattice of one piece tile plus its clearance, whatever the size of the cluster dropped, anchored on the flag and read in expanding blocks in reading order, so everything sent there sits on the same grid instead of filling whichever gap happened to be nearest, both ends running that identical search (the client for the placement it shows on release, the server for the authoritative one). A new bookmark opens already holding a spot, the middle of the view, badged from the square around it and traced on the board for as long as the form is open, that square carried by a pan or a zoom with the picture under it, the aim left there for a correction or for a spot the panel covers, and a middle off the picture kept like any other place. The notebook is put away by a control alone, its own, Escape or the topbar button that opened it, so a press on the board behind it goes to the puzzle and a jump from one of its rows leaves the list where it was. A hand of several clusters fans into the room it has rather than off a fixed side, sliding back inside the view where the cursor stands too close to an edge, and is left where it is on an axis it is longer than the view on.
 
 ---
 
