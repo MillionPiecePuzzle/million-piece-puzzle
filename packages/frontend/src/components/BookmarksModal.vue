@@ -51,7 +51,7 @@ import { useFocusTrap } from "../composables/useFocusTrap";
 import { useLocaleFormat } from "../i18n/format";
 
 const { t } = useI18n();
-const { open, hide, anchorInset, pressedAnchor } = useBookmarksModal();
+const { open, hide, anchorInset } = useBookmarksModal();
 const { state } = usePuzzleSession();
 const { controls, camera } = useStageControls();
 const {
@@ -295,11 +295,12 @@ function hidePeek(): void {
 
 // The spot, at whatever scale the player is already reading the board at: a
 // bookmark records a place and not a framing, so coming back to one never takes
-// the zoom out of their hands.
+// the zoom out of their hands. The notebook stays open behind the jump, so a
+// player reading one spot after another does it from the list they are already
+// in rather than reopening it between each.
 function goTo(bookmark: Bookmark): void {
   hidePeek();
   controls.value?.centerOnWorld(bookmark.worldX, bookmark.worldY);
-  hide();
 }
 
 // The row being renamed, which is where the name is written: a bookmark is
@@ -361,8 +362,8 @@ function clearCopyFeedback(): void {
 onBeforeUnmount(() => {
   clearCopyFeedback();
   controls.value?.cancelPickSpot();
+  controls.value?.clearSpotMark();
   window.removeEventListener("pointerdown", onPressOutsideTags, true);
-  window.removeEventListener("pointerdown", onPressOutside, true);
 });
 
 // The row itself, in one line someone can paste into a message: the place in the
@@ -468,16 +469,22 @@ function viewTags(): string[] {
     .slice(0, MAX_TAGS_PER_BOOKMARK);
 }
 
+// The middle of the board on screen is the spot, taken as the form opens: a
+// player marks the place they are reading, so the entry starts on it and the aim
+// is what moves it somewhere else. A centre off the picture is a place all the
+// same, kept with no badge and nothing traced on the board.
 function startCreate(): void {
   if (!canAdd.value || !controls.value) return;
   clearFileFeedback();
   creating.value = true;
   shared.value = false;
   draftName.value = "";
-  draftBadge.value = null;
-  draftSpot.value = null;
   draftTags.value = viewTags();
   error.value = null;
+  const center = controls.value.viewportCenterWorld();
+  const spot = center ? { worldX: center.x, worldY: center.y } : null;
+  draftSpot.value = spot;
+  draftBadge.value = spot ? badgeFor(spot) : null;
 }
 
 // The one window the notebook takes in from: a bookmark someone sent, pasted,
@@ -667,6 +674,18 @@ function badgeFor(spot: PickedSpot): BookmarkBadge | null {
   return onPicture ? badge : null;
 }
 
+// The spot the form holds, traced on the board for as long as the form is open:
+// the panel stands beside the board rather than over it, so what the player
+// checks before naming an entry is the place itself. The square is the aim's own,
+// which takes it back under the cursor while an aim is armed.
+watch([open, creating, draftSpot], ([isOpen, isCreating, spot]) => {
+  if (isOpen && isCreating && spot) {
+    controls.value?.markSpot(spot.worldX, spot.worldY, squareWorld.value);
+  } else {
+    controls.value?.clearSpotMark();
+  }
+});
+
 function cancelCreate(): void {
   creating.value = false;
   error.value = null;
@@ -798,28 +817,6 @@ watch(tagsFor, (id) => {
 // taken back off, or the entry itself is deleted.
 watch(tagsForBookmark, (bookmark) => {
   if (tagsFor.value !== null && bookmark === null) closeRowTags();
-});
-
-// A press anywhere else puts the notebook away, which its backdrop cannot do for
-// it: that backdrop catches nothing so the board stays live underneath, so the
-// close is read off the press itself. The control it hangs off is excepted, since
-// it closes the panel by toggling. The form that places an entry is excepted
-// whole: it is filled by clicks on the board behind it, and a draft is not
-// something a press meant for the puzzle should cost.
-function onPressOutside(ev: PointerEvent): void {
-  const target = ev.target;
-  if (!(target instanceof Node)) return;
-  if (shellEl.value?.contains(target) || pressedAnchor(target)) return;
-  // A name being typed in the list keeps what was typed, as it does whenever the
-  // caret leaves the field: the panel goes before the blur could commit it.
-  commitRename();
-  hide();
-}
-
-watch([open, creating, importing], ([isOpen, isCreating, isImporting]) => {
-  if (isOpen && !isCreating && !isImporting)
-    window.addEventListener("pointerdown", onPressOutside, true);
-  else window.removeEventListener("pointerdown", onPressOutside, true);
 });
 
 const title = computed(() => {

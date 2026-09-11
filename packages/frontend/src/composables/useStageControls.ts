@@ -13,9 +13,12 @@ export type StageControls = {
   // A whole framing, position and zoom together, which is what a shared link
   // carries and what a pasted one applies.
   frameWorld: (worldX: number, worldY: number, zoom: number) => void;
-  // Bookmarks: let the player mark a spot by aiming at the board itself.
+  // Bookmarks: let the player mark a spot by aiming at the board itself, and
+  // stand that square on the spot the entry being written already holds.
   pickSpot: (squareWorld: number) => Promise<PickedSpot | null>;
   cancelPickSpot: () => void;
+  markSpot: (worldX: number, worldY: number, squareWorld: number) => void;
+  clearSpotMark: () => void;
 };
 
 export type StageCamera = {

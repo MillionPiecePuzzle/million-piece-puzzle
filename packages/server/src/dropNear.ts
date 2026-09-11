@@ -1,8 +1,8 @@
 // Where a cluster dropped on a HUD flag actually lands. The client runs the same
-// outward search (see @mpp/shared freeSpot) against the board it has streamed,
+// lattice search (see @mpp/shared freeSpot) against the board it has streamed,
 // which is nothing at all under a flag planted in a region it never visited, so
 // its answer is only the optimistic placement the authoritative drop corrects.
-// Here the same rings are walked against the server's own complete state: every
+// Here the same cells are walked against the server's own complete state: every
 // group's body rectangle (GroupIndex), every locked piece (LockedPieceIndex), and
 // the destination tile's piece cap, which the search treats as a hard constraint
 // so the drop lands in a tile with room instead of bouncing back to where the
@@ -36,9 +36,10 @@ export type DropNearCluster = {
   size: number;
 };
 
-// Internal origin the cluster should rest at, centered on the free patch nearest
-// (atX, atY). The target point is clamped into the play zone first: a point far
-// outside it would otherwise send every candidate to the same clamped corner.
+// Internal origin the cluster should rest at: the first free cell of the lattice
+// around (atX, atY). The target point is clamped into the play zone first: a
+// point far outside it would otherwise send every candidate to the same clamped
+// corner.
 export function resolveDropNearOrigin(
   indexes: DropNearIndexes,
   cluster: DropNearCluster,
@@ -51,7 +52,7 @@ export function resolveDropNearOrigin(
   // The client searches with the bounds it draws, which run one tile margin past
   // the grid cell on every side (where a tab reaches), while both indexes here
   // hold the grid box alone. So the cluster is grown by the margin, which is what
-  // keeps the spacing between landed pieces identical on both ends, and every
+  // makes it cover the same lattice cells on both ends, and every
   // occupancy query is grown by it again to stand in for the margin its
   // neighbours' own stored boxes are missing.
   const bounds = grow(localAabb, pieceMargin);
@@ -64,6 +65,7 @@ export function resolveDropNearOrigin(
     atX: clamp(atX, playZone.minX, playZone.maxX),
     atY: clamp(atY, playZone.minY, playZone.maxY),
     gap,
+    tileSize: pieceSize + pieceMargin * 2,
     maxRing: FLAG_DROP_SEARCH_RINGS,
     clamp: (x, y) => ({
       x: clamp(x, playZone.minX - bounds.minX, playZone.maxX - bounds.maxX),

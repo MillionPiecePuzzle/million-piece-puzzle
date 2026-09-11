@@ -143,6 +143,9 @@ const de: MessageSchema = {
   },
   updates: {
     title: "Versionshinweise",
+    v142: {
+      ux: "Verbesserte Bedienung von Lesezeichen, getragenen Teilen und Fahnen.",
+    },
     v141: {
       ux: "Verbesserte Bedienung von Lesezeichen und Koordinaten.",
       flags: "Fahnen lassen sich jetzt in der Leiste neu anordnen.",
