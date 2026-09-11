@@ -143,6 +143,9 @@ const fr: MessageSchema = {
   },
   updates: {
     title: "Notes de mises à jour",
+    v142: {
+      ux: "Amélioration de l'expérience des signets, des pièces portées et des drapeaux.",
+    },
     v141: {
       ux: "Amélioration de l'expérience des signets et des coordonnées.",
       flags: "Les drapeaux peuvent maintenant être réordonnés dans la barre.",

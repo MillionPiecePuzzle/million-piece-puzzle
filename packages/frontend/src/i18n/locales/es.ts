@@ -143,6 +143,9 @@ const es: MessageSchema = {
   },
   updates: {
     title: "Notas de actualización",
+    v142: {
+      ux: "Experiencia mejorada para los marcadores, las piezas en mano y las banderas.",
+    },
     v141: {
       ux: "Experiencia mejorada para los marcadores y las coordenadas.",
       flags: "Ahora las banderas se pueden reordenar en la barra.",

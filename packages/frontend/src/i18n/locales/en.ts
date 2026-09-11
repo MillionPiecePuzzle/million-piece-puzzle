@@ -140,6 +140,9 @@ const en = {
   },
   updates: {
     title: "Update notes",
+    v142: {
+      ux: "Improved experience for bookmarks, carried pieces and flags.",
+    },
     v141: {
       ux: "Improved experience for bookmarks and coordinates.",
       flags: "Flags can now be reordered in the bar.",

@@ -2,6 +2,11 @@
 // array so a line left untranslated fails the type check instead of the page.
 export const RELEASES = [
   {
+    version: "1.4.2",
+    at: Date.UTC(2026, 8, 11),
+    lines: ["updates.v142.ux"],
+  },
+  {
     version: "1.4.1",
     at: Date.UTC(2026, 8, 6),
     lines: ["updates.v141.ux", "updates.v141.flags"],
