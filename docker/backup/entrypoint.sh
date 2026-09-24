@@ -13,7 +13,7 @@ if [ "$ENABLED" != "1" ]; then
   while true; do sleep 3600; done
 fi
 
-echo "[backup] starting: interval ${INTERVAL}s, keep ${MPP_BACKUP_KEEP:-3}, bucket ${MPP_BACKUP_BUCKET:-unset}"
+echo "[backup] starting: interval ${INTERVAL}s, keep ${MPP_BACKUP_KEEP_DAYS:-14}d, bucket ${MPP_BACKUP_BUCKET:-unset}"
 while true; do
   at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if /usr/local/bin/backup.sh; then

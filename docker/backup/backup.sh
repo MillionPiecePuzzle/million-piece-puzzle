@@ -1,7 +1,7 @@
 #!/bin/sh
 # One backup pass: a gzipped dump of every stateful service on the host, pushed to
-# the private R2 bucket under one folder per pass, then pruned to the newest N
-# passes.
+# the private R2 bucket under one folder per pass, then every pass older than N
+# days purged.
 #
 #   <ts>/mongo.archive.gz       game log: users, cluster merges
 #   <ts>/redis.rdb.gz           live board state
@@ -52,7 +52,7 @@ set -eu
 : "${MPP_BACKUP_BUCKET:?MPP_BACKUP_BUCKET required}"
 MONGO_DB="${MPP_MONGO_DB:-mpp}"
 REMOTE="${MPP_BACKUP_REMOTE:-r2}"
-KEEP="${MPP_BACKUP_KEEP:-3}"
+KEEP_DAYS="${MPP_BACKUP_KEEP_DAYS:-14}"
 UMAMI_URL="${MPP_BACKUP_UMAMI_URL:-}"
 COOLIFY_DIR="${MPP_BACKUP_COOLIFY_DIR:-/host/coolify}"
 COOLIFY_HOST="${MPP_BACKUP_COOLIFY_HOST:-coolify-db}"
@@ -105,13 +105,15 @@ else
   echo "[backup] coolify skipped: $COOLIFY_DIR/source/.env not readable"
 fi
 
-# Keep the newest KEEP passes. Folder names are ISO basic UTC, so a reverse
-# lexicographic sort is newest-first; every older pass is purged whole. Only a
-# pass that ran to the end reaches this, so a run that died mid-way leaves a
-# partial folder that ages out of the window like any other.
+# Purge every pass older than KEEP_DAYS, by the age in its name rather than by
+# count: a count would let each extra pass (a container start, a manual run)
+# push the oldest one out early. Folder names are ISO basic UTC, so they compare
+# as strings against a cutoff written the same way; every older pass is purged
+# whole. Only a pass that ran to the end reaches this, so a run that died mid-way
+# leaves a partial folder that ages out of the window like any other.
+cutoff="$(date -u -d "@$(( $(date -u +%s) - KEEP_DAYS * 86400 ))" +%Y%m%dT%H%M%SZ)"
 rclone lsf "$REMOTE:$MPP_BACKUP_BUCKET/" --dirs-only \
-  | sort -r \
-  | awk -v k="$KEEP" 'NR>k' \
+  | awk -v c="$cutoff" '$0 < c' \
   | while IFS= read -r d; do
       [ -n "$d" ] && rclone purge "$REMOTE:$MPP_BACKUP_BUCKET/$d"
     done
