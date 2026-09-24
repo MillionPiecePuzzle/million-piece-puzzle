@@ -91,7 +91,7 @@ services:
   # lives in docker-compose.override.yml, which Coolify does not deploy.
 
   # Off-host backups: gzipped dumps of Mongo, Redis, Umami and Coolify pushed to a
-  # private R2 bucket every 6h, one folder per pass, the newest 3 passes kept (see
+  # private R2 bucket every 6h, one folder per pass, each pass kept 14 days (see
   # DECISIONS: scheduled backups to a private R2 bucket). docker-compose.override.yml
   # disables the loop for local dev (no R2 creds there).
   backup:
@@ -122,10 +122,10 @@ services:
       MPP_REDIS_URL: "redis://mpp-redis:6379"
       MPP_MONGO_URL: "mongodb://mongo:27017"
       MPP_MONGO_DB: "mpp"
-      # Cadence and retention, in passes kept: non-secret, baked here as the prod
-      # source.
+      # Cadence and retention, the latter in days of age: non-secret, baked here as
+      # the prod source.
       MPP_BACKUP_INTERVAL_SEC: "21600"
-      MPP_BACKUP_KEEP: "3"
+      MPP_BACKUP_KEEP_DAYS: "14"
       MPP_BACKUP_REMOTE: "r2"
       RCLONE_CONFIG_R2_TYPE: "s3"
       RCLONE_CONFIG_R2_PROVIDER: "Cloudflare"
